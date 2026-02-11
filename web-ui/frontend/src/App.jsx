@@ -1,28 +1,16 @@
 import { supabase } from './supabase'
 import { useState, useEffect, useRef } from 'react'
+import UnifiedProducts from './UnifiedProducts'
+import CrewOverviewLive from './CrewOverviewLive'
+import TaskListLive from './TaskListLive'
+import Sidebar from './Sidebar'
 import { 
   Sparkles, Code, FileText, Shield, Container, 
   Loader2, CheckCircle, XCircle, Download, Zap 
 } from 'lucide-react'
 
 function App() {
-  const [projectIdea, setProjectIdea] = useState('')
-  const [language, setLanguage] = useState('Python')
-  const [platform, setPlatform] = useState('docker')
-  const [isRunning, setIsRunning] = useState(false)
-  const [progress, setProgress] = useState([])
-  const [results, setResults] = useState(null)
-  const [currentStage, setCurrentStage] = useState('')
-  const [showCrew, setShowCrew] = useState(false)
-  const ws = useRef(null)
-
-const stages = [
-  { id: 'initialization', name: 'Initialization', icon: Zap, color: 'text-yellow-500' },
-  { id: 'requirements', name: 'Product Owner', icon: FileText, color: 'text-blue-500' },
-  { id: 'development', name: 'Developer', icon: Code, color: 'text-green-500' },
-  { id: 'review', name: 'Reviewer', icon: Shield, color: 'text-purple-500' },
-  { id: 'devops', name: 'DevOps', icon: Container, color: 'text-orange-500' },
-]
+  // ...existing state/hooks if needed for other features
 
 
   useEffect(() => {
@@ -127,7 +115,15 @@ await supabase.from('projects').insert([
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex">
+      {/* Sidebar */}
+      <Sidebar />
+      {/* Main content */}
+      <main className="flex-1 px-8 py-8">
+        <CrewOverviewLive />
+        <TaskListLive />
+        <UnifiedProducts />
+      </main>
       {/* Header */}
       <div className="gradient-bg text-white py-8 px-4">
         <div className="max-w-6xl mx-auto">
