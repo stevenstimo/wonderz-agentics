@@ -21,7 +21,11 @@ export default function Sidebar() {
         </div>
         <nav className="space-y-2">
           {menu.map(item => (
-            <div key={item.label} className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer ${item.active ? 'bg-indigo-50 text-indigo-700 font-semibold' : 'text-gray-700 hover:bg-gray-100'}`}>
+            <div 
+              key={item.label} 
+              onClick={() => console.log(`Clicked: ${item.label}`)}
+              className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer ${item.active ? 'bg-indigo-50 text-indigo-700 font-semibold' : 'text-gray-700 hover:bg-gray-100'}`}
+            >
               <item.icon className="w-5 h-5" />
               <span>{item.label}</span>
             </div>
@@ -29,11 +33,17 @@ export default function Sidebar() {
         </nav>
       </div>
       <div className="mt-auto">
-        <button className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg w-full font-semibold hover:bg-indigo-700 transition-all">
+        <button 
+          onClick={() => console.log('Add New clicked')}
+          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg w-full font-semibold hover:bg-indigo-700 transition-all"
+        >
           <PlusCircle className="w-5 h-5" />
           Add New
         </button>
-        <div className="flex items-center gap-2 mt-6 text-gray-400 text-xs">
+        <div 
+          onClick={() => console.log('Settings clicked')}
+          className="flex items-center gap-2 mt-6 text-gray-400 text-xs cursor-pointer hover:text-gray-600"
+        >
           <Settings className="w-4 h-4" />
           Settings
         </div>

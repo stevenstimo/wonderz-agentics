@@ -11,7 +11,6 @@ import {
 
 function App() {
   // State declarations
-  const [showCrew, setShowCrew] = useState(false)
   const [projectIdea, setProjectIdea] = useState('')
   const [language, setLanguage] = useState('')
   const [platform, setPlatform] = useState('web')
@@ -131,76 +130,6 @@ await supabase.from('projects').insert([
         <CrewOverviewLive />
         <TaskListLive />
         <UnifiedProducts />
-      </main>
-      {/* Header */}
-      <div className="gradient-bg text-white py-8 px-4">
-        <div className="max-w-6xl mx-auto">
-          <div className="flex items-center gap-3 mb-2 justify-between">
-            <div className="flex items-center gap-3">
-              <Sparkles className="w-8 h-8" />
-              <h1 className="text-4xl font-bold">Multi-Agentic Crew</h1>
-            </div>
-            <button
-              onClick={() => setShowCrew(true)}
-              className="bg-white text-indigo-600 px-4 py-2 rounded shadow-sm hover:shadow-md font-semibold text-sm"
-            >
-              Show Crew
-            </button>
-          </div>
-          <p className="text-indigo-100 text-lg">
-            Transform your ideas into production-ready code with AI agents
-          </p>
-        </div>
-      </div>
-
-      {showCrew && (
-        <div className="max-w-6xl mx-auto px-4 py-8">
-          <div className="bg-white rounded-xl shadow-lg p-8">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-2xl font-bold text-gray-800">The Crew</h2>
-              <button onClick={() => setShowCrew(false)} className="text-sm bg-gray-200 px-3 py-1 rounded hover:bg-gray-300">Back</button>
-            </div>
-            <div className="space-y-6">
-              <div className="border-l-4 border-indigo-600 pl-4">
-                <h3 className="font-semibold text-lg text-gray-800">Product Manager</h3>
-                <p className="text-sm text-gray-600">Designs catalog taxonomy and product attributes to match business goals.</p>
-              </div>
-              <div className="border-l-4 border-green-600 pl-4">
-                <h3 className="font-semibold text-lg text-gray-800">Shopify Developer</h3>
-                <p className="text-sm text-gray-600">Implements Liquid templates and integrates with the Shopify Admin API.</p>
-              </div>
-              <div className="border-l-4 border-blue-600 pl-4">
-                <h3 className="font-semibold text-lg text-gray-800">SEO Specialist</h3>
-                <p className="text-sm text-gray-600">Optimizes titles, meta descriptions and structured data for search.</p>
-              </div>
-              <div className="border-l-4 border-orange-600 pl-4">
-                <h3 className="font-semibold text-lg text-gray-800">Advertising Expert</h3>
-                <p className="text-sm text-gray-600">Creates ad-copy, campaign structure and ROAS estimates.</p>
-              </div>
-              <div className="border-l-4 border-purple-600 pl-4">
-                <h3 className="font-semibold text-lg text-gray-800">Data Analyst</h3>
-                <p className="text-sm text-gray-600">Combines GA4 and Shopify data to produce actionable insights.</p>
-              </div>
-              <div className="border-l-4 border-pink-600 pl-4">
-                <h3 className="font-semibold text-lg text-gray-800">CRO Expert</h3>
-                <p className="text-sm text-gray-600">Proposes prioritized conversion hypotheses and experiments.</p>
-              </div>
-              <div className="border-l-4 border-red-600 pl-4">
-                <h3 className="font-semibold text-lg text-gray-800">CX Agent</h3>
-                <p className="text-sm text-gray-600">Produces support content, FAQs and canned responses.</p>
-              </div>
-              <div className="border-l-4 border-yellow-600 pl-4">
-                <h3 className="font-semibold text-lg text-gray-800">Logistics Agent</h3>
-                <p className="text-sm text-gray-600">Assesses inventory and supplier lead times to reduce stockouts.</p>
-              </div>
-              <div className="border-l-4 border-gray-600 pl-4">
-                <h3 className="font-semibold text-lg text-gray-800">Legal Agent</h3>
-                <p className="text-sm text-gray-600">Reviews GDPR/compliance risks and drafts privacy text snippets.</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       <div className="max-w-6xl mx-auto px-4 py-8">
         {/* Input Section */}
