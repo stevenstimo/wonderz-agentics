@@ -1,23 +1,31 @@
 import { useEffect, useState } from 'react'
-import { CheckCircle, XCircle, Clock, RefreshCw } from 'lucide-react'
+import { CheckCircle, XCircle, Clock, RefreshCw, Loader } from 'lucide-react'
 import Sidebar from './Sidebar'
+import { ToastContainer, useToast } from './Toast'
 
 export default function ApprovalDashboard() {
   const [approvals, setApprovals] = useState([])
   const [loading, setLoading] = useState(false)
+  const [decisionLoading, setDecisionLoading] = useState(null)
   const [error, setError] = useState(null)
   const [filter, setFilter] = useState('pending')
+  const toast = useToast()
 
   const fetchApprovals = async () => {
     setLoading(true)
     setError(null)
     try {
       const res = await fetch(`${import.meta.env.VITE_API_URL}/api/ceo/approvals`)
-      if (!res.ok) throw new Error('Failed to fetch approvals')
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}))
+        throw new Error(errorData.detail || 'Failed to fetch approvals')
+      }
       const data = await res.json()
       setApprovals(Array.isArray(data) ? data : [])
     } catch (err) {
-      setError(err.message)
+      const errorMsg = err.message || 'Failed to load approvals'
+      setError(errorMsg)
+      toast.error(errorMsg)
     } finally {
       setLoading(false)
     }
@@ -28,16 +36,28 @@ export default function ApprovalDashboard() {
   }, [])
 
   const handleDecision = async (approval_id, approved) => {
+    setDecisionLoading(approval_id)
     try {
       const res = await fetch(
         `${import.meta.env.VITE_API_URL}/api/ceo/approval/${approval_id}/decide?approved=${approved}`,
         { method: 'POST' }
       )
-      if (!res.ok) throw new Error('Failed to process decision')
-      fetchApprovals()
+      
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}))
+        throw new Error(errorData.detail || errorData.error || 'Failed to process decision')
+      }
+      
+      const action = approved ? 'approved' : 'rejected'
+      toast.success(`Request ${action} successfully`)
       setError(null)
+      fetchApprovals()
     } catch (err) {
-      setError(err.message)
+      const errorMsg = err.message || 'Failed to process decision'
+      setError(errorMsg)
+      toast.error(errorMsg)
+    } finally {
+      setDecisionLoading(null)
     }
   }
 
@@ -118,7 +138,12 @@ export default function ApprovalDashboard() {
               Pending Approvals ({filtered.length})
             </h3>
 
-            {loading && <div className="text-sm text-gray-400">Loading...</div>}
+            {loading && (
+              <div className="flex items-center justify-center py-8">
+                <Loader className="w-5 h-5 animate-spin text-indigo-600 mr-2" />
+                <span className="text-sm text-gray-500">Loading approvals...</span>
+              </div>
+            )}
             {!loading && filtered.length === 0 && (
               <div className="text-sm text-gray-500">
                 {filter === 'pending' 
@@ -169,14 +194,26 @@ export default function ApprovalDashboard() {
                         <div className="flex gap-1">
                           <button
                             onClick={() => handleDecision(approval.id, true)}
-                            className="px-3 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 transition"
+                            disabled={decisionLoading !== null}
+                            className="flex items-center gap-1 px-3 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
                           >
+                            {decisionLoading === approval.id ? (
+                              <Loader className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <CheckCircle className="w-3 h-3" />
+                            )}
                             Approve
                           </button>
                           <button
                             onClick={() => handleDecision(approval.id, false)}
-                            className="px-3 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition"
+                            disabled={decisionLoading !== null}
+                            className="flex items-center gap-1 px-3 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
                           >
+                            {decisionLoading === approval.id ? (
+                              <Loader className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <XCircle className="w-3 h-3" />
+                            )}
                             Reject
                           </button>
                         </div>
@@ -189,6 +226,7 @@ export default function ApprovalDashboard() {
           </div>
         </div>
       </main>
+      <ToastContainer toasts={toast.toasts} onRemove={toast.removeToast} />
     </div>
   )
 }

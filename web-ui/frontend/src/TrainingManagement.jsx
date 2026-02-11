@@ -1,14 +1,19 @@
 import { useEffect, useState } from 'react'
-import { BookOpen, Send, Check, Clock, AlertCircle, RefreshCw } from 'lucide-react'
+import { BookOpen, Send, Check, Clock, AlertCircle, RefreshCw, Loader } from 'lucide-react'
 import Sidebar from './Sidebar'
+import { ToastContainer, useToast } from './Toast'
 
 export default function TrainingManagement() {
   const [trainingSessions, setTrainingSessions] = useState([])
   const [crew, setCrew] = useState([])
   const [loading, setLoading] = useState(false)
+  const [submitLoading, setSubmitLoading] = useState(false)
   const [error, setError] = useState(null)
   const [showRequestForm, setShowRequestForm] = useState(false)
   const [expandedSession, setExpandedSession] = useState(null)
+  const [formValidation, setFormValidation] = useState({})
+  const toast = useToast()
+  
   const [formData, setFormData] = useState({
     crew_id: '',
     agent_name: '',
@@ -23,11 +28,16 @@ export default function TrainingManagement() {
     setError(null)
     try {
       const res = await fetch(`${import.meta.env.VITE_API_URL}/api/training/sessions`)
-      if (!res.ok) throw new Error('Failed to fetch training sessions')
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}))
+        throw new Error(errorData.detail || 'Failed to fetch training sessions')
+      }
       const data = await res.json()
       setTrainingSessions(Array.isArray(data) ? data : [])
     } catch (err) {
-      setError(err.message)
+      const errorMsg = err.message || 'Failed to load training sessions'
+      setError(errorMsg)
+      toast.error(errorMsg)
     } finally {
       setLoading(false)
     }
@@ -55,6 +65,29 @@ export default function TrainingManagement() {
     }
   }
 
+  const validateForm = () => {
+    const errors = {}
+    
+    if (!formData.crew_id) {
+      errors.crew_id = 'Please select an agent'
+    }
+    
+    if (!formData.training_url) {
+      errors.training_url = 'Training URL is required'
+    } else if (!formData.training_url.startsWith('http://') && !formData.training_url.startsWith('https://')) {
+      errors.training_url = 'URL must start with http:// or https://'
+    } else if (formData.training_url.length > 2048) {
+      errors.training_url = 'URL is too long (max 2048 characters)'
+    }
+    
+    if (formData.training_title && formData.training_title.length > 200) {
+      errors.training_title = 'Title must be 200 characters or less'
+    }
+    
+    setFormValidation(errors)
+    return Object.keys(errors).length === 0
+  }
+
   useEffect(() => {
     fetchTrainingSessions()
     fetchCrew()
@@ -62,10 +95,14 @@ export default function TrainingManagement() {
 
   const handleSubmitRequest = async (e) => {
     e.preventDefault()
-    if (!formData.crew_id || !formData.training_url) {
-      setError('Agent and Training URL are required')
+    
+    if (!validateForm()) {
+      toast.warning('Please fix the validation errors')
       return
     }
+
+    setSubmitLoading(true)
+    setError(null)
 
     try {
       const res = await fetch(`${import.meta.env.VITE_API_URL}/api/training/request`, {
@@ -74,8 +111,12 @@ export default function TrainingManagement() {
         body: JSON.stringify(formData),
       })
 
-      if (!res.ok) throw new Error('Failed to request training')
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}))
+        throw new Error(errorData.detail || errorData.error || 'Failed to request training')
+      }
       
+      toast.success(`Training request submitted for ${formData.agent_name}. Awaiting CEO approval.`)
       setFormData({
         crew_id: '',
         agent_name: '',
@@ -87,7 +128,11 @@ export default function TrainingManagement() {
       setError(null)
       fetchTrainingSessions()
     } catch (err) {
-      setError(err.message)
+      const errorMsg = err.message || 'Failed to request training'
+      setError(errorMsg)
+      toast.error(errorMsg)
+    } finally {
+      setSubmitLoading(false)
     }
   }
 
@@ -185,29 +230,49 @@ export default function TrainingManagement() {
               <form onSubmit={handleSubmitRequest} className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Agent
+                    Agent <span className="text-red-500">*</span>
                   </label>
                   <select
                     value={formData.crew_id}
                     onChange={handleCrewSelect}
-                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent ${
+                      formValidation.crew_id ? 'border-red-500 bg-red-50' : ''
+                    }`}
                   >
                     <option value="">Select an agent</option>
                     {crew.map(c => <option key={c.id} value={c.id}>{c.name} ({c.role})</option>)}
                   </select>
+                  {formValidation.crew_id && (
+                    <div className="flex items-center gap-1 mt-1 text-xs text-red-600">
+                      <AlertCircle className="w-3 h-3" />
+                      {formValidation.crew_id}
+                    </div>
+                  )}
                 </div>
+                
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Training URL
+                    Training URL <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="url"
                     value={formData.training_url}
                     onChange={(e) => setFormData({ ...formData, training_url: e.target.value })}
                     placeholder="https://example.com/training"
-                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    maxLength="2048"
+                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent ${
+                      formValidation.training_url ? 'border-red-500 bg-red-50' : ''
+                    }`}
                   />
+                  {formValidation.training_url && (
+                    <div className="flex items-center gap-1 mt-1 text-xs text-red-600">
+                      <AlertCircle className="w-3 h-3" />
+                      {formValidation.training_url}
+                    </div>
+                  )}
+                  <div className="text-xs text-gray-500 mt-1">{formData.training_url.length}/2048</div>
                 </div>
+                
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Training Title
@@ -217,9 +282,20 @@ export default function TrainingManagement() {
                     value={formData.training_title}
                     onChange={(e) => setFormData({ ...formData, training_title: e.target.value })}
                     placeholder="e.g., Advanced Python Techniques"
-                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    maxLength="200"
+                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent ${
+                      formValidation.training_title ? 'border-red-500 bg-red-50' : ''
+                    }`}
                   />
+                  {formValidation.training_title && (
+                    <div className="flex items-center gap-1 mt-1 text-xs text-red-600">
+                      <AlertCircle className="w-3 h-3" />
+                      {formValidation.training_title}
+                    </div>
+                  )}
+                  <div className="text-xs text-gray-500 mt-1">{formData.training_title.length}/200</div>
                 </div>
+                
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Summary (optional)
@@ -229,20 +305,38 @@ export default function TrainingManagement() {
                     onChange={(e) => setFormData({ ...formData, training_summary: e.target.value })}
                     placeholder="Brief summary of what the agent will learn"
                     rows={3}
+                    maxLength="1000"
                     className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                   />
+                  <div className="text-xs text-gray-500 mt-1">{formData.training_summary.length}/1000</div>
                 </div>
+                
                 <div className="flex gap-2 pt-4">
                   <button
                     type="submit"
-                    className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition"
+                    disabled={submitLoading}
+                    className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    Request Training
+                    {submitLoading ? (
+                      <>
+                        <Loader className="w-4 h-4 animate-spin" />
+                        Requesting...
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-4 h-4" />
+                        Request Training
+                      </>
+                    )}
                   </button>
                   <button
                     type="button"
-                    onClick={() => setShowRequestForm(false)}
-                    className="px-4 py-2 border rounded-lg hover:bg-gray-100 transition"
+                    onClick={() => {
+                      setShowRequestForm(false)
+                      setFormValidation({})
+                    }}
+                    disabled={submitLoading}
+                    className="px-4 py-2 border rounded-lg hover:bg-gray-100 transition disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Cancel
                   </button>
@@ -256,7 +350,12 @@ export default function TrainingManagement() {
               <BookOpen className="w-5 h-5" />
               Training Sessions ({trainingSessions.length})
             </h3>
-            {loading && <div className="text-sm text-gray-400">Loading...</div>}
+            {loading && (
+              <div className="flex items-center justify-center py-8">
+                <Loader className="w-5 h-5 animate-spin text-indigo-600 mr-2" />
+                <span className="text-sm text-gray-500">Loading training sessions...</span>
+              </div>
+            )}
             {!loading && trainingSessions.length === 0 && (
               <div className="text-sm text-gray-500">No training sessions yet. Create one to get started!</div>
             )}
@@ -320,6 +419,4 @@ export default function TrainingManagement() {
           </div>
         </div>
       </main>
-    </div>
-  )
-}
+      <ToastContainer toasts={toast.toasts} onRemove={toast.removeToast} />
