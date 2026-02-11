@@ -21,12 +21,12 @@ PYTHON_VERSION=3.11.0
 
 ### Build Command
 ```
-pip install -r web-ui/backend/requirements.txt
+pip install -r requirements.txt
 ```
 
 ### Start Command
 ```
-gunicorn -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT web_ui.backend.api_main:app
+gunicorn -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT api_main:app
 ```
 
 ### Python Version
@@ -36,7 +36,7 @@ gunicorn -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT web_ui.backe
 
 ### Root Directory
 ```
-.
+web-ui/backend
 ```
 
 ## ✅ Checklist
@@ -60,7 +60,7 @@ gunicorn -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT web_ui.backe
 Als deployment faalt:
 1. Check logs: "View Logs" button in Render
 2. Verifieer alle environment variables zijn ingesteld
-3. Check dat `web_ui.backend.api_main:app` pad klopt
+3. Check dat `api_main:app` pad klopt
 4. Test lokaal eerst: `docker-compose up`
 
 ## 📊 Health Check

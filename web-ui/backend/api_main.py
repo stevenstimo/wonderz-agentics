@@ -12,9 +12,12 @@ from models.unified import UnifiedProduct
 from tools.adapters import ShopifyAdapter, WordPressAdapter
 from app.db import init_db_pool, close_db_pool
 import sys
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from web_ui.backend.agents.ceo_manager import CEOManagerAgent
-from web_ui.backend.agents.hr_agent import HRAgent
+backend_dir = os.path.dirname(os.path.abspath(__file__))
+repo_root = os.path.dirname(os.path.dirname(backend_dir))
+sys.path.insert(0, repo_root)
+sys.path.insert(0, backend_dir)
+from agents.ceo_manager import CEOManagerAgent
+from agents.hr_agent import HRAgent
 from config import ANTHROPIC_API_KEY
 
 # --- FastAPI app instance ---
@@ -173,6 +176,12 @@ class UpdateCrewMemberRequest(BaseModel):
             if not (0 <= v <= 100):
                 raise ValueError("Progress must be between 0 and 100")
         return v
+
+
+class CreateJobRequest(BaseModel):
+    store_id: Optional[str] = None
+    job_type: str = "pdp_optimization"
+    payload: Optional[dict] = None
 
 
 @app.get("/api/crew", response_model=List[CrewMember])

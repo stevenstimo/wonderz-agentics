@@ -9,8 +9,8 @@
 2. Create new project → Deploy from GitHub
 3. Select `stevenstimo/wonderz-agentics` repository
 4. Configure:
-   - **Root Directory**: `.` (root)
-   - **Start Command**: `gunicorn -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:${PORT} web_ui.backend.api_main:app`
+   - **Root Directory**: `web-ui/backend`
+   - **Start Command**: `gunicorn -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:${PORT} api_main:app`
    - **Python Version**: 3.11
 
 ### Environment Variables on Railway

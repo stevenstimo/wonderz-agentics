@@ -15,7 +15,7 @@ uvicorn api_main:app --host 0.0.0.0 --port 10000
 
 Naar:
 ```
-gunicorn -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT web_ui.backend.api_main:app
+gunicorn -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT api_main:app
 ```
 
 ### OF: Voeg Environment Variable toe
