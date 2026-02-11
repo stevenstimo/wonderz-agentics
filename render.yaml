@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: wonderz-backend
+    env: python
+    runtime: python-3.11
+    buildCommand: pip install -r web-ui/backend/requirements.txt
+    startCommand: gunicorn -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT web_ui.backend.api_main:app
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: PORT
+        value: 10000
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      - key: APPROVAL_USER
+        value: admin
+      - key: APPROVAL_PASS
+        sync: false
