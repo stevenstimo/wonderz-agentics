@@ -3,6 +3,9 @@ import { Home, Users, Layers, ClipboardList, Settings, PlusCircle } from 'lucide
 
 const menu = [
   { label: 'Main Workspace', icon: Layers, path: '/' },
+  { label: 'Approvals', icon: ClipboardList, path: '/approvals' },
+  { label: 'Crew Management', icon: Users, path: '/crew/management' },
+  { label: 'Training Management', icon: ClipboardList, path: '/training/management' },
   { label: 'HR Improvements', icon: ClipboardList, path: '/hr/improvements' },
   { label: 'Personal Projects', icon: Home },
   { label: 'Work Team Org', icon: Users },

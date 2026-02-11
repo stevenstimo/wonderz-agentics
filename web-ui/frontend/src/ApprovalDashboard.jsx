@@ -1,0 +1,194 @@
+import { useEffect, useState } from 'react'
+import { CheckCircle, XCircle, Clock, RefreshCw } from 'lucide-react'
+import Sidebar from './Sidebar'
+
+export default function ApprovalDashboard() {
+  const [approvals, setApprovals] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
+  const [filter, setFilter] = useState('pending')
+
+  const fetchApprovals = async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/ceo/approvals`)
+      if (!res.ok) throw new Error('Failed to fetch approvals')
+      const data = await res.json()
+      setApprovals(Array.isArray(data) ? data : [])
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchApprovals()
+  }, [])
+
+  const handleDecision = async (approval_id, approved) => {
+    try {
+      const res = await fetch(
+        `${import.meta.env.VITE_API_URL}/api/ceo/approval/${approval_id}/decide?approved=${approved}`,
+        { method: 'POST' }
+      )
+      if (!res.ok) throw new Error('Failed to process decision')
+      fetchApprovals()
+      setError(null)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const filtered = approvals.filter(a => filter === 'all' || a.status === filter)
+
+  const getIcon = (status) => {
+    switch (status) {
+      case 'approved':
+        return <CheckCircle className="w-5 h-5 text-green-600" />
+      case 'rejected':
+        return <XCircle className="w-5 h-5 text-red-600" />
+      default:
+        return <Clock className="w-5 h-5 text-yellow-600" />
+    }
+  }
+
+  const getTypeLabel = (type) => {
+    switch (type) {
+      case 'training':
+        return 'Training Request'
+      case 'resource':
+        return 'Resource Request'
+      case 'promotion':
+        return 'Promotion'
+      case 'critical_action':
+        return 'Critical Action'
+      default:
+        return type
+    }
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex">
+      <Sidebar />
+      <main className="flex-1 px-8 py-8">
+        <div className="max-w-6xl mx-auto">
+          <div className="bg-white rounded-xl shadow-lg p-8 mb-8">
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-800">Approval Dashboard</h2>
+                <p className="text-sm text-gray-500">Review and approve agent requests</p>
+              </div>
+              <button
+                onClick={fetchApprovals}
+                className="flex items-center gap-2 px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition"
+              >
+                <RefreshCw className="w-4 h-4" />
+                Refresh
+              </button>
+            </div>
+
+            {error && (
+              <div className="mt-4 p-3 bg-red-50 text-red-700 rounded-lg text-sm">
+                {error}
+              </div>
+            )}
+
+            <div className="mt-6 flex gap-2">
+              {['pending', 'approved', 'rejected', 'all'].map(status => (
+                <button
+                  key={status}
+                  onClick={() => setFilter(status)}
+                  className={`px-3 py-1 text-xs font-medium rounded-full transition ${
+                    filter === status
+                      ? 'bg-indigo-100 text-indigo-700'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  {status.charAt(0).toUpperCase() + status.slice(1)}
+                  {status !== 'all' && ` (${approvals.filter(a => a.status === status).length})`}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl shadow-lg p-8">
+            <h3 className="text-lg font-semibold mb-6 text-gray-800">
+              Pending Approvals ({filtered.length})
+            </h3>
+
+            {loading && <div className="text-sm text-gray-400">Loading...</div>}
+            {!loading && filtered.length === 0 && (
+              <div className="text-sm text-gray-500">
+                {filter === 'pending' 
+                  ? 'No pending approvals at the moment.' 
+                  : `No ${filter} approvals found.`}
+              </div>
+            )}
+
+            <div className="space-y-3">
+              {filtered.map(approval => (
+                <div
+                  key={approval.id}
+                  className="border rounded-lg p-4 hover:bg-gray-50 transition"
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex items-start gap-3 flex-1">
+                      {getIcon(approval.status)}
+                      <div className="flex-1">
+                        <div className="font-semibold text-gray-800">
+                          {getTypeLabel(approval.request_type)}
+                        </div>
+                        {approval.details && (
+                          <div className="text-sm text-gray-600 mt-1">
+                            {approval.details.agent && `Agent: ${approval.details.agent}`}
+                            {approval.details.url && `\nURL: ${approval.details.url}`}
+                            {approval.details.session_id && `\nSession: ${approval.details.session_id}`}
+                          </div>
+                        )}
+                        <div className="text-xs text-gray-400 mt-2">
+                          {approval.requested_at 
+                            ? `Requested: ${new Date(approval.requested_at).toLocaleDateString()}`
+                            : 'No date'}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex gap-2">
+                      <span className={`text-xs font-semibold px-2 py-1 rounded-full ${
+                        approval.status === 'pending'
+                          ? 'bg-yellow-100 text-yellow-800'
+                          : approval.status === 'approved'
+                          ? 'bg-green-100 text-green-800'
+                          : 'bg-red-100 text-red-800'
+                      }`}>
+                        {approval.status}
+                      </span>
+                      {approval.status === 'pending' && (
+                        <div className="flex gap-1">
+                          <button
+                            onClick={() => handleDecision(approval.id, true)}
+                            className="px-3 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 transition"
+                          >
+                            Approve
+                          </button>
+                          <button
+                            onClick={() => handleDecision(approval.id, false)}
+                            className="px-3 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition"
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  )
+}
