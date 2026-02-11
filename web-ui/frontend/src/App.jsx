@@ -10,6 +10,8 @@ import {
 } from 'lucide-react'
 
 function App() {
+  const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+  const wsBase = (import.meta.env.VITE_WS_URL || apiBase).replace(/^http/, 'ws').replace(/\/$/, '')
   // State declarations
   const [projectIdea, setProjectIdea] = useState('')
   const [language, setLanguage] = useState('')
@@ -60,7 +62,7 @@ await supabase.from('projects').insert([
     setCurrentStage('initialization')
 
     // Connect WebSocket
-    ws.current = new WebSocket('ws://localhost:8000/ws')
+    ws.current = new WebSocket(`${wsBase}/ws`)
 
     ws.current.onopen = () => {
       // Send project data
