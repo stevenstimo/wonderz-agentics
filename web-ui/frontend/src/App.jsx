@@ -131,7 +131,7 @@ await supabase.from('projects').insert([
         <TaskListLive />
         <UnifiedProducts />
 
-      <div className="max-w-6xl mx-auto px-4 py-8">
+        <div className="max-w-6xl mx-auto px-4 py-8">
         {/* Input Section */}
         {!isRunning && !results && (
           <div className="bg-white rounded-xl shadow-lg p-8 mb-8">
@@ -331,7 +331,8 @@ await supabase.from('projects').insert([
             </div>
           </div>
         )}
-      </div>
+        </div>
+      </main>
     </div>
   )
 }
