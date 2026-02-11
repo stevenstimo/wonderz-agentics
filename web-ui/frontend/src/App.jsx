@@ -10,8 +10,16 @@ import {
 } from 'lucide-react'
 
 function App() {
-  // ...existing state/hooks if needed for other features
-
+  // State declarations
+  const [showCrew, setShowCrew] = useState(false)
+  const [projectIdea, setProjectIdea] = useState('')
+  const [language, setLanguage] = useState('')
+  const [platform, setPlatform] = useState('web')
+  const [isRunning, setIsRunning] = useState(false)
+  const [progress, setProgress] = useState([])
+  const [results, setResults] = useState(null)
+  const [currentStage, setCurrentStage] = useState('')
+  const ws = useRef(null)
 
   useEffect(() => {
     return () => {
