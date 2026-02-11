@@ -93,7 +93,7 @@ cd ..
 
 echo ""
 echo "=================================================="
-echo "✨ Multi-Agent Dev System is running!"
+echo "✨ Multi-Agentic Crew is running!"
 echo ""
 echo "🌐 Open your browser to: http://localhost:3000"
 echo ""

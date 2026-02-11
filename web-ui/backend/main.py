@@ -4,12 +4,19 @@ FastAPI Backend for Multi-Agent Development System
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import asyncio
 import json
 import sys
 import os
+import io
+import uuid
+import logging
+from datetime import datetime
+from pathlib import Path
+import zipfile
 
 # Add parent directory to path to import agents
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -17,7 +24,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from agents import ProductOwnerAgent, DeveloperAgent, ReviewerAgent, DevOpsAgent
 from config import ANTHROPIC_API_KEY
 
-app = FastAPI(title="Multi-Agent Dev System API")
+app = FastAPI(title="Multi-Agentic Crew API")
 
 # CORS middleware
 app.add_middleware(
@@ -30,6 +37,18 @@ app.add_middleware(
 
 # Active WebSocket connections
 active_connections: list[WebSocket] = []
+
+# Logging configuration
+logger = logging.getLogger("multi_agent_backend")
+logger.setLevel(logging.INFO)
+handler = logging.StreamHandler()
+formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s - %(message)s")
+handler.setFormatter(formatter)
+logger.addHandler(handler)
+
+# Root folder where generated projects are stored
+GENERATED_ROOT = Path(os.getcwd()) / "generated_projects"
+GENERATED_ROOT.mkdir(parents=True, exist_ok=True)
 
 
 class ProjectRequest(BaseModel):
@@ -62,6 +81,27 @@ class ConnectionManager:
 
 
 manager = ConnectionManager()
+
+
+def save_generated_files(project_name: str, code_files: Dict[str, str]) -> str:
+    """Save generated files into a unique project folder under GENERATED_ROOT.
+
+    Preserves relative paths from keys in `code_files`.
+    Returns absolute path to created project folder.
+    """
+    safe_name = "".join(c if (c.isalnum() or c in (' ', '-', '_')) else '_' for c in (project_name or "project"))
+    safe_name = safe_name.strip().replace(' ', '_')[:50]
+    unique = f"{datetime.utcnow().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:8]}"
+    project_folder = GENERATED_ROOT / f"{safe_name}-{unique}"
+    project_folder.mkdir(parents=True, exist_ok=True)
+
+    for filename, content in code_files.items():
+        target = project_folder / filename
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with open(target, 'w', encoding='utf-8') as f:
+            f.write(content)
+
+    return str(project_folder.resolve())
 
 
 async def send_progress(websocket: WebSocket, stage: str, status: str, data: Any = None):
@@ -119,21 +159,26 @@ async def run_workflow(project_idea: str, language: Optional[str], platform: str
                           {"message": "Writing code..."})
         
         dev_result = developer.develop(po_result["requirements"], language)
+        # Persist generated code files to a uniquely named project folder
+        project_folder = save_generated_files(project_idea or "project", dev_result.get("code_files", {}))
+        project_id = Path(project_folder).name
+        logger.info("Generated project %s saved to %s", project_id, project_folder)
+
         results["stages"]["development"] = {
             "output": dev_result["full_output"],
             "code_files": dev_result["code_files"],
             "tokens": dev_result["input_tokens"] + dev_result["output_tokens"]
         }
         results["total_tokens"] += dev_result["input_tokens"] + dev_result["output_tokens"]
-        
+
         await send_progress(websocket, "development", "completed",
                           {"files": list(dev_result["code_files"].keys()),
                            "tokens": dev_result["input_tokens"] + dev_result["output_tokens"]})
-        
+
         # Stage 3: Reviewer
         await send_progress(websocket, "review", "in_progress",
                           {"message": "Reviewing code..."})
-        
+
         review_result = reviewer.review(dev_result["full_output"], po_result["requirements"])
         results["stages"]["review"] = {
             "output": review_result["review"],
@@ -141,16 +186,16 @@ async def run_workflow(project_idea: str, language: Optional[str], platform: str
             "tokens": review_result["input_tokens"] + review_result["output_tokens"]
         }
         results["total_tokens"] += review_result["input_tokens"] + review_result["output_tokens"]
-        
+
         await send_progress(websocket, "review", "completed",
                           {"status": review_result["status"],
                            "preview": review_result["review"][:500] + "...",
                            "tokens": review_result["input_tokens"] + review_result["output_tokens"]})
-        
+
         # Stage 4: DevOps
         await send_progress(websocket, "devops", "in_progress",
                           {"message": "Creating deployment configuration..."})
-        
+
         devops_result = devops.create_deployment(
             dev_result["full_output"],
             po_result["requirements"],
@@ -162,16 +207,45 @@ async def run_workflow(project_idea: str, language: Optional[str], platform: str
             "tokens": devops_result["input_tokens"] + devops_result["output_tokens"]
         }
         results["total_tokens"] += devops_result["input_tokens"] + devops_result["output_tokens"]
-        
+
         await send_progress(websocket, "devops", "completed",
                           {"files": list(devops_result["deployment_files"].keys()),
                            "tokens": devops_result["input_tokens"] + devops_result["output_tokens"]})
-        
+
+        # Save deployment files into the same project folder
+        try:
+            for fname, content in devops_result.get("deployment_files", {}).items():
+                target = Path(project_folder) / fname
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with open(target, 'w', encoding='utf-8') as tf:
+                    tf.write(content)
+            logger.info("Saved %d deployment files into project %s", len(devops_result.get("deployment_files", {})), project_id)
+        except Exception:
+            logger.exception("Failed saving deployment files for project %s", project_folder)
+
+        # Write metadata.json for the project
+        try:
+            metadata = {
+                "project_id": project_id,
+                "project_idea": project_idea,
+                "language": language,
+                "platform": platform,
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "total_tokens": results["total_tokens"],
+                "files": [f for f in list(dev_result.get("code_files", {}).keys())] + list(devops_result.get("deployment_files", {}).keys())
+            }
+            metadata_path = Path(project_folder) / "metadata.json"
+            with open(metadata_path, "w", encoding='utf-8') as mf:
+                json.dump(metadata, mf, indent=2)
+            logger.info("Wrote metadata.json for project %s", project_id)
+        except Exception:
+            logger.exception("Failed to write metadata for project %s", project_folder)
+
         # Final summary
         await send_progress(websocket, "complete", "success",
                           {"total_tokens": results["total_tokens"],
                            "results": results})
-        
+
         return results
         
     except Exception as e:
@@ -273,6 +347,67 @@ async def start_workflow(request: ProjectRequest):
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/projects")
+async def list_projects():
+    """Return list of all generated projects with their metadata (if available)."""
+    projects: List[Dict[str, Any]] = []
+    try:
+        for p in sorted(GENERATED_ROOT.iterdir()):
+            if not p.is_dir():
+                continue
+            meta_file = p / "metadata.json"
+            if meta_file.exists():
+                try:
+                    with open(meta_file, 'r', encoding='utf-8') as mf:
+                        projects.append(json.load(mf))
+                except Exception:
+                    logger.exception("Failed reading metadata for %s", p.name)
+                    projects.append({"project_id": p.name})
+            else:
+                projects.append({"project_id": p.name})
+    except Exception:
+        logger.exception("Failed listing projects")
+        raise HTTPException(status_code=500, detail="Failed listing projects")
+
+    return {"projects": projects}
+
+
+@app.get("/api/projects/{project_id}")
+async def get_project_metadata(project_id: str):
+    project_dir = GENERATED_ROOT / project_id
+    if not project_dir.exists() or not project_dir.is_dir():
+        raise HTTPException(status_code=404, detail="Project not found")
+    meta_file = project_dir / "metadata.json"
+    if not meta_file.exists():
+        raise HTTPException(status_code=404, detail="Metadata not found for project")
+    try:
+        with open(meta_file, 'r', encoding='utf-8') as mf:
+            return json.load(mf)
+    except Exception:
+        logger.exception("Failed reading metadata for %s", project_id)
+        raise HTTPException(status_code=500, detail="Failed reading metadata")
+
+
+@app.get("/api/projects/{project_id}/download")
+async def download_project(project_id: str):
+    project_dir = GENERATED_ROOT / project_id
+    if not project_dir.exists() or not project_dir.is_dir():
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    buf = io.BytesIO()
+    try:
+        with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+            for file in project_dir.rglob('*'):
+                if file.is_file():
+                    zf.write(file, arcname=str(file.relative_to(project_dir)))
+        buf.seek(0)
+        headers = {"Content-Disposition": f"attachment; filename={project_id}.zip"}
+        return StreamingResponse(buf, media_type="application/zip", headers=headers)
+    except Exception:
+        logger.exception("Failed creating zip for project %s", project_id)
+        raise HTTPException(status_code=500, detail="Failed creating zip archive")
 
 
 if __name__ == "__main__":

@@ -9,7 +9,7 @@ Geen command line meer nodig - alles in je browser zoals Lovable! 🚀
 ### Screenshots Concept:
 ```
 ┌─────────────────────────────────────────────┐
-│  🌟 Multi-Agent Dev System                  │
+│  🌟 Multi-Agentic Crew                      │
 │  Transform ideas into production code       │
 └─────────────────────────────────────────────┘
 
