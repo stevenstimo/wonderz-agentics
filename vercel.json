@@ -1,10 +1,8 @@
 {
-  "buildCommand": "cd web-ui/frontend && npm install && npm run build",
-  "outputDirectory": "web-ui/frontend/dist",
-  "routes": [
+  "rewrites": [
     {
-      "src": "/(.*)",
-      "dest": "/index.html"
+      "source": "/(.*)",
+      "destination": "/index.html"
     }
   ]
 }
