@@ -420,3 +420,6 @@ export default function TrainingManagement() {
         </div>
       </main>
       <ToastContainer toasts={toast.toasts} onRemove={toast.removeToast} />
+    </div>
+  )
+}
