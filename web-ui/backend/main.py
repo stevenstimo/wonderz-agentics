@@ -27,9 +27,19 @@ from config import ANTHROPIC_API_KEY
 app = FastAPI(title="Multi-Agentic Crew API")
 
 # CORS middleware
+cors_origins_env = os.getenv("CORS_ORIGINS")
+cors_origins = (
+    [o.strip() for o in cors_origins_env.split(",") if o.strip()]
+    if cors_origins_env
+    else [
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "https://wonderz-agentics-4b7x95qr3-stevenstimos-projects.vercel.app",
+    ]
+)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173"],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
