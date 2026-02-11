@@ -1,13 +1,6 @@
 {
-  "builds": [
-    {
-      "src": "web-ui/frontend/package.json",
-      "use": "@vercel/static-build",
-      "config": {
-        "distDir": "dist"
-      }
-    }
-  ],
+  "buildCommand": "cd web-ui/frontend && npm install && npm run build",
+  "outputDirectory": "web-ui/frontend/dist",
   "routes": [
     {
       "src": "/(.*)",
