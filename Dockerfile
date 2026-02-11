@@ -12,6 +12,7 @@ COPY . .
 # Set environment
 ENV PYTHONUNBUFFERED=1
 ENV PORT=10000
+ENV PYTHONPATH=/app
 
 # Run FastAPI with Gunicorn
-CMD gunicorn -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT web_ui.backend.api_main:app
+CMD gunicorn -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT --chdir /app web_ui.backend.api_main:app
