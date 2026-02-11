@@ -21,3 +21,17 @@ class Task(BaseModel):
     crew: List[TaskCrewShare]
     start_time: Optional[str] = None
     end_time: Optional[str] = None
+
+
+class ImprovementItem(BaseModel):
+    id: str
+    agent_id: str
+    agent_name: str
+    title: str
+    summary: Optional[str] = None
+    details: Optional[str] = None
+    severity: Optional[str] = None
+    status: Optional[str] = None
+    source: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None

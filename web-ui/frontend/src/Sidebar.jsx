@@ -1,8 +1,10 @@
+import { NavLink } from 'react-router-dom'
 import { Home, Users, Layers, ClipboardList, Settings, PlusCircle } from 'lucide-react'
 
 const menu = [
+  { label: 'Main Workspace', icon: Layers, path: '/' },
+  { label: 'HR Improvements', icon: ClipboardList, path: '/hr/improvements' },
   { label: 'Personal Projects', icon: Home },
-  { label: 'Main Workspace', icon: Layers, active: true },
   { label: 'Work Team Org', icon: Users },
   { label: 'Study', icon: ClipboardList },
   { label: 'AI Agents Description', icon: Users },
@@ -21,14 +23,27 @@ export default function Sidebar() {
         </div>
         <nav className="space-y-2">
           {menu.map(item => (
-            <div 
-              key={item.label} 
-              onClick={() => console.log(`Clicked: ${item.label}`)}
-              className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer ${item.active ? 'bg-indigo-50 text-indigo-700 font-semibold' : 'text-gray-700 hover:bg-gray-100'}`}
-            >
-              <item.icon className="w-5 h-5" />
-              <span>{item.label}</span>
-            </div>
+            item.path ? (
+              <NavLink
+                key={item.label}
+                to={item.path}
+                className={({ isActive }) => (
+                  `flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer ${isActive ? 'bg-indigo-50 text-indigo-700 font-semibold' : 'text-gray-700 hover:bg-gray-100'}`
+                )}
+              >
+                <item.icon className="w-5 h-5" />
+                <span>{item.label}</span>
+              </NavLink>
+            ) : (
+              <div
+                key={item.label}
+                onClick={() => console.log(`Clicked: ${item.label}`)}
+                className="flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer text-gray-700 hover:bg-gray-100"
+              >
+                <item.icon className="w-5 h-5" />
+                <span>{item.label}</span>
+              </div>
+            )
           ))}
         </nav>
       </div>

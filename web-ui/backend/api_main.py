@@ -5,8 +5,8 @@ import json
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 import uuid
-from typing import List
-from models.ui import CrewMember, Task, TaskCrewShare
+from typing import List, Optional
+from models.ui import CrewMember, Task, TaskCrewShare, ImprovementItem
 from models.unified import UnifiedProduct
 from tools.adapters import ShopifyAdapter, WordPressAdapter
 from app.db import init_db_pool, close_db_pool
@@ -44,6 +44,31 @@ demo_tasks = [
     ),
 ]
 
+demo_improvements = [
+    ImprovementItem(
+        id="imp-1",
+        agent_id="dev",
+        agent_name="Shopify Developer",
+        title="Tighten error handling in checkout flow",
+        summary="Missing guardrails for null pricing data in edge cases.",
+        details="Several checkout paths do not validate pricing payloads before render. Add defensive checks and a fallback path for missing totals.",
+        severity="high",
+        status="open",
+        source="hr_manager",
+    ),
+    ImprovementItem(
+        id="imp-2",
+        agent_id="review",
+        agent_name="Reviewer",
+        title="More actionable review notes",
+        summary="Feedback lacks clear next steps in 2 of the last 5 reviews.",
+        details="Include concrete fix steps and references to specific files/lines. This improves turnaround speed and prevents ambiguity.",
+        severity="medium",
+        status="open",
+        source="hr_manager",
+    ),
+]
+
 # --- UI API endpoints ---
 @app.get("/api/crew", response_model=List[CrewMember])
 async def get_crew():
@@ -52,6 +77,29 @@ async def get_crew():
 @app.get("/api/tasks", response_model=List[Task])
 async def get_tasks():
     return demo_tasks
+
+
+@app.get("/api/improvements", response_model=List[ImprovementItem])
+async def get_improvements(agent_id: Optional[str] = None):
+    from app.db import _pool
+    if _pool is None:
+        return demo_improvements
+    query = (
+        "SELECT id, agent_id, agent_name, title, summary, details, severity, "
+        "status, source, created_at, updated_at "
+        "FROM agent_improvements"
+    )
+    params = []
+    if agent_id:
+        query += " WHERE agent_id=$1"
+        params.append(agent_id)
+    query += " ORDER BY created_at DESC"
+    try:
+        async with _pool.acquire() as conn:
+            rows = await conn.fetch(query, *params)
+        return [dict(row) for row in rows]
+    except Exception:
+        return demo_improvements
 
 # Dummy clients for demonstration (replace with real API clients)
 class DummyShopifyClient:
