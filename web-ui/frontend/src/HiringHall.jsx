@@ -6,22 +6,20 @@ import { Briefcase, Sparkles, BrainCircuit, ShieldCheck, Info } from 'lucide-rea
  *   id: string,
  *   name: string,
  *   category: AgentCategory,
- *   description: string,
- *   avatarUrl: string,
+ *   description?: string,
+ *   avatarUrl?: string,
  *   specialization: string,
  *   status: string,
  *   metrics: { performanceScore: number, tasksCompleted: number, tokensConsumed: number, successRate: number }
  * }} Agent
  */
-//
-// Props: { onHire: function(Agent): void }
 const HiringHall = ({ onHire }) => {
   const [formData, setFormData] = useState({
     name: '',
     role: '',
     goal: '',
     category: 'Creative',
-    specialization: '',
+    category: 'Creative',
     systemInstruction: '',
     knowledgeSources: '',
     tools: []
