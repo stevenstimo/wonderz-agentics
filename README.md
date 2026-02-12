@@ -2,6 +2,11 @@
 
 A comprehensive multi-agent system using Claude AI for orchestrated software development with production-grade reliability, error handling, and deployment capabilities.
 
+## 🌐 Live URLs
+
+- **Frontend**: https://frontend-rho-one-99.vercel.app
+- **Backend API**: https://wonderz-agentics.fly.dev
+
 ## ✨ Features
 
 ### Phase 1-4: Core System (✅ Complete)
