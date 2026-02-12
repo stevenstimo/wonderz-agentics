@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { supabase } from '../supabase';
 import IntakeChatView from './IntakeChatView';
 import PlanProposalView from './PlanProposalView';
@@ -23,7 +23,7 @@ export function JobLifecycleView({ jobId }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Subscribe to real-time updates
+  // Subscribe to real-time updates (Supabase)
   useEffect(() => {
     if (!jobId) return;
 
@@ -128,6 +128,34 @@ export function JobLifecycleView({ jobId }) {
     };
   }, [jobId]);
 
+  // Optional WebSocket updates (fallback to Supabase if WS unavailable)
+  useEffect(() => {
+    if (!jobId) return;
+
+    const wsBase = import.meta.env.VITE_WS_BASE_URL || 'ws://localhost:8000';
+    const ws = new WebSocket(`${wsBase}/ws/jobs/${jobId}`);
+
+    ws.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data);
+        if (payload.type === 'job_update') {
+          if (payload.job) {
+            setJob(payload.job);
+          }
+          if (payload.steps) {
+            setJobSteps(payload.steps);
+          }
+        }
+      } catch (err) {
+        // Ignore malformed WS payloads
+      }
+    };
+
+    return () => {
+      ws.close();
+    };
+  }, [jobId]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center p-12">
@@ -189,7 +217,7 @@ export function JobLifecycleView({ jobId }) {
       )}
 
       {job.status === 'AWAITING_APPROVAL' && (
-        <AwaitingApprovalView jobSteps={jobSteps} />
+        <AwaitingApprovalView jobId={jobId} jobSteps={jobSteps} />
       )}
 
       {job.status === 'JOB_READY' && (
@@ -229,7 +257,7 @@ function StatusBadge({ status }) {
     INTAKE_CLARIFICATION: { color: 'bg-blue-100 text-blue-800', label: '💬 Clarifying...' },
     PLAN_PROPOSED: { color: 'bg-purple-100 text-purple-800', label: '📋 Plan Ready' },
     RUNNING: { color: 'bg-yellow-100 text-yellow-800', label: '⚙️ Working...' },
-    AWAITING_APPROVAL: { color: 'bg-yellow-100 text-yellow-800', label: '⏸️ Awaiting Approval' },
+    AWAITING_APPROVAL: { color: 'badge-approval', label: 'Awaiting Approval' },
     JOB_READY: { color: 'bg-orange-100 text-orange-800', label: '✍️ Ready for Review' },
     COMPLETED: { color: 'bg-green-100 text-green-800', label: '✅ Completed' },
     FAILED: { color: 'bg-red-100 text-red-800', label: '❌ Failed' }
@@ -238,7 +266,13 @@ function StatusBadge({ status }) {
   const config = statusConfig[status] || { color: 'bg-gray-100 text-gray-800', label: status };
 
   return (
-    <div className={`inline-block px-4 py-2 rounded-full font-semibold ${config.color}`}>
+    <div
+      className={
+        config.color === 'badge-approval'
+          ? 'badge-approval'
+          : `inline-block px-4 py-2 rounded-full font-semibold ${config.color}`
+      }
+    >
       {config.label}
     </div>
   );
@@ -249,8 +283,8 @@ function StatusBadge({ status }) {
  */
 function ProgressView({ jobSteps }) {
   return (
-    <div className="p-6 bg-white rounded-lg border border-gray-200">
-      <h2 className="text-2xl font-bold mb-4">⚙️ Execution in Progress</h2>
+    <div className="panel-card">
+      <h2 className="text-2xl font-bold mb-4">Execution in Progress</h2>
       
       <div className="space-y-4">
         {jobSteps.map((step, idx) => (
@@ -305,22 +339,136 @@ function ProgressView({ jobSteps }) {
 /**
  * Awaiting approval view
  */
-function AwaitingApprovalView({ jobSteps }) {
+function AwaitingApprovalView({ jobId, jobSteps }) {
   const latestPause = [...jobSteps]
     .reverse()
     .find(step => step.status === 'awaiting_approval');
 
+  const apiBase = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
+  const [decisionLoading, setDecisionLoading] = useState(null)
+  const [note, setNote] = useState('')
+  const [message, setMessage] = useState('')
+
+  const buildHeaders = () => {
+    const headers = { 'Content-Type': 'application/json' }
+    const user = import.meta.env.VITE_APPROVAL_USER
+    const pass = import.meta.env.VITE_APPROVAL_PASS
+    if (user && pass) {
+      headers.Authorization = `Basic ${btoa(`${user}:${pass}`)}`
+    }
+    return headers
+  }
+
+  const handleApprove = async () => {
+    if (!jobId) return
+    setDecisionLoading('approve')
+    setMessage('')
+    try {
+      const response = await fetch(`${apiBase}/api/jobs/${jobId}/approve`, {
+        method: 'POST',
+        headers: buildHeaders(),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.detail || 'Failed to approve job')
+      }
+
+      setMessage('Approval recorded. Job resumed.')
+    } catch (err) {
+      setMessage(err.message || 'Failed to approve')
+    } finally {
+      setDecisionLoading(null)
+    }
+  }
+
+  const handleRequestRevision = async () => {
+    if (!jobId) return
+    setDecisionLoading('reject')
+    setMessage('')
+    try {
+      const feedback = note.trim() || 'Requested revisions from Safety Gate.'
+      const response = await fetch(`${apiBase}/api/jobs/${jobId}/feedback`, {
+        method: 'POST',
+        headers: buildHeaders(),
+        body: JSON.stringify({ feedback })
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.detail || 'Failed to request revisions')
+      }
+
+      setNote('')
+      setMessage('Revision request sent. Job resumed with feedback.')
+    } catch (err) {
+      setMessage(err.message || 'Failed to request revisions')
+    } finally {
+      setDecisionLoading(null)
+    }
+  }
+
   return (
-    <div className="p-6 bg-yellow-50 border border-yellow-200 rounded-lg">
-      <h2 className="text-2xl font-bold mb-2">⏸️ Awaiting Approval</h2>
-      <p className="text-gray-700">
-        An approval is required before we can continue. Review the details below.
-      </p>
-      {latestPause?.output?.reason && (
-        <div className="mt-4 p-4 bg-white border border-yellow-200 rounded">
-          <p className="text-sm font-semibold text-yellow-900 mb-2">Reason</p>
-          <p className="text-sm text-gray-700">{latestPause.output.reason}</p>
+    <div className="panel-card">
+      <div className="flex items-center justify-between gap-4 mb-6 flex-wrap">
+        <div>
+          <div className="page-title">Safety Gate</div>
+          <div className="page-subtitle">Approval required before continuing execution.</div>
         </div>
+        <span className="badge-approval">Awaiting Approval</span>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="rounded-2xl border border-gray-200 bg-white p-5">
+          <div className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-400">Current State</div>
+          <div className="mt-3 text-sm text-gray-700">
+            {latestPause
+              ? `Step ${latestPause.step_index}: ${latestPause.agent_role}`
+              : 'Awaiting approval details.'}
+          </div>
+          {latestPause?.output?.reason && (
+            <div className="mt-3 text-sm text-gray-600">
+              {latestPause.output.reason}
+            </div>
+          )}
+        </div>
+        <div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-5">
+          <div className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-600">AI Proposal</div>
+          <div className="mt-3 text-sm text-emerald-900">
+            {latestPause?.output?.proposal || 'High-impact change detected. Review the plan before approving.'}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-5">
+        <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-gray-400">Revision note</label>
+        <input
+          value={note}
+          onChange={(event) => setNote(event.target.value)}
+          placeholder="Optional: add context for revisions"
+          className="mt-2 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
+        />
+      </div>
+
+      <div className="mt-6 flex flex-wrap gap-3">
+        <button
+          className="btn-manage gap-2"
+          onClick={handleApprove}
+          disabled={decisionLoading !== null}
+        >
+          {decisionLoading === 'approve' ? 'Authorizing...' : 'Authorize Training'}
+        </button>
+        <button
+          className="btn-secondary"
+          onClick={handleRequestRevision}
+          disabled={decisionLoading !== null}
+        >
+          {decisionLoading === 'reject' ? 'Requesting...' : 'Request Revision'}
+        </button>
+      </div>
+
+      {message && (
+        <div className="mt-4 text-sm text-gray-600">{message}</div>
       )}
     </div>
   );

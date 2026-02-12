@@ -105,19 +105,19 @@ export default function ApprovalDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex">
+    <div className="dashboard-container">
       <Sidebar />
-      <main className="flex-1 px-8 py-8">
+      <main className="content-area">
         <div className="max-w-6xl mx-auto">
-          <div className="bg-white rounded-xl shadow-lg p-8 mb-8">
+          <div className="panel-card mb-8">
             <div className="flex items-center justify-between gap-4 flex-wrap">
               <div>
-                <h2 className="text-2xl font-bold text-gray-800">Approval Dashboard</h2>
-                <p className="text-sm text-gray-500">Review and approve agent requests</p>
+                <h2 className="page-title">Safety Gate</h2>
+                <p className="page-subtitle">Approve high-impact changes and training requests.</p>
               </div>
               <button
                 onClick={fetchApprovals}
-                className="flex items-center gap-2 px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition"
+                className="btn-manage gap-2"
               >
                 <RefreshCw className="w-4 h-4" />
                 Refresh
@@ -148,7 +148,7 @@ export default function ApprovalDashboard() {
             </div>
           </div>
 
-          <div className="bg-white rounded-xl shadow-lg p-8">
+          <div className="panel-card">
             <h3 className="text-lg font-semibold mb-6 text-gray-800">
               Pending Approvals ({filtered.length})
             </h3>
@@ -206,15 +206,19 @@ export default function ApprovalDashboard() {
                     </div>
 
                     <div className="flex gap-2">
-                      <span className={`text-xs font-semibold px-2 py-1 rounded-full ${
-                        approval.status === 'pending'
-                          ? 'bg-yellow-100 text-yellow-800'
-                          : approval.status === 'approved'
-                          ? 'bg-green-100 text-green-800'
-                          : approval.status === 'completed'
-                          ? 'bg-emerald-100 text-emerald-800'
-                          : 'bg-red-100 text-red-800'
-                      }`}>
+                      <span
+                        className={
+                          approval.status === 'pending'
+                            ? 'badge-approval'
+                            : `text-xs font-semibold px-2 py-1 rounded-full ${
+                                approval.status === 'approved'
+                                  ? 'bg-green-100 text-green-800'
+                                  : approval.status === 'completed'
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : 'bg-red-100 text-red-800'
+                              }`
+                        }
+                      >
                         {approval.status}
                       </span>
                       {approval.status === 'pending' && (

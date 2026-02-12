@@ -54,6 +54,14 @@ class ErrorResponse(BaseModel):
     timestamp: Optional[str] = None
 
 
+class ExplainerSection(BaseModel):
+    slug: str
+    title: str
+    body_markdown: str
+    source: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
 # --- Middleware for Global Error Handling ---
 @app.middleware("http")
 async def error_handling_middleware(request: Request, call_next):
@@ -130,6 +138,56 @@ demo_improvements = [
     ),
 ]
 
+demo_explainer_sections = [
+    {
+        "slug": "how-it-works",
+        "title": "How this tool works",
+        "body_markdown": (
+            "This workspace runs a multi-agent workflow that moves through intake, development, review, and delivery.\n\n"
+            "Key things to know:\n"
+            "- The backend orchestrates agents and stores results in the database.\n"
+            "- The frontend shows progress and approvals in real time.\n"
+            "- Crew members are configurable and their roles drive output quality.\n\n"
+            "Update this section whenever workflows, stages, or integrations change."
+        ),
+        "source": "demo",
+        "updated_at": datetime.utcnow().isoformat(),
+    },
+    {
+        "slug": "persona",
+        "title": "Persona and behavior",
+        "body_markdown": (
+            "Personas define how each crew member behaves: tone, priorities, and decision rules.\n\n"
+            "Keep personas consistent with system instructions and training inputs. Update when you change prompt logic "
+            "or agent responsibilities."
+        ),
+        "source": "demo",
+        "updated_at": datetime.utcnow().isoformat(),
+    },
+    {
+        "slug": "crew",
+        "title": "Crew capabilities",
+        "body_markdown": (
+            "Each crew member is described by Persona, Quality, and Development.\n"
+            "- Persona: how the agent thinks and communicates.\n"
+            "- Quality: what the agent does well today.\n"
+            "- Development: where the agent should improve next.\n\n"
+            "This content is sourced from the crew database so it stays aligned with live agent configs."
+        ),
+        "source": "demo",
+        "updated_at": datetime.utcnow().isoformat(),
+    },
+]
+
+
+def _build_explainer_meta():
+    return {
+        "deploy_env": os.getenv("DEPLOY_ENV", "local"),
+        "build_sha": os.getenv("DEPLOY_SHA", os.getenv("GIT_SHA", "unknown")),
+        "build_time": os.getenv("BUILD_TIME"),
+        "data_refreshed_at": datetime.utcnow().isoformat(),
+    }
+
 # --- UI API endpoints ---
 class CreateCrewMemberRequest(BaseModel):
     name: str
@@ -140,6 +198,9 @@ class CreateCrewMemberRequest(BaseModel):
     knowledge_base_sources: Optional[List[str]] = None
     tool_access_whitelist: Optional[List[str]] = None
     hiring_logic: str
+    persona: Optional[str] = None
+    quality_notes: Optional[str] = None
+    development_notes: Optional[str] = None
     
     @validator('name')
     def validate_name(cls, v):
@@ -204,6 +265,14 @@ class CreateCrewMemberRequest(BaseModel):
                 raise ValueError("Tool access whitelist entry is too long (max 200 characters)")
         return v
 
+    @validator('persona', 'quality_notes', 'development_notes')
+    def validate_explainer_text(cls, v):
+        if v is None:
+            return v
+        if len(v) > 2000:
+            raise ValueError("Explainer fields must be 2000 characters or less")
+        return v
+
 
 class UpdateCrewMemberRequest(BaseModel):
     name: Optional[str] = None
@@ -216,6 +285,9 @@ class UpdateCrewMemberRequest(BaseModel):
     knowledge_base_sources: Optional[List[str]] = None
     tool_access_whitelist: Optional[List[str]] = None
     hiring_logic: Optional[str] = None
+    persona: Optional[str] = None
+    quality_notes: Optional[str] = None
+    development_notes: Optional[str] = None
     
     @validator('name')
     def validate_name(cls, v):
@@ -267,6 +339,14 @@ class UpdateCrewMemberRequest(BaseModel):
                 raise ValueError("Hiring logic must be 2000 characters or less")
         return v
 
+    @validator('persona', 'quality_notes', 'development_notes')
+    def validate_update_explainer_text(cls, v):
+        if v is None:
+            return v
+        if len(v) > 2000:
+            raise ValueError("Explainer fields must be 2000 characters or less")
+        return v
+
     @validator('knowledge_base_sources')
     def validate_knowledge_base_sources(cls, v):
         if v is None:
@@ -308,7 +388,7 @@ async def get_crew():
     try:
         async with _pool.acquire() as conn:
             rows = await conn.fetch(
-                "SELECT crew_id as id, name, role, specialization, status, current_task, progress, system_instructions, knowledge_base_sources, tool_access_whitelist, hiring_logic FROM crew_members WHERE status != 'deactivated' ORDER BY created_at DESC"
+                "SELECT crew_id as id, name, role, specialization, status, current_task, progress, system_instructions, knowledge_base_sources, tool_access_whitelist, hiring_logic, persona, quality_notes, development_notes FROM crew_members WHERE status != 'deactivated' ORDER BY created_at DESC"
             )
         crew_list = []
         for row in rows:
@@ -323,7 +403,10 @@ async def get_crew():
                 system_instructions=row['system_instructions'],
                 knowledge_base_sources=row['knowledge_base_sources'],
                 tool_access_whitelist=row['tool_access_whitelist'],
-                hiring_logic=row['hiring_logic']
+                hiring_logic=row['hiring_logic'],
+                persona=row['persona'],
+                quality_notes=row['quality_notes'],
+                development_notes=row['development_notes']
             ))
         return crew_list
     except Exception:
@@ -349,7 +432,7 @@ async def create_crew_member(req: CreateCrewMemberRequest):
         async with _pool.acquire() as conn:
             async with conn.transaction():
                 await conn.execute(
-                    "INSERT INTO crew_members (crew_id, name, role, specialization, permissions, system_instructions, knowledge_base_sources, tool_access_whitelist, hiring_logic) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+                    "INSERT INTO crew_members (crew_id, name, role, specialization, permissions, system_instructions, knowledge_base_sources, tool_access_whitelist, hiring_logic, persona, quality_notes, development_notes) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
                     crew_id,
                     req.name,
                     req.role,
@@ -358,10 +441,13 @@ async def create_crew_member(req: CreateCrewMemberRequest):
                     req.system_instructions,
                     json.dumps(knowledge_base_sources),
                     json.dumps(tool_access_whitelist),
-                    req.hiring_logic
+                    req.hiring_logic,
+                    req.persona,
+                    req.quality_notes,
+                    req.development_notes
                 )
                 await conn.execute(
-                    "INSERT INTO ceo_hired_agents (agent_id, name, role, specialization, status, permissions, system_instructions, knowledge_base_sources, tool_access_whitelist, hiring_logic) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (agent_id) DO UPDATE SET name = EXCLUDED.name, role = EXCLUDED.role, specialization = EXCLUDED.specialization, status = EXCLUDED.status, permissions = EXCLUDED.permissions, system_instructions = EXCLUDED.system_instructions, knowledge_base_sources = EXCLUDED.knowledge_base_sources, tool_access_whitelist = EXCLUDED.tool_access_whitelist, hiring_logic = EXCLUDED.hiring_logic, updated_at = now()",
+                    "INSERT INTO ceo_hired_agents (agent_id, name, role, specialization, status, permissions, system_instructions, knowledge_base_sources, tool_access_whitelist, hiring_logic, persona, quality_notes, development_notes) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) ON CONFLICT (agent_id) DO UPDATE SET name = EXCLUDED.name, role = EXCLUDED.role, specialization = EXCLUDED.specialization, status = EXCLUDED.status, permissions = EXCLUDED.permissions, system_instructions = EXCLUDED.system_instructions, knowledge_base_sources = EXCLUDED.knowledge_base_sources, tool_access_whitelist = EXCLUDED.tool_access_whitelist, hiring_logic = EXCLUDED.hiring_logic, persona = EXCLUDED.persona, quality_notes = EXCLUDED.quality_notes, development_notes = EXCLUDED.development_notes, updated_at = now()",
                     crew_id,
                     req.name,
                     req.role,
@@ -371,10 +457,13 @@ async def create_crew_member(req: CreateCrewMemberRequest):
                     req.system_instructions,
                     json.dumps(knowledge_base_sources),
                     json.dumps(tool_access_whitelist),
-                    req.hiring_logic
+                    req.hiring_logic,
+                    req.persona,
+                    req.quality_notes,
+                    req.development_notes
                 )
                 await conn.execute(
-                    "INSERT INTO hired_agents (agent_id, name, role, specialization, status, permissions, system_instructions, knowledge_base_sources, tool_access_whitelist, hiring_logic) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (agent_id) DO UPDATE SET name = EXCLUDED.name, role = EXCLUDED.role, specialization = EXCLUDED.specialization, status = EXCLUDED.status, permissions = EXCLUDED.permissions, system_instructions = EXCLUDED.system_instructions, knowledge_base_sources = EXCLUDED.knowledge_base_sources, tool_access_whitelist = EXCLUDED.tool_access_whitelist, hiring_logic = EXCLUDED.hiring_logic, updated_at = now()",
+                    "INSERT INTO hired_agents (agent_id, name, role, specialization, status, permissions, system_instructions, knowledge_base_sources, tool_access_whitelist, hiring_logic, persona, quality_notes, development_notes) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) ON CONFLICT (agent_id) DO UPDATE SET name = EXCLUDED.name, role = EXCLUDED.role, specialization = EXCLUDED.specialization, status = EXCLUDED.status, permissions = EXCLUDED.permissions, system_instructions = EXCLUDED.system_instructions, knowledge_base_sources = EXCLUDED.knowledge_base_sources, tool_access_whitelist = EXCLUDED.tool_access_whitelist, hiring_logic = EXCLUDED.hiring_logic, persona = EXCLUDED.persona, quality_notes = EXCLUDED.quality_notes, development_notes = EXCLUDED.development_notes, updated_at = now()",
                     crew_id,
                     req.name,
                     req.role,
@@ -384,7 +473,10 @@ async def create_crew_member(req: CreateCrewMemberRequest):
                     req.system_instructions,
                     json.dumps(knowledge_base_sources),
                     json.dumps(tool_access_whitelist),
-                    req.hiring_logic
+                    req.hiring_logic,
+                    req.persona,
+                    req.quality_notes,
+                    req.development_notes
                 )
         return {
             "status": "success",
@@ -412,7 +504,7 @@ async def get_crew_member(crew_id: str):
     try:
         async with _pool.acquire() as conn:
             row = await conn.fetchrow(
-                "SELECT crew_id, name, role, specialization, status, performance_score, completed_tasks, current_task, progress, system_instructions, knowledge_base_sources, tool_access_whitelist, hiring_logic FROM crew_members WHERE crew_id = $1",
+                "SELECT crew_id, name, role, specialization, status, performance_score, completed_tasks, current_task, progress, system_instructions, knowledge_base_sources, tool_access_whitelist, hiring_logic, persona, quality_notes, development_notes FROM crew_members WHERE crew_id = $1",
                 crew_id
             )
         if row:
@@ -458,6 +550,9 @@ async def update_crew_member(crew_id: str, req: UpdateCrewMemberRequest):
         "knowledge_base_sources": req.knowledge_base_sources,
         "tool_access_whitelist": req.tool_access_whitelist,
         "hiring_logic": req.hiring_logic,
+        "persona": req.persona,
+        "quality_notes": req.quality_notes,
+        "development_notes": req.development_notes,
     }
     crew_updates, crew_params = build_updates(
         crew_fields,
@@ -491,6 +586,9 @@ async def update_crew_member(crew_id: str, req: UpdateCrewMemberRequest):
                 "knowledge_base_sources": req.knowledge_base_sources,
                 "tool_access_whitelist": req.tool_access_whitelist,
                 "hiring_logic": req.hiring_logic,
+                "persona": req.persona,
+                "quality_notes": req.quality_notes,
+                "development_notes": req.development_notes,
             }
             ceo_updates, ceo_params = build_updates(
                 ceo_fields,
@@ -549,6 +647,26 @@ async def delete_crew_member(crew_id: str):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to deactivate crew member: {str(e)}")
+
+
+@app.get("/api/explainer/sections")
+async def get_explainer_sections():
+    """Return explainer sections sourced from the database."""
+    from app.db import _pool
+    meta = _build_explainer_meta()
+    if _pool is None:
+        return {"sections": demo_explainer_sections, "meta": meta}
+    try:
+        async with _pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT slug, title, body_markdown, source, updated_at FROM explainer_sections ORDER BY slug"
+            )
+        sections = [dict(row) for row in rows]
+        if not sections:
+            sections = demo_explainer_sections
+        return {"sections": sections, "meta": meta}
+    except Exception:
+        return {"sections": demo_explainer_sections, "meta": meta}
 
 
 @app.get("/api/tasks", response_model=List[Task])

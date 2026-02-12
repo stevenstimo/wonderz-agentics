@@ -14,6 +14,9 @@ class CrewMember(BaseModel):
     knowledge_base_sources: Optional[List[str]] = None
     tool_access_whitelist: Optional[List[str]] = None
     hiring_logic: Optional[str] = None
+    persona: Optional[str] = None
+    quality_notes: Optional[str] = None
+    development_notes: Optional[str] = None
 
 class TaskCrewShare(BaseModel):
     crew_id: str
