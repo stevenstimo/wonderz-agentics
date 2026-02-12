@@ -31,7 +31,11 @@ from agents.hr_agent import HRAgent
 from config import ANTHROPIC_API_KEY
 
 # --- Database setup ---
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://claude_user:claude_password@postgres:5432/wonderz_db")
+
+# Use DATABASE_URL from environment, fail if not set in production
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL environment variable is not set. Configure it as a Fly.io secret or in your .env file.")
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -166,110 +170,10 @@ Our system is built on three core layers:
 
 Backend Orchestration (FastAPI)
 - Manages agent lifecycle and task distribution
-- Handles workflow state and persistence
-- Provides RESTful API for all operations
-- Integrates with multiple external platforms (Shopify, WordPress, etc.)
-
-Frontend Interface (React + Tailwind)
-- Real-time task tracking and monitoring
-- Crew member management and assignment
-- Talent hiring and promotion workflow
-- Live approval dashboard for workflow decisions
-
-Database & Storage (Supabase PostgreSQL)
-- Persistent storage for crew members, talents, and tasks
-- Audit trail for all operations
-- Real-time data sync capabilities
-
-The Workflow
-
-Our platform operates through a structured workflow:
-
-1. Intake: Understanding what needs to be done
-2. Planning: Breaking down work into manageable tasks
-3. Development: Agents execute assigned work
-4. Review: Quality assurance and improvements
-5. Delivery: Final output and deployment
-
-Each stage is handled by specialized agents (Developer, Reviewer, DevOps, etc.) who work together to deliver results.
-
-Key Concepts
-
-Talents vs Crew Members
-- Talents are potential agents waiting to be hired
-- When HR approves a talent, they are promoted to an active Crew Member
-- Crew members have full access to the system and can be assigned tasks
-
-Crew Roles
-- Developer: Builds and implements solutions
-- Product Owner: Defines requirements and priorities
-- Reviewer: Ensures code quality and best practices
-- DevOps: Manages deployment and infrastructure
-- HR: Manages talent and team development
-- Training: Develops skills and knowledge
-
-Dave Dev
-- Your Technical Consultant and Chief Architect
-- Available 24/7 to answer technical questions
-- Generates VS Code-ready prompts for new features
-- Ensures code quality and architectural consistency
-
-Why Multi-Agent?
-
-Traditional development is sequential and slow. Multi-agent systems allow:
-- Parallel work on multiple tasks
-- Specialized expertise for each role
-- Continuous quality feedback
-- Adaptive task assignment based on agent capabilities
-- Human oversight at critical points
-
-Realtime Collaboration
-
-Unlike traditional tools, Wonderz-Agentics provides:
-- Live progress tracking of all agents
-- Real-time notifications and approvals
-- Synchronized state across all team members
-- Automatic conflict resolution
-
-Integrations
-
-The platform connects with:
-- Shopify: Product management and order processing
-- WordPress: Content management and publishing
-- Supabase: Database and authentication
-- OpenAI: AI capabilities and reasoning
-
-What Makes It Different
-
-Wonderz-Agentics stands out because:
-- Agents have persistent memory and context
-- Human judgment is built into critical decisions
-- The system learns from feedback and improves
-- Complete audit trail of all decisions
-- Modular architecture allows custom agent creation
-""",
-        "source": "docs",
-        "updated_at": datetime.utcnow().isoformat(),
-    },
     {
-        "slug": "persona",
-        "title": "Persona and behavior",
-        "body_markdown": """Every agent in Wonderz-Agentics has a distinct persona that guides their behavior, decision-making, and communication style.
-
-What is a Persona?
-
-A persona defines:
-- How an agent thinks and approaches problems
-- Their communication style and tone
-- Their priorities and values
-- How they handle conflicts and decisions
-- Their preferred work style
-
+        "slug": "how-it-works",
 The personas are encoded in system instructions that the agent receives with each task.
 
-Core Agent Personas
-
-Developer
 - Pragmatic and detail-oriented
 - Focuses on clean, maintainable code
 - Values testing and documentation
@@ -286,57 +190,26 @@ Product Owner
 Reviewer
 - Critical but constructive
 - Looks for both strengths and improvements
-- Provides actionable feedback
-- Cares about quality and consistency
-- Explains reasoning, doesn't just critique
 
 DevOps
-- Systems-minded and reliable
-- Focuses on uptime and performance
-- Automates repetitive tasks
-- Plans for scalability
-- Minimizes manual intervention
-
 HR Agent
 - Empathetic and development-focused
-- Recognizes talent and potential
-- Provides constructive feedback
-- Tracks growth and improvement
-- Matches skills to tasks
 
 Dave Dev (Technical Consultant)
 - Pragmatic, analytical, direct
 - Explains complex concepts simply
-- Thinks architecturally
-- Prevents technical debt
-- Available for guidance on implementation
-
-Customizing Personas
 
 When you hire a new talent to your crew:
 1. Define their persona description
 2. Set their quality expectations
-3. Specify growth areas
-4. Configure their system instructions
-
-The persona shapes every interaction and decision the agent makes.
 
 Persona vs Role
 
 Important distinction:
-- Role: What they do (Developer, Designer, etc.)
-- Persona: How they do it (pragmatic, creative, detail-oriented, etc.)
-
-Two developers with different personas will approach the same task differently.
 
 Learning and Evolution
 
 Personas are not static:
-- Agents receive feedback after each task
-- System tracks their performance over time
-- Development areas are identified and addressed
-- Personas can be refined based on results
-
 Best Practices for Personas
 
 1. Be specific: Vague personas lead to inconsistent behavior
@@ -1122,22 +995,24 @@ Start with API endpoint → database model → frontend."""
 # --- Mount static files (frontend) ---
 static_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "dist")
 if os.path.exists(static_dir):
-    # For SPA routing: catch-all that returns index.html for all non-API routes
+    # Mount assets FIRST (before catch-all)
+    app.mount("/assets", StaticFiles(directory=os.path.join(static_dir, "assets"), html=False), name="assets")
+    
+    # For SPA routing: catch-all that returns index.html for all non-API/non-assets routes
     @app.get("/{full_path:path}")
     async def serve_spa(full_path: str):
         # Don't intercept API calls
-        if full_path.startswith('api/') or full_path.startswith('/'):
-            if full_path.startswith('api/'):
-                raise HTTPException(status_code=404, detail="API endpoint not found")
+        if full_path.startswith('api/'):
+            raise HTTPException(status_code=404, detail="API endpoint not found")
+        # Don't intercept assets
+        if full_path.startswith('assets/'):
+            raise HTTPException(status_code=404, detail="Asset not found")
         
         # Return index.html for all other routes (React Router handles them)
         index_path = os.path.join(static_dir, "index.html")
         if os.path.exists(index_path):
             return FileResponse(index_path)
         raise HTTPException(status_code=404, detail="index.html not found")
-    
-    # Also serve static assets from dist folder
-    app.mount("/assets", StaticFiles(directory=os.path.join(static_dir, "assets"), html=False), name="assets")
 else:
     # Fallback if frontend dist doesn't exist
     @app.get("/")
