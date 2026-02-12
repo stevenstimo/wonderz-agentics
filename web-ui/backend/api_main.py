@@ -707,18 +707,30 @@ async def delete_crew_member(crew_id: str):
         raise HTTPException(status_code=500, detail=f"Failed to deactivate crew member: {str(e)}")
 
 
+from fastapi import Query
+
 @app.get("/api/explainer/sections")
-async def get_explainer_sections():
-    """Return explainer sections sourced from the database."""
+async def get_explainer_sections(slug: str = Query(None)):
+    """Return explainer sections sourced from the database, optionally filtered by slug."""
     from app.db import _pool
     meta = _build_explainer_meta()
     if _pool is None:
+        # Filter demo data if slug is provided
+        if slug:
+            filtered = [s for s in demo_explainer_sections if s["slug"].startswith(slug)]
+            return {"sections": filtered, "meta": meta}
         return {"sections": demo_explainer_sections, "meta": meta}
     try:
         async with _pool.acquire() as conn:
-            rows = await conn.fetch(
-                "SELECT slug, title, body_markdown, source, updated_at FROM explainer_sections ORDER BY slug"
-            )
+            if slug:
+                rows = await conn.fetch(
+                    "SELECT slug, title, body_markdown, source, updated_at FROM explainer_sections WHERE slug LIKE $1 ORDER BY slug",
+                    f"{slug}%"
+                )
+            else:
+                rows = await conn.fetch(
+                    "SELECT slug, title, body_markdown, source, updated_at FROM explainer_sections ORDER BY slug"
+                )
         sections = [dict(row) for row in rows]
         if not sections:
             sections = demo_explainer_sections
