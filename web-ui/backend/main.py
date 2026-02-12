@@ -290,6 +290,54 @@ async def health_check():
     }
 
 
+@app.get("/api/crew")
+async def get_crew():
+    """Get all crew members (stub endpoint)"""
+    return []
+
+
+@app.post("/api/crew")
+async def create_crew(crew_data: dict):
+    """Create crew member (stub endpoint)"""
+    return {"message": "Crew management not yet implemented", "status": "stub"}
+
+
+@app.put("/api/crew/{crew_id}")
+async def update_crew(crew_id: str, crew_data: dict):
+    """Update crew member (stub endpoint)"""
+    return {"message": "Crew management not yet implemented", "status": "stub"}
+
+
+@app.delete("/api/crew/{crew_id}")
+async def delete_crew(crew_id: str):
+    """Delete crew member (stub endpoint)"""
+    return {"message": "Crew member deleted (stub)", "status": "stub"}
+
+
+@app.get("/api/tasks")
+async def get_tasks():
+    """Get all tasks (stub endpoint)"""
+    return []
+
+
+@app.get("/api/improvements")
+async def get_improvements():
+    """Get improvement suggestions (stub endpoint)"""
+    return []
+
+
+@app.get("/products/unified")
+async def get_unified_products():
+    """Get unified product catalog (stub endpoint)"""
+    return []
+
+
+@app.get("/api/ceo/approvals")
+async def get_approvals():
+    """Get approval requests (stub endpoint)"""
+    return []
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     """WebSocket endpoint for real-time workflow updates"""
