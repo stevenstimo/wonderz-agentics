@@ -14,5 +14,4 @@ create table if not exists jobs (
 
 -- Add index for status and user_id for quick lookups
 create index if not exists jobs_status_idx on jobs (status);
-create index if not exists jobs_user_id_idx on jobs (user_id);
 create index if not exists jobs_created_at_idx on jobs (created_at desc);
