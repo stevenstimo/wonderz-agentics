@@ -44,6 +44,7 @@ jobs:
           node-version: '18'
       - name: Install backend dependencies
         run: |
+          cd web-ui/backend
           python -m venv .venv
           source .venv/bin/activate
           pip install --upgrade pip
@@ -54,8 +55,9 @@ jobs:
           npm install
       - name: Start backend
         run: |
+          cd web-ui/backend
           source .venv/bin/activate
-          nohup uvicorn web-ui.backend.api_main:app --host 0.0.0.0 --port 8022 &
+          nohup uvicorn api_main:app --host 0.0.0.0 --port 8022 &
           sleep 5
       - name: Start frontend
         run: |
