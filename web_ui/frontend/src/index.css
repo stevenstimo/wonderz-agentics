@@ -38,12 +38,10 @@
   font-size: 0.78rem;
   margin-bottom: 0.5rem;
 }
+
 .panel-card {
   border-radius: 16px;
   padding: 14px 10px;
-}
-.content-area {
-  padding: 18px 4vw;
 }
 
 body {
@@ -114,12 +112,14 @@ code {
   flex-direction: column;
   gap: 12px;
   z-index: 20;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .content-area {
+  margin-left: 240px;
   padding: 40px;
   overflow-y: auto;
-  margin-left: 240px;
 }
 
 @media (max-width: 600px) {
