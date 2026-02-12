@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 // import CrewOverviewLive from './CrewOverviewLive'
 // import TaskListLive from './TaskListLive'
 import Sidebar from './Sidebar'
+import { Link } from 'react-router-dom'
 import { 
   Sparkles, Code, FileText, Shield, Container, 
   Loader2, CheckCircle, XCircle, Download, Zap 
@@ -139,6 +140,11 @@ await supabase.from('projects').insert([
         {/* <CrewOverviewLive /> */}
         {/* <TaskListLive /> */}
         {/* <UnifiedProducts /> */}
+
+        {/* Extra menu-link naar Developer Bot */}
+        <div className="mb-4">
+          <Link to="/devbot" className="text-indigo-600 hover:underline font-medium">Developer Bot</Link>
+        </div>
 
         <div className="max-w-6xl mx-auto px-4 py-8">
         {/* Input Section */}
