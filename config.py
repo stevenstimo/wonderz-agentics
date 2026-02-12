@@ -46,3 +46,67 @@ DEVOPS_DIR = f"{OUTPUT_DIR}/devops"
 # Maak directories aan
 for directory in [OUTPUT_DIR, REQUIREMENTS_DIR, CODE_DIR, REVIEW_DIR, DEVOPS_DIR]:
     os.makedirs(directory, exist_ok=True)
+
+# ===== IMPORTANTE URLs & ENDPOINTS =====
+# Maak het makkelijk om alle URLs te gebruiken zonder steeds opnieuw in te voeren!
+
+class AppConfig:
+    """Centralized configuration for all important URLs"""
+    
+    # Development URLs
+    BACKEND_DEV = "http://localhost:8090"
+    FRONTEND_DEV = "http://localhost:5173"
+    
+    # Production URLs
+    BACKEND_PROD = "https://wonderz-agentics.fly.dev"
+    FRONTEND_PROD = "https://frontend-rho-one-99.vercel.app"
+    
+    # Database
+    DATABASE_HOST = "db.cqasccazioqjodctawzx.supabase.co"
+    DATABASE_PORT = 5432
+    DATABASE_NAME = "postgres"
+    DATABASE_URL = os.getenv("DATABASE_URL", "")
+    
+    # Use production or development URLs
+    USE_PRODUCTION = os.getenv("ENV", "development").lower() == "production"
+    
+    BACKEND_URL = BACKEND_PROD if USE_PRODUCTION else BACKEND_DEV
+    FRONTEND_URL = FRONTEND_PROD if USE_PRODUCTION else FRONTEND_DEV
+    
+    # API Endpoints
+    API_ENDPOINTS = {
+        "crew": "/api/crew",
+        "projects": "/api/projects",
+        "jobs": "/jobs",
+        "tasks": "/api/task",
+        "unified_products": "/api/unified-products",
+        "docs": "/docs",
+        "health": "/health",
+    }
+    
+    @classmethod
+    def get_api_url(cls, endpoint: str = "") -> str:
+        """Get full API URL"""
+        return f"{cls.BACKEND_URL}{endpoint}"
+    
+    @classmethod
+    def get_frontend_url(cls, path: str = "") -> str:
+        """Get full frontend URL"""
+        return f"{cls.FRONTEND_URL}{path}"
+    
+    @classmethod
+    def print_config(cls):
+        """Print all important URLs"""
+        print("\n" + "="*60)
+        print("🔗 IMPORTANT URLs - AI Bureau")
+        print("="*60)
+        print(f"Backend API:     {cls.BACKEND_URL}")
+        print(f"Frontend:        {cls.FRONTEND_URL}")
+        print(f"Database:        {cls.DATABASE_HOST}:{cls.DATABASE_PORT}")
+        print(f"Environment:     {'PRODUCTION' if cls.USE_PRODUCTION else 'DEVELOPMENT'}")
+        print("="*60)
+        print("\n📚 API Endpoints:")
+        for name, endpoint in cls.API_ENDPOINTS.items():
+            full_url = cls.get_api_url(endpoint)
+            print(f"  {name:20} -> {full_url}")
+        print("="*60 + "\n")
