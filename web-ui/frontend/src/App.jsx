@@ -1,8 +1,8 @@
 import { supabase } from './supabase'
 import { useState, useEffect, useRef } from 'react'
-import UnifiedProducts from './UnifiedProducts'
-import CrewOverviewLive from './CrewOverviewLive'
-import TaskListLive from './TaskListLive'
+// import UnifiedProducts from './UnifiedProducts'
+// import CrewOverviewLive from './CrewOverviewLive'
+// import TaskListLive from './TaskListLive'
 import Sidebar from './Sidebar'
 import { 
   Sparkles, Code, FileText, Shield, Container, 
@@ -136,9 +136,9 @@ await supabase.from('projects').insert([
       <Sidebar />
       {/* Main content */}
       <main className="flex-1 px-8 py-8">
-        <CrewOverviewLive />
-        <TaskListLive />
-        <UnifiedProducts />
+        {/* <CrewOverviewLive /> */}
+        {/* <TaskListLive /> */}
+        {/* <UnifiedProducts /> */}
 
         <div className="max-w-6xl mx-auto px-4 py-8">
         {/* Input Section */}
