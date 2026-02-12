@@ -1,37 +1,71 @@
 import { NavLink } from 'react-router-dom'
-import { Home, Users, Layers, ClipboardList, Settings, PlusCircle } from 'lucide-react'
+import { Home, Users, Layers, ClipboardList, Settings, PlusCircle, BookOpen, Shield } from 'lucide-react'
 
-const menu = [
-  { label: 'Main Workspace', icon: Layers, path: '/' },
-  { label: 'Approvals', icon: ClipboardList, path: '/approvals' },
-  { label: 'Crew Management', icon: Users, path: '/crew/management' },
-  { label: 'Training Management', icon: ClipboardList, path: '/training/management' },
-  { label: 'HR Improvements', icon: ClipboardList, path: '/hr/improvements' },
+const primaryMenu = [
+  { label: 'Mission Control', icon: Layers, path: '/' },
+  { label: 'Job Center', icon: ClipboardList, path: '/job-center' },
+]
+
+const managementMenu = [
+  { label: 'Crew', icon: Users, path: '/crew/management' },
+  { label: 'Training Hub', icon: ClipboardList, path: '/training/management' },
+  { label: 'Improvements', icon: ClipboardList, path: '/hr/improvements' },
+  { label: 'HR Feedback', icon: ClipboardList },
+  { label: 'Safety Gate', icon: Shield, path: '/approvals' },
+]
+
+const secondaryMenu = [
+  {
+    label: 'Explainer',
+    icon: BookOpen,
+    children: [
+      { label: 'How it works', path: '/explainer/how-it-works' },
+      { label: 'Persona', path: '/explainer/persona' },
+      { label: 'Crew', path: '/explainer/crew' },
+    ],
+  },
   { label: 'Personal Projects', icon: Home },
   { label: 'Work Team Org', icon: Users },
   { label: 'Study', icon: ClipboardList },
-  { label: 'AI Agents Description', icon: Users },
   { label: 'Product Management', icon: ClipboardList },
 ]
 
 export default function Sidebar() {
   return (
-    <aside className="bg-white border-r min-h-screen w-64 flex flex-col py-6 px-4">
-      <div className="mb-8">
-        <div className="flex items-center gap-3 mb-6">
-          <div className="w-10 h-10 bg-indigo-100 rounded-full flex items-center justify-center">
-            <Users className="w-6 h-6 text-indigo-600" />
+    <aside className="sidebar">
+      <div>
+        <div className="flex items-center gap-3 mb-8">
+          <div className="brand-mark">W</div>
+          <div>
+            <div className="text-lg font-semibold text-gray-900">Wonderz</div>
+            <div className="text-xs text-gray-400">Unified Crew</div>
           </div>
-          <span className="font-bold text-xl text-gray-800">MY WORKSPACE</span>
         </div>
+
         <nav className="space-y-2">
-          {menu.map(item => (
+          {primaryMenu.map(item => (
+            <NavLink
+              key={item.label}
+              to={item.path}
+              className={({ isActive }) => (
+                `nav-item ${isActive ? 'nav-item-active' : ''}`
+              )}
+            >
+              <item.icon className="w-5 h-5" />
+              <span>{item.label}</span>
+            </NavLink>
+          ))}
+        </nav>
+
+        <div className="nav-section-title">Management</div>
+        <nav className="space-y-2">
+          {managementMenu.map(item => (
             item.path ? (
               <NavLink
                 key={item.label}
                 to={item.path}
                 className={({ isActive }) => (
-                  `flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer ${isActive ? 'bg-indigo-50 text-indigo-700 font-semibold' : 'text-gray-700 hover:bg-gray-100'}`
+                  `nav-item ${isActive ? 'nav-item-active' : ''}`
                 )}
               >
                 <item.icon className="w-5 h-5" />
@@ -41,7 +75,55 @@ export default function Sidebar() {
               <div
                 key={item.label}
                 onClick={() => console.log(`Clicked: ${item.label}`)}
-                className="flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer text-gray-700 hover:bg-gray-100"
+                className="nav-item"
+              >
+                <item.icon className="w-5 h-5" />
+                <span>{item.label}</span>
+              </div>
+            )
+          ))}
+        </nav>
+
+        <div className="nav-section-title">Knowledge</div>
+        <nav className="space-y-2">
+          {secondaryMenu.map(item => (
+            item.children ? (
+              <div key={item.label} className="space-y-1">
+                <div className="nav-item">
+                  <item.icon className="w-5 h-5" />
+                  <span>{item.label}</span>
+                </div>
+                <div className="space-y-1 pl-4">
+                  {item.children.map(child => (
+                    <NavLink
+                      key={child.label}
+                      to={child.path}
+                      className={({ isActive }) => (
+                        `nav-item text-sm ${isActive ? 'nav-item-active' : ''}`
+                      )}
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-300" />
+                      <span>{child.label}</span>
+                    </NavLink>
+                  ))}
+                </div>
+              </div>
+            ) : item.path ? (
+              <NavLink
+                key={item.label}
+                to={item.path}
+                className={({ isActive }) => (
+                  `nav-item ${isActive ? 'nav-item-active' : ''}`
+                )}
+              >
+                <item.icon className="w-5 h-5" />
+                <span>{item.label}</span>
+              </NavLink>
+            ) : (
+              <div
+                key={item.label}
+                onClick={() => console.log(`Clicked: ${item.label}`)}
+                className="nav-item"
               >
                 <item.icon className="w-5 h-5" />
                 <span>{item.label}</span>
@@ -50,15 +132,16 @@ export default function Sidebar() {
           ))}
         </nav>
       </div>
+
       <div className="mt-auto">
-        <button 
+        <button
           onClick={() => console.log('Add New clicked')}
-          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg w-full font-semibold hover:bg-indigo-700 transition-all"
+          className="btn-manage w-full gap-2"
         >
           <PlusCircle className="w-5 h-5" />
-          Add New
+          New Mission
         </button>
-        <div 
+        <div
           onClick={() => console.log('Settings clicked')}
           className="flex items-center gap-2 mt-6 text-gray-400 text-xs cursor-pointer hover:text-gray-600"
         >

@@ -1,8 +1,33 @@
 # Backend Deployment Guide
 
-**Status:** Ready to deploy to Railway/Heroku
+**Status:** Deployed on Fly.io
 
-## 🚀 Option 1: Deploy to Railway (Recommended)
+## 🚀 Option 1: Deploy to Fly.io (Current)
+
+### Setup
+1. Install Fly CLI
+2. Login: `flyctl auth login`
+3. Deploy from repo root:
+```bash
+flyctl deploy -a wonderz-agentics
+```
+
+### Environment Variables on Fly
+```
+ANTHROPIC_API_KEY=sk-...your-key...
+DATABASE_URL=postgresql://user:pass@host/db
+SUPABASE_URL=https://...
+SUPABASE_KEY=...
+APPROVAL_USER=admin
+APPROVAL_PASS=secure_password
+```
+
+### Live Backend URL
+- https://wonderz-agentics.fly.dev
+
+---
+
+## 🚀 Option 2: Deploy to Railway (Alternative)
 
 ### Setup
 1. Go to https://railway.app
@@ -29,7 +54,7 @@ APPROVAL_PASS=secure_password
 
 ---
 
-## 🚀 Option 2: Deploy to Heroku
+## 🚀 Option 3: Deploy to Heroku
 
 ### Setup
 ```bash
@@ -55,7 +80,7 @@ heroku config:set DATABASE_URL=postgresql://...
 
 ---
 
-## 🐳 Option 3: Docker Deployment
+## 🐳 Option 4: Docker Deployment
 
 ### Build Image
 ```bash
@@ -83,16 +108,16 @@ docker push gcr.io/your-project/wonderz-backend
 
 ## ✨ After Backend Deployment
 
-1. **Get backend URL** from Railway/Heroku (e.g., `https://wonderz-api.railway.app`)
+1. **Get backend URL** from your host (e.g., `https://wonderz-agentics.fly.dev`)
 2. **Update Vercel env vars**:
-   - `VITE_API_URL=https://wonderz-api.railway.app`
+   - `VITE_API_URL=https://wonderz-agentics.fly.dev`
 3. **Redeploy frontend** (auto-triggered or manual)
 
 ## 📊 Complete Deployment URLs
 
 After both deployments:
-- **Frontend**: https://wonderz-agentics.vercel.app
-- **Backend API**: https://wonderz-api.railway.app
+- **Frontend**: https://frontend-rho-one-99.vercel.app
+- **Backend API**: https://wonderz-agentics.fly.dev
 - **Database**: Supabase (managed)
 
 ## 🔗 Health Checks
@@ -100,13 +125,13 @@ After both deployments:
 Test deployment:
 ```bash
 # Frontend
-curl https://wonderz-agentics.vercel.app
+curl https://frontend-rho-one-99.vercel.app
 
 # Backend
-curl https://wonderz-api.railway.app/api/crew
+curl https://wonderz-agentics.fly.dev/api/crew
 
 # API Gateway test
-curl https://wonderz-api.railway.app/docs
+curl https://wonderz-agentics.fly.dev/docs
 ```
 
 ## ⚙️ Files Included

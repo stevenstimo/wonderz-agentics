@@ -131,11 +131,11 @@ await supabase.from('projects').insert([
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex">
+    <div className="dashboard-container">
       {/* Sidebar */}
       <Sidebar />
       {/* Main content */}
-      <main className="flex-1 px-8 py-8">
+      <main className="content-area">
         {/* <CrewOverviewLive /> */}
         {/* <TaskListLive /> */}
         {/* <UnifiedProducts /> */}
@@ -143,7 +143,7 @@ await supabase.from('projects').insert([
         <div className="max-w-6xl mx-auto px-4 py-8">
         {/* Input Section */}
         {!isRunning && !results && (
-          <div className="bg-white rounded-xl shadow-lg p-8 mb-8">
+          <div className="panel-card mb-8">
             <h2 className="text-2xl font-bold mb-6 text-gray-800">Start New Project</h2>
             
             <div className="space-y-6">
@@ -209,7 +209,7 @@ await supabase.from('projects').insert([
 
         {/* Progress Section */}
         {isRunning && (
-          <div className="bg-white rounded-xl shadow-lg p-8 mb-8">
+          <div className="panel-card mb-8">
             <h2 className="text-2xl font-bold mb-6 text-gray-800">Building Your Project...</h2>
             
             <div className="space-y-4">

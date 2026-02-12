@@ -33,6 +33,9 @@ export default function CrewManagement() {
     knowledge_base_sources: '',
     tool_access_whitelist: '',
     hiring_logic: '',
+    persona: '',
+    quality_notes: '',
+    development_notes: '',
   })
 
   const formatList = (items, delimiter) => Array.isArray(items) ? items.join(delimiter) : ''
@@ -94,6 +97,18 @@ export default function CrewManagement() {
       errors.hiring_logic = 'Hiring logic is required'
     } else if (formData.hiring_logic.length > 2000) {
       errors.hiring_logic = 'Hiring logic must be 2000 characters or less'
+    }
+
+    if (formData.persona && formData.persona.length > 2000) {
+      errors.persona = 'Persona must be 2000 characters or less'
+    }
+
+    if (formData.quality_notes && formData.quality_notes.length > 2000) {
+      errors.quality_notes = 'Quality notes must be 2000 characters or less'
+    }
+
+    if (formData.development_notes && formData.development_notes.length > 2000) {
+      errors.development_notes = 'Development notes must be 2000 characters or less'
     }
 
     const knowledgeSources = parseLineList(formData.knowledge_base_sources)
@@ -164,6 +179,9 @@ export default function CrewManagement() {
         knowledge_base_sources: '',
         tool_access_whitelist: '',
         hiring_logic: '',
+        persona: '',
+        quality_notes: '',
+        development_notes: '',
       })
       setFormValidation({})
       setShowForm(false)
@@ -189,6 +207,9 @@ export default function CrewManagement() {
       knowledge_base_sources: formatList(member.knowledge_base_sources, '\n'),
       tool_access_whitelist: formatList(member.tool_access_whitelist, ', '),
       hiring_logic: member.hiring_logic || '',
+      persona: member.persona || '',
+      quality_notes: member.quality_notes || '',
+      development_notes: member.development_notes || '',
     })
     setShowForm(true)
   }
@@ -230,29 +251,76 @@ export default function CrewManagement() {
       knowledge_base_sources: '',
       tool_access_whitelist: '',
       hiring_logic: '',
+      persona: '',
+      quality_notes: '',
+      development_notes: '',
     })
   }
 
   const roles = ['Product Owner', 'Developer', 'Reviewer', 'DevOps', 'HR', 'Training']
 
+  const categoryConfig = {
+    management: {
+      title: 'Management & Strategie',
+      subtitle: 'Controle en veiligheid',
+      className: 'card-management',
+    },
+    creative: {
+      title: 'Creatieve & Marketing',
+      subtitle: 'Content en merk',
+      className: 'card-creative',
+    },
+    technical: {
+      title: 'Data & Technische',
+      subtitle: 'Analyse en techniek',
+      className: 'card-technical',
+    },
+  }
+
+  const classifyCrewMember = (member) => {
+    const role = (member.role || '').toLowerCase()
+    const specialization = (member.specialization || '').toLowerCase()
+    const label = `${role} ${specialization}`
+
+    if (label.match(/hr|compliance|operations|strategy|owner|manager|review|govern|legal/)) {
+      return 'management'
+    }
+    if (label.match(/copy|seo|brand|marketing|creative|content|growth/)) {
+      return 'creative'
+    }
+    if (label.match(/dev|engineer|data|automation|ml|ai|tech|ops/)) {
+      return 'technical'
+    }
+    return 'management'
+  }
+
+  const groupedCrew = crew.reduce(
+    (acc, member) => {
+      const category = classifyCrewMember(member)
+      acc[category].push(member)
+      return acc
+    },
+    { management: [], creative: [], technical: [] },
+  )
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex">
+    <div className="dashboard-container">
       <Sidebar />
-      <main className="flex-1 px-8 py-8">
+      <main className="content-area">
         <div className="max-w-6xl mx-auto">
-          <div className="bg-white rounded-xl shadow-lg p-8 mb-8">
+          <div className="panel-card mb-8">
             <div className="flex items-center justify-between gap-4 flex-wrap">
               <div>
-                <h2 className="text-2xl font-bold text-gray-800">Crew Management</h2>
-                <p className="text-sm text-gray-500">Manage your team members and their roles</p>
+                <h2 className="page-title">The Crew</h2>
+                <p className="page-subtitle">Unified workforce across specialized operational layers.</p>
               </div>
               <div className="flex gap-2">
                 <button
                   onClick={fetchCrew}
-                  className="flex items-center gap-2 px-4 py-2 text-sm bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition"
+                  className="btn-icon-only"
+                  aria-label="Refresh"
                 >
                   <RefreshCw className="w-4 h-4" />
-                  Refresh
                 </button>
                 <button
                   onClick={() => {
@@ -266,9 +334,12 @@ export default function CrewManagement() {
                       knowledge_base_sources: '',
                       tool_access_whitelist: '',
                       hiring_logic: '',
+                      persona: '',
+                      quality_notes: '',
+                      development_notes: '',
                     })
                   }}
-                  className="flex items-center gap-2 px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition"
+                  className="btn-manage gap-2"
                 >
                   <Plus className="w-4 h-4" />
                   Add Member
@@ -284,7 +355,7 @@ export default function CrewManagement() {
           </div>
 
           {showForm && (
-            <div className="bg-white rounded-xl shadow-lg p-8 mb-8">
+            <div className="panel-card mb-8">
               <h3 className="text-lg font-semibold mb-6 text-gray-800">
                 {editingId ? 'Edit Crew Member' : 'New Crew Member'}
               </h3>
@@ -444,6 +515,75 @@ export default function CrewManagement() {
                   )}
                   <div className="text-xs text-gray-500 mt-1">{formData.hiring_logic.length}/2000</div>
                 </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Persona
+                  </label>
+                  <textarea
+                    value={formData.persona}
+                    onChange={(e) => setFormData({ ...formData, persona: e.target.value })}
+                    placeholder="How this crew member communicates and decides"
+                    rows={4}
+                    maxLength="2000"
+                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent ${
+                      formValidation.persona ? 'border-red-500 bg-red-50' : ''
+                    }`}
+                  />
+                  {formValidation.persona && (
+                    <div className="flex items-center gap-1 mt-1 text-xs text-red-600">
+                      <AlertCircle className="w-3 h-3" />
+                      {formValidation.persona}
+                    </div>
+                  )}
+                  <div className="text-xs text-gray-500 mt-1">{formData.persona.length}/2000</div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Quality Notes
+                  </label>
+                  <textarea
+                    value={formData.quality_notes}
+                    onChange={(e) => setFormData({ ...formData, quality_notes: e.target.value })}
+                    placeholder="What this crew member does well today"
+                    rows={4}
+                    maxLength="2000"
+                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent ${
+                      formValidation.quality_notes ? 'border-red-500 bg-red-50' : ''
+                    }`}
+                  />
+                  {formValidation.quality_notes && (
+                    <div className="flex items-center gap-1 mt-1 text-xs text-red-600">
+                      <AlertCircle className="w-3 h-3" />
+                      {formValidation.quality_notes}
+                    </div>
+                  )}
+                  <div className="text-xs text-gray-500 mt-1">{formData.quality_notes.length}/2000</div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Development Notes
+                  </label>
+                  <textarea
+                    value={formData.development_notes}
+                    onChange={(e) => setFormData({ ...formData, development_notes: e.target.value })}
+                    placeholder="Where this crew member should improve next"
+                    rows={4}
+                    maxLength="2000"
+                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent ${
+                      formValidation.development_notes ? 'border-red-500 bg-red-50' : ''
+                    }`}
+                  />
+                  {formValidation.development_notes && (
+                    <div className="flex items-center gap-1 mt-1 text-xs text-red-600">
+                      <AlertCircle className="w-3 h-3" />
+                      {formValidation.development_notes}
+                    </div>
+                  )}
+                  <div className="text-xs text-gray-500 mt-1">{formData.development_notes.length}/2000</div>
+                </div>
                 
                 <div className="flex gap-2 pt-4">
                   <button
@@ -477,8 +617,11 @@ export default function CrewManagement() {
             </div>
           )}
 
-          <div className="bg-white rounded-xl shadow-lg p-8">
-            <h3 className="text-lg font-semibold mb-6 text-gray-800">Team Members</h3>
+          <div className="panel-card">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-lg font-semibold text-gray-800">Team Members</h3>
+              <span className="text-xs text-gray-400">{crew.length} agents synchronized</span>
+            </div>
             {loading && (
               <div className="flex items-center justify-center py-8">
                 <Loader className="w-5 h-5 animate-spin text-indigo-600 mr-2" />
@@ -488,72 +631,89 @@ export default function CrewManagement() {
             {!loading && crew.length === 0 && (
               <div className="py-8 text-center text-sm text-gray-500">No crew members found. Create one to get started!</div>
             )}
-            <div className="space-y-3">
-              {crew.map(member => {
-                const Icon = roleIcons[member.role] || User
+            <div className="space-y-8">
+              {Object.entries(categoryConfig).map(([key, config]) => {
+                const members = groupedCrew[key]
+                if (!members.length) return null
+
                 return (
-                  <div key={member.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 transition">
-                    <div className="flex items-center gap-4 flex-1">
-                      <div className="flex-shrink-0">
-                        <Icon className="w-8 h-8 text-indigo-500" />
-                      </div>
-                      <div className="flex-1">
-                        <div className="font-semibold text-gray-800">{member.name}</div>
-                        <div className="text-xs text-gray-500">{member.role}</div>
-                        {member.specialization && (
-                          <div className="text-xs text-gray-400 mt-1">{member.specialization}</div>
-                        )}
-                        {Array.isArray(member.knowledge_base_sources) && member.knowledge_base_sources.length > 0 && (
-                          <div className="text-xs text-gray-400 mt-1">
-                            KB: {member.knowledge_base_sources.join(', ')}
-                          </div>
-                        )}
-                        {member.current_task && (
-                          <div className="text-xs text-gray-500 mt-1">Task: {member.current_task}</div>
-                        )}
-                      </div>
-                      {member.progress !== undefined && (
-                        <div className="flex items-center gap-2">
-                          <div className="w-20 h-2 bg-gray-200 rounded-full overflow-hidden">
-                            <div
-                              className="h-full bg-indigo-500 transition-all"
-                              style={{ width: `${member.progress}%` }}
-                            />
-                          </div>
-                          <span className="text-xs text-gray-500 w-8">{member.progress}%</span>
+                  <div key={key}>
+                    <div className="flex items-center justify-between mb-4">
+                      <div>
+                        <div className="text-xs uppercase tracking-[0.2em] text-gray-400">
+                          {config.title}
                         </div>
-                      )}
-                      <div className="text-right">
-                        <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
-                          member.status === 'active'
-                            ? 'bg-green-100 text-green-800'
-                            : member.status === 'busy'
-                            ? 'bg-yellow-100 text-yellow-800'
-                            : 'bg-gray-100 text-gray-800'
-                        }`}>
-                          {member.status}
-                        </span>
+                        <div className="text-xs text-gray-500">{config.subtitle}</div>
+                      </div>
+                      <div className="text-xs font-semibold text-gray-400">
+                        {members.length} agents
                       </div>
                     </div>
-                    <div className="flex gap-2 ml-4">
-                      <button
-                        onClick={() => handleEdit(member)}
-                        disabled={deleteLoading === member.id}
-                        className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition disabled:opacity-50"
-                      >
-                        <Edit2 className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(member.id)}
-                        disabled={deleteLoading !== null}
-                        className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {deleteLoading === member.id ? (
-                          <Loader className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <Trash2 className="w-4 h-4" />
-                        )}
-                      </button>
+                    <div className="agent-grid">
+                      {members.map(member => {
+                        const Icon = roleIcons[member.role] || User
+                        return (
+                          <div key={member.id} className={`agent-card ${config.className}`}>
+                            <div className="flex items-start justify-between">
+                              <div className="agent-icon-container">
+                                <Icon className="w-5 h-5" />
+                              </div>
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => handleEdit(member)}
+                                  disabled={deleteLoading === member.id}
+                                  className="btn-icon-only"
+                                  aria-label="Edit member"
+                                >
+                                  <Edit2 className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => handleDelete(member.id)}
+                                  disabled={deleteLoading !== null}
+                                  className="btn-icon-only text-red-500"
+                                  aria-label="Remove member"
+                                >
+                                  {deleteLoading === member.id ? (
+                                    <Loader className="w-4 h-4 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="w-4 h-4" />
+                                  )}
+                                </button>
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-lg font-semibold text-gray-900">{member.name}</div>
+                              <div className="text-xs uppercase tracking-[0.2em] text-gray-400">{member.role}</div>
+                              {member.specialization && (
+                                <div className="text-sm text-gray-500 mt-2">{member.specialization}</div>
+                              )}
+                              {member.current_task && (
+                                <div className="text-xs text-gray-400 mt-2">Current: {member.current_task}</div>
+                              )}
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className={`text-xs font-semibold px-2 py-1 rounded-full ${
+                                member.status === 'active'
+                                  ? 'bg-green-100 text-green-800'
+                                  : member.status === 'busy'
+                                  ? 'bg-yellow-100 text-yellow-800'
+                                  : 'bg-gray-100 text-gray-800'
+                              }`}>
+                                {member.status}
+                              </span>
+                              {member.progress !== undefined && (
+                                <span className="text-xs text-gray-400">{member.progress}%</span>
+                              )}
+                            </div>
+                            <button
+                              onClick={() => handleEdit(member)}
+                              className="btn-manage"
+                            >
+                              Manage Agent
+                            </button>
+                          </div>
+                        )
+                      })}
                     </div>
                   </div>
                 )

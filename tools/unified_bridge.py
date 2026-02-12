@@ -4,9 +4,9 @@ UnifiedToolBridge: Translates unified tool calls to platform-specific adapters.
 Agents never know about Shopify, WordPress, etc. The bridge handles that translation.
 """
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Callable
 from models.unified import UnifiedProduct
-from tools.adapters import BaseAdapter, ShopifyAdapter, WordPressAdapter
+from tools.adapters import BaseAdapter
 
 
 class UnifiedToolBridge:
@@ -16,7 +16,11 @@ class UnifiedToolBridge:
     Internally routes calls to the correct adapter based on the platform.
     """
 
-    def __init__(self, adapters: Optional[Dict[str, BaseAdapter]] = None):
+    def __init__(
+        self,
+        adapters: Optional[Dict[str, BaseAdapter]] = None,
+        adapter_factory: Optional[Callable[[str], BaseAdapter]] = None
+    ):
         """
         Initialize with a mapping of platform -> adapter.
         
@@ -25,17 +29,18 @@ class UnifiedToolBridge:
                       If None, will attempt to auto-instantiate based on platform name
         """
         self.adapters = adapters or {}
+        self.adapter_factory = adapter_factory
 
     def _get_adapter(self, platform: str) -> BaseAdapter:
         """Get the adapter for a given platform."""
         if platform not in self.adapters:
-            # Try to instantiate a default adapter
-            if platform.lower() == "shopify":
-                self.adapters[platform] = ShopifyAdapter()
-            elif platform.lower() == "wordpress":
-                self.adapters[platform] = WordPressAdapter()
+            if self.adapter_factory:
+                self.adapters[platform] = self.adapter_factory(platform)
             else:
-                raise ValueError(f"No adapter available for platform: {platform}")
+                raise ValueError(
+                    "No adapter registered for platform. "
+                    "Provide adapters or an adapter_factory when creating UnifiedToolBridge."
+                )
         return self.adapters[platform]
 
     async def read_product(
@@ -56,7 +61,10 @@ class UnifiedToolBridge:
             UnifiedProduct representation
         """
         adapter = self._get_adapter(platform)
-        return await adapter.read_product(product_id, store_id)
+        try:
+            return await adapter.get_product(product_id, store_id)
+        except TypeError:
+            return await adapter.get_product(product_id)
 
     async def write_product(
         self, 
@@ -76,7 +84,10 @@ class UnifiedToolBridge:
             True if successful
         """
         adapter = self._get_adapter(platform)
-        return await adapter.write_product(product, store_id)
+        try:
+            return await adapter.update_product(product, store_id)
+        except TypeError:
+            return await adapter.update_product(product)
 
     async def read_products(
         self,
@@ -152,3 +163,7 @@ class UnifiedToolBridge:
     def set_adapter(self, platform: str, adapter: BaseAdapter):
         """Register a custom adapter for a platform."""
         self.adapters[platform] = adapter
+
+    def set_adapter_factory(self, adapter_factory: Callable[[str], BaseAdapter]):
+        """Register a factory to lazily create adapters by platform."""
+        self.adapter_factory = adapter_factory

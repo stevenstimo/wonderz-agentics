@@ -1,6 +1,6 @@
 import os
 import json
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 import uuid
 import asyncio
@@ -34,6 +34,63 @@ async def on_startup():
 @app.on_event("shutdown")
 async def on_shutdown():
     await close_db_pool()
+
+
+@app.websocket("/ws/jobs/{job_id}")
+async def job_progress_ws(websocket: WebSocket, job_id: str):
+    await websocket.accept()
+
+    from app.db import _pool
+    if _pool is None:
+        await websocket.close(code=1011)
+        return
+
+    last_job_updated_at = None
+    last_steps_max_created_at = None
+
+    try:
+        while True:
+            async with _pool.acquire() as conn:
+                job_row = await conn.fetchrow(
+                    "SELECT id, status, context, updated_at FROM jobs WHERE id=$1",
+                    job_id
+                )
+                if not job_row:
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": "job not found"
+                    })
+                    await asyncio.sleep(1.5)
+                    continue
+
+                steps_max = await conn.fetchval(
+                    "SELECT MAX(created_at) FROM job_steps WHERE job_id=$1",
+                    job_id
+                )
+
+                should_push = False
+                if job_row.get("updated_at") != last_job_updated_at:
+                    should_push = True
+                if steps_max != last_steps_max_created_at:
+                    should_push = True
+
+                if should_push:
+                    steps = await conn.fetch(
+                        "SELECT * FROM job_steps WHERE job_id=$1 ORDER BY step_index",
+                        job_id
+                    )
+                    await websocket.send_json({
+                        "type": "job_update",
+                        "job": dict(job_row),
+                        "steps": [dict(s) for s in steps]
+                    })
+                    last_job_updated_at = job_row.get("updated_at")
+                    last_steps_max_created_at = steps_max
+
+            await asyncio.sleep(1.0)
+
+    except WebSocketDisconnect:
+        return
 
 
 @app.post("/api/legacy/jobs")
