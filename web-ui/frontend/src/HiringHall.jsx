@@ -1,33 +1,30 @@
 import React, { useState } from 'react';
 import { Briefcase, Sparkles, BrainCircuit, ShieldCheck, Info } from 'lucide-react';
-
-// Types (optioneel: importeer uit types.ts als aanwezig)
-type AgentCategory = 'Management' | 'Creative' | 'Technical';
-interface Agent {
-  id: string;
-  name: string;
-  role: string;
-  goal: string;
-  category: AgentCategory;
-  specialization: string;
-  status: string;
-  metrics: { performanceScore: number; tasksCompleted: number; tokensConsumed: number; successRate: number };
-}
-
-interface Props {
-  onHire: (agent: Agent) => void;
-}
-
-const HiringHall: React.FC<Props> = ({ onHire }) => {
+/**
+ * @typedef {'Management' | 'Creative' | 'Technical'} AgentCategory
+ * @typedef {{
+ *   id: string,
+ *   name: string,
+ *   category: AgentCategory,
+ *   description: string,
+ *   avatarUrl: string,
+ *   specialization: string,
+ *   status: string,
+ *   metrics: { performanceScore: number, tasksCompleted: number, tokensConsumed: number, successRate: number }
+ * }} Agent
+ */
+//
+// Props: { onHire: function(Agent): void }
+const HiringHall = ({ onHire }) => {
   const [formData, setFormData] = useState({
     name: '',
     role: '',
     goal: '',
-    category: 'Creative' as AgentCategory,
+    category: 'Creative',
     specialization: '',
     systemInstruction: '',
     knowledgeSources: '',
-    tools: [] as string[]
+    tools: []
   });
 
   const availableTools = [
@@ -36,7 +33,7 @@ const HiringHall: React.FC<Props> = ({ onHire }) => {
     { id: 'analytics', label: 'GA4 Realtime Data', icon: '📈' }
   ];
 
-  const toggleTool = (id: string) => {
+  const toggleTool = (id) => {
     setFormData(prev => ({
       ...prev,
       tools: prev.tools.includes(id)
@@ -45,7 +42,7 @@ const HiringHall: React.FC<Props> = ({ onHire }) => {
     }));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = (e) => {
     e.preventDefault();
     onHire({
       id: Math.random().toString(36).substr(2, 9),
@@ -87,7 +84,7 @@ const HiringHall: React.FC<Props> = ({ onHire }) => {
             </div>
             <div className="space-y-2">
               <label className="text-[10px] font-black text-[#6B7280] uppercase tracking-widest px-1">Category</label>
-              <select className="w-full bg-[#F9FAFB] border border-[#E5E7EB] px-5 py-4 rounded-xl focus:ring-4 focus:ring-[#1d62e3]/10 focus:bg-white outline-none transition-all font-bold" value={formData.category} onChange={e => setFormData({...formData, category: e.target.value as AgentCategory})}>
+              <select className="w-full bg-[#F9FAFB] border border-[#E5E7EB] px-5 py-4 rounded-xl focus:ring-4 focus:ring-[#1d62e3]/10 focus:bg-white outline-none transition-all font-bold" value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})}>
                 <option value="Management">Management</option>
                 <option value="Creative">Creative</option>
                 <option value="Technical">Technical</option>

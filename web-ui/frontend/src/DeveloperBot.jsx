@@ -1,33 +1,31 @@
+import React, { useState } from 'react';
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8090";
 
 function ChatBubble({ message, isUser }) {
-	const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8090";
-
-	function ChatBubble({ message, isUser }) {
-		return (
-			<div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-2`}>
-				<div
-					className={`max-w-[70%] px-5 py-4 rounded-card shadow-sleak border text-base whitespace-pre-line font-sans '
-						${isUser
-							? 'bg-white border-sleak-border text-sleak-text'
-							: 'bg-brand-500 border-brand-500 text-white'}
-					`}
-					style={{ borderRadius: '32px' }}
-				>
-					{message}
-				</div>
+	return (
+		<div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-2`}>
+			<div
+				className={`max-w-[70%] px-5 py-4 rounded-card shadow-sleak border text-base whitespace-pre-line font-sans '
+					${isUser
+						? 'bg-white border-sleak-border text-sleak-text'
+						: 'bg-brand-500 border-brand-500 text-white'}
+				`}
+				style={{ borderRadius: '32px' }}
+			>
+				{message}
 			</div>
-		);
-	}
+		</div>
+	);
+}
 
-	export default function DeveloperBot() {
-		const [prompt, setPrompt] = useState("");
-		const [chat, setChat] = useState([
-			{ sender: "bot", text: "Hallo! Waarmee kan ik je als developer helpen?" },
-		]);
-		const [loading, setLoading] = useState(false);
-		const [error, setError] = useState("");
+function DeveloperBot() {
+	const [prompt, setPrompt] = useState("");
+	const [chat, setChat] = useState([
+		{ sender: "bot", text: "Hallo! Waarmee kan ik je als developer helpen?" },
+	]);
+	const [loading, setLoading] = useState(false);
+	const [error, setError] = useState("");
 
 		async function sendPrompt(e) {
 			e.preventDefault();
@@ -94,3 +92,5 @@ function ChatBubble({ message, isUser }) {
 			</div>
 		);
 	}
+
+export default DeveloperBot;
