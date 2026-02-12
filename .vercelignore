@@ -10,7 +10,6 @@ __pycache__
 .git
 .vercel
 build/
-dist/
 .next
 out/
 coverage/
