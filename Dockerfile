@@ -13,6 +13,7 @@ COPY . .
 ENV PYTHONUNBUFFERED=1
 ENV PORT=10000
 ENV PYTHONPATH=/app
+ENV WEB_CONCURRENCY=1
 
 # Run FastAPI with Gunicorn
-CMD gunicorn -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT --chdir /app/web-ui/backend api_main:app
+CMD gunicorn -w ${WEB_CONCURRENCY} -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT --chdir /app/web-ui/backend api_main:app
