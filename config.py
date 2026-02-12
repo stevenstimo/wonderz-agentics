@@ -62,10 +62,13 @@ class AppConfig:
     FRONTEND_PROD = "https://frontend-rho-one-99.vercel.app"
     
     # Database
-    DATABASE_HOST = "db.cqasccazioqjodctawzx.supabase.co"
+    DATABASE_HOST = "localhost"
     DATABASE_PORT = 5432
     DATABASE_NAME = "postgres"
-    DATABASE_URL = os.getenv("DATABASE_URL", "")
+    DATABASE_URL = os.getenv(
+        "DATABASE_URL",
+        f"postgresql://postgres:postgres@localhost:5432/postgres"
+    )
     
     # Use production or development URLs
     USE_PRODUCTION = os.getenv("ENV", "development").lower() == "production"
