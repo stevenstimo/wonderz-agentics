@@ -1,4 +1,5 @@
 import HiringHall from './HiringHall.jsx';
+import DaveDevConsole from './DaveDevConsole.jsx';
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
@@ -32,6 +33,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
         <Route path="/devbot" element={<DeveloperBot />} />
         <Route path="/hiring" element={<HiringHall onHire={() => {}} />} />
         <Route path="/talents" element={<TalentOverview />} />
+        <Route path="/devbot/dave" element={<DaveDevConsole />} />
       </Routes>
     </BrowserRouter>
   </React.StrictMode>,
