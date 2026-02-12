@@ -1,3 +1,17 @@
+# Lokale database starten (Docker)
+
+1. Start PostgreSQL lokaal:
+   ```bash
+   docker compose up -d db
+   ```
+   Dit start een PostgreSQL-database op poort 5432 met user `postgres` en wachtwoord `postgres`.
+
+2. Je backend gebruikt automatisch deze database (zie config.py). Je kunt nu ontwikkelen, testen en migreren zonder Supabase of internet.
+
+3. Stoppen kan met:
+   ```bash
+   docker compose down
+   ```
 # Quick Start Guide
 
 ## Setup (5 minuten)

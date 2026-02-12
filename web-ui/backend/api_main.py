@@ -1,3 +1,28 @@
+from uuid import uuid4
+# CrewMember toevoegen endpoint
+@app.post("/api/crew", response_model=CrewMember)
+def add_crew_member(crew: CrewMember, db: Session = Depends(get_db)):
+    db_crew = CrewMemberSQL(
+        id=crew.id or str(uuid4()),
+        name=crew.name,
+        role=crew.role,
+        specialization=crew.specialization,
+        status=crew.status,
+        current_task=crew.current_task,
+        progress=crew.progress,
+        avatar_url=crew.avatar_url,
+        system_instructions=crew.system_instructions,
+        knowledge_base_sources=None,  # Optioneel: serialiseren indien gewenst
+        tool_access_whitelist=None,   # Optioneel: serialiseren indien gewenst
+        hiring_logic=crew.hiring_logic,
+        persona=crew.persona,
+        quality_notes=crew.quality_notes,
+        development_notes=crew.development_notes
+    )
+    db.add(db_crew)
+    db.commit()
+    db.refresh(db_crew)
+    return crew
 
 # --- Imports ---
 import os
@@ -9,6 +34,14 @@ from pydantic import BaseModel, validator
 import uuid
 from typing import List, Optional
 from models.ui import CrewMember, Task, TaskCrewShare, ImprovementItem, HiredAgent, ApprovalRequest, TrainingSession
+from models.sql_models import CrewMemberSQL
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+# Database setup
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/postgres")
+engine = create_engine(DATABASE_URL)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 from models.unified import UnifiedProduct
 from tools.adapters import ShopifyAdapter, WordPressAdapter
 from app.db import init_db_pool, close_db_pool
@@ -83,14 +116,39 @@ async def error_handling_middleware(request: Request, call_next):
             "timestamp": str(datetime.now())
         }, 500
 
-# --- Demo data for UI endpoints ---
-demo_crew = [
-    CrewMember(id='pm', name='Product Manager', role='Product Owner', status='active', current_task='Catalog design', progress=80),
-    CrewMember(id='dev', name='Shopify Developer', role='Developer', status='busy', current_task='Implement Liquid templates', progress=60),
-    CrewMember(id='review', name='Reviewer', role='Reviewer', status='idle', current_task='Waiting for review', progress=0),
-    CrewMember(id='devops', name='DevOps', role='DevOps', status='active', current_task='CI/CD setup', progress=40),
-    CrewMember(id='ai', name='AI Agent', role='AI', status='active', current_task='Generating code', progress=90),
-]
+
+# --- Crew API endpoints (database-backed) ---
+from fastapi import Depends
+from sqlalchemy.orm import Session
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+@app.get("/api/crew", response_model=List[CrewMember])
+def get_crew(db: Session = Depends(get_db)):
+    crew = db.query(CrewMemberSQL).all()
+    # Convert SQLAlchemy models to Pydantic models
+    return [CrewMember(
+        id=c.id,
+        name=c.name,
+        role=c.role,
+        specialization=c.specialization,
+        status=c.status,
+        current_task=c.current_task,
+        progress=c.progress,
+        avatar_url=c.avatar_url,
+        system_instructions=c.system_instructions,
+        knowledge_base_sources=None,  # Optional: parse from string if needed
+        tool_access_whitelist=None,   # Optional: parse from string if needed
+        hiring_logic=c.hiring_logic,
+        persona=c.persona,
+        quality_notes=c.quality_notes,
+        development_notes=c.development_notes
+    ) for c in crew]
 
 demo_tasks = [
     Task(

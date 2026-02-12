@@ -10,6 +10,8 @@ const managementMenu = [
   { label: 'Crew', icon: Users, path: '/crew/management' },
   { label: 'Training Hub', icon: ClipboardList, path: '/training/management' },
   { label: 'Improvements', icon: ClipboardList, path: '/hr/improvements' },
+  { label: 'Hiring Hall', icon: ClipboardList, path: '/hiring' },
+  { label: 'Developer Bot', icon: Code, path: '/devbot' },
   { label: 'HR Feedback', icon: ClipboardList },
   { label: 'Safety Gate', icon: Shield, path: '/approvals' },
 ]
