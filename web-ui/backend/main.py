@@ -154,7 +154,9 @@ async def run_workflow(project_idea: str, language: Optional[str], platform: str
         await send_progress(websocket, "requirements", "in_progress",
                           {"message": "Analyzing requirements..."})
         
-        po_result = product_owner.analyze(project_idea)
+        # Run blocking call in thread pool to avoid blocking event loop
+        loop = asyncio.get_event_loop()
+        po_result = await loop.run_in_executor(None, product_owner.analyze, project_idea)
         results["stages"]["requirements"] = {
             "output": po_result["requirements"],
             "tokens": po_result["input_tokens"] + po_result["output_tokens"]
@@ -169,7 +171,8 @@ async def run_workflow(project_idea: str, language: Optional[str], platform: str
         await send_progress(websocket, "development", "in_progress",
                           {"message": "Writing code..."})
         
-        dev_result = developer.develop(po_result["requirements"], language)
+        # Run in thread pool
+        dev_result = await loop.run_in_executor(None, developer.develop, po_result["requirements"], language)
         # Persist generated code files to a uniquely named project folder
         project_folder = save_generated_files(project_idea or "project", dev_result.get("code_files", {}))
         project_id = Path(project_folder).name
@@ -190,7 +193,8 @@ async def run_workflow(project_idea: str, language: Optional[str], platform: str
         await send_progress(websocket, "review", "in_progress",
                           {"message": "Reviewing code..."})
 
-        review_result = reviewer.review(dev_result["full_output"], po_result["requirements"])
+        # Run in thread pool
+        review_result = await loop.run_in_executor(None, reviewer.review, dev_result["full_output"], po_result["requirements"])
         results["stages"]["review"] = {
             "output": review_result["review"],
             "status": review_result["status"],
@@ -207,11 +211,14 @@ async def run_workflow(project_idea: str, language: Optional[str], platform: str
         await send_progress(websocket, "devops", "in_progress",
                           {"message": "Creating deployment configuration..."})
 
-        devops_result = devops.create_deployment(
-            dev_result["full_output"],
-            po_result["requirements"],
-            platform
-        )
+        # Run in thread pool
+        def _create_deployment():
+            return devops.create_deployment(
+                dev_result["full_output"],
+                po_result["requirements"],
+                platform
+            )
+        devops_result = await loop.run_in_executor(None, _create_deployment)
         results["stages"]["devops"] = {
             "output": devops_result["full_output"],
             "deployment_files": devops_result["deployment_files"],
