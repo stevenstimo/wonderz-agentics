@@ -9,7 +9,7 @@ export const CONFIG = {
   // ===== API Endpoints =====
   api: {
     // Backend API URL
-    baseUrl: process.env.VITE_API_URL || 'http://localhost:8090',
+    baseUrl: import.meta.env.VITE_API_URL || 'http://localhost:8090',
     
     // API endpoints
     endpoints: {
@@ -50,7 +50,7 @@ export const CONFIG = {
   // ===== Application URLs =====
   app: {
     // Frontend URLs
-    frontend: process.env.VITE_FRONTEND_URL || 'http://localhost:5173',
+    frontend: import.meta.env.VITE_FRONTEND_URL || 'http://localhost:5173',
     
     // Pages
     pages: {
@@ -95,13 +95,13 @@ export const CONFIG = {
   // ===== Development Settings =====
   dev: {
     // Enable debug logging
-    debugMode: process.env.VITE_DEBUG === 'true',
+    debugMode: import.meta.env.VITE_DEBUG === 'true',
     
     // Mock API responses (for development)
-    useMock: process.env.VITE_USE_MOCK === 'true',
+    useMock: import.meta.env.VITE_USE_MOCK === 'true',
     
     // Log all API calls
-    logApiCalls: process.env.VITE_LOG_API === 'true',
+    logApiCalls: import.meta.env.VITE_LOG_API === 'true',
   },
 
   // ===== Features =====

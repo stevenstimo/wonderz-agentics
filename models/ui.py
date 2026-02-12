@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field
 from typing import List, Optional
 
+
 class CrewMember(BaseModel):
     id: str
     name: str
@@ -16,7 +17,20 @@ class CrewMember(BaseModel):
     hiring_logic: Optional[str] = None
     persona: Optional[str] = None
     quality_notes: Optional[str] = None
+    growth: Optional[str] = None
     development_notes: Optional[str] = None
+
+
+from datetime import datetime
+class Talent(BaseModel):
+    id: str
+    name: str
+    persona: str
+    quality: str
+    growth: str
+    skills: Optional[list[dict]] = []  # [{"name": str, "level": int}]
+    avatar_url: Optional[str] = None
+    created_at: datetime
 
 class TaskCrewShare(BaseModel):
     crew_id: str
