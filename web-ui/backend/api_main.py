@@ -4,6 +4,7 @@ import os
 import json
 from datetime import datetime
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, validator
 import uuid
 from typing import List, Optional
@@ -22,6 +23,27 @@ from config import ANTHROPIC_API_KEY
 
 # --- FastAPI app instance ---
 app = FastAPI(title="Multi-Agentic Crew - Orchestrator API")
+
+# --- CORS ---
+cors_origins_env = os.getenv("CORS_ORIGINS")
+cors_origins = (
+    [o.strip() for o in cors_origins_env.split(",") if o.strip()]
+    if cors_origins_env
+    else [
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "https://wonderz-agentics.vercel.app",
+        "https://frontend-rho-one-99.vercel.app",
+    ]
+)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # --- Error Response Models ---
 class ErrorResponse(BaseModel):
@@ -114,6 +136,10 @@ class CreateCrewMemberRequest(BaseModel):
     role: str
     specialization: Optional[str] = None
     permissions: Optional[List[str]] = None
+    system_instructions: str
+    knowledge_base_sources: Optional[List[str]] = None
+    tool_access_whitelist: Optional[List[str]] = None
+    hiring_logic: str
     
     @validator('name')
     def validate_name(cls, v):
@@ -136,6 +162,48 @@ class CreateCrewMemberRequest(BaseModel):
             raise ValueError("Specialization must be 250 characters or less")
         return v
 
+    @validator('system_instructions')
+    def validate_system_instructions(cls, v):
+        if not v or len(v.strip()) == 0:
+            raise ValueError("System instructions cannot be empty")
+        if len(v) > 4000:
+            raise ValueError("System instructions must be 4000 characters or less")
+        return v
+
+    @validator('hiring_logic')
+    def validate_hiring_logic(cls, v):
+        if not v or len(v.strip()) == 0:
+            raise ValueError("Hiring logic cannot be empty")
+        if len(v) > 2000:
+            raise ValueError("Hiring logic must be 2000 characters or less")
+        return v
+
+    @validator('knowledge_base_sources')
+    def validate_knowledge_base_sources(cls, v):
+        if v is None:
+            return v
+        if len(v) > 50:
+            raise ValueError("Knowledge base sources must be 50 items or less")
+        for item in v:
+            if not item or len(item.strip()) == 0:
+                raise ValueError("Knowledge base sources cannot be empty")
+            if len(item) > 2048:
+                raise ValueError("Knowledge base source is too long (max 2048 characters)")
+        return v
+
+    @validator('tool_access_whitelist')
+    def validate_tool_access_whitelist(cls, v):
+        if v is None:
+            return v
+        if len(v) > 50:
+            raise ValueError("Tool access whitelist must be 50 items or less")
+        for item in v:
+            if not item or len(item.strip()) == 0:
+                raise ValueError("Tool access whitelist entries cannot be empty")
+            if len(item) > 200:
+                raise ValueError("Tool access whitelist entry is too long (max 200 characters)")
+        return v
+
 
 class UpdateCrewMemberRequest(BaseModel):
     name: Optional[str] = None
@@ -144,6 +212,10 @@ class UpdateCrewMemberRequest(BaseModel):
     status: Optional[str] = None
     current_task: Optional[str] = None
     progress: Optional[int] = None
+    system_instructions: Optional[str] = None
+    knowledge_base_sources: Optional[List[str]] = None
+    tool_access_whitelist: Optional[List[str]] = None
+    hiring_logic: Optional[str] = None
     
     @validator('name')
     def validate_name(cls, v):
@@ -177,6 +249,50 @@ class UpdateCrewMemberRequest(BaseModel):
                 raise ValueError("Progress must be between 0 and 100")
         return v
 
+    @validator('system_instructions')
+    def validate_system_instructions(cls, v):
+        if v is not None:
+            if len(v.strip()) == 0:
+                raise ValueError("System instructions cannot be empty")
+            if len(v) > 4000:
+                raise ValueError("System instructions must be 4000 characters or less")
+        return v
+
+    @validator('hiring_logic')
+    def validate_hiring_logic(cls, v):
+        if v is not None:
+            if len(v.strip()) == 0:
+                raise ValueError("Hiring logic cannot be empty")
+            if len(v) > 2000:
+                raise ValueError("Hiring logic must be 2000 characters or less")
+        return v
+
+    @validator('knowledge_base_sources')
+    def validate_knowledge_base_sources(cls, v):
+        if v is None:
+            return v
+        if len(v) > 50:
+            raise ValueError("Knowledge base sources must be 50 items or less")
+        for item in v:
+            if not item or len(item.strip()) == 0:
+                raise ValueError("Knowledge base sources cannot be empty")
+            if len(item) > 2048:
+                raise ValueError("Knowledge base source is too long (max 2048 characters)")
+        return v
+
+    @validator('tool_access_whitelist')
+    def validate_tool_access_whitelist(cls, v):
+        if v is None:
+            return v
+        if len(v) > 50:
+            raise ValueError("Tool access whitelist must be 50 items or less")
+        for item in v:
+            if not item or len(item.strip()) == 0:
+                raise ValueError("Tool access whitelist entries cannot be empty")
+            if len(item) > 200:
+                raise ValueError("Tool access whitelist entry is too long (max 200 characters)")
+        return v
+
 
 class CreateJobRequest(BaseModel):
     store_id: Optional[str] = None
@@ -192,7 +308,7 @@ async def get_crew():
     try:
         async with _pool.acquire() as conn:
             rows = await conn.fetch(
-                "SELECT crew_id as id, name, role, status, current_task, progress FROM crew_members WHERE status != 'deactivated' ORDER BY created_at DESC"
+                "SELECT crew_id as id, name, role, specialization, status, current_task, progress, system_instructions, knowledge_base_sources, tool_access_whitelist, hiring_logic FROM crew_members WHERE status != 'deactivated' ORDER BY created_at DESC"
             )
         crew_list = []
         for row in rows:
@@ -200,9 +316,14 @@ async def get_crew():
                 id=row['id'],
                 name=row['name'],
                 role=row['role'],
+                specialization=row['specialization'],
                 status=row['status'],
                 current_task=row['current_task'],
-                progress=row['progress'] or 0
+                progress=row['progress'] or 0,
+                system_instructions=row['system_instructions'],
+                knowledge_base_sources=row['knowledge_base_sources'],
+                tool_access_whitelist=row['tool_access_whitelist'],
+                hiring_logic=row['hiring_logic']
             ))
         return crew_list
     except Exception:
@@ -222,12 +343,49 @@ async def create_crew_member(req: CreateCrewMemberRequest):
     
     crew_id = f"{req.role.lower()}_{uuid.uuid4().hex[:8]}"
     
+    knowledge_base_sources = req.knowledge_base_sources or []
+    tool_access_whitelist = req.tool_access_whitelist or []
     try:
         async with _pool.acquire() as conn:
-            await conn.execute(
-                "INSERT INTO crew_members (crew_id, name, role, specialization, permissions) VALUES ($1, $2, $3, $4, $5)",
-                crew_id, req.name, req.role, req.specialization, json.dumps(req.permissions or [])
-            )
+            async with conn.transaction():
+                await conn.execute(
+                    "INSERT INTO crew_members (crew_id, name, role, specialization, permissions, system_instructions, knowledge_base_sources, tool_access_whitelist, hiring_logic) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+                    crew_id,
+                    req.name,
+                    req.role,
+                    req.specialization,
+                    json.dumps(req.permissions or []),
+                    req.system_instructions,
+                    json.dumps(knowledge_base_sources),
+                    json.dumps(tool_access_whitelist),
+                    req.hiring_logic
+                )
+                await conn.execute(
+                    "INSERT INTO ceo_hired_agents (agent_id, name, role, specialization, status, permissions, system_instructions, knowledge_base_sources, tool_access_whitelist, hiring_logic) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (agent_id) DO UPDATE SET name = EXCLUDED.name, role = EXCLUDED.role, specialization = EXCLUDED.specialization, status = EXCLUDED.status, permissions = EXCLUDED.permissions, system_instructions = EXCLUDED.system_instructions, knowledge_base_sources = EXCLUDED.knowledge_base_sources, tool_access_whitelist = EXCLUDED.tool_access_whitelist, hiring_logic = EXCLUDED.hiring_logic, updated_at = now()",
+                    crew_id,
+                    req.name,
+                    req.role,
+                    req.specialization,
+                    "active",
+                    json.dumps(req.permissions or []),
+                    req.system_instructions,
+                    json.dumps(knowledge_base_sources),
+                    json.dumps(tool_access_whitelist),
+                    req.hiring_logic
+                )
+                await conn.execute(
+                    "INSERT INTO hired_agents (agent_id, name, role, specialization, status, permissions, system_instructions, knowledge_base_sources, tool_access_whitelist, hiring_logic) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (agent_id) DO UPDATE SET name = EXCLUDED.name, role = EXCLUDED.role, specialization = EXCLUDED.specialization, status = EXCLUDED.status, permissions = EXCLUDED.permissions, system_instructions = EXCLUDED.system_instructions, knowledge_base_sources = EXCLUDED.knowledge_base_sources, tool_access_whitelist = EXCLUDED.tool_access_whitelist, hiring_logic = EXCLUDED.hiring_logic, updated_at = now()",
+                    crew_id,
+                    req.name,
+                    req.role,
+                    req.specialization,
+                    "active",
+                    json.dumps(req.permissions or []),
+                    req.system_instructions,
+                    json.dumps(knowledge_base_sources),
+                    json.dumps(tool_access_whitelist),
+                    req.hiring_logic
+                )
         return {
             "status": "success",
             "crew_id": crew_id,
@@ -254,7 +412,7 @@ async def get_crew_member(crew_id: str):
     try:
         async with _pool.acquire() as conn:
             row = await conn.fetchrow(
-                "SELECT crew_id, name, role, specialization, status, performance_score, completed_tasks, current_task, progress FROM crew_members WHERE crew_id = $1",
+                "SELECT crew_id, name, role, specialization, status, performance_score, completed_tasks, current_task, progress, system_instructions, knowledge_base_sources, tool_access_whitelist, hiring_logic FROM crew_members WHERE crew_id = $1",
                 crew_id
             )
         if row:
@@ -277,22 +435,40 @@ async def update_crew_member(crew_id: str, req: UpdateCrewMemberRequest):
     if _pool is None:
         raise HTTPException(status_code=503, detail="Database not available")
     
-    updates = []
-    params = []
-    param_count = 1
-    
-    for field in ["name", "role", "specialization", "status", "current_task", "progress"]:
-        value = getattr(req, field, None)
-        if value is not None:
-            updates.append(f"{field} = ${param_count}")
-            params.append(value)
-            param_count += 1
-    
-    if not updates:
+    def build_updates(field_map, json_fields=None):
+        updates = []
+        params = []
+        json_fields = json_fields or set()
+        for field, value in field_map.items():
+            if value is not None:
+                if field in json_fields:
+                    value = json.dumps(value)
+                updates.append(f"{field} = ${len(params) + 1}")
+                params.append(value)
+        return updates, params
+
+    crew_fields = {
+        "name": req.name,
+        "role": req.role,
+        "specialization": req.specialization,
+        "status": req.status,
+        "current_task": req.current_task,
+        "progress": req.progress,
+        "system_instructions": req.system_instructions,
+        "knowledge_base_sources": req.knowledge_base_sources,
+        "tool_access_whitelist": req.tool_access_whitelist,
+        "hiring_logic": req.hiring_logic,
+    }
+    crew_updates, crew_params = build_updates(
+        crew_fields,
+        json_fields={"knowledge_base_sources", "tool_access_whitelist"}
+    )
+
+    if not crew_updates:
         raise HTTPException(status_code=400, detail="At least one field must be provided for update")
-    
-    updates.append("updated_at = now()")
-    params.append(crew_id)
+
+    crew_updates.append("updated_at = now()")
+    crew_params.append(crew_id)
     
     try:
         async with _pool.acquire() as conn:
@@ -300,12 +476,45 @@ async def update_crew_member(crew_id: str, req: UpdateCrewMemberRequest):
             crew_check = await conn.fetchrow("SELECT crew_id FROM crew_members WHERE crew_id = $1", crew_id)
             if not crew_check:
                 raise HTTPException(status_code=404, detail=f"Crew member {crew_id} not found")
-            
-            param_count += 1
+
             await conn.execute(
-                f"UPDATE crew_members SET {', '.join(updates)} WHERE crew_id = ${param_count}",
-                *params
+                f"UPDATE crew_members SET {', '.join(crew_updates)} WHERE crew_id = ${len(crew_params)}",
+                *crew_params
             )
+
+            ceo_fields = {
+                "name": req.name,
+                "role": req.role,
+                "specialization": req.specialization,
+                "status": req.status,
+                "system_instructions": req.system_instructions,
+                "knowledge_base_sources": req.knowledge_base_sources,
+                "tool_access_whitelist": req.tool_access_whitelist,
+                "hiring_logic": req.hiring_logic,
+            }
+            ceo_updates, ceo_params = build_updates(
+                ceo_fields,
+                json_fields={"knowledge_base_sources", "tool_access_whitelist"}
+            )
+            if ceo_updates:
+                ceo_updates.append("updated_at = now()")
+                ceo_params.append(crew_id)
+                await conn.execute(
+                    f"UPDATE ceo_hired_agents SET {', '.join(ceo_updates)} WHERE agent_id = ${len(ceo_params)}",
+                    *ceo_params
+                )
+
+            hired_updates, hired_params = build_updates(
+                ceo_fields,
+                json_fields={"knowledge_base_sources", "tool_access_whitelist"}
+            )
+            if hired_updates:
+                hired_updates.append("updated_at = now()")
+                hired_params.append(crew_id)
+                await conn.execute(
+                    f"UPDATE hired_agents SET {', '.join(hired_updates)} WHERE agent_id = ${len(hired_params)}",
+                    *hired_params
+                )
         return {"status": "success", "message": f"Crew member {crew_id} updated"}
     except HTTPException:
         raise
@@ -685,21 +894,44 @@ async def request_training(req: RequestTrainingInput):
     
     try:
         async with _pool.acquire() as conn:
-            # Verify crew member exists
-            crew_check = await conn.fetchrow(
-                "SELECT crew_id FROM crew_members WHERE crew_id = $1 AND status != 'deactivated'",
-                req.crew_id
-            )
-            if not crew_check:
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"Crew member {req.crew_id} not found or is deactivated"
+            async with conn.transaction():
+                # Verify crew member exists
+                crew_check = await conn.fetchrow(
+                    "SELECT crew_id FROM crew_members WHERE crew_id = $1 AND status != 'deactivated'",
+                    req.crew_id
                 )
-            
-            await conn.execute(
-                "INSERT INTO training_sessions (session_id, crew_id, agent_name, training_url, training_title, training_summary) VALUES ($1, $2, $3, $4, $5, $6)",
-                session_id, req.crew_id, req.agent_name, req.training_url, req.training_title, req.training_summary
-            )
+                if not crew_check:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Crew member {req.crew_id} not found or is deactivated"
+                    )
+
+                await conn.execute(
+                    "INSERT INTO training_sessions (session_id, crew_id, agent_name, training_url, training_title, training_summary) VALUES ($1, $2, $3, $4, $5, $6)",
+                    session_id, req.crew_id, req.agent_name, req.training_url, req.training_title, req.training_summary
+                )
+
+                crew_sources_row = await conn.fetchrow(
+                    "SELECT knowledge_base_sources FROM crew_members WHERE crew_id = $1",
+                    req.crew_id
+                )
+                existing_sources = crew_sources_row["knowledge_base_sources"] if crew_sources_row else []
+                if existing_sources is None:
+                    existing_sources = []
+                if req.training_url not in existing_sources:
+                    existing_sources.append(req.training_url)
+                await conn.execute(
+                    "UPDATE crew_members SET knowledge_base_sources = $1, updated_at = now() WHERE crew_id = $2",
+                    json.dumps(existing_sources), req.crew_id
+                )
+                await conn.execute(
+                    "UPDATE ceo_hired_agents SET knowledge_base_sources = $1, updated_at = now() WHERE agent_id = $2",
+                    json.dumps(existing_sources), req.crew_id
+                )
+                await conn.execute(
+                    "UPDATE hired_agents SET knowledge_base_sources = $1, updated_at = now() WHERE agent_id = $2",
+                    json.dumps(existing_sources), req.crew_id
+                )
         
         ceo = get_ceo_agent()
         approval_result = ceo.request_approval("training", {

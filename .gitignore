@@ -7,6 +7,7 @@ __pycache__/
 *.pyc
 venv/
 env/
+.venv/
 
 # Node
 node_modules/
@@ -21,3 +22,5 @@ output/
 # IDE
 .vscode/
 .idea/
+.vercel
+.env*.local
