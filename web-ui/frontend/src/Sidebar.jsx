@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { Home, Users, Layers, ClipboardList, Settings, PlusCircle, BookOpen, Shield } from 'lucide-react'
+import { Home, Users, Layers, ClipboardList, Settings, PlusCircle, BookOpen, Shield, Code } from 'lucide-react'
 
 const primaryMenu = [
   { label: 'Mission Control', icon: Layers, path: '/' },
