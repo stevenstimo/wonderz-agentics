@@ -13,6 +13,7 @@ import ExplainerHowItWorks from './ExplainerHowItWorks.jsx'
 import ExplainerPersona from './ExplainerPersona.jsx'
 import ExplainerCrew from './ExplainerCrew.jsx'
 import DeveloperBot from './DeveloperBot.jsx'
+import TalentOverview from './TalentOverview.jsx'
 import './index.css'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
@@ -30,6 +31,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
         <Route path="/explainer/crew" element={<ExplainerCrew />} />
         <Route path="/devbot" element={<DeveloperBot />} />
         <Route path="/hiring" element={<HiringHall onHire={() => {}} />} />
+        <Route path="/talents" element={<TalentOverview />} />
       </Routes>
     </BrowserRouter>
   </React.StrictMode>,

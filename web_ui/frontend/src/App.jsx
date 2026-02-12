@@ -4,6 +4,9 @@ import { useState, useEffect, useRef } from 'react'
 // import CrewOverviewLive from './CrewOverviewLive'
 // import TaskListLive from './TaskListLive'
 import Sidebar from './Sidebar'
+import ProgressBar from './ProgressBar'
+import AgentList from './AgentList'
+import { getAgentsPerStage } from './agentUtils'
 import { Link } from 'react-router-dom'
 import { 
   Sparkles, Code, FileText, Shield, Container, 
@@ -87,18 +90,30 @@ await supabase.from('projects').insert([
 
     ws.current.onmessage = (event) => {
       const message = JSON.parse(event.data)
-      
+      // DEMO: inject dummy agents if not present
       if (message.type === 'progress') {
-        setProgress(prev => [...prev, message])
-        setCurrentStage(message.stage)
+        let agents = message.agents;
+        if (!Array.isArray(agents)) {
+          // Demo agent names per stage
+          const demoAgents = {
+            initialization: ['Alice'],
+            requirements: ['Bob', 'Eve'],
+            development: ['Charlie', 'Dana'],
+            review: ['Frank'],
+            devops: ['Grace'],
+          };
+          agents = demoAgents[message.stage] || [];
+        }
+        setProgress(prev => [...prev, { ...message, agents }]);
+        setCurrentStage(message.stage);
 
         if (message.stage === 'complete' && message.status === 'success') {
-          setResults(message.data.results)
-          setIsRunning(false)
+          setResults(message.data.results);
+          setIsRunning(false);
         }
 
         if (message.status === 'failed') {
-          setIsRunning(false)
+          setIsRunning(false);
         }
       }
     }
@@ -217,47 +232,51 @@ await supabase.from('projects').insert([
         {isRunning && (
           <div className="panel-card mb-8">
             <h2 className="text-2xl font-bold mb-6 text-gray-800">Building Your Project...</h2>
-            
+            {/* Progress bar */}
+            <ProgressBar stages={stages} currentStage={currentStage} />
             <div className="space-y-4">
-              {stages.map((stage) => {
-                const status = getStageStatus(stage.id)
-                const Icon = stage.icon
-                
-                return (
-                  <div
-                    key={stage.id}
-                    className={`flex items-center gap-4 p-4 rounded-lg transition-all ${
-                      currentStage === stage.id ? 'bg-indigo-50 border-2 border-indigo-300' : 'bg-gray-50'
-                    }`}
-                  >
-                    <div className={`${stage.color}`}>
-                      <Icon className="w-6 h-6" />
+              {(() => {
+                const agentsPerStage = getAgentsPerStage(progress);
+                return stages.map((stage) => {
+                  const status = getStageStatus(stage.id);
+                  const Icon = stage.icon;
+                  const agents = agentsPerStage[stage.id] || [];
+                  return (
+                    <div
+                      key={stage.id}
+                      className={`flex flex-col gap-1 md:flex-row md:items-center md:gap-4 p-4 rounded-lg transition-all ${
+                        currentStage === stage.id ? 'bg-indigo-50 border-2 border-indigo-300' : 'bg-gray-50'
+                      }`}
+                    >
+                      <div className={`${stage.color}`}>
+                        <Icon className="w-6 h-6" />
+                      </div>
+                      <div className="flex-1">
+                        <h3 className="font-semibold text-gray-800">{stage.name}</h3>
+                        {status === 'in_progress' && (
+                          <p className="text-sm text-gray-600">Working...</p>
+                        )}
+                        {status === 'completed' && (
+                          <p className="text-sm text-green-600">Completed</p>
+                        )}
+                        {/* Show agent names if available */}
+                        <AgentList agents={agents} />
+                      </div>
+                      <div>
+                        {status === 'in_progress' && (
+                          <Loader2 className="w-5 h-5 animate-spin text-indigo-600" />
+                        )}
+                        {status === 'completed' && (
+                          <CheckCircle className="w-5 h-5 text-green-500" />
+                        )}
+                        {status === 'failed' && (
+                          <XCircle className="w-5 h-5 text-red-500" />
+                        )}
+                      </div>
                     </div>
-                    
-                    <div className="flex-1">
-                      <h3 className="font-semibold text-gray-800">{stage.name}</h3>
-                      {status === 'in_progress' && (
-                        <p className="text-sm text-gray-600">Working...</p>
-                      )}
-                      {status === 'completed' && (
-                        <p className="text-sm text-green-600">Completed</p>
-                      )}
-                    </div>
-
-                    <div>
-                      {status === 'in_progress' && (
-                        <Loader2 className="w-5 h-5 animate-spin text-indigo-600" />
-                      )}
-                      {status === 'completed' && (
-                        <CheckCircle className="w-5 h-5 text-green-500" />
-                      )}
-                      {status === 'failed' && (
-                        <XCircle className="w-5 h-5 text-red-500" />
-                      )}
-                    </div>
-                  </div>
-                )
-              })}
+                  );
+                });
+              })()}
             </div>
           </div>
         )}
