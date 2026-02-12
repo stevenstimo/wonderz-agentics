@@ -12,6 +12,13 @@ import {
 function App() {
   const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8000'
   const wsBase = (import.meta.env.VITE_WS_URL || apiBase).replace(/^http/, 'ws').replace(/\/$/, '')
+  const stages = [
+    { id: 'initialization', name: 'Initialization', icon: Sparkles, color: 'text-indigo-600' },
+    { id: 'requirements', name: 'Requirements', icon: FileText, color: 'text-blue-600' },
+    { id: 'development', name: 'Development', icon: Code, color: 'text-green-600' },
+    { id: 'review', name: 'Review', icon: Shield, color: 'text-yellow-600' },
+    { id: 'devops', name: 'DevOps', icon: Container, color: 'text-purple-600' },
+  ]
   // State declarations
   const [projectIdea, setProjectIdea] = useState('')
   const [language, setLanguage] = useState('')

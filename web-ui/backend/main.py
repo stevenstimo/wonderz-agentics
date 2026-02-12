@@ -35,6 +35,7 @@ cors_origins = (
         "http://localhost:3000",
         "http://localhost:5173",
         "https://wonderz-agentics-4b7x95qr3-stevenstimos-projects.vercel.app",
+        "https://frontend-rho-one-99.vercel.app",
     ]
 )
 app.add_middleware(
