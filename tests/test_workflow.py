@@ -8,14 +8,40 @@ from app.orchestration.manager import OperationsManager, SharedContext
 async def test_review_retry_and_approval_flow():
     calls = {"write_job_step": [], "append_artifact": [], "update_job_status": []}
 
+    class FakeConnection:
+        async def close(self):
+            return None
+
     async def fake_connect():
-        return object()
+        return FakeConnection()
 
-    async def fake_write_job_step(conn, job_id, step_name, agent, status, log=None):
-        calls["write_job_step"].append((job_id, step_name, agent, status, log))
+    async def fake_write_job_step(
+        conn,
+        job_id,
+        step_name,
+        agent_role,
+        status,
+        input_payload=None,
+        output=None,
+        unified_tool=None,
+        requires_approval=False,
+        tokens_used=0,
+        timing_ms=0
+    ):
+        calls["write_job_step"].append((job_id, step_name, agent_role, status, output))
 
-    async def fake_append_artifact(conn, job_id, name, artifact_type, content=None, content_text=None, storage_path=None):
-        calls["append_artifact"].append((job_id, name, artifact_type, content_text))
+    async def fake_append_artifact(
+        conn,
+        job_id,
+        name,
+        artifact_type,
+        original_data=None,
+        proposed_data=None,
+        review_feedback=None,
+        storage_path=None,
+        step_id=None
+    ):
+        calls["append_artifact"].append((job_id, name, artifact_type, proposed_data))
 
     async def fake_update_job_status(conn, job_id, status):
         calls["update_job_status"].append((job_id, status))
@@ -50,5 +76,5 @@ async def test_review_retry_and_approval_flow():
     assert reviewer_calls["count"] == 2
     # Job status was set to running then completed
     statuses = [s[1] for s in calls["update_job_status"]]
-    assert "running" in statuses
-    assert "completed" in statuses
+    assert "RUNNING" in statuses
+    assert "COMPLETED" in statuses

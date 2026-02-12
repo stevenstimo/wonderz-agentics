@@ -22,6 +22,10 @@ export default function TrainingManagement() {
     training_summary: '',
   })
   const [knowledgeBases, setKnowledgeBases] = useState({})
+  const [decisionLoading, setDecisionLoading] = useState(null)
+  const [completionLoading, setCompletionLoading] = useState(null)
+  const [completionData, setCompletionData] = useState({})
+  const [approvalsById, setApprovalsById] = useState({})
 
   const fetchTrainingSessions = async () => {
     setLoading(true)
@@ -65,6 +69,25 @@ export default function TrainingManagement() {
     }
   }
 
+  const fetchApprovals = async () => {
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/ceo/approvals`)
+      if (!res.ok) {
+        return
+      }
+      const data = await res.json()
+      const map = Array.isArray(data)
+        ? data.reduce((acc, approval) => {
+            acc[approval.id] = approval
+            return acc
+          }, {})
+        : {}
+      setApprovalsById(map)
+    } catch (err) {
+      console.error('Error fetching approvals:', err)
+    }
+  }
+
   const validateForm = () => {
     const errors = {}
     
@@ -91,6 +114,7 @@ export default function TrainingManagement() {
   useEffect(() => {
     fetchTrainingSessions()
     fetchCrew()
+    fetchApprovals()
   }, [])
 
   const handleSubmitRequest = async (e) => {
@@ -147,6 +171,79 @@ export default function TrainingManagement() {
     }
   }
 
+  const handleApprovalDecision = async (approvalId, approved) => {
+    setDecisionLoading(approvalId)
+    try {
+      const res = await fetch(
+        `${import.meta.env.VITE_API_URL}/api/ceo/approval/${approvalId}/decide?approved=${approved}`,
+        { method: 'POST' }
+      )
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}))
+        throw new Error(errorData.detail || errorData.error || 'Failed to process approval')
+      }
+
+      toast.success(`Training request ${approved ? 'approved' : 'rejected'}`)
+      fetchTrainingSessions()
+      fetchApprovals()
+    } catch (err) {
+      const errorMsg = err.message || 'Failed to process approval'
+      toast.error(errorMsg)
+    } finally {
+      setDecisionLoading(null)
+    }
+  }
+
+  const updateCompletionData = (sessionId, field, value) => {
+    setCompletionData(prev => ({
+      ...prev,
+      [sessionId]: {
+        ...prev[sessionId],
+        [field]: value,
+      }
+    }))
+  }
+
+  const handleCompleteTraining = async (sessionId) => {
+    const payload = completionData[sessionId] || {}
+    if (!payload.knowledge_base || !payload.knowledge_base.trim()) {
+      toast.warning('Knowledge base content is required')
+      return
+    }
+
+    setCompletionLoading(sessionId)
+    try {
+      const res = await fetch(
+        `${import.meta.env.VITE_API_URL}/api/training/${sessionId}/complete`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            session_id: sessionId,
+            knowledge_base: payload.knowledge_base,
+            summary: payload.summary || null,
+          })
+        }
+      )
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}))
+        throw new Error(errorData.detail || errorData.error || 'Failed to complete training')
+      }
+
+      toast.success('Training marked as completed')
+      setCompletionData(prev => ({ ...prev, [sessionId]: { knowledge_base: '', summary: '' } }))
+      fetchTrainingSessions()
+      fetchApprovals()
+    } catch (err) {
+      const errorMsg = err.message || 'Failed to complete training'
+      toast.error(errorMsg)
+    } finally {
+      setCompletionLoading(null)
+    }
+  }
+
   const toggleExpandSession = (sessionId) => {
     if (expandedSession === sessionId) {
       setExpandedSession(null)
@@ -182,6 +279,19 @@ export default function TrainingManagement() {
         return 'bg-red-50'
       default:
         return 'bg-gray-50'
+    }
+  }
+
+  const getApprovalBadgeClass = (status) => {
+    switch (status) {
+      case 'approved':
+        return 'bg-green-100 text-green-800'
+      case 'rejected':
+        return 'bg-red-100 text-red-800'
+      case 'completed':
+        return 'bg-emerald-100 text-emerald-800'
+      default:
+        return 'bg-gray-100 text-gray-700'
     }
   }
 
@@ -372,24 +482,103 @@ export default function TrainingManagement() {
                         <div>
                           <div className="font-semibold text-gray-800">{session.agent_name}</div>
                           <div className="text-sm text-gray-600">{session.training_title || session.training_url}</div>
+                          {session.metadata?.approval_id && approvalsById[session.metadata.approval_id]?.details?.decision_note && (
+                            <div className="text-xs text-gray-500 mt-1">
+                              CEO note: {approvalsById[session.metadata.approval_id].details.decision_note}
+                            </div>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-semibold px-2 py-1 rounded-full bg-white">
                           {session.status || 'pending'}
                         </span>
-                        <span className="text-xs font-semibold px-2 py-1 rounded-full bg-white">
+                        <span className={`text-xs font-semibold px-2 py-1 rounded-full ${getApprovalBadgeClass(session.approval_status)}`}>
                           {session.approval_status || 'pending'}
                         </span>
+                        {session.status === 'completed' && (
+                          <span className="text-xs font-semibold px-2 py-1 rounded-full bg-emerald-100 text-emerald-800">
+                            Completed
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
                   {expandedSession === session.session_id && (
                     <div className="mt-4 pt-4 border-t space-y-3">
+                      {session.status === 'completed' && (
+                        <div className="px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-200 text-xs text-emerald-800">
+                          Knowledge base updated and training completed.
+                        </div>
+                      )}
+                      {session.metadata?.approval_id && approvalsById[session.metadata.approval_id]?.details?.decision_note && (
+                        <div className="text-xs text-gray-600">
+                          CEO note: {approvalsById[session.metadata.approval_id].details.decision_note}
+                        </div>
+                      )}
+                      {session.approval_status === 'pending' && session.metadata?.approval_id && (
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            onClick={() => handleApprovalDecision(session.metadata.approval_id, true)}
+                            disabled={decisionLoading !== null}
+                            className="flex items-center gap-2 px-3 py-2 text-xs bg-green-600 text-white rounded hover:bg-green-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {decisionLoading === session.metadata.approval_id ? (
+                              <Loader className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <Check className="w-3 h-3" />
+                            )}
+                            Approve Training
+                          </button>
+                          <button
+                            onClick={() => handleApprovalDecision(session.metadata.approval_id, false)}
+                            disabled={decisionLoading !== null}
+                            className="flex items-center gap-2 px-3 py-2 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {decisionLoading === session.metadata.approval_id ? (
+                              <Loader className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <AlertCircle className="w-3 h-3" />
+                            )}
+                            Reject Training
+                          </button>
+                        </div>
+                      )}
                       {session.training_summary && (
                         <div>
                           <div className="text-xs font-medium text-gray-600 mb-1">Summary</div>
                           <div className="text-sm text-gray-700">{session.training_summary}</div>
+                        </div>
+                      )}
+                      {session.approval_status === 'approved' && session.status !== 'completed' && (
+                        <div className="bg-white border rounded-lg p-3 space-y-2">
+                          <div className="text-xs font-semibold text-gray-700">Complete Training</div>
+                          <textarea
+                            value={completionData[session.session_id]?.knowledge_base || ''}
+                            onChange={(e) => updateCompletionData(session.session_id, 'knowledge_base', e.target.value)}
+                            placeholder="Paste the knowledge base content here"
+                            rows={3}
+                            className="w-full px-3 py-2 text-sm border rounded"
+                          />
+                          <input
+                            type="text"
+                            value={completionData[session.session_id]?.summary || ''}
+                            onChange={(e) => updateCompletionData(session.session_id, 'summary', e.target.value)}
+                            placeholder="Optional summary"
+                            className="w-full px-3 py-2 text-sm border rounded"
+                          />
+                          <button
+                            onClick={() => handleCompleteTraining(session.session_id)}
+                            disabled={completionLoading !== null}
+                            className="flex items-center gap-2 px-3 py-2 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {completionLoading === session.session_id ? (
+                              <Loader className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <Check className="w-3 h-3" />
+                            )}
+                            Mark Completed
+                          </button>
                         </div>
                       )}
                       <div>
@@ -408,7 +597,13 @@ export default function TrainingManagement() {
                       {session.requested_at && (
                         <div className="text-xs text-gray-500">
                           Requested: {new Date(session.requested_at).toLocaleDateString()}
+                          {session.approved_at && ` • Approved: ${new Date(session.approved_at).toLocaleDateString()}`}
                           {session.completed_at && ` • Completed: ${new Date(session.completed_at).toLocaleDateString()}`}
+                        </div>
+                      )}
+                      {session.approval_status === 'rejected' && (
+                        <div className="text-xs text-red-600">
+                          Training request rejected by CEO.
                         </div>
                       )}
                     </div>

@@ -9,6 +9,7 @@ export default function ApprovalDashboard() {
   const [decisionLoading, setDecisionLoading] = useState(null)
   const [error, setError] = useState(null)
   const [filter, setFilter] = useState('pending')
+  const [notes, setNotes] = useState({})
   const toast = useToast()
 
   const fetchApprovals = async () => {
@@ -40,7 +41,11 @@ export default function ApprovalDashboard() {
     try {
       const res = await fetch(
         `${import.meta.env.VITE_API_URL}/api/ceo/approval/${approval_id}/decide?approved=${approved}`,
-        { method: 'POST' }
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ note: notes[approval_id] || '' })
+        }
       )
       
       if (!res.ok) {
@@ -50,6 +55,7 @@ export default function ApprovalDashboard() {
       
       const action = approved ? 'approved' : 'rejected'
       toast.success(`Request ${action} successfully`)
+      setNotes(prev => ({ ...prev, [approval_id]: '' }))
       setError(null)
       fetchApprovals()
     } catch (err) {
@@ -89,6 +95,15 @@ export default function ApprovalDashboard() {
     }
   }
 
+  const formatCompletion = (approval) => {
+    const completedAt = approval.details?.training_completed_at
+    if (!completedAt) {
+      return null
+    }
+    const dateLabel = new Date(completedAt).toLocaleDateString()
+    return `Training completed: ${dateLabel}`
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex">
       <Sidebar />
@@ -116,7 +131,7 @@ export default function ApprovalDashboard() {
             )}
 
             <div className="mt-6 flex gap-2">
-              {['pending', 'approved', 'rejected', 'all'].map(status => (
+              {['pending', 'approved', 'rejected', 'completed', 'all'].map(status => (
                 <button
                   key={status}
                   onClick={() => setFilter(status)}
@@ -172,6 +187,16 @@ export default function ApprovalDashboard() {
                             {approval.details.session_id && `\nSession: ${approval.details.session_id}`}
                           </div>
                         )}
+                        {approval.details?.decision_note && (
+                          <div className="mt-2 text-xs text-gray-500">
+                            Note: {approval.details.decision_note}
+                          </div>
+                        )}
+                        {approval.status === 'completed' && formatCompletion(approval) && (
+                          <div className="mt-2 text-xs text-green-700">
+                            {formatCompletion(approval)}
+                          </div>
+                        )}
                         <div className="text-xs text-gray-400 mt-2">
                           {approval.requested_at 
                             ? `Requested: ${new Date(approval.requested_at).toLocaleDateString()}`
@@ -186,12 +211,21 @@ export default function ApprovalDashboard() {
                           ? 'bg-yellow-100 text-yellow-800'
                           : approval.status === 'approved'
                           ? 'bg-green-100 text-green-800'
+                          : approval.status === 'completed'
+                          ? 'bg-emerald-100 text-emerald-800'
                           : 'bg-red-100 text-red-800'
                       }`}>
                         {approval.status}
                       </span>
                       {approval.status === 'pending' && (
                         <div className="flex gap-1">
+                          <input
+                            type="text"
+                            value={notes[approval.id] || ''}
+                            onChange={(e) => setNotes(prev => ({ ...prev, [approval.id]: e.target.value }))}
+                            placeholder="Optional note"
+                            className="px-2 py-1 text-xs border rounded w-40"
+                          />
                           <button
                             onClick={() => handleDecision(approval.id, true)}
                             disabled={decisionLoading !== null}

@@ -12,7 +12,7 @@ const roleIcons = {
   'Training': User,
 }
 
-const validRoles = ['Developer', 'Product Owner', 'Reviewer', 'DevOps', 'AI']
+const validRoles = ['Developer', 'Product Owner', 'Reviewer', 'DevOps', 'AI', 'HR', 'Training']
 
 export default function CrewManagement() {
   const [crew, setCrew] = useState([])
@@ -29,7 +29,21 @@ export default function CrewManagement() {
     name: '',
     role: '',
     specialization: '',
+    system_instructions: '',
+    knowledge_base_sources: '',
+    tool_access_whitelist: '',
+    hiring_logic: '',
   })
+
+  const formatList = (items, delimiter) => Array.isArray(items) ? items.join(delimiter) : ''
+  const parseLineList = (value) => value
+    .split(/\r?\n/)
+    .map(item => item.trim())
+    .filter(Boolean)
+  const parseCommaList = (value) => value
+    .split(',')
+    .map(item => item.trim())
+    .filter(Boolean)
 
   const fetchCrew = async () => {
     setLoading(true)
@@ -69,6 +83,32 @@ export default function CrewManagement() {
     if (formData.specialization && formData.specialization.length > 250) {
       errors.specialization = 'Specialization must be 250 characters or less'
     }
+
+    if (!formData.system_instructions || formData.system_instructions.trim() === '') {
+      errors.system_instructions = 'System instructions are required'
+    } else if (formData.system_instructions.length > 4000) {
+      errors.system_instructions = 'System instructions must be 4000 characters or less'
+    }
+
+    if (!formData.hiring_logic || formData.hiring_logic.trim() === '') {
+      errors.hiring_logic = 'Hiring logic is required'
+    } else if (formData.hiring_logic.length > 2000) {
+      errors.hiring_logic = 'Hiring logic must be 2000 characters or less'
+    }
+
+    const knowledgeSources = parseLineList(formData.knowledge_base_sources)
+    if (knowledgeSources.length > 50) {
+      errors.knowledge_base_sources = 'Knowledge base sources must be 50 items or less'
+    } else if (knowledgeSources.some(source => source.length > 2048)) {
+      errors.knowledge_base_sources = 'Each knowledge source must be 2048 characters or less'
+    }
+
+    const toolWhitelist = parseCommaList(formData.tool_access_whitelist)
+    if (toolWhitelist.length > 50) {
+      errors.tool_access_whitelist = 'Tool access whitelist must be 50 items or less'
+    } else if (toolWhitelist.some(tool => tool.length > 200)) {
+      errors.tool_access_whitelist = 'Each tool entry must be 200 characters or less'
+    }
     
     setFormValidation(errors)
     return Object.keys(errors).length === 0
@@ -90,6 +130,11 @@ export default function CrewManagement() {
     setError(null)
 
     try {
+      const payload = {
+        ...formData,
+        knowledge_base_sources: parseLineList(formData.knowledge_base_sources),
+        tool_access_whitelist: parseCommaList(formData.tool_access_whitelist),
+      }
       const endpoint = editingId
         ? `${import.meta.env.VITE_API_URL}/api/crew/${editingId}`
         : `${import.meta.env.VITE_API_URL}/api/crew`
@@ -98,7 +143,7 @@ export default function CrewManagement() {
       const res = await fetch(endpoint, {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(payload),
       })
 
       if (!res.ok) {
@@ -111,7 +156,15 @@ export default function CrewManagement() {
         : `Successfully created ${formData.name}`
       
       toast.success(successMsg)
-      setFormData({ name: '', role: '', specialization: '' })
+      setFormData({
+        name: '',
+        role: '',
+        specialization: '',
+        system_instructions: '',
+        knowledge_base_sources: '',
+        tool_access_whitelist: '',
+        hiring_logic: '',
+      })
       setFormValidation({})
       setShowForm(false)
       setEditingId(null)
@@ -132,6 +185,10 @@ export default function CrewManagement() {
       name: member.name,
       role: member.role,
       specialization: member.specialization || '',
+      system_instructions: member.system_instructions || '',
+      knowledge_base_sources: formatList(member.knowledge_base_sources, '\n'),
+      tool_access_whitelist: formatList(member.tool_access_whitelist, ', '),
+      hiring_logic: member.hiring_logic || '',
     })
     setShowForm(true)
   }
@@ -165,7 +222,15 @@ export default function CrewManagement() {
   const handleCancel = () => {
     setShowForm(false)
     setEditingId(null)
-    setFormData({ name: '', role: '', specialization: '' })
+    setFormData({
+      name: '',
+      role: '',
+      specialization: '',
+      system_instructions: '',
+      knowledge_base_sources: '',
+      tool_access_whitelist: '',
+      hiring_logic: '',
+    })
   }
 
   const roles = ['Product Owner', 'Developer', 'Reviewer', 'DevOps', 'HR', 'Training']
@@ -193,7 +258,15 @@ export default function CrewManagement() {
                   onClick={() => {
                     setShowForm(true)
                     setEditingId(null)
-                    setFormData({ name: '', role: '', specialization: '' })
+                    setFormData({
+                      name: '',
+                      role: '',
+                      specialization: '',
+                      system_instructions: '',
+                      knowledge_base_sources: '',
+                      tool_access_whitelist: '',
+                      hiring_logic: '',
+                    })
                   }}
                   className="flex items-center gap-2 px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition"
                 >
@@ -283,6 +356,94 @@ export default function CrewManagement() {
                   )}
                   <div className="text-xs text-gray-500 mt-1">{formData.specialization.length}/250</div>
                 </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    System Instructions <span className="text-red-500">*</span>
+                  </label>
+                  <textarea
+                    value={formData.system_instructions}
+                    onChange={(e) => setFormData({ ...formData, system_instructions: e.target.value })}
+                    placeholder="Define persona, tone, and working rules"
+                    rows={5}
+                    maxLength="4000"
+                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent ${
+                      formValidation.system_instructions ? 'border-red-500 bg-red-50' : ''
+                    }`}
+                  />
+                  {formValidation.system_instructions && (
+                    <div className="flex items-center gap-1 mt-1 text-xs text-red-600">
+                      <AlertCircle className="w-3 h-3" />
+                      {formValidation.system_instructions}
+                    </div>
+                  )}
+                  <div className="text-xs text-gray-500 mt-1">{formData.system_instructions.length}/4000</div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Knowledge Base Sources (URL/File)
+                  </label>
+                  <textarea
+                    value={formData.knowledge_base_sources}
+                    onChange={(e) => setFormData({ ...formData, knowledge_base_sources: e.target.value })}
+                    placeholder="One URL or file path per line"
+                    rows={4}
+                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent ${
+                      formValidation.knowledge_base_sources ? 'border-red-500 bg-red-50' : ''
+                    }`}
+                  />
+                  {formValidation.knowledge_base_sources && (
+                    <div className="flex items-center gap-1 mt-1 text-xs text-red-600">
+                      <AlertCircle className="w-3 h-3" />
+                      {formValidation.knowledge_base_sources}
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Tool Access Whitelist
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.tool_access_whitelist}
+                    onChange={(e) => setFormData({ ...formData, tool_access_whitelist: e.target.value })}
+                    placeholder="e.g., shopify.read_orders, ga4.reports"
+                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent ${
+                      formValidation.tool_access_whitelist ? 'border-red-500 bg-red-50' : ''
+                    }`}
+                  />
+                  {formValidation.tool_access_whitelist && (
+                    <div className="flex items-center gap-1 mt-1 text-xs text-red-600">
+                      <AlertCircle className="w-3 h-3" />
+                      {formValidation.tool_access_whitelist}
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Hiring Logic <span className="text-red-500">*</span>
+                  </label>
+                  <textarea
+                    value={formData.hiring_logic}
+                    onChange={(e) => setFormData({ ...formData, hiring_logic: e.target.value })}
+                    placeholder="Describe the goal and success criteria for this agent"
+                    rows={4}
+                    maxLength="2000"
+                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent ${
+                      formValidation.hiring_logic ? 'border-red-500 bg-red-50' : ''
+                    }`}
+                  />
+                  {formValidation.hiring_logic && (
+                    <div className="flex items-center gap-1 mt-1 text-xs text-red-600">
+                      <AlertCircle className="w-3 h-3" />
+                      {formValidation.hiring_logic}
+                    </div>
+                  )}
+                  <div className="text-xs text-gray-500 mt-1">{formData.hiring_logic.length}/2000</div>
+                </div>
                 
                 <div className="flex gap-2 pt-4">
                   <button
@@ -341,6 +502,11 @@ export default function CrewManagement() {
                         <div className="text-xs text-gray-500">{member.role}</div>
                         {member.specialization && (
                           <div className="text-xs text-gray-400 mt-1">{member.specialization}</div>
+                        )}
+                        {Array.isArray(member.knowledge_base_sources) && member.knowledge_base_sources.length > 0 && (
+                          <div className="text-xs text-gray-400 mt-1">
+                            KB: {member.knowledge_base_sources.join(', ')}
+                          </div>
                         )}
                         {member.current_task && (
                           <div className="text-xs text-gray-500 mt-1">Task: {member.current_task}</div>

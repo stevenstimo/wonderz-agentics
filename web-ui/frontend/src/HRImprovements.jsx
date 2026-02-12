@@ -33,7 +33,7 @@ export default function HRImprovements() {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/improvements`)
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/hr/improvements`)
       if (!res.ok) throw new Error('Failed to fetch improvements')
       const data = await res.json()
       setImprovements(Array.isArray(data) ? data : [])

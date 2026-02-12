@@ -7,6 +7,9 @@ import asyncio
 
 from app.db import init_db_pool, close_db_pool
 
+# Import job flow routes
+from app.routes.jobs import router as jobs_router
+
 # Celery task will be imported lazily to avoid starting worker at import time
 
 
@@ -19,6 +22,10 @@ class CreateJobRequest(BaseModel):
 app = FastAPI(title="Multi-Agentic Crew - Orchestrator API")
 
 
+# Include job flow routes
+app.include_router(jobs_router)
+
+
 @app.on_event("startup")
 async def on_startup():
     await init_db_pool()
@@ -29,8 +36,8 @@ async def on_shutdown():
     await close_db_pool()
 
 
-@app.post("/api/jobs")
-async def create_job(req: CreateJobRequest):
+@app.post("/api/legacy/jobs")
+async def create_job_legacy(req: CreateJobRequest):
     # Minimal safe insertion using asyncpg pool via app.db
     from app.db import _pool
 
@@ -62,8 +69,8 @@ async def create_job(req: CreateJobRequest):
     return {"job_id": job_id, "status": "queued"}
 
 
-@app.get("/api/jobs/{job_id}")
-async def get_job(job_id: str):
+@app.get("/api/legacy/jobs/{job_id}")
+async def get_job_legacy(job_id: str):
     from app.db import _pool
     if _pool is None:
         raise HTTPException(status_code=500, detail="DB pool not initialized")
@@ -97,8 +104,8 @@ def _check_basic_auth_header(auth_header: str) -> None:
         raise HTTPException(status_code=403, detail="Forbidden")
 
 
-@app.post("/api/jobs/{job_id}/approve")
-async def approve_job(job_id: str, request: Request):
+@app.post("/api/legacy/jobs/{job_id}/approve")
+async def approve_job_legacy(job_id: str, request: Request):
     """Approve a job that is in AWAITING_APPROVAL; transitions it back to 'queued' and re-enqueues the worker."""
     from app.db import _pool
     if _pool is None:
@@ -159,3 +166,4 @@ async def approve_job(job_id: str, request: Request):
         raise HTTPException(status_code=500, detail=f"Failed to re-enqueue job: {e}")
 
     return {"job_id": job_id, "status": "running"}
+

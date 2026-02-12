@@ -3,7 +3,7 @@
 import os
 import json
 from datetime import datetime
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Body
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, validator
 import uuid
@@ -151,7 +151,7 @@ class CreateCrewMemberRequest(BaseModel):
     
     @validator('role')
     def validate_role(cls, v):
-        valid_roles = ['Developer', 'Product Owner', 'Reviewer', 'DevOps', 'AI']
+        valid_roles = ['Developer', 'Product Owner', 'Reviewer', 'DevOps', 'AI', 'HR', 'Training']
         if v not in valid_roles:
             raise ValueError(f"Role must be one of: {', '.join(valid_roles)}")
         return v
@@ -229,7 +229,7 @@ class UpdateCrewMemberRequest(BaseModel):
     @validator('role')
     def validate_role(cls, v):
         if v is not None:
-            valid_roles = ['Developer', 'Product Owner', 'Reviewer', 'DevOps', 'AI']
+            valid_roles = ['Developer', 'Product Owner', 'Reviewer', 'DevOps', 'AI', 'HR', 'Training']
             if v not in valid_roles:
                 raise ValueError(f"Role must be one of: {', '.join(valid_roles)}")
         return v
@@ -715,6 +715,66 @@ def get_ceo_agent():
     return _ceo_agent
 
 
+async def _store_approval_request(approval: dict):
+    from app.db import _pool
+    if _pool is None:
+        return
+    try:
+        async with _pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO ceo_approval_requests (
+                    approval_id, request_type, status, details, requested_at, approved_at, rejected_at
+                )
+                VALUES ($1,$2,$3,$4,$5,$6,$7)
+                ON CONFLICT (approval_id) DO UPDATE SET
+                    request_type = EXCLUDED.request_type,
+                    status = EXCLUDED.status,
+                    details = EXCLUDED.details,
+                    requested_at = EXCLUDED.requested_at,
+                    approved_at = EXCLUDED.approved_at,
+                    rejected_at = EXCLUDED.rejected_at
+                """,
+                approval.get("id"),
+                approval.get("type"),
+                approval.get("status"),
+                json.dumps(approval.get("details") or {}),
+                approval.get("requested_at"),
+                approval.get("approved_at"),
+                approval.get("rejected_at"),
+            )
+    except Exception:
+        pass
+
+
+async def _update_approval_status(approval_id: str, status: str, details: Optional[dict] = None):
+    from app.db import _pool
+    if _pool is None:
+        return
+    approved_at = datetime.now().isoformat() if status == "approved" else None
+    rejected_at = datetime.now().isoformat() if status == "rejected" else None
+    details_json = json.dumps(details) if details is not None else None
+    try:
+        async with _pool.acquire() as conn:
+            await conn.execute(
+                """
+                UPDATE ceo_approval_requests
+                SET status = $1,
+                    approved_at = COALESCE($2, approved_at),
+                    rejected_at = COALESCE($3, rejected_at),
+                    details = COALESCE($4, details)
+                WHERE approval_id = $5
+                """,
+                status,
+                approved_at,
+                rejected_at,
+                details_json,
+                approval_id,
+            )
+    except Exception:
+        pass
+
+
 class MakePlanRequest(BaseModel):
     project_idea: str
     context: Optional[dict] = None
@@ -744,7 +804,7 @@ class HireAgentRequest(BaseModel):
     
     @validator('role')
     def validate_role(cls, v):
-        valid_roles = ['Developer', 'Product Owner', 'Reviewer', 'DevOps', 'AI']
+        valid_roles = ['Developer', 'Product Owner', 'Reviewer', 'DevOps', 'AI', 'HR', 'Training']
         if v not in valid_roles:
             raise ValueError(f"role must be one of: {', '.join(valid_roles)}")
         return v
@@ -760,6 +820,10 @@ class RequestApprovalInput(BaseModel):
         if v not in valid_types:
             raise ValueError(f"request_type must be one of: {', '.join(valid_types)}")
         return v
+
+
+class ApprovalDecisionInput(BaseModel):
+    note: Optional[str] = None
 
 
 @app.post("/api/ceo/plan")
@@ -789,14 +853,54 @@ async def ceo_request_approval(req: RequestApprovalInput):
     """Request CEO approval for a critical action"""
     ceo = get_ceo_agent()
     result = ceo.request_approval(req.request_type, req.details)
+    approval_entry = next((a for a in ceo.approvals_pending if a.get("id") == result.get("approval_id")), None)
+    if approval_entry:
+        await _store_approval_request(approval_entry)
     return result
 
 
 @app.post("/api/ceo/approval/{approval_id}/decide")
-async def ceo_approve_or_reject(approval_id: str, approved: bool = True):
+async def ceo_approve_or_reject(
+    approval_id: str,
+    approved: bool = True,
+    decision: ApprovalDecisionInput = Body(default=ApprovalDecisionInput())
+):
     """CEO approves or rejects a pending request"""
     ceo = get_ceo_agent()
+    approval_entry = next((a for a in ceo.approvals_pending if a.get("id") == approval_id), None)
+    if approval_entry and decision.note:
+        details = approval_entry.get("details") or {}
+        details["decision_note"] = decision.note
+        approval_entry["details"] = details
     result = ceo.approve_request(approval_id, approved=approved)
+
+    if approval_entry and approval_entry.get("type") == "training":
+        session_id = (approval_entry.get("details") or {}).get("session_id")
+        if session_id:
+            from app.db import _pool
+            if _pool is not None:
+                status = "approved" if approved else "rejected"
+                try:
+                    async with _pool.acquire() as conn:
+                        await conn.execute(
+                            """
+                            UPDATE training_sessions
+                            SET approval_status = $1,
+                                approved_at = CASE WHEN $1 = 'approved' THEN now() ELSE approved_at END,
+                                updated_at = now()
+                            WHERE session_id = $2
+                            """,
+                            status,
+                            session_id
+                        )
+                except Exception:
+                    pass
+
+    await _update_approval_status(
+        approval_id,
+        "approved" if approved else "rejected",
+        details=approval_entry.get("details") if approval_entry else None
+    )
     return result
 
 
@@ -817,8 +921,42 @@ async def ceo_list_agents():
 @app.get("/api/ceo/approvals", response_model=List[ApprovalRequest])
 async def ceo_list_approvals():
     """List all approval requests"""
+    from app.db import _pool
+    if _pool is not None:
+        try:
+            async with _pool.acquire() as conn:
+                rows = await conn.fetch(
+                    "SELECT approval_id, request_type, status, details, requested_at, approved_at, rejected_at "
+                    "FROM ceo_approval_requests ORDER BY requested_at DESC"
+                )
+            return [
+                ApprovalRequest(
+                    id=row["approval_id"],
+                    request_type=row["request_type"],
+                    status=row["status"],
+                    details=row["details"] or {},
+                    requested_at=row["requested_at"],
+                    approved_at=row["approved_at"],
+                    rejected_at=row["rejected_at"],
+                )
+                for row in rows
+            ]
+        except Exception:
+            pass
+
     ceo = get_ceo_agent()
-    return [ApprovalRequest(**approval) for approval in ceo.approvals_pending]
+    mapped = []
+    for approval in ceo.approvals_pending:
+        mapped.append({
+            "id": approval.get("id"),
+            "request_type": approval.get("type"),
+            "status": approval.get("status"),
+            "details": approval.get("details"),
+            "requested_at": approval.get("requested_at"),
+            "approved_at": approval.get("approved_at"),
+            "rejected_at": approval.get("rejected_at"),
+        })
+    return [ApprovalRequest(**approval) for approval in mapped]
 
 
 # ========================================
@@ -939,6 +1077,19 @@ async def request_training(req: RequestTrainingInput):
             "agent": req.agent_name,
             "url": req.training_url,
         })
+
+        approval_entry = next((a for a in ceo.approvals_pending if a.get("id") == approval_result.get("approval_id")), None)
+        if approval_entry:
+            await _store_approval_request(approval_entry)
+
+        approval_id = approval_result.get("approval_id")
+        if approval_id:
+            async with _pool.acquire() as conn:
+                await conn.execute(
+                    "UPDATE training_sessions SET metadata = $1, updated_at = now() WHERE session_id = $2",
+                    json.dumps({"approval_id": approval_id}),
+                    session_id
+                )
         
         return {
             "status": "success",
@@ -1001,7 +1152,7 @@ async def complete_training(session_id: str, req: CompleteTrainingInput):
         async with _pool.acquire() as conn:
             # Verify training session exists and is approved
             session_check = await conn.fetchrow(
-                "SELECT status, approval_status FROM training_sessions WHERE session_id = $1",
+                "SELECT status, approval_status, metadata FROM training_sessions WHERE session_id = $1",
                 session_id
             )
             if not session_check:
@@ -1020,6 +1171,15 @@ async def complete_training(session_id: str, req: CompleteTrainingInput):
                 "UPDATE training_sessions SET status = 'completed', knowledge_base = $1, completed_at = now(), updated_at = now() WHERE session_id = $2",
                 req.knowledge_base, session_id
             )
+
+            metadata = session_check.get("metadata") or {}
+            approval_id = metadata.get("approval_id") if isinstance(metadata, dict) else None
+            if approval_id:
+                completion_details = {
+                    "training_completed": True,
+                    "training_completed_at": datetime.now().isoformat()
+                }
+                await _update_approval_status(approval_id, "completed", details=completion_details)
         
         return {
             "status": "success",
@@ -1155,23 +1315,63 @@ async def hr_analyze_performance(req: AnalyzePerformanceInput):
 @app.post("/api/hr/register-improvement")
 async def hr_register_improvement(req: RegisterImprovementInput):
     """Register an improvement point for an agent"""
-    hr = get_hr_agent()
-    improvement = {
-        "title": req.title,
-        "summary": req.summary,
-        "details": req.details,
-        "severity": req.severity,
-        "source": req.source,
-    }
-    result = hr.register_improvement(req.agent_id, req.agent_name, improvement)
-    return result
+    from app.db import _pool
+    if _pool is None:
+        raise HTTPException(status_code=503, detail="Database not available. Please try again later.")
+
+    improvement_id = str(uuid.uuid4())
+    try:
+        async with _pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO agent_improvements (
+                    id, agent_id, agent_name, title, summary, details, severity, status, source, created_at, updated_at
+                )
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,now(),now())
+                """,
+                improvement_id,
+                req.agent_id,
+                req.agent_name,
+                req.title,
+                req.summary,
+                req.details,
+                req.severity,
+                "open",
+                req.source
+            )
+        return {
+            "status": "success",
+            "agent_id": req.agent_id,
+            "improvement_id": improvement_id,
+            "message": f"Improvement point registered for {req.agent_name}",
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to register improvement: {str(e)}")
 
 
 @app.get("/api/hr/improvements")
 async def hr_get_improvements(agent_id: Optional[str] = None):
     """Get improvement points"""
-    hr = get_hr_agent()
-    return hr.get_agent_improvements(agent_id)
+    from app.db import _pool
+    if _pool is None:
+        return []
+
+    query = (
+        "SELECT id, agent_id, agent_name, title, summary, details, severity, status, source, created_at, updated_at "
+        "FROM agent_improvements"
+    )
+    params = []
+    if agent_id:
+        query += " WHERE agent_id=$1"
+        params.append(agent_id)
+    query += " ORDER BY created_at DESC"
+
+    try:
+        async with _pool.acquire() as conn:
+            rows = await conn.fetch(query, *params)
+        return [dict(row) for row in rows]
+    except Exception:
+        return []
 
 
 @app.get("/api/hr/development-plan/{agent_id}")
@@ -1179,7 +1379,20 @@ async def hr_get_development_plan(agent_id: str, agent_name: str = ""):
     """Generate a development plan for an agent"""
     if not agent_name:
         agent_name = f"Agent {agent_id}"
-    
     hr = get_hr_agent()
+
+    from app.db import _pool
+    if _pool is not None:
+        try:
+            async with _pool.acquire() as conn:
+                rows = await conn.fetch(
+                    "SELECT id, agent_id, agent_name, title, summary, details, severity, status, source, created_at "
+                    "FROM agent_improvements WHERE agent_id=$1 ORDER BY created_at DESC",
+                    agent_id
+                )
+            hr.improvements[agent_id] = [dict(row) for row in rows]
+        except Exception:
+            pass
+
     result = hr.get_development_plan(agent_id, agent_name)
     return result

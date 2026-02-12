@@ -5,10 +5,15 @@ class CrewMember(BaseModel):
     id: str
     name: str
     role: str
+    specialization: Optional[str] = None
     status: str  # e.g. 'active', 'busy', 'idle'
     current_task: Optional[str] = None
     progress: int = 0  # percentage
     avatar_url: Optional[str] = None
+    system_instructions: Optional[str] = None
+    knowledge_base_sources: Optional[List[str]] = None
+    tool_access_whitelist: Optional[List[str]] = None
+    hiring_logic: Optional[str] = None
 
 class TaskCrewShare(BaseModel):
     crew_id: str
@@ -44,6 +49,10 @@ class HiredAgent(BaseModel):
     specialization: Optional[str] = None
     status: str = "active"
     permissions: List[str] = []
+    system_instructions: Optional[str] = None
+    knowledge_base_sources: Optional[List[str]] = None
+    tool_access_whitelist: Optional[List[str]] = None
+    hiring_logic: Optional[str] = None
     hired_at: Optional[str] = None
     performance_score: float = 0.0
     completed_tasks: int = 0
