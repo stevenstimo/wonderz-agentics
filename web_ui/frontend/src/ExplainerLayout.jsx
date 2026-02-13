@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import Sidebar from './Sidebar'
 
-const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+const apiBase = import.meta.env.VITE_API_URL || ''
 
 const renderMarkdown = (text) => {
   if (!text) {
-    return null
+    return <p className="text-slate-700">No content</p>
   }
 
   const lines = text.split('\n')
@@ -17,7 +17,7 @@ const renderMarkdown = (text) => {
       blocks.push(
         <ul key={`list-${blocks.length}`} className="list-disc pl-6 space-y-1">
           {listItems.map((item, idx) => (
-            <li key={`item-${idx}`}>{item}</li>
+            <li key={`item-${idx}`} className="text-sm text-slate-700">{item}</li>
           ))}
         </ul>
       )
@@ -36,15 +36,20 @@ const renderMarkdown = (text) => {
 
     if (trimmed.length > 0) {
       blocks.push(
-        <p key={`p-${blocks.length}`} className="text-sm text-slate-700 leading-relaxed">
+        <p key={`p-${blocks.length}`} className="text-base text-slate-700 leading-relaxed mb-3">
           {trimmed}
         </p>
+      )
+    } else if (blocks.length > 0) {
+      // Add spacing between paragraphs
+      blocks.push(
+        <div key={`space-${blocks.length}`} className="h-2"></div>
       )
     }
   })
 
   flushList()
-  return blocks
+  return blocks.length > 0 ? blocks : <p className="text-slate-700">No content</p>
 }
 
 export default function ExplainerLayout({ slug, fallbackTitle }) {
@@ -101,7 +106,7 @@ export default function ExplainerLayout({ slug, fallbackTitle }) {
     <div className="dashboard-container">
       <Sidebar />
       <main className="content-area">
-        <div className="max-w-5xl mx-auto space-y-6">
+        <div className="max-w-6xl mx-auto space-y-6">
           <div className="panel-card">
             <div className="flex items-start justify-between gap-4 flex-wrap">
               <div>

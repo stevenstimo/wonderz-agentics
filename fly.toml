@@ -1,12 +1,15 @@
-# fly.toml app configuration file generated for wonderz-agentics on 2026-02-12T07:59:07Z
+# fly.toml app configuration file generated for snowy-shape-3236 on 2026-02-12T17:54:25+01:00
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
 
+
+# Fly.io app configuration for wonderz-agentics
 app = 'wonderz-agentics'
-primary_region = 'ams'
+primary_region = 'fra'
 
 [build]
+
 
 [http_service]
   internal_port = 10000
@@ -17,16 +20,16 @@ primary_region = 'ams'
   processes = ['app']
 
   [[http_service.checks]]
-    grace_period = '5s'
     interval = '10s'
-    method = 'GET'
-    path = '/api/tasks'
-    protocol = 'http'
     timeout = '5s'
+    grace_period = '5s'
+    method = 'GET'
+    path = '/api/explainer/sections'
+    protocol = 'http'
     tls_skip_verify = true
+
 
 [[vm]]
   memory = '1gb'
   cpu_kind = 'shared'
   cpus = 1
-  memory_mb = 256

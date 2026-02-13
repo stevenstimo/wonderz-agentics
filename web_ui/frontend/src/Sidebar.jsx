@@ -145,11 +145,12 @@ export default function Sidebar() {
           New Mission
         </button>
         <div
-          onClick={() => console.log('Settings clicked')}
           className="flex items-center gap-2 mt-6 text-gray-400 text-xs cursor-pointer hover:text-gray-600"
         >
-          <Settings className="w-4 h-4" />
-          Settings
+          <NavLink to="/settings" className="flex items-center gap-2">
+            <Settings className="w-4 h-4" />
+            Settings
+          </NavLink>
         </div>
       </div>
     </aside>

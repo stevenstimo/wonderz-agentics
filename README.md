@@ -1,3 +1,18 @@
+# --- Fly.io Deployment ---
+
+## Deployen naar Fly.io
+
+1. Zorg dat je een Fly.io app hebt aangemaakt (appnaam: wonderz-agentics).
+2. Maak een Managed Postgres database aan via `fly postgres create` of `fly mpg create`.
+3. Koppel de database aan je app en kopieer de DATABASE_URL.
+4. Zet de DATABASE_URL als secret:
+    fly secrets set DATABASE_URL="postgres://<user>:<password>@<host>:<port>/<db>" --app wonderz-agentics
+5. Deploy de app:
+    fly deploy --app wonderz-agentics
+
+De backend verwacht dat de DATABASE_URL als environment variable is gezet (zie .env.local.example).
+
+---
 # AI Bureau - Multi-Agent Development System
 
 A comprehensive multi-agent system using Claude AI for orchestrated software development with production-grade reliability, error handling, and deployment capabilities.

@@ -1,3 +1,5 @@
+# Ignore local env example (used for Fly.io secrets)
+.env.local.example
 # Environment
 .env
 *.env

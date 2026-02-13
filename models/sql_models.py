@@ -1,5 +1,6 @@
-from sqlalchemy import Column, String, Integer, Text
+from sqlalchemy import Column, String, Integer, Text, DateTime
 from sqlalchemy.ext.declarative import declarative_base
+from datetime import datetime
 
 Base = declarative_base()
 
@@ -24,10 +25,6 @@ class CrewMemberSQL(Base):
     development_notes = Column(Text)
 
 
-# TalentSQL: alleen profiel, skills, avatar, aanmaakdatum
-from sqlalchemy import DateTime
-from datetime import datetime
-
 class TalentSQL(Base):
     __tablename__ = 'talents'
     id = Column(String, primary_key=True)
@@ -38,3 +35,13 @@ class TalentSQL(Base):
     skills = Column(Text)  # JSON string: [{"name": "Python", "level": 3}, ...]
     avatar_url = Column(String(255))
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class SettingsSQL(Base):
+    __tablename__ = 'settings'
+    id = Column(String, primary_key=True, default='default')
+    gemini_api_key = Column(Text)
+    anthropic_api_key = Column(Text)
+    supabase_url = Column(Text)
+    supabase_key = Column(Text)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
