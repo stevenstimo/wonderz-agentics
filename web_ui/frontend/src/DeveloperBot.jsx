@@ -59,7 +59,7 @@ function DeveloperBot() {
 		}
 
 		return (
-			<PageLayout>
+			<PageLayout size="wide" padded>
 					<div className="max-w-2xl mx-auto py-10 px-4 wonderz-card" style={{ background: "#F9FAFB", minHeight: 600, borderRadius: '32px' }}>
 						<h1 className="text-3xl font-black mb-4 text-black font-sans">Developer Bot</h1>
 						<div className="mb-6 text-black font-sans">Stel je development-vraag aan de AI. Je krijgt direct antwoord in de Wonderz-stijl.</div>

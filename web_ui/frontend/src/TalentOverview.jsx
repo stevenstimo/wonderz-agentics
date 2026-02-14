@@ -72,7 +72,7 @@ export default function TalentOverview() {
   if (loading) return <div className="p-8">Loading talents...</div>;
 
   return (
-    <PageLayout>
+    <PageLayout size="wide" padded>
       <h1 className="text-2xl font-bold mb-6">Talents</h1>
       {talents.length === 0 ? (
         <div className="text-center text-gray-500 py-12">No talents yet. Create one via the API!</div>

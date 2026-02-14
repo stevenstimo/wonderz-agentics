@@ -2,16 +2,16 @@ import Sidebar from './Sidebar'
 
 const SIZE_CLASS = {
   none: '',
-  narrow: 'max-w-4xl mx-auto',
-  medium: 'max-w-5xl mx-auto',
-  wide: 'max-w-6xl mx-auto',
+  narrow: 'w-full max-w-[1000px] mx-auto',
+  medium: 'w-full max-w-[1000px] mx-auto',
+  wide: 'w-full max-w-[1000px] mx-auto',
 }
 
 export default function PageLayout({
   children,
   variant = 'default',
-  size = 'none',
-  padded = false,
+  size = 'wide',
+  padded = true,
   className = '',
 }) {
   const classes = []
