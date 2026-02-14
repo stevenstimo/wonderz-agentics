@@ -1,5 +1,8 @@
-import { NavLink } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
+import { Link, NavLink } from 'react-router-dom'
 import { Home, Users, Layers, ClipboardList, Settings, PlusCircle, BookOpen, Shield, Code, Activity } from 'lucide-react'
+import { supabase } from './supabase'
+import { extractRole } from './authz'
 
 const primaryMenu = [
   { label: 'Mission Control', icon: Layers, path: '/' },
@@ -33,7 +36,42 @@ const secondaryMenu = [
   { label: 'Product Management', icon: ClipboardList },
 ]
 
+function displayName(user) {
+  return (
+    user?.user_metadata?.full_name ||
+    user?.user_metadata?.name ||
+    user?.email ||
+    'Guest'
+  )
+}
+
+function initials(user) {
+  return displayName(user).trim().charAt(0).toUpperCase()
+}
+
 export default function Sidebar() {
+  const [user, setUser] = useState(null)
+
+  useEffect(() => {
+    let mounted = true
+
+    supabase.auth.getSession().then(({ data }) => {
+      if (!mounted) return
+      setUser(data?.session?.user || null)
+    })
+
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user || null)
+    })
+
+    return () => {
+      mounted = false
+      listener.subscription.unsubscribe()
+    }
+  }, [])
+
+  const role = useMemo(() => extractRole(user), [user])
+
   return (
     <aside className="sidebar">
       <div>
@@ -136,7 +174,19 @@ export default function Sidebar() {
         </nav>
       </div>
 
-      <div className="mt-auto">
+      <div className="mt-auto space-y-3">
+        <Link to="/my-account" className="block rounded-lg border border-gray-200 bg-white p-3 hover:bg-gray-50 transition">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-sm font-semibold">
+              {initials(user)}
+            </div>
+            <div className="min-w-0">
+              <div className="text-sm font-medium text-gray-900 truncate">{displayName(user)}</div>
+              <div className="text-xs text-gray-500 truncate">{user?.email || 'Not signed in'} • {role}</div>
+            </div>
+          </div>
+        </Link>
+
         <NavLink
           to="/status"
           className={({ isActive }) => (
@@ -146,6 +196,7 @@ export default function Sidebar() {
           <Activity className="w-5 h-5" />
           <span>Status</span>
         </NavLink>
+
         <button
           onClick={() => console.log('Add New clicked')}
           className="btn-manage w-full gap-2"
@@ -153,10 +204,11 @@ export default function Sidebar() {
           <PlusCircle className="w-5 h-5" />
           New Mission
         </button>
+
         <NavLink
           to="/settings"
           className={({ isActive }) => (
-            `nav-item mt-4 ${isActive ? 'nav-item-active' : ''}`
+            `nav-item ${isActive ? 'nav-item-active' : ''}`
           )}
         >
           <Settings className="w-4 h-4" />
