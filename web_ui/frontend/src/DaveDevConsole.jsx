@@ -110,7 +110,7 @@ export default function DaveDevConsole() {
         {messages.map((msg, i) => (
           <div key={i} className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div className={`max-w-md ${msg.type === 'user' ? 'bg-indigo-700 text-white' : 'bg-gray-800 text-gray-100'} rounded-lg p-4`}>
-              <p className="text-sm">{msg.text}</p>
+              <div className="text-sm whitespace-pre-wrap leading-relaxed">{msg.text}</div>
 
               {msg.vscode_prompt && (
                 <div className="mt-3 bg-gray-900 rounded p-3">
