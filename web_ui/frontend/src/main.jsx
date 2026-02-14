@@ -38,7 +38,6 @@ ReactDOM.createRoot(document.getElementById('root')).render(
         <Route path="/hiring" element={<HiringHall onHire={() => {}} />} />
         <Route path="/talents" element={<TalentOverview />} />
         <Route path="/settings" element={<Settings />} />
-        <Route path="/status" element={<StatusIntelligence />} />
         <Route path="/the-brains" element={<StatusIntelligence />} />
         <Route path="/devbot/dave" element={<DaveDevConsole />} />
       </Routes>
