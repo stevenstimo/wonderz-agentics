@@ -3,6 +3,7 @@ import { Home, Users, Layers, ClipboardList, Settings, PlusCircle, BookOpen, Shi
 
 const primaryMenu = [
   { label: 'Mission Control', icon: Layers, path: '/' },
+  { label: 'The Brains', icon: Activity, path: '/status' },
   { label: 'Job Center', icon: ClipboardList, path: '/job-center' },
 ]
 
@@ -10,7 +11,6 @@ const managementMenu = [
   { label: 'Crew', icon: Users, path: '/crew/management' },
   { label: 'Talents', icon: Users, path: '/talents' },
   { label: 'Training Hub', icon: ClipboardList, path: '/training/management' },
-  { label: 'The Brains', icon: Activity, path: '/status' },
   { label: 'Improvements', icon: ClipboardList, path: '/hr/improvements' },
   { label: 'Hiring Hall', icon: ClipboardList, path: '/hiring' },
   { label: 'Developer Bot', icon: Code, path: '/devbot' },
