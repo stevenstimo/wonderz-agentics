@@ -1,10 +1,29 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { MessageCircle, Send, X, Bot } from 'lucide-react'
 
 const SHERLOCK_STORAGE_KEY = 'sherlock_jr_chat_v1'
 const SHERLOCK_STATS_KEY = 'sherlock_jr_stats_v1'
-const SHERLOCK_SEEN_KEY = 'sherlock_jr_seen_v1'
 const SHERLOCK_ID = 'sherlock-jr'
+const SHERLOCK_AVATAR =
+  "data:image/svg+xml;utf8," +
+  encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+      <rect width="120" height="120" fill="#ded2b8"/>
+      <ellipse cx="60" cy="28" rx="26" ry="8" fill="#111827"/>
+      <rect x="36" y="18" width="48" height="22" rx="10" fill="#111827"/>
+      <rect x="38" y="33" width="44" height="4" fill="#f5f5f4"/>
+      <path d="M46 66c4-6 24-6 28 0-4 4-10 6-14 6s-10-2-14-6z" fill="#111827"/>
+      <circle cx="74" cy="60" r="9" fill="none" stroke="#111827" stroke-width="2"/>
+      <line x1="83" y1="68" x2="83" y2="92" stroke="#111827" stroke-width="2"/>
+      <path d="M42 74c5 0 7 6 3 8-2 1-4-1-6 0-2 1-2 4 1 5" fill="none" stroke="#111827" stroke-width="2" stroke-linecap="round"/>
+      <path d="M78 74c-5 0-7 6-3 8 2 1 4-1 6 0 2 1 2 4-1 5" fill="none" stroke="#111827" stroke-width="2" stroke-linecap="round"/>
+      <path d="M50 92c4-7 12-7 16 0" fill="none" stroke="#6b3e1f" stroke-width="4" stroke-linecap="round"/>
+      <circle cx="52" cy="56" r="4" fill="#e9b98b"/>
+      <circle cx="60" cy="54" r="5" fill="#efc49c"/>
+      <circle cx="67" cy="56" r="4" fill="#e9b98b"/>
+    </svg>`
+  )
 
 const defaultStats = {
   level: 1,
@@ -107,13 +126,8 @@ function toCrewPayload(member, nextDevelopmentNotes) {
 export default function SherlockWidget() {
   const apiBase = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
   const messagesEndRef = useRef(null)
-  const [open, setOpen] = useState(() => {
-    try {
-      return !localStorage.getItem(SHERLOCK_SEEN_KEY)
-    } catch {
-      return false
-    }
-  })
+  const [open, setOpen] = useState(false)
+  const [mounted, setMounted] = useState(false)
   const [input, setInput] = useState('')
   const [typing, setTyping] = useState(false)
   const [crew, setCrew] = useState([])
@@ -144,8 +158,8 @@ export default function SherlockWidget() {
 
   const fabStyle = {
     position: 'fixed',
-    right: 'max(16px, env(safe-area-inset-right))',
-    bottom: 'max(16px, env(safe-area-inset-bottom))',
+    right: '16px',
+    bottom: '16px',
     width: 64,
     height: 64,
     borderRadius: '999px',
@@ -156,27 +170,10 @@ export default function SherlockWidget() {
     border: '2px solid rgba(255,255,255,0.95)',
   }
 
-  const tabStyle = {
-    position: 'fixed',
-    right: 'max(12px, env(safe-area-inset-right))',
-    top: '50%',
-    transform: 'translateY(-50%)',
-    borderRadius: 999,
-    border: '1px solid #bfdbfe',
-    background: '#eff6ff',
-    color: '#1d4ed8',
-    padding: '10px 12px',
-    fontSize: 12,
-    fontWeight: 700,
-    letterSpacing: '0.02em',
-    zIndex: 2147483646,
-    boxShadow: '0 12px 30px rgba(15,23,42,0.16)',
-  }
-
   const panelStyle = {
     position: 'fixed',
-    right: 'max(16px, env(safe-area-inset-right))',
-    bottom: 'max(92px, calc(env(safe-area-inset-bottom) + 92px))',
+    right: '16px',
+    bottom: '92px',
     zIndex: 2147483646,
   }
 
@@ -189,14 +186,14 @@ export default function SherlockWidget() {
   }, [stats])
 
   useEffect(() => {
-    if (open) {
-      try {
-        localStorage.setItem(SHERLOCK_SEEN_KEY, '1')
-      } catch {
-        // Ignore storage failures.
-      }
-    }
-  }, [open])
+    setMounted(true)
+  }, [])
+
+  useEffect(() => {
+    const forceOpen = () => setOpen(true)
+    window.addEventListener('open-sherlock-jr', forceOpen)
+    return () => window.removeEventListener('open-sherlock-jr', forceOpen)
+  }, [])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -311,7 +308,9 @@ export default function SherlockWidget() {
     }, 450)
   }
 
-  return (
+  if (!mounted) return null
+
+  return createPortal((
     <>
       <button
         type="button"
@@ -323,24 +322,13 @@ export default function SherlockWidget() {
         <MessageCircle className="mx-auto h-7 w-7" />
       </button>
 
-      {!open && (
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          style={tabStyle}
-          aria-label="Open Sherlock Jr. tab"
-        >
-          Sherlock Jr.
-        </button>
-      )}
-
       {open && (
         <div style={panelStyle} className="flex h-[78vh] w-[min(410px,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-[0_24px_70px_rgba(15,23,42,0.24)]">
           <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="relative flex h-11 w-11 items-center justify-center rounded-full border-2 border-blue-600 bg-blue-100 text-blue-700">
-                  <Bot className="h-6 w-6" />
+                  <img src={SHERLOCK_AVATAR} alt="Sherlock Jr. avatar" className="h-11 w-11 rounded-full object-cover" />
                   <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white bg-emerald-500" />
                 </div>
                 <div>
@@ -419,5 +407,5 @@ export default function SherlockWidget() {
         </div>
       )}
     </>
-  )
+  ), document.body)
 }

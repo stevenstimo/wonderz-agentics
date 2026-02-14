@@ -56,6 +56,18 @@ def _runtime_overview_payload() -> dict:
     last_24h_success = 0
     failure_types: dict[str, int] = {}
     intent_counts: dict[str, int] = {}
+    playbook_counts: dict[str, int] = {}
+    governance_blocked = 0
+    retries_total = 0
+    lessons_used_total = 0
+    llm_used_runs = 0
+    token_total = 0
+    step_total = 0
+    step_latency_ms_total = 0
+    ambiguity_count = 0
+    runs_with_failures = 0
+    run_durations_ms: list[int] = []
+    recent_runs: list[dict] = []
     latest_run_ts = None
 
     for file_path in run_files:
@@ -66,11 +78,17 @@ def _runtime_overview_payload() -> dict:
 
         summary = None
         run_completed_ts = None
+        run_started_ts = None
+        run_ambiguous = False
         for line in lines:
             try:
                 event = json.loads(line)
             except json.JSONDecodeError:
                 continue
+            if event.get("type") == "run_started":
+                run_started_ts = _safe_parse_iso_utc(event.get("ts"))
+            if event.get("type") == "intent_classified" and bool(event.get("ambiguous")):
+                run_ambiguous = True
             if event.get("type") == "run_completed":
                 summary = event.get("summary") or {}
                 run_completed_ts = _safe_parse_iso_utc(event.get("ts"))
@@ -86,13 +104,42 @@ def _runtime_overview_payload() -> dict:
         else:
             total_failed += 1
 
+        retries_total += int(summary.get("retry_count") or 0)
+        lessons_used_total += int(summary.get("lessons_used") or 0)
+        if run_ambiguous:
+            ambiguity_count += 1
+
         intent = summary.get("intent")
         if intent:
             intent_counts[intent] = intent_counts.get(intent, 0) + 1
 
+        playbook = summary.get("playbook")
+        if playbook:
+            playbook_counts[playbook] = playbook_counts.get(playbook, 0) + 1
+
+        metrics = summary.get("metrics") or {}
+        llm_usage = metrics.get("llm_usage") or {}
+        step_total += int(metrics.get("step_count") or 0)
+        step_latency_ms_total += int(metrics.get("total_step_latency_ms") or 0)
+        token_total += int(llm_usage.get("total_tokens") or 0)
+        llm = summary.get("llm") or {}
+        if bool(llm.get("used")):
+            llm_used_runs += 1
+
+        run_failures = summary.get("failures") or []
+        if run_failures:
+            runs_with_failures += 1
         for failure in summary.get("failures") or []:
             failure_type = failure.get("type") or "unknown"
             failure_types[failure_type] = failure_types.get(failure_type, 0) + 1
+            if failure_type == "governance_blocked":
+                governance_blocked += 1
+
+        duration_ms = None
+        if run_started_ts and run_completed_ts:
+            duration_ms = int((run_completed_ts - run_started_ts).total_seconds() * 1000)
+            if duration_ms >= 0:
+                run_durations_ms.append(duration_ms)
 
         if run_completed_ts:
             if latest_run_ts is None or run_completed_ts > latest_run_ts:
@@ -101,10 +148,25 @@ def _runtime_overview_payload() -> dict:
                 last_24h_runs += 1
                 if status == "success":
                     last_24h_success += 1
+            recent_runs.append({
+                "run_id": summary.get("run_id"),
+                "intent": intent,
+                "playbook": playbook,
+                "status": status,
+                "retry_count": int(summary.get("retry_count") or 0),
+                "failures": [f.get("type") or "unknown" for f in run_failures],
+                "total_score": (summary.get("evaluation") or {}).get("total_score"),
+                "duration_ms": duration_ms,
+                "completed_at": run_completed_ts.isoformat(),
+            })
 
     agent_profiles = sorted([p.name for p in agents_dir.glob("*.profile.yml")])
     top_failures = sorted(failure_types.items(), key=lambda item: item[1], reverse=True)[:5]
     top_intents = sorted(intent_counts.items(), key=lambda item: item[1], reverse=True)[:5]
+    top_playbooks = sorted(playbook_counts.items(), key=lambda item: item[1], reverse=True)[:5]
+    recent_runs = sorted(recent_runs, key=lambda row: row.get("completed_at") or "", reverse=True)[:10]
+    avg_duration_ms = int(sum(run_durations_ms) / len(run_durations_ms)) if run_durations_ms else 0
+    avg_step_latency_ms = int(step_latency_ms_total / step_total) if step_total else 0
 
     return {
         "status": "ok",
@@ -116,6 +178,29 @@ def _runtime_overview_payload() -> dict:
             "last_24h_runs": last_24h_runs,
             "last_24h_success_rate": (last_24h_success / last_24h_runs) if last_24h_runs else 0.0,
             "latest_run_at": latest_run_ts.isoformat() if latest_run_ts else None,
+        },
+        "decision_quality": {
+            "ambiguity_rate": (ambiguity_count / total_runs) if total_runs else 0.0,
+            "avg_retries_per_run": (retries_total / total_runs) if total_runs else 0.0,
+            "top_intents": [{"intent": k, "count": v} for k, v in top_intents],
+            "top_playbooks": [{"playbook": k, "count": v} for k, v in top_playbooks],
+        },
+        "execution_quality": {
+            "avg_step_latency_ms": avg_step_latency_ms,
+            "avg_run_duration_ms": avg_duration_ms,
+            "failure_run_rate": (runs_with_failures / total_runs) if total_runs else 0.0,
+        },
+        "learning_memory": {
+            "avg_lessons_used_per_run": (lessons_used_total / total_runs) if total_runs else 0.0,
+            "agents_with_profiles": len(agent_profiles),
+        },
+        "governance_safety": {
+            "governance_blocked_events": governance_blocked,
+        },
+        "cost_performance": {
+            "total_tokens": token_total,
+            "avg_tokens_per_run": (token_total / total_runs) if total_runs else 0.0,
+            "llm_usage_rate": (llm_used_runs / total_runs) if total_runs else 0.0,
         },
         "brains_map": {
             "orchestrator": "crew/scripts/lib/orchestrator.rb",
@@ -130,6 +215,7 @@ def _runtime_overview_payload() -> dict:
         "agents": agent_profiles,
         "top_failure_types": [{"type": k, "count": v} for k, v in top_failures],
         "top_intents": [{"intent": k, "count": v} for k, v in top_intents],
+        "recent_runs": recent_runs,
     }
 
 
