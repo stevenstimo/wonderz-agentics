@@ -1,10 +1,102 @@
+from fastapi import FastAPI, Request, Response
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+import os
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from models.sql_models import CrewMemberSQL
+
+app = FastAPI()
+
+# === CHAT ENDPOINT ===
+from pydantic import BaseModel
+
+class ChatRequest(BaseModel):
+    message: str
+    agent: str = "developer"  # default agent
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+engine = create_engine(DATABASE_URL) if DATABASE_URL else None
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine) if engine else None
+class ChatResponse(BaseModel):
+    response: str
+    agent: str
+
+
+# Dave Dev: reageer als LLM, met begroeting of AI-antwoord
+@app.post("/api/chat", response_model=ChatResponse)
+async def chat_endpoint(chat: ChatRequest):
+    logger.info(f"[CHAT] Ontvangen van frontend: {chat.message} (agent: {chat.agent})")
+    if not ANTHROPIC_API_KEY:
+        logger.error("Geen ANTHROPIC_API_KEY geconfigureerd!")
+    # Forceer ophalen van system_instructions uit DB
+    system_prompt = "Default prompt"
+    if SessionLocal:
+        db = SessionLocal()
+        agent_data = db.query(CrewMemberSQL).filter(CrewMemberSQL.name == "Dave Dev").first()
+        if agent_data and agent_data.system_instructions:
+            system_prompt = agent_data.system_instructions
+        db.close()
+            logger.exception("Fout bij AI-response genereren")
+    if any(g in user_message for g in greetings):
+        ai_response = "Hey! Ik ben Dave Dev, je technische consultant. Waarmee kan ik je helpen? Stel gerust een vraag over architectuur, frontend, database of talent!"
+    elif user_message.endswith("?") or len(user_message.split()) > 2:
+        # Gebruik LLM voor echte vragen, altijd met system_prompt
+        agent = DeveloperAgent(ANTHROPIC_API_KEY)
+        try:
+            result = agent.develop(f"SYSTEM: {system_prompt}\nUSER: {chat.message}")
+            ai_response = result["full_output"]
+        except Exception as e:
+            logger.exception("Fout bij AI-response genereren")
+            return JSONResponse(status_code=500, content={"error": str(e)})
+    else:
+        ai_response = "Kun je je vraag iets specifieker maken? Bijvoorbeeld: 'Hoe ziet de architectuur eruit?' of 'Hoe werkt de database?'."
+            return JSONResponse(status_code=500, content={"error": str(e)})
+    else:
+        ai_response = "Kun je je vraag iets specifieker maken? Bijvoorbeeld: 'Hoe ziet de architectuur eruit?' of 'Hoe werkt de database?'."
+
+    logger.info(f"[CHAT] AI-response: {str(ai_response)[:200]}...")
+    return ChatResponse(response=ai_response, agent=chat.agent)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Expliciete OPTIONS-handler voor /recruit zodat preflight altijd slaagt
+@app.options("/recruit")
+async def options_recruit():
+    headers = {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Headers": "*",
+    }
+    return Response(status_code=200, headers=headers)
+
+# Voeg deze routes toe onder je CORS-middleware
+from fastapi.responses import JSONResponse
+
+@app.get("/api/crew")
+async def get_crew():
+    try:
+        # Hier gaat het nu waarschijnlijk mis (500 error)
+        # Check of je database-verbinding hier wel werkt!
+        print("DEBUG: Fetching crew data...")
+        return [{"id": 1, "name": "Dave Dev", "role": "Developer"}]
+    except Exception as e:
+        print(f"CRASH in get_crew: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+@app.get("/api/training/sessions")
+async def get_sessions():
+    return []
+
 """
 FastAPI Backend for Multi-Agent Development System
 """
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
 import asyncio
@@ -24,27 +116,131 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from agents import ProductOwnerAgent, DeveloperAgent, ReviewerAgent, DevOpsAgent
 from config import ANTHROPIC_API_KEY
 
-app = FastAPI(title="Multi-Agentic Crew API")
+...
+# Voeg deze routes toe onder je CORS-middleware
+from fastapi.responses import JSONResponse
 
-# CORS middleware
-cors_origins_env = os.getenv("CORS_ORIGINS")
-cors_origins = (
-    [o.strip() for o in cors_origins_env.split(",") if o.strip()]
-    if cors_origins_env
-    else [
-        "http://localhost:3000",
-        "http://localhost:5173",
-        "https://wonderz-agentics-4b7x95qr3-stevenstimos-projects.vercel.app",
-        "https://frontend-rho-one-99.vercel.app",
-    ]
-)
+@app.get("/api/crew")
+async def get_crew():
+    try:
+        # Hier gaat het nu waarschijnlijk mis (500 error)
+        # Check of je database-verbinding hier wel werkt!
+        print("DEBUG: Fetching crew data...")
+        return [{"id": 1, "name": "Dave Dev", "role": "Developer"}]
+    except Exception as e:
+        print(f"CRASH in get_crew: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+@app.get("/api/training/sessions")
+async def get_sessions():
+    return []
+"""
+FastAPI Backend for Multi-Agent Development System
+"""
+
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+from typing import Optional, Dict, Any, List
+import asyncio
+import json
+import sys
+import os
+import io
+import uuid
+import logging
+from datetime import datetime
+from pathlib import Path
+import zipfile
+
+# Add parent directory to path to import agents
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from agents import ProductOwnerAgent, DeveloperAgent, ReviewerAgent, DevOpsAgent
+from config import ANTHROPIC_API_KEY
+
+
+
+
+
+app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=cors_origins,
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Expliciete OPTIONS-handler voor /recruit zodat preflight altijd slaagt
+from fastapi.responses import JSONResponse
+from fastapi import Response
+@app.options("/recruit")
+async def options_recruit():
+    headers = {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Headers": "*",
+    }
+    return Response(status_code=200, headers=headers)
+
+
+# 3. Debug recruit endpoint
+@app.post("/recruit")
+async def recruit(request: Request):
+    print("DEBUG: Recruit endpoint bereikt!") # Zie je dit in de logs?
+    try:
+        data = await request.json()
+        return {"status": "success", "received": data}
+    except Exception as e:
+        print(f"ERROR: {e}")
+        return JSONResponse(status_code=400, content={"error": str(e)})
+
+# 1. Log elke inkomende request (inclusief OPTIONS)
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    print(f"==> {request.method} {request.url}")
+    print("Headers:")
+    for k, v in request.headers.items():
+        print(f"  {k}: {v}")
+    response = await call_next(request)
+    return response
+
+# 2. Zet CORS volledig open voor debug
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Tijdelijk alles toestaan
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+# 3. Voorbeeld /recruit endpoint met extra debug
+from fastapi import Body
+from sqlalchemy.exc import SQLAlchemyError
+
+@app.post("/recruit")
+async def recruit(request: Request):
+    try:
+        data = await request.json()
+        print("Recruit body:", data)
+        # Hier zou je je DB-logica plaatsen, bijv. check op crew_id kolom
+        # en ophalen van Gemini-key. Vervang dit door echte DB-code indien nodig.
+        # print("Kolommen in crew_members:", ...)
+        # print("Gemini-key uit DB:", ...)
+        return {"status": "ok", "debug": "Recruit endpoint succesvol aangeroepen."}
+    except SQLAlchemyError as db_err:
+        print("Database error:", db_err)
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"error": "Database error", "details": str(db_err)}
+        )
+    except Exception as e:
+        print("Recruit error:", e)
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={"error": "Recruit error", "details": str(e)}
+        )
 
 # Active WebSocket connections
 active_connections: list[WebSocket] = []
