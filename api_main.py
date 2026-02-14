@@ -998,6 +998,18 @@ def _build_dave_context(req: DaveDevPromptRequest) -> str:
     return "\n\n".join(parts)
 
 
+def _clean_answer_for_ui(answer: str) -> str:
+    """Normalize LLM output for plain-text UI rendering."""
+    cleaned_lines: List[str] = []
+    for line in (answer or "").splitlines():
+        stripped = line.lstrip()
+        indent = line[: len(line) - len(stripped)]
+        if stripped.startswith("* "):
+            line = f"{indent}- {stripped[2:]}"
+        cleaned_lines.append(line.replace("**", ""))
+    return "\n".join(cleaned_lines).strip()
+
+
 # --- DAVE DEV ENDPOINTS ---
 @app.get("/api/dave-dev/info")
 def get_dave_dev_info():
@@ -1057,8 +1069,13 @@ def ask_dave_dev(req: DaveDevPromptRequest):
 
     base_system_prompt = (
         "Je bent Dave Dev: een senior technische consultant. Antwoord pragmatisch, direct en concreet. "
-        "Vermijd vage disclaimers. Als de vraag te breed is, maak redelijke aannames en benoem die kort. "
-        "Gebruik dit outputformat: (1) Kort antwoord, (2) Concrete stappen, (3) Eerste actie nu."
+        "Vermijd vage disclaimers en generiek advies. Als de vraag te breed is, maak redelijke aannames en benoem die kort. "
+        "Gebruik waar mogelijk concrete bestanden, routes of componentnamen uit de context. "
+        "Gebruik dit outputformat:\n"
+        "(1) Kort antwoord\n"
+        "(2) Concrete stappen\n"
+        "(3) Eerste actie nu\n"
+        "Gebruik GEEN markdown-opmaaktekens zoals **, __ of * bullets; schrijf platte tekst met normale regels."
     )
 
     db = SessionLocal()
@@ -1086,21 +1103,33 @@ def ask_dave_dev(req: DaveDevPromptRequest):
         git_context = _safe_git_snippet(max_lines=12)
         if git_context:
             latest_commit = ""
+            recent_commits: List[str] = []
             changes = ""
             for block in git_context.split("\n\n"):
                 if block.startswith("Recent commits:"):
                     lines = block.splitlines()[1:]
                     latest_commit = lines[0] if lines else ""
+                    recent_commits = lines[:3]
                 if block.startswith("Working tree snapshot:"):
-                    changes = "\n".join(block.splitlines()[1:6])
+                    raw_changes = block.splitlines()[1:6]
+                    normalized_changes: List[str] = []
+                    for line in raw_changes:
+                        stripped = line.strip()
+                        if stripped.startswith("m ") and "web_ui/backend" in stripped:
+                            normalized_changes.append("- nested repo changed: web_ui/backend")
+                        else:
+                            normalized_changes.append(line)
+                    changes = "\n".join(normalized_changes)
+            commit_section = "\n".join(f"- {c}" for c in recent_commits) or f"- {latest_commit or 'onbekend'}"
             answer = (
                 "(1) Kort antwoord: de meest recente wijziging komt uit de laatste commit en huidige werkboom.\n\n"
                 f"(2) Laatste commit: {latest_commit or 'onbekend'}.\n"
+                f"Top recente commits:\n{commit_section}\n"
                 f"Huidige wijzigingen (top):\n{changes or '- geen open wijzigingen'}\n\n"
                 "(3) Eerste actie nu: open die bovenste gewijzigde file en review de diff om impact te bevestigen."
             )
             return DaveDevResponse(
-                answer=answer,
+                answer=_clean_answer_for_ui(answer),
                 code_references=None,
                 confidence=0.9,
                 llm_used="git-context",
@@ -1133,7 +1162,7 @@ def ask_dave_dev(req: DaveDevPromptRequest):
                 if content and isinstance(content, list):
                     answer = "\n".join(part.get("text", "") for part in content if isinstance(part, dict)).strip()
                 if answer:
-                    return DaveDevResponse(answer=answer, confidence=0.9, llm_used="Anthropic")
+                    return DaveDevResponse(answer=_clean_answer_for_ui(answer), confidence=0.9, llm_used="Anthropic")
             llm_errors.append(f"Anthropic {response.status_code}: {response.text[:180]}")
         except Exception as exc:
             llm_errors.append(f"Anthropic exception: {exc}")
@@ -1161,7 +1190,7 @@ def ask_dave_dev(req: DaveDevPromptRequest):
                 data = response.json()
                 answer = data.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
                 if answer:
-                    return DaveDevResponse(answer=answer, confidence=0.85, llm_used="OpenAI")
+                    return DaveDevResponse(answer=_clean_answer_for_ui(answer), confidence=0.85, llm_used="OpenAI")
             llm_errors.append(f"OpenAI {response.status_code}: {response.text[:180]}")
         except Exception as exc:
             llm_errors.append(f"OpenAI exception: {exc}")
@@ -1190,7 +1219,7 @@ def ask_dave_dev(req: DaveDevPromptRequest):
                 data = response.json()
                 answer = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "").strip()
                 if answer:
-                    return DaveDevResponse(answer=answer, confidence=0.8, llm_used="Gemini")
+                    return DaveDevResponse(answer=_clean_answer_for_ui(answer), confidence=0.8, llm_used="Gemini")
             llm_errors.append(f"Gemini {response.status_code}: {response.text[:180]}")
         except Exception as exc:
             llm_errors.append(f"Gemini exception: {exc}")
