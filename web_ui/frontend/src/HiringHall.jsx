@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Briefcase, Sparkles, BrainCircuit, ShieldCheck, Info } from 'lucide-react';
-import Sidebar from './Sidebar';
+import PageLayout from './PageLayout';
 /**
  * @typedef {'Management' | 'Creative' | 'Technical'} AgentCategory
  * @typedef {{
@@ -55,12 +55,7 @@ const HiringHall = ({ onHire }) => {
   };
 
   return (
-    <div className="dashboard-container">
-      <Sidebar />
-      <main className="content-area">
-        <div className="main-content">
-          <div className="inner-container">
-            <div className="max-w-5xl mx-auto space-y-12 animate-in zoom-in-95 duration-500 pb-24">
+    <PageLayout variant="inner" size="medium" className="space-y-12 animate-in zoom-in-95 duration-500 pb-24">
               <div className="text-center space-y-4">
                 <h1 className="text-4xl font-black text-[#111827] tracking-tight">Recruit New Crew Member</h1>
                 <p className="text-[#6B7280] text-lg max-w-2xl mx-auto">Configureer het "Brein" van je agent. Definieer hun persona, kennisbasis en operationele tools.</p>
@@ -147,11 +142,7 @@ const HiringHall = ({ onHire }) => {
                     </p>
                  </div>
               </div>
-            </div>
-          </div>
-        </div>
-      </main>
-    </div>
+      </PageLayout>
   );
 };
 

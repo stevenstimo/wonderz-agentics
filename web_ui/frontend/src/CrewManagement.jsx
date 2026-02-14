@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Plus, Edit2, Trash2, User, Shield, Code, Container, RefreshCw, X, Check, AlertCircle, Loader } from 'lucide-react'
-import Sidebar from './Sidebar'
+import PageLayout from './PageLayout';
 import { ToastContainer, useToast } from './Toast'
 
 const roleIcons = {
@@ -304,10 +304,7 @@ export default function CrewManagement() {
   )
 
   return (
-    <div className="dashboard-container">
-      <Sidebar />
-      <main className="content-area">
-        <div className="max-w-6xl mx-auto">
+    <PageLayout size="wide" padded>
           <div className="panel-card mb-8">
             <div className="flex items-center justify-between gap-4 flex-wrap">
               <div>
@@ -720,9 +717,7 @@ export default function CrewManagement() {
               })}
             </div>
           </div>
-        </div>
-      </main>
       <ToastContainer toasts={toast.toasts} onRemove={toast.removeToast} />
-    </div>
+    </PageLayout>
   )
 }

@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from 'react'
 // import UnifiedProducts from './UnifiedProducts'
 // import CrewOverviewLive from './CrewOverviewLive'
 // import TaskListLive from './TaskListLive'
-import Sidebar from './Sidebar'
+import PageLayout from './PageLayout';
 import ProgressBar from './ProgressBar'
 import AgentList from './AgentList'
 import { getAgentsPerStage } from './agentUtils'
@@ -147,11 +147,7 @@ await supabase.from('projects').insert([
   }
 
   return (
-    <div className="dashboard-container">
-      {/* Sidebar */}
-      <Sidebar />
-      {/* Main content */}
-      <main className="content-area">
+    <PageLayout size="wide" padded>
         {/* <CrewOverviewLive /> */}
         {/* <TaskListLive /> */}
         {/* <UnifiedProducts /> */}
@@ -160,8 +156,6 @@ await supabase.from('projects').insert([
         <div className="mb-4">
           <Link to="/devbot" className="text-indigo-600 hover:underline font-medium">Developer Bot</Link>
         </div>
-
-        <div className="max-w-6xl mx-auto px-4 py-8">
         {/* Input Section */}
         {!isRunning && !results && (
           <div className="panel-card mb-8">
@@ -365,9 +359,7 @@ await supabase.from('projects').insert([
             </div>
           </div>
         )}
-        </div>
-      </main>
-    </div>
+      </PageLayout>
   )
 }
 

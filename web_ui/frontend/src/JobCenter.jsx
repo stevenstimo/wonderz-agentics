@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import Sidebar from './Sidebar'
+import PageLayout from './PageLayout';
 
 const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
@@ -64,10 +64,7 @@ export default function JobCenter() {
   }))
 
   return (
-    <div className="dashboard-container">
-      <Sidebar />
-      <main className="content-area">
-        <div className="max-w-6xl mx-auto space-y-6">
+    <PageLayout size="wide" padded className="space-y-6">
           <div className="panel-card">
             <h2 className="page-title">Job Center</h2>
             <p className="page-subtitle">
@@ -134,8 +131,6 @@ export default function JobCenter() {
               </div>
             </>
           )}
-        </div>
-      </main>
-    </div>
+      </PageLayout>
   )
 }

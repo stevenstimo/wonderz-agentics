@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import Sidebar from './Sidebar'
+import PageLayout from './PageLayout';
 
 const apiBase = import.meta.env.VITE_API_URL || ''
 
@@ -103,10 +103,7 @@ export default function ExplainerLayout({ slug, fallbackTitle }) {
     : 'Unknown'
 
   return (
-    <div className="dashboard-container">
-      <Sidebar />
-      <main className="content-area">
-        <div className="max-w-6xl mx-auto space-y-6">
+    <PageLayout size="wide" padded className="space-y-6">
           <div className="panel-card">
             <div className="flex items-start justify-between gap-4 flex-wrap">
               <div>
@@ -134,8 +131,6 @@ export default function ExplainerLayout({ slug, fallbackTitle }) {
               <p className="text-sm text-slate-500">No content found for this section.</p>
             )}
           </div>
-        </div>
-      </main>
-    </div>
+      </PageLayout>
   )
 }

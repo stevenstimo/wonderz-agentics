@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { Activity, CheckCircle2, AlertTriangle, Bot, Settings as SettingsIcon, RefreshCw } from 'lucide-react'
-import Sidebar from './Sidebar'
+import PageLayout from './PageLayout';
 
 function StatusRow({ label, ok, detail }) {
   return (
@@ -96,10 +96,7 @@ export default function Status() {
   }, [])
 
   return (
-    <div className="dashboard-container">
-      <Sidebar />
-      <main className="content-area">
-        <div className="max-w-5xl mx-auto space-y-6">
+    <PageLayout size="medium" padded className="space-y-6">
           <div className="panel-card">
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-3">
@@ -202,8 +199,6 @@ export default function Status() {
               {loadError}
             </div>
           )}
-        </div>
-      </main>
-    </div>
+      </PageLayout>
   )
 }

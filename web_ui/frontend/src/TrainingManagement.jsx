@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { BookOpen, Send, Check, Clock, AlertCircle, RefreshCw, Loader } from 'lucide-react'
-import Sidebar from './Sidebar'
+import PageLayout from './PageLayout';
 import { ToastContainer, useToast } from './Toast'
 
 export default function TrainingManagement() {
@@ -161,14 +161,14 @@ export default function TrainingManagement() {
   }
 
   const handleCrewSelect = (e) => {
-    const selected = crew.find(c => c.id === e.target.value)
-    if (selected) {
-      setFormData({
-        ...formData,
-        crew_id: selected.id,
-        agent_name: selected.name,
-      })
-    }
+    const selectedId = e.target.value
+    const selected = crew.find(c => String(c.id) === selectedId)
+
+    setFormData(prev => ({
+      ...prev,
+      crew_id: selected ? selected.id : '',
+      agent_name: selected ? selected.name : '',
+    }))
   }
 
   const handleApprovalDecision = async (approvalId, approved) => {
@@ -296,10 +296,7 @@ export default function TrainingManagement() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex">
-      <Sidebar />
-      <main className="flex-1 px-8 py-8">
-        <div className="max-w-6xl mx-auto">
+    <PageLayout variant="inner" size="wide">
           <div className="bg-white rounded-xl shadow-lg p-8 mb-8">
             <div className="flex items-center justify-between gap-4 flex-wrap">
               <div>
@@ -343,7 +340,7 @@ export default function TrainingManagement() {
                     Agent <span className="text-red-500">*</span>
                   </label>
                   <select
-                    value={formData.crew_id}
+                    value={formData.crew_id === '' ? '' : String(formData.crew_id)}
                     onChange={handleCrewSelect}
                     className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent ${
                       formValidation.crew_id ? 'border-red-500 bg-red-50' : ''
@@ -612,9 +609,7 @@ export default function TrainingManagement() {
               ))}
             </div>
           </div>
-        </div>
-      </main>
       <ToastContainer toasts={toast.toasts} onRemove={toast.removeToast} />
-    </div>
+    </PageLayout>
   )
 }

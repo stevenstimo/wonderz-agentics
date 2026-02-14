@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import Sidebar from './Sidebar';
+import PageLayout from './PageLayout';
 import DaveDevConsole from './DaveDevConsole';
 
 const agents = [
@@ -19,10 +19,7 @@ export default function DevbotHome() {
   const agent = agents.find(a => a.id === selectedAgent);
 
   return (
-    <div className="dashboard-container">
-      <Sidebar />
-      <main className="content-area">
-        <div className="max-w-5xl mx-auto space-y-6">
+    <PageLayout size="medium" padded className="space-y-6">
           {!selectedAgent ? (
             // Agent selection screen
             <div className="space-y-6">
@@ -67,8 +64,6 @@ export default function DevbotHome() {
               <p className="text-slate-600">Agent not found</p>
             </div>
           )}
-        </div>
-      </main>
-    </div>
+      </PageLayout>
   );
 }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { CheckCircle, XCircle, Clock, RefreshCw, Loader } from 'lucide-react'
-import Sidebar from './Sidebar'
+import PageLayout from './PageLayout';
 import { ToastContainer, useToast } from './Toast'
 
 export default function ApprovalDashboard() {
@@ -105,10 +105,7 @@ export default function ApprovalDashboard() {
   }
 
   return (
-    <div className="dashboard-container">
-      <Sidebar />
-      <main className="content-area">
-        <div className="max-w-6xl mx-auto">
+    <PageLayout size="wide" padded>
           <div className="panel-card mb-8">
             <div className="flex items-center justify-between gap-4 flex-wrap">
               <div>
@@ -262,9 +259,7 @@ export default function ApprovalDashboard() {
               ))}
             </div>
           </div>
-        </div>
-      </main>
       <ToastContainer toasts={toast.toasts} onRemove={toast.removeToast} />
-    </div>
+    </PageLayout>
   )
 }

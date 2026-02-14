@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { MessageSquare, RefreshCw, ChevronDown, ChevronUp, X } from 'lucide-react'
-import Sidebar from './Sidebar'
+import PageLayout from './PageLayout';
 import { ToastContainer, useToast } from './Toast'
 
 const commandList = new Set([
@@ -143,10 +143,7 @@ export default function HRImprovements() {
   }
 
   return (
-    <div className="dashboard-container">
-      <Sidebar />
-      <main className="content-area">
-        <div className="max-w-5xl mx-auto">
+    <PageLayout size="medium" padded>
           <div className="panel-card mb-8">
             <div className="flex items-center justify-between gap-4 flex-wrap">
               <div>
@@ -270,8 +267,6 @@ export default function HRImprovements() {
               })}
             </div>
           </div>
-        </div>
-      </main>
       {logItem && (
         <div className="modal-overlay" onClick={closeLog}>
           <div className="modal-card" onClick={(event) => event.stopPropagation()}>
@@ -291,6 +286,6 @@ export default function HRImprovements() {
         </div>
       )}
       <ToastContainer toasts={toast.toasts} onRemove={toast.removeToast} />
-    </div>
+    </PageLayout>
   )
 }
