@@ -1,5 +1,7 @@
 import os
 import json
+from pathlib import Path
+from datetime import datetime, timedelta, timezone
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 import uuid
@@ -24,6 +26,116 @@ app = FastAPI(title="Multi-Agentic Crew - Orchestrator API")
 
 # Include job flow routes
 app.include_router(jobs_router)
+
+
+def _workspace_root() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
+def _safe_parse_iso_utc(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _runtime_overview_payload() -> dict:
+    root = _workspace_root()
+    run_dir = root / "crew" / "reports" / "runs"
+    agents_dir = root / "crew" / "agents"
+    now = datetime.now(timezone.utc)
+    since_24h = now - timedelta(hours=24)
+
+    run_files = sorted(run_dir.glob("run-*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True)[:250]
+    total_runs = 0
+    total_success = 0
+    total_failed = 0
+    last_24h_runs = 0
+    last_24h_success = 0
+    failure_types: dict[str, int] = {}
+    intent_counts: dict[str, int] = {}
+    latest_run_ts = None
+
+    for file_path in run_files:
+        try:
+            lines = file_path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+
+        summary = None
+        run_completed_ts = None
+        for line in lines:
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if event.get("type") == "run_completed":
+                summary = event.get("summary") or {}
+                run_completed_ts = _safe_parse_iso_utc(event.get("ts"))
+                break
+
+        if not summary:
+            continue
+
+        total_runs += 1
+        status = summary.get("status")
+        if status == "success":
+            total_success += 1
+        else:
+            total_failed += 1
+
+        intent = summary.get("intent")
+        if intent:
+            intent_counts[intent] = intent_counts.get(intent, 0) + 1
+
+        for failure in summary.get("failures") or []:
+            failure_type = failure.get("type") or "unknown"
+            failure_types[failure_type] = failure_types.get(failure_type, 0) + 1
+
+        if run_completed_ts:
+            if latest_run_ts is None or run_completed_ts > latest_run_ts:
+                latest_run_ts = run_completed_ts
+            if run_completed_ts >= since_24h:
+                last_24h_runs += 1
+                if status == "success":
+                    last_24h_success += 1
+
+    agent_profiles = sorted([p.name for p in agents_dir.glob("*.profile.yml")])
+    top_failures = sorted(failure_types.items(), key=lambda item: item[1], reverse=True)[:5]
+    top_intents = sorted(intent_counts.items(), key=lambda item: item[1], reverse=True)[:5]
+
+    return {
+        "status": "ok",
+        "generated_at": now.isoformat(),
+        "summary": {
+            "total_runs": total_runs,
+            "success_rate": (total_success / total_runs) if total_runs else 0.0,
+            "failed_runs": total_failed,
+            "last_24h_runs": last_24h_runs,
+            "last_24h_success_rate": (last_24h_success / last_24h_runs) if last_24h_runs else 0.0,
+            "latest_run_at": latest_run_ts.isoformat() if latest_run_ts else None,
+        },
+        "brains_map": {
+            "orchestrator": "crew/scripts/lib/orchestrator.rb",
+            "decision_engine": "crew/scripts/lib/decision_engine.rb",
+            "execution_engine": "crew/scripts/lib/execution_engine.rb",
+            "evaluator": "crew/scripts/lib/evaluator.rb",
+            "memory_manager": "crew/scripts/lib/memory_manager.rb",
+            "governance": "crew/scripts/lib/governance.rb",
+            "llm_client": "crew/scripts/lib/llm_client.rb",
+            "runtime_docs": "crew/docs/runtime_architecture.md",
+        },
+        "agents": agent_profiles,
+        "top_failure_types": [{"type": k, "count": v} for k, v in top_failures],
+        "top_intents": [{"intent": k, "count": v} for k, v in top_intents],
+    }
+
+
+@app.get("/api/intelligence/overview")
+async def intelligence_overview():
+    return _runtime_overview_payload()
 
 
 @app.on_event("startup")
@@ -223,4 +335,3 @@ async def approve_job_legacy(job_id: str, request: Request):
         raise HTTPException(status_code=500, detail=f"Failed to re-enqueue job: {e}")
 
     return {"job_id": job_id, "status": "running"}
-

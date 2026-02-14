@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { Home, Users, Layers, ClipboardList, Settings, PlusCircle, BookOpen, Shield, Code } from 'lucide-react'
+import { Home, Users, Layers, ClipboardList, Settings, PlusCircle, BookOpen, Shield, Code, Activity } from 'lucide-react'
 
 const primaryMenu = [
   { label: 'Mission Control', icon: Layers, path: '/' },
@@ -10,6 +10,7 @@ const managementMenu = [
   { label: 'Crew', icon: Users, path: '/crew/management' },
   { label: 'Talents', icon: Users, path: '/talents' },
   { label: 'Training Hub', icon: ClipboardList, path: '/training/management' },
+  { label: 'Status / Intelligence', icon: Activity, path: '/status' },
   { label: 'Improvements', icon: ClipboardList, path: '/hr/improvements' },
   { label: 'Hiring Hall', icon: ClipboardList, path: '/hiring' },
   { label: 'Developer Bot', icon: Code, path: '/devbot' },

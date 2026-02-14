@@ -17,6 +17,8 @@ import DeveloperBot from './DeveloperBot.jsx'
 import DevbotHome from './DevbotHome.jsx'
 import TalentOverview from './TalentOverview.jsx'
 import Settings from './Settings.jsx'
+import SherlockWidget from './SherlockWidget.jsx'
+import StatusIntelligence from './StatusIntelligence.jsx'
 import './index.css'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
@@ -36,8 +38,10 @@ ReactDOM.createRoot(document.getElementById('root')).render(
         <Route path="/hiring" element={<HiringHall onHire={() => {}} />} />
         <Route path="/talents" element={<TalentOverview />} />
         <Route path="/settings" element={<Settings />} />
+        <Route path="/status" element={<StatusIntelligence />} />
         <Route path="/devbot/dave" element={<DaveDevConsole />} />
       </Routes>
+      <SherlockWidget />
     </BrowserRouter>
   </React.StrictMode>,
 )
