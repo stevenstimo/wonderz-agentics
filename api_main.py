@@ -7,6 +7,7 @@ from uuid import uuid4
 from datetime import datetime
 from typing import List, Optional
 import base64
+import subprocess
 
 from fastapi import FastAPI, HTTPException, Request, Body, Depends, Query
 import requests
@@ -904,6 +905,10 @@ async def on_shutdown():
 class DaveDevPromptRequest(BaseModel):
     question: str
     context: Optional[str] = None
+    page: Optional[str] = None
+    selected_tool: Optional[str] = None
+    recent_messages: Optional[List[str]] = None
+
 
 class DaveDevResponse(BaseModel):
     answer: str
@@ -911,6 +916,87 @@ class DaveDevResponse(BaseModel):
     code_references: Optional[List[str]] = None
     confidence: float = 0.9
     llm_used: Optional[str] = None
+
+
+def _safe_git_snippet(max_lines: int = 8) -> str:
+    """Collect a tiny git context block without breaking request flow."""
+    git_roots = [repo_root, os.path.dirname(repo_root)]
+    logs = ""
+    status_lines = ""
+
+    for root in git_roots:
+        try:
+            logs = subprocess.check_output(
+                ["git", "-C", root, "log", "--oneline", "-n", "5"],
+                stderr=subprocess.DEVNULL,
+                text=True,
+                timeout=2,
+            ).strip()
+            status = subprocess.check_output(
+                ["git", "-C", root, "status", "--short"],
+                stderr=subprocess.DEVNULL,
+                text=True,
+                timeout=2,
+            ).strip()
+            status_lines = "\n".join(status.splitlines()[:max_lines])
+            if logs or status_lines:
+                break
+        except Exception:
+            continue
+
+    # Fallback when git is not available in container: use file mtimes.
+    if not logs and not status_lines:
+        candidates: List[tuple] = []
+        roots = [os.path.join(os.path.dirname(backend_dir), "backend"), os.path.join(os.path.dirname(backend_dir), "frontend", "src")]
+        for root in roots:
+            if not os.path.isdir(root):
+                continue
+            for current_root, _, files in os.walk(root):
+                for fname in files:
+                    if not fname.endswith((".py", ".jsx", ".js", ".ts", ".tsx")):
+                        continue
+                    full_path = os.path.join(current_root, fname)
+                    try:
+                        mtime = os.path.getmtime(full_path)
+                    except OSError:
+                        continue
+                    rel_path = os.path.relpath(full_path, os.path.dirname(backend_dir))
+                    candidates.append((mtime, rel_path))
+
+        candidates.sort(reverse=True)
+        if candidates:
+            latest_files = "\n".join(f"- {path}" for _, path in candidates[:max_lines])
+            status_lines = latest_files
+            logs = "mtime-based snapshot (git unavailable)"
+
+    parts: List[str] = []
+    if logs:
+        parts.append(f"Recent commits:\n{logs}")
+    if status_lines:
+        parts.append(f"Working tree snapshot:\n{status_lines}")
+
+    return "\n\n".join(parts)
+
+
+def _build_dave_context(req: DaveDevPromptRequest) -> str:
+    parts: List[str] = []
+    if req.page:
+        parts.append(f"UI page: {req.page}")
+    if req.selected_tool:
+        parts.append(f"Selected tool: {req.selected_tool}")
+    if req.context:
+        parts.append(f"User context:\n{req.context}")
+    if req.recent_messages:
+        clipped = [m for m in req.recent_messages if m][:6]
+        if clipped:
+            parts.append("Recent chat:\n" + "\n".join(f"- {m}" for m in clipped))
+
+    git_block = _safe_git_snippet()
+    if git_block:
+        parts.append(git_block)
+
+    return "\n\n".join(parts)
+
 
 # --- DAVE DEV ENDPOINTS ---
 @app.get("/api/dave-dev/info")
@@ -932,12 +1018,13 @@ def get_dave_dev_info():
         "persona": "Pragmatic, analytical, direct",
         "quality_notes": "Code-ready prompts with security best practices",
         "growth": "Continuous improvement in system design",
-        "development_notes": None
+        "development_notes": None,
     }
+
 
 @app.post("/api/dave-dev/ask", response_model=DaveDevResponse)
 def ask_dave_dev(req: DaveDevPromptRequest):
-    """Ask Dave Dev a technical question."""
+    """Ask Dave Dev a technical question with repo-aware context."""
     question = (req.question or "").strip()
     if not question:
         return DaveDevResponse(
@@ -957,10 +1044,9 @@ def ask_dave_dev(req: DaveDevPromptRequest):
     openai_key = OPENAI_API_KEY
     gemini_key = GEMINI_API_KEY
 
-    # Allow API keys saved via /api/settings to be used when env keys are missing.
     db = SessionLocal()
     try:
-        settings = db.query(SettingsSQL).filter(SettingsSQL.id == 'default').first()
+        settings = db.query(SettingsSQL).filter(SettingsSQL.id == "default").first()
         if settings:
             if not _looks_real_key(anthropic_key) and _looks_real_key(settings.anthropic_api_key):
                 anthropic_key = settings.anthropic_api_key
@@ -969,23 +1055,57 @@ def ask_dave_dev(req: DaveDevPromptRequest):
     finally:
         db.close()
 
-    system_prompt = (
-        "Je bent Dave Dev, een pragmatische, analytische en directe technische consultant. "
-        "Geef concrete, technisch correcte antwoorden in het Nederlands met korte stappen."
+    base_system_prompt = (
+        "Je bent Dave Dev: een senior technische consultant. Antwoord pragmatisch, direct en concreet. "
+        "Vermijd vage disclaimers. Als de vraag te breed is, maak redelijke aannames en benoem die kort. "
+        "Gebruik dit outputformat: (1) Kort antwoord, (2) Concrete stappen, (3) Eerste actie nu."
     )
 
-    # If crew member instructions exist, use those as authoritative persona.
     db = SessionLocal()
     try:
         agent_data = db.query(CrewMemberSQL).filter(CrewMemberSQL.name == "Dave Dev").first()
         if agent_data and agent_data.system_instructions:
-            system_prompt = agent_data.system_instructions
+            system_prompt = (
+                f"{base_system_prompt}\n\n"
+                f"Extra persona instructies:\n{agent_data.system_instructions}"
+            )
+        else:
+            system_prompt = base_system_prompt
     finally:
         db.close()
 
+    extra_context = _build_dave_context(req)
     full_user_prompt = question
-    if req.context:
-        full_user_prompt += f"\n\nContext:\n{req.context}"
+    if extra_context:
+        full_user_prompt += f"\n\nExtra context:\n{extra_context}"
+
+    # High-signal shortcut for "latest update" style questions.
+    q_lower = question.lower()
+    latest_markers = ["laatste", "recent", "update", "wijziging", "changed", "changelog"]
+    if any(marker in q_lower for marker in latest_markers):
+        git_context = _safe_git_snippet(max_lines=12)
+        if git_context:
+            latest_commit = ""
+            changes = ""
+            for block in git_context.split("\n\n"):
+                if block.startswith("Recent commits:"):
+                    lines = block.splitlines()[1:]
+                    latest_commit = lines[0] if lines else ""
+                if block.startswith("Working tree snapshot:"):
+                    changes = "\n".join(block.splitlines()[1:6])
+            answer = (
+                "(1) Kort antwoord: de meest recente wijziging komt uit de laatste commit en huidige werkboom.\n\n"
+                f"(2) Laatste commit: {latest_commit or 'onbekend'}.\n"
+                f"Huidige wijzigingen (top):\n{changes or '- geen open wijzigingen'}\n\n"
+                "(3) Eerste actie nu: open die bovenste gewijzigde file en review de diff om impact te bevestigen."
+            )
+            return DaveDevResponse(
+                answer=answer,
+                code_references=None,
+                confidence=0.9,
+                llm_used="git-context",
+            )
+
     llm_errors: List[str] = []
 
     if _looks_real_key(anthropic_key):
@@ -999,12 +1119,12 @@ def ask_dave_dev(req: DaveDevPromptRequest):
                 },
                 json={
                     "model": "claude-3-5-sonnet-latest",
-                    "max_tokens": 600,
-                    "temperature": 0.4,
+                    "max_tokens": 700,
+                    "temperature": 0.35,
                     "system": system_prompt,
                     "messages": [{"role": "user", "content": full_user_prompt}],
                 },
-                timeout=20,
+                timeout=25,
             )
             if response.ok:
                 data = response.json()
@@ -1032,10 +1152,10 @@ def ask_dave_dev(req: DaveDevPromptRequest):
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": full_user_prompt},
                     ],
-                    "max_tokens": 600,
-                    "temperature": 0.4,
+                    "max_tokens": 700,
+                    "temperature": 0.35,
                 },
-                timeout=20,
+                timeout=25,
             )
             if response.ok:
                 data = response.json()
@@ -1049,17 +1169,22 @@ def ask_dave_dev(req: DaveDevPromptRequest):
     if _looks_real_key(gemini_key):
         try:
             response = requests.post(
-                "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
+                "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
                 params={"key": gemini_key},
                 headers={"Content-Type": "application/json"},
                 json={
-                    "contents": [{"role": "user", "parts": [{"text": f"SYSTEM: {system_prompt}\nUSER: {full_user_prompt}"}]}],
+                    "contents": [
+                        {
+                            "role": "user",
+                            "parts": [{"text": f"SYSTEM: {system_prompt}\nUSER: {full_user_prompt}"}],
+                        }
+                    ],
                     "generationConfig": {
-                        "temperature": 0.4,
-                        "maxOutputTokens": 600,
+                        "temperature": 0.35,
+                        "maxOutputTokens": 700,
                     },
                 },
-                timeout=20,
+                timeout=25,
             )
             if response.ok:
                 data = response.json()
@@ -1074,24 +1199,19 @@ def ask_dave_dev(req: DaveDevPromptRequest):
     lower_question = question.lower()
     responses = {
         "architecture": {
-            "answer": "Wonderz-Agentics uses modular, platform-agnostic architecture. FastAPI (backend) + React/Tailwind (frontend) + Supabase (database). Adapter pattern for multi-platform integration.",
+            "answer": "Kort antwoord: de stack is modulair met FastAPI backend, React frontend en SQLAlchemy/Postgres.\n\nConcrete stappen: (1) werk via adapters voor platformintegratie, (2) hou domain models platform-onafhankelijk, (3) centraliseer orchestration in API-laag.\n\nEerste actie nu: open tools/adapters.py en models/unified.py en voeg je nieuwe platformadapter als aparte class toe.",
             "vscode_prompt": "Design new adapter for [PLATFORM]. Follow pattern in tools/adapters.py: (1) Inherit from BaseAdapter, (2) Implement get_product(id), (3) Map to UnifiedProduct, (4) Add error handling.",
             "code_references": ["tools/adapters.py", "models/unified.py"],
         },
         "frontend": {
-            "answer": "React + Tailwind + Vite. Components use useState/useEffect hooks, React Router for navigation, fetch for API calls.",
+            "answer": "Kort antwoord: React + Vite + Tailwind met API-calls naar backend endpoints.\n\nConcrete stappen: (1) maak component, (2) voeg state + loading/error states toe, (3) koppel aan endpoint, (4) valideer response mapping.\n\nEerste actie nu: maak featurecomponent in web_ui/frontend/src en verbind met CONFIG api endpoint.",
             "vscode_prompt": "Create React component for [FEATURE]: (1) Import hooks, (2) Define component, (3) Use Tailwind classes, (4) Fetch from /api/[endpoint], (5) Return JSX.",
             "code_references": ["web_ui/frontend/src/"],
         },
         "database": {
-            "answer": "Supabase (PostgreSQL). SQLAlchemy ORM for backend. Tables: crew_members, talents, jobs, training_sessions.",
+            "answer": "Kort antwoord: SQLAlchemy models + Alembic migrations bovenop Postgres.\n\nConcrete stappen: (1) model update, (2) migration autogenerate, (3) upgrade head, (4) endpoint aanpassen en testen.\n\nEerste actie nu: wijzig model in models/sql_models.py en genereer direct migration.",
             "vscode_prompt": "Add table [NAME]: (1) SQLAlchemy model in models/sql_models.py, (2) Pydantic model in models/ui.py, (3) Alembic migration, (4) API endpoints.",
             "code_references": ["models/sql_models.py", "models/ui.py"],
-        },
-        "talent": {
-            "answer": "Talents = potential crew members. HR promotes via POST /api/talents/{id}/promote. Creates CrewMember, deletes Talent.",
-            "vscode_prompt": "Talent workflow: (1) POST /api/talents, (2) User clicks Promote, (3) Modal with role/instructions, (4) POST /api/talents/{id}/promote, (5) Update lists.",
-            "code_references": ["web_ui/frontend/src/TalentOverview.jsx", "web_ui/backend/api_main.py"],
         },
     }
 
@@ -1101,7 +1221,7 @@ def ask_dave_dev(req: DaveDevPromptRequest):
                 answer=data["answer"],
                 vscode_prompt=data["vscode_prompt"],
                 code_references=data["code_references"],
-                confidence=0.6,
+                confidence=0.65,
                 llm_used="static",
             )
 
@@ -1115,6 +1235,7 @@ def ask_dave_dev(req: DaveDevPromptRequest):
         confidence=0.2,
         llm_used=None,
     )
+
 
 @app.post("/api/dave-dev/generate-prompt")
 def generate_vscode_prompt(req: DaveDevPromptRequest):
