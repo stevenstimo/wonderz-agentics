@@ -1,0 +1,86 @@
+version: 1
+id: "backend_data_trace"
+summary: "Trace API/data issues via endpoint, service en storage pad."
+category: "backend"
+
+triggers:
+  any_of:
+    - "waarom komt data niet door"
+    - "api endpoint faalt"
+    - "backend issue"
+
+inputs:
+  keyword: "string"
+  service_hint: "string?"
+
+behavior:
+  tool_first: true
+  no_manual_mode_if_scan_possible: true
+  require_evidence: true
+  ask_before_apply_fix: true
+
+intent_routing:
+  intent_key: "api_or_data_issue"
+  preferred_paths:
+    - "backend_api"
+
+steps:
+  - id: "locate_endpoint"
+    run:
+      - "rg -n 'router|route|endpoint|def .*{keyword}' {backend_paths}"
+  - id: "trace_service_and_repo"
+    run:
+      - "rg -n 'service|repository|query|db|sqlalchemy|model' {backend_paths}"
+  - id: "collect_error_points"
+    run:
+      - "rg -n 'raise|except|error|status_code|rollback' {backend_paths}"
+
+outputs:
+  required:
+    - "failure_point"
+    - "evidence[]"
+    - "safe_fix_option"
+  evidence_shape:
+    - "file"
+    - "line"
+    - "matched_text"
+    - "reason"
+
+response_contract:
+  required_sections:
+    - "Gevonden"
+    - "Oorzaak"
+    - "Fix voorstel"
+    - "Vraag"
+  required_fields_per_evidence:
+    - "file"
+    - "line"
+    - "matched_text"
+  banned_patterns:
+    - "Stap 1:"
+    - "Inspecteer eerst handmatig"
+    - "Open eerst handmatig"
+  closing_question: "Wil je dat ik deze wijziging direct doorvoer?"
+
+learning:
+  enable_lessons_log: true
+  context_type: "backend_data_trace"
+  write_on:
+    - "task_success"
+    - "user_positive_feedback"
+    - "user_correction"
+  decay_days: 30
+
+response_template: |
+  Gevonden:
+  - {evidence_line_1}
+  - {evidence_line_2}
+
+  Oorzaak:
+  - {failure_point}
+
+  Fix voorstel:
+  - {safe_fix_option}
+
+  Vraag:
+  - Wil je dat ik deze wijziging direct doorvoer?

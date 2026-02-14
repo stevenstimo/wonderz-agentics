@@ -17,6 +17,9 @@ dist/
 
 # Output
 output/
+crew/reports/runs/
+crew/reports/runtime_health_*.json
+crew/reports/runtime_health_*.md
 
 # OS
 .DS_Store

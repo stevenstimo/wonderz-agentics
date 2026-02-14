@@ -1,0 +1,112 @@
+version: 1
+id: "layout_inconsistency_diff"
+summary: "Vind waarom een pagina visueel afwijkt van de baseline layout en geef een concrete fix-optie."
+category: "frontend"
+
+triggers:
+  any_of:
+    - "waarom is pagina X anders"
+    - "waarom is X smaller/breder"
+    - "layout inconsistentie"
+
+inputs:
+  page_name: "string"
+  baseline_file: "string"
+
+behavior:
+  tool_first: true
+  no_manual_mode_if_scan_possible: true
+  require_evidence: true
+  ask_before_apply_fix: true
+
+intent_routing:
+  intent_key: "layout_inconsistency"
+  preferred_paths:
+    - "frontend_pages"
+    - "frontend_layouts"
+    - "global_styles"
+
+steps:
+  - id: "locate_component"
+    description: "Zoek doelcomponent op naam in frontend paden."
+    run:
+      - "rg --files {frontend_search_roots} | rg -i '{page_name}|improvements|{page_name}.*\\.(jsx|tsx|js|ts)$'"
+    output:
+      - "target_files[]"
+
+  - id: "scan_width_and_classes"
+    description: "Lees container-relevante properties en className in target file(s)."
+    run:
+      - "rg -n 'max-width|max-w-|container|className' {target_files}"
+    output:
+      - "target_style_hits[]"
+
+  - id: "scan_baseline"
+    description: "Lees dezelfde properties in baseline layoutbestand."
+    run:
+      - "rg -n 'max-width|max-w-|container|className' {baseline_file}"
+    output:
+      - "baseline_style_hits[]"
+
+  - id: "derive_diff"
+    description: "Vergelijk target vs baseline en bepaal vermoedelijke oorzaak."
+    logic:
+      - "Als target max-w lager is dan baseline, markeer als likely root cause."
+      - "Als classes verschillen zonder max-w match, markeer wrapper afwijking."
+      - "Als geen match: check globale styles op page specifieke selector."
+
+  - id: "optional_global_trace"
+    description: "Zoek page selector in globale styles indien oorzaak nog onduidelijk."
+    condition: "root_cause_confidence < 0.65"
+    run:
+      - "rg -n '{page_name}|max-width|--layout|container' {global_style_files}"
+
+outputs:
+  required:
+    - "root_cause_summary"
+    - "evidence[]"
+    - "proposed_change"
+  evidence_shape:
+    - "file"
+    - "line"
+    - "matched_text"
+    - "reason"
+
+response_contract:
+  required_sections:
+    - "Gevonden"
+    - "Oorzaak"
+    - "Fix voorstel"
+    - "Vraag"
+  required_fields_per_evidence:
+    - "file"
+    - "line"
+    - "matched_text"
+  banned_patterns:
+    - "Stap 1:"
+    - "Inspecteer eerst handmatig"
+    - "Open eerst handmatig"
+  closing_question: "Wil je dat ik deze wijziging direct doorvoer?"
+
+learning:
+  enable_lessons_log: true
+  context_type: "layout_inconsistency"
+  write_on:
+    - "task_success"
+    - "user_positive_feedback"
+    - "user_correction"
+  decay_days: 30
+
+response_template: |
+  Gevonden:
+  - {evidence_line_1}
+  - {evidence_line_2}
+
+  Oorzaak:
+  - {root_cause_summary}
+
+  Fix voorstel:
+  - {proposed_change}
+
+  Vraag:
+  - Wil je dat ik deze wijziging direct doorvoer?
