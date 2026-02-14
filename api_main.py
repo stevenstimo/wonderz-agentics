@@ -1010,6 +1010,23 @@ def _clean_answer_for_ui(answer: str) -> str:
     return "\n".join(cleaned_lines).strip()
 
 
+def _build_width_answer(req: DaveDevPromptRequest) -> DaveDevResponse:
+    """Answer common UI width questions with concrete project values."""
+    page = (req.page or "").strip() or "onbekend"
+    tool = (req.selected_tool or "").strip() or "onbekend"
+    answer = (
+        "(1) Kort antwoord: nee, de pagina is niet vast 540 px breed.\n\n"
+        "(2) Concrete waarden in deze codebase:\n"
+        "- Sidebar breedte: 240 px (`.sidebar` in `web_ui/frontend/src/index.css`)\n"
+        "- Content offset: `margin-left: 240px` (`.content-area`)\n"
+        "- Devbot container op `/devbot`: `max-w-5xl` = ongeveer 1024 px\n"
+        "- Dave Dev chatbubbel: `max-w-md` = ongeveer 448 px\n"
+        "- Mobiel (`max-width: 600px`): sidebar wordt `100vw` en content schuift onder de topbar\n\n"
+        f"(3) Eerste actie nu: voor `{page}` / `{tool}` is de meest relevante breedte meestal de container (`max-w-5xl` ~ 1024 px), niet 540 px."
+    )
+    return DaveDevResponse(answer=answer, confidence=0.95, llm_used="layout-context")
+
+
 # --- DAVE DEV ENDPOINTS ---
 @app.get("/api/dave-dev/info")
 def get_dave_dev_info():
@@ -1095,9 +1112,14 @@ def ask_dave_dev(req: DaveDevPromptRequest):
     full_user_prompt = question
     if extra_context:
         full_user_prompt += f"\n\nExtra context:\n{extra_context}"
+    q_lower = question.lower()
+
+    # Shortcut for UI width/px questions in this project.
+    width_markers = ["breedte", "width", "px", "hoe breed", "pagina breed"]
+    if any(marker in q_lower for marker in width_markers):
+        return _build_width_answer(req)
 
     # High-signal shortcut for "latest update" style questions.
-    q_lower = question.lower()
     latest_markers = ["laatste", "recent", "update", "wijziging", "changed", "changelog"]
     if any(marker in q_lower for marker in latest_markers):
         git_context = _safe_git_snippet(max_lines=12)
