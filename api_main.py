@@ -1022,7 +1022,23 @@ def _build_width_answer(req: DaveDevPromptRequest) -> DaveDevResponse:
         "- Devbot container op `/devbot`: `max-w-5xl` = ongeveer 1024 px\n"
         "- Dave Dev chatbubbel: `max-w-md` = ongeveer 448 px\n"
         "- Mobiel (`max-width: 600px`): sidebar wordt `100vw` en content schuift onder de topbar\n\n"
+        "Bron: `web_ui/frontend/src/DevbotHome.jsx`, `web_ui/frontend/src/DaveDevConsole.jsx`, `web_ui/frontend/src/index.css`\n\n"
         f"Eerste actie nu: voor `{page}` / `{tool}` is de meest relevante breedte meestal de container (`max-w-5xl` ~ 1024 px), niet 540 px."
+    )
+    return DaveDevResponse(answer=answer, confidence=0.95, llm_used="layout-context")
+
+
+def _build_chatbox_answer(req: DaveDevPromptRequest) -> DaveDevResponse:
+    """Answer chatbox width questions with component-specific values."""
+    answer = (
+        "Kort antwoord: de chatbox zelf is breed, maar de individuele chatbubbels zijn bewust smaller.\n\n"
+        "Concrete stappen:\n"
+        "- Chatpaneel container gebruikt `h-full` en vult de beschikbare contentruimte\n"
+        "- Berichtenwrapper gebruikt `max-w-md` (ongeveer 448 px) in `DaveDevConsole.jsx`\n"
+        "- Devbot paginawrapper gebruikt `max-w-5xl` (ongeveer 1024 px) in `DevbotHome.jsx`\n"
+        "- Op mobiel blijft de layout responsief via breakpointregels in `index.css`\n\n"
+        "Bron: `web_ui/frontend/src/DaveDevConsole.jsx`, `web_ui/frontend/src/DevbotHome.jsx`, `web_ui/frontend/src/index.css`\n\n"
+        "Eerste actie nu: als je bredere chatbubbels wilt, verander `max-w-md` naar `max-w-xl` of `max-w-full` in `web_ui/frontend/src/DaveDevConsole.jsx`."
     )
     return DaveDevResponse(answer=answer, confidence=0.95, llm_used="layout-context")
 
@@ -1037,6 +1053,7 @@ def _build_sidebar_answer(req: DaveDevPromptRequest) -> DaveDevResponse:
         "- Controleer `web_ui/frontend/src/DaveDevConsole.jsx`: dit is een losse console-component zonder eigen `Sidebar`; hij verwacht parent layout\n"
         "- Controleer algemene layout classes in `web_ui/frontend/src/index.css` (`.dashboard-container`, `.sidebar`, `.content-area`)\n"
         "- Als een pagina de sidebar mist: voeg de pagina onder een parent met `Sidebar` toe, of render `Sidebar` direct in die pagina\n\n"
+        "Bron: `web_ui/frontend/src/main.jsx`, `web_ui/frontend/src/DevbotHome.jsx`, `web_ui/frontend/src/DaveDevConsole.jsx`\n\n"
         "Eerste actie nu: open `web_ui/frontend/src/main.jsx` en `web_ui/frontend/src/DevbotHome.jsx` en verifieer dat de route die je test via de parent met `Sidebar` loopt."
     )
     return DaveDevResponse(answer=answer, confidence=0.95, llm_used="layout-context")
@@ -1130,6 +1147,11 @@ def ask_dave_dev(req: DaveDevPromptRequest):
     if extra_context:
         full_user_prompt += f"\n\nExtra context:\n{extra_context}"
     q_lower = question.lower()
+
+    # Shortcut for chatbox-specific size questions; must run before generic width logic.
+    chatbox_markers = ["chatbox", "chat box", "chatbubbel", "bubble", "berichtvak", "message box"]
+    if any(marker in q_lower for marker in chatbox_markers):
+        return _build_chatbox_answer(req)
 
     # Shortcut for UI width/px questions in this project.
     width_markers = ["breedte", "width", "px", "hoe breed", "pagina breed"]
