@@ -978,7 +978,34 @@ def _safe_git_snippet(max_lines: int = 8) -> str:
     return "\n\n".join(parts)
 
 
-def _build_dave_context(req: DaveDevPromptRequest) -> str:
+def _infer_question_intent(question: str) -> str:
+    q = (question or "").lower()
+    if any(k in q for k in ("chatbox", "chat box", "chatbubbel", "bubble", "berichtvak", "message box")):
+        return "chatbox"
+    if any(k in q for k in ("breedte", "width", "px", "hoe breed", "pagina breed")):
+        return "layout-width"
+    if any(k in q for k in ("sidebar", "zijbalk", "menu links", "menu linksbalk")):
+        return "layout-sidebar"
+    if any(k in q for k in ("laatste", "recent", "update", "wijziging", "changed", "changelog")):
+        return "updates"
+    return "general"
+
+
+def _should_use_history(question: str) -> bool:
+    q = (question or "").lower()
+    history_triggers = (
+        "eerder",
+        "vorige keer",
+        "toen",
+        "die waarde",
+        "zoals net",
+        "zoals eerder",
+        "in het vorige antwoord",
+    )
+    return any(t in q for t in history_triggers)
+
+
+def _build_dave_context(req: DaveDevPromptRequest, include_history: bool) -> str:
     parts: List[str] = []
     if req.page:
         parts.append(f"UI page: {req.page}")
@@ -986,7 +1013,7 @@ def _build_dave_context(req: DaveDevPromptRequest) -> str:
         parts.append(f"Selected tool: {req.selected_tool}")
     if req.context:
         parts.append(f"User context:\n{req.context}")
-    if req.recent_messages:
+    if include_history and req.recent_messages:
         clipped = [m for m in req.recent_messages if m][:6]
         if clipped:
             parts.append("Recent chat:\n" + "\n".join(f"- {m}" for m in clipped))
@@ -1130,10 +1157,18 @@ def ask_dave_dev(req: DaveDevPromptRequest):
     finally:
         db.close()
 
+    q_lower = question.lower()
+    include_history = _should_use_history(question)
+    intent = _infer_question_intent(question)
+
     base_system_prompt = (
         "Je bent Dave Dev: een senior technische consultant. Antwoord pragmatisch, direct en concreet. "
         "Vermijd vage disclaimers en generiek advies. Als de vraag te breed is, maak redelijke aannames en benoem die kort. "
         "Gebruik waar mogelijk concrete bestanden, routes of componentnamen uit de context. "
+        "Relevantieregel: gebruik chatgeschiedenis alleen als de gebruiker expliciet verwijst naar eerder/vorige context. "
+        "Bronprioriteit: (1) code/runtime context, (2) huidige vraag, (3) chatgeschiedenis. "
+        "Als bronnen conflicteren, volg code/runtime context. "
+        f"Huidige intent: {intent}. "
         "Gebruik dit outputformat:\n"
         "Kort antwoord: ...\n\n"
         "Concrete stappen:\n"
@@ -1156,11 +1191,10 @@ def ask_dave_dev(req: DaveDevPromptRequest):
     finally:
         db.close()
 
-    extra_context = _build_dave_context(req)
+    extra_context = _build_dave_context(req, include_history=include_history)
     full_user_prompt = question
     if extra_context:
         full_user_prompt += f"\n\nExtra context:\n{extra_context}"
-    q_lower = question.lower()
 
     # Shortcut for chatbox-specific size questions; must run before generic width logic.
     chatbox_markers = ["chatbox", "chat box", "chatbubbel", "bubble", "berichtvak", "message box"]
