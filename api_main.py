@@ -1015,14 +1015,29 @@ def _build_width_answer(req: DaveDevPromptRequest) -> DaveDevResponse:
     page = (req.page or "").strip() or "onbekend"
     tool = (req.selected_tool or "").strip() or "onbekend"
     answer = (
-        "(1) Kort antwoord: nee, de pagina is niet vast 540 px breed.\n\n"
-        "(2) Concrete waarden in deze codebase:\n"
+        "Kort antwoord: nee, de pagina is niet vast 540 px breed.\n\n"
+        "Concrete stappen:\n"
         "- Sidebar breedte: 240 px (`.sidebar` in `web_ui/frontend/src/index.css`)\n"
         "- Content offset: `margin-left: 240px` (`.content-area`)\n"
         "- Devbot container op `/devbot`: `max-w-5xl` = ongeveer 1024 px\n"
         "- Dave Dev chatbubbel: `max-w-md` = ongeveer 448 px\n"
         "- Mobiel (`max-width: 600px`): sidebar wordt `100vw` en content schuift onder de topbar\n\n"
-        f"(3) Eerste actie nu: voor `{page}` / `{tool}` is de meest relevante breedte meestal de container (`max-w-5xl` ~ 1024 px), niet 540 px."
+        f"Eerste actie nu: voor `{page}` / `{tool}` is de meest relevante breedte meestal de container (`max-w-5xl` ~ 1024 px), niet 540 px."
+    )
+    return DaveDevResponse(answer=answer, confidence=0.95, llm_used="layout-context")
+
+
+def _build_sidebar_answer(req: DaveDevPromptRequest) -> DaveDevResponse:
+    """Answer sidebar visibility questions with concrete project paths."""
+    answer = (
+        "Kort antwoord: de sidebar zit wel op veel pagina's, maar niet elke route gebruikt dezelfde layout-structuur.\n\n"
+        "Concrete stappen:\n"
+        "- Controleer routing in `web_ui/frontend/src/main.jsx` (o.a. `/devbot` en `/devbot/dave`)\n"
+        "- Controleer `web_ui/frontend/src/DevbotHome.jsx`: deze heeft `dashboard-container`, `Sidebar` en `content-area`\n"
+        "- Controleer `web_ui/frontend/src/DaveDevConsole.jsx`: dit is een losse console-component zonder eigen `Sidebar`; hij verwacht parent layout\n"
+        "- Controleer algemene layout classes in `web_ui/frontend/src/index.css` (`.dashboard-container`, `.sidebar`, `.content-area`)\n"
+        "- Als een pagina de sidebar mist: voeg de pagina onder een parent met `Sidebar` toe, of render `Sidebar` direct in die pagina\n\n"
+        "Eerste actie nu: open `web_ui/frontend/src/main.jsx` en `web_ui/frontend/src/DevbotHome.jsx` en verifieer dat de route die je test via de parent met `Sidebar` loopt."
     )
     return DaveDevResponse(answer=answer, confidence=0.95, llm_used="layout-context")
 
@@ -1089,9 +1104,11 @@ def ask_dave_dev(req: DaveDevPromptRequest):
         "Vermijd vage disclaimers en generiek advies. Als de vraag te breed is, maak redelijke aannames en benoem die kort. "
         "Gebruik waar mogelijk concrete bestanden, routes of componentnamen uit de context. "
         "Gebruik dit outputformat:\n"
-        "(1) Kort antwoord\n"
-        "(2) Concrete stappen\n"
-        "(3) Eerste actie nu\n"
+        "Kort antwoord: ...\n\n"
+        "Concrete stappen:\n"
+        "- stap 1\n"
+        "- stap 2\n\n"
+        "Eerste actie nu: ...\n"
         "Gebruik GEEN markdown-opmaaktekens zoals **, __ of * bullets; schrijf platte tekst met normale regels."
     )
 
@@ -1119,6 +1136,11 @@ def ask_dave_dev(req: DaveDevPromptRequest):
     if any(marker in q_lower for marker in width_markers):
         return _build_width_answer(req)
 
+    # Shortcut for sidebar visibility questions in this project.
+    sidebar_markers = ["sidebar", "zijbalk", "menu links", "menu linksbalk"]
+    if any(marker in q_lower for marker in sidebar_markers):
+        return _build_sidebar_answer(req)
+
     # High-signal shortcut for "latest update" style questions.
     latest_markers = ["laatste", "recent", "update", "wijziging", "changed", "changelog"]
     if any(marker in q_lower for marker in latest_markers):
@@ -1144,11 +1166,12 @@ def ask_dave_dev(req: DaveDevPromptRequest):
                     changes = "\n".join(normalized_changes)
             commit_section = "\n".join(f"- {c}" for c in recent_commits) or f"- {latest_commit or 'onbekend'}"
             answer = (
-                "(1) Kort antwoord: de meest recente wijziging komt uit de laatste commit en huidige werkboom.\n\n"
-                f"(2) Laatste commit: {latest_commit or 'onbekend'}.\n"
-                f"Top recente commits:\n{commit_section}\n"
-                f"Huidige wijzigingen (top):\n{changes or '- geen open wijzigingen'}\n\n"
-                "(3) Eerste actie nu: open die bovenste gewijzigde file en review de diff om impact te bevestigen."
+                "Kort antwoord: de meest recente wijziging komt uit de laatste commit en huidige werkboom.\n\n"
+                "Concrete stappen:\n"
+                f"- Laatste commit: {latest_commit or 'onbekend'}\n"
+                f"- Top recente commits:\n{commit_section}\n"
+                f"- Huidige wijzigingen (top):\n{changes or '- geen open wijzigingen'}\n\n"
+                "Eerste actie nu: open die bovenste gewijzigde file en review de diff om impact te bevestigen."
             )
             return DaveDevResponse(
                 answer=_clean_answer_for_ui(answer),
@@ -1250,17 +1273,17 @@ def ask_dave_dev(req: DaveDevPromptRequest):
     lower_question = question.lower()
     responses = {
         "architecture": {
-            "answer": "Kort antwoord: de stack is modulair met FastAPI backend, React frontend en SQLAlchemy/Postgres.\n\nConcrete stappen: (1) werk via adapters voor platformintegratie, (2) hou domain models platform-onafhankelijk, (3) centraliseer orchestration in API-laag.\n\nEerste actie nu: open tools/adapters.py en models/unified.py en voeg je nieuwe platformadapter als aparte class toe.",
+            "answer": "Kort antwoord: de stack is modulair met FastAPI backend, React frontend en SQLAlchemy/Postgres.\n\nConcrete stappen:\n- Werk via adapters voor platformintegratie\n- Houd domain models platform-onafhankelijk\n- Centraliseer orchestration in de API-laag\n\nEerste actie nu: open tools/adapters.py en models/unified.py en voeg je nieuwe platformadapter als aparte class toe.",
             "vscode_prompt": "Design new adapter for [PLATFORM]. Follow pattern in tools/adapters.py: (1) Inherit from BaseAdapter, (2) Implement get_product(id), (3) Map to UnifiedProduct, (4) Add error handling.",
             "code_references": ["tools/adapters.py", "models/unified.py"],
         },
         "frontend": {
-            "answer": "Kort antwoord: React + Vite + Tailwind met API-calls naar backend endpoints.\n\nConcrete stappen: (1) maak component, (2) voeg state + loading/error states toe, (3) koppel aan endpoint, (4) valideer response mapping.\n\nEerste actie nu: maak featurecomponent in web_ui/frontend/src en verbind met CONFIG api endpoint.",
+            "answer": "Kort antwoord: React + Vite + Tailwind met API-calls naar backend endpoints.\n\nConcrete stappen:\n- Maak de component\n- Voeg state + loading/error states toe\n- Koppel aan het endpoint\n- Valideer response mapping\n\nEerste actie nu: maak featurecomponent in web_ui/frontend/src en verbind met CONFIG api endpoint.",
             "vscode_prompt": "Create React component for [FEATURE]: (1) Import hooks, (2) Define component, (3) Use Tailwind classes, (4) Fetch from /api/[endpoint], (5) Return JSX.",
             "code_references": ["web_ui/frontend/src/"],
         },
         "database": {
-            "answer": "Kort antwoord: SQLAlchemy models + Alembic migrations bovenop Postgres.\n\nConcrete stappen: (1) model update, (2) migration autogenerate, (3) upgrade head, (4) endpoint aanpassen en testen.\n\nEerste actie nu: wijzig model in models/sql_models.py en genereer direct migration.",
+            "answer": "Kort antwoord: SQLAlchemy models + Alembic migrations bovenop Postgres.\n\nConcrete stappen:\n- Update het model\n- Genereer migration via autogenerate\n- Draai upgrade head\n- Pas endpoint aan en test\n\nEerste actie nu: wijzig model in models/sql_models.py en genereer direct migration.",
             "vscode_prompt": "Add table [NAME]: (1) SQLAlchemy model in models/sql_models.py, (2) Pydantic model in models/ui.py, (3) Alembic migration, (4) API endpoints.",
             "code_references": ["models/sql_models.py", "models/ui.py"],
         },
