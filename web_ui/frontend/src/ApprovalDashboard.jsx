@@ -4,6 +4,7 @@ import Sidebar from './Sidebar'
 import { ToastContainer, useToast } from './Toast'
 
 export default function ApprovalDashboard() {
+  const apiBase = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
   const [approvals, setApprovals] = useState([])
   const [loading, setLoading] = useState(false)
   const [decisionLoading, setDecisionLoading] = useState(null)
@@ -16,7 +17,7 @@ export default function ApprovalDashboard() {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/ceo/approvals`)
+      const res = await fetch(`${apiBase}/api/ceo/approvals`)
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}))
         throw new Error(errorData.detail || 'Failed to fetch approvals')
@@ -40,7 +41,7 @@ export default function ApprovalDashboard() {
     setDecisionLoading(approval_id)
     try {
       const res = await fetch(
-        `${import.meta.env.VITE_API_URL}/api/ceo/approval/${approval_id}/decide?approved=${approved}`,
+        `${apiBase}/api/ceo/approval/${approval_id}/decide?approved=${approved}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

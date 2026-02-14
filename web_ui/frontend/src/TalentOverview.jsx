@@ -14,7 +14,7 @@ export default function TalentOverview() {
     specialization: ''
   });
   
-  const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+  const apiBase = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
 
   useEffect(() => {
     fetchTalents();

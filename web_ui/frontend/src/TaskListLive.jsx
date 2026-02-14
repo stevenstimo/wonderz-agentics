@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { User, Shield, Code, FileText, Zap, Container } from 'lucide-react'
+import { fetchJsonStrict } from './apiClient'
 
 const roleIcons = {
   'Product Owner': FileText,
@@ -18,8 +19,8 @@ export default function TaskListLive() {
   useEffect(() => {
     setLoading(true)
     Promise.all([
-      fetch(`${import.meta.env.VITE_API_URL}/api/tasks`).then(res => res.json()),
-      fetch(`${import.meta.env.VITE_API_URL}/api/crew`).then(res => res.json()),
+      fetchJsonStrict('/api/tasks'),
+      fetchJsonStrict('/api/crew'),
     ])
       .then(([tasks, crew]) => {
         setTasks(tasks)

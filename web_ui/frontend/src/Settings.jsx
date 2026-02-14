@@ -3,7 +3,7 @@ import Sidebar from './Sidebar'
 import { Save, Eye, EyeOff, AlertCircle } from 'lucide-react'
 
 export default function Settings() {
-  const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8090'
+  const apiBase = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
   const [settings, setSettings] = useState({
     gemini_api_key: '',
     anthropic_api_key: '',

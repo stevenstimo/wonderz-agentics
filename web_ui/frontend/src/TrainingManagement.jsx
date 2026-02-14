@@ -4,6 +4,7 @@ import Sidebar from './Sidebar'
 import { ToastContainer, useToast } from './Toast'
 
 export default function TrainingManagement() {
+  const apiBase = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
   const [trainingSessions, setTrainingSessions] = useState([])
   const [crew, setCrew] = useState([])
   const [loading, setLoading] = useState(false)
@@ -31,7 +32,7 @@ export default function TrainingManagement() {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/training/sessions`)
+      const res = await fetch(`${apiBase}/api/training/sessions`)
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}))
         throw new Error(errorData.detail || 'Failed to fetch training sessions')
@@ -49,7 +50,7 @@ export default function TrainingManagement() {
 
   const fetchCrew = async () => {
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/crew`)
+      const res = await fetch(`${apiBase}/api/crew`)
       if (!res.ok) throw new Error('Failed to fetch crew')
       const data = await res.json()
       setCrew(Array.isArray(data) ? data : [])
@@ -60,7 +61,7 @@ export default function TrainingManagement() {
 
   const fetchKnowledgeBase = async (crew_id) => {
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/training/${crew_id}/knowledge-base`)
+      const res = await fetch(`${apiBase}/api/training/${crew_id}/knowledge-base`)
       if (!res.ok) throw new Error('Failed to fetch knowledge base')
       const data = await res.json()
       setKnowledgeBases(prev => ({ ...prev, [crew_id]: data }))
@@ -71,7 +72,7 @@ export default function TrainingManagement() {
 
   const fetchApprovals = async () => {
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/ceo/approvals`)
+      const res = await fetch(`${apiBase}/api/ceo/approvals`)
       if (!res.ok) {
         return
       }
@@ -129,7 +130,7 @@ export default function TrainingManagement() {
     setError(null)
 
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/training/request`, {
+      const res = await fetch(`${apiBase}/api/training/request`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData),
@@ -175,7 +176,7 @@ export default function TrainingManagement() {
     setDecisionLoading(approvalId)
     try {
       const res = await fetch(
-        `${import.meta.env.VITE_API_URL}/api/ceo/approval/${approvalId}/decide?approved=${approved}`,
+        `${apiBase}/api/ceo/approval/${approvalId}/decide?approved=${approved}`,
         { method: 'POST' }
       )
 
@@ -215,7 +216,7 @@ export default function TrainingManagement() {
     setCompletionLoading(sessionId)
     try {
       const res = await fetch(
-        `${import.meta.env.VITE_API_URL}/api/training/${sessionId}/complete`,
+        `${apiBase}/api/training/${sessionId}/complete`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

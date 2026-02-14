@@ -19,28 +19,34 @@ import TalentOverview from './TalentOverview.jsx'
 import Settings from './Settings.jsx'
 import SherlockWidget from './SherlockWidget.jsx'
 import StatusIntelligence from './StatusIntelligence.jsx'
+import TopHeader from './TopHeader.jsx'
+import MyAccount from './MyAccount.jsx'
 import './index.css'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<App />} />
-        <Route path="/job-center" element={<JobCenter />} />
-        <Route path="/crew/management" element={<CrewManagement />} />
-        <Route path="/training/management" element={<TrainingManagement />} />
-        <Route path="/approvals" element={<ApprovalDashboard />} />
-        <Route path="/hr/improvements" element={<HRImprovements />} />
-        <Route path="/explainer/how-it-works" element={<ExplainerHowItWorks />} />
-        <Route path="/explainer/persona" element={<ExplainerPersona />} />
-        <Route path="/explainer/crew" element={<ExplainerCrew />} />
-        <Route path="/devbot" element={<DevbotHome />} />
-        <Route path="/hiring" element={<HiringHall onHire={() => {}} />} />
-        <Route path="/talents" element={<TalentOverview />} />
-        <Route path="/settings" element={<Settings />} />
-        <Route path="/the-brains" element={<StatusIntelligence />} />
-        <Route path="/devbot/dave" element={<DaveDevConsole />} />
-      </Routes>
+      <TopHeader />
+      <div className="app-shell">
+        <Routes>
+          <Route path="/" element={<App />} />
+          <Route path="/job-center" element={<JobCenter />} />
+          <Route path="/crew/management" element={<CrewManagement />} />
+          <Route path="/training/management" element={<TrainingManagement />} />
+          <Route path="/approvals" element={<ApprovalDashboard />} />
+          <Route path="/hr/improvements" element={<HRImprovements />} />
+          <Route path="/explainer/how-it-works" element={<ExplainerHowItWorks />} />
+          <Route path="/explainer/persona" element={<ExplainerPersona />} />
+          <Route path="/explainer/crew" element={<ExplainerCrew />} />
+          <Route path="/devbot" element={<DevbotHome />} />
+          <Route path="/hiring" element={<HiringHall onHire={() => {}} />} />
+          <Route path="/talents" element={<TalentOverview />} />
+          <Route path="/settings" element={<Settings />} />
+          <Route path="/my-account" element={<MyAccount />} />
+          <Route path="/the-brains" element={<StatusIntelligence />} />
+          <Route path="/devbot/dave" element={<DaveDevConsole />} />
+        </Routes>
+      </div>
       <SherlockWidget />
     </BrowserRouter>
   </React.StrictMode>,

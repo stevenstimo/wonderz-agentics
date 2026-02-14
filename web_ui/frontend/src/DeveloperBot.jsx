@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import Sidebar from './Sidebar';
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8090";
+const API_URL = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
 
 function ChatBubble({ message, isUser }) {
 	return (

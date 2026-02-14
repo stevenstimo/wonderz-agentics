@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import Sidebar from './Sidebar'
 
-const apiBase = import.meta.env.VITE_API_URL || ''
+const apiBase = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
 
 const renderMarkdown = (text) => {
   if (!text) {

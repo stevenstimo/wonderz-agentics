@@ -13,7 +13,7 @@ export default function DaveDevConsole() {
   const [loading, setLoading] = useState(false);
   const [copiedIndex, setCopiedIndex] = useState(null);
   const messagesEndRef = useRef(null);
-  const apiBase = import.meta.env.VITE_API_URL || '';
+  const apiBase = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
 
   useEffect(() => {
     // Load Dave Dev profile

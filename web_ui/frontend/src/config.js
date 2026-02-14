@@ -9,7 +9,7 @@ export const CONFIG = {
   // ===== API Endpoints =====
   api: {
     // Backend API URL
-    baseUrl: import.meta.env.VITE_API_URL || 'http://localhost:8090',
+    baseUrl: (import.meta.env.VITE_API_URL || '').replace(/\/$/, ''),
     
     // API endpoints
     endpoints: {

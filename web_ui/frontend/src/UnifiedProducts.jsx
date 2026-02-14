@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { fetchJsonStrict } from './apiClient'
 
 export default function UnifiedProducts() {
   const [products, setProducts] = useState([])
@@ -7,11 +8,7 @@ export default function UnifiedProducts() {
 
   useEffect(() => {
     setLoading(true)
-    fetch(`${import.meta.env.VITE_API_URL}/products/unified`)
-      .then(res => {
-        if (!res.ok) throw new Error('Failed to fetch unified products')
-        return res.json()
-      })
+    fetchJsonStrict('/products/unified')
       .then(setProducts)
       .catch(e => setError(e.message))
       .finally(() => setLoading(false))

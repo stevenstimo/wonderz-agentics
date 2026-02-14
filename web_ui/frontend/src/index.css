@@ -28,6 +28,7 @@
   --explainer-sage: #2f6f6d;
   --explainer-ember: #e46f2d;
   --explainer-cobalt: #2a4d8f;
+  --top-header-height: 56px;
 }
 
 .page-title {
@@ -99,11 +100,82 @@ code {
   background-color: var(--bg-main);
 }
 
-.sidebar {
+.app-shell {
+  padding-top: var(--top-header-height);
+}
+
+.top-header {
   position: fixed;
   top: 0;
   left: 0;
-  height: 100vh;
+  right: 0;
+  height: var(--top-header-height);
+  z-index: 50;
+  background: rgba(255, 255, 255, 0.94);
+  border-bottom: 1px solid var(--border-color);
+  backdrop-filter: blur(8px);
+}
+
+.top-header-inner {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+}
+
+.top-header-brand {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--text-primary);
+}
+
+.top-header-account {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 64px;
+}
+
+.top-header-account-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+.top-header-signin {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: #334155;
+}
+
+.top-header-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  object-fit: cover;
+  border: 1px solid #cbd5e1;
+}
+
+.top-header-avatar-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #0f172a;
+  background: #e2e8f0;
+}
+
+.sidebar {
+  position: fixed;
+  top: var(--top-header-height);
+  left: 0;
+  height: calc(100vh - var(--top-header-height));
   width: 240px;
   background: var(--bg-card);
   border-right: 1px solid var(--border-color);
@@ -148,7 +220,7 @@ code {
     flex-direction: row;
     align-items: center;
     padding: 8px 4px;
-    top: 0;
+    top: var(--top-header-height);
     left: 0;
     right: 0;
     bottom: auto;
@@ -157,7 +229,7 @@ code {
   }
   .content-area {
     margin-left: 0;
-    margin-top: 64px;
+    margin-top: calc(64px + var(--top-header-height));
     padding: 0;
   }
   .inner-container {

@@ -15,6 +15,7 @@ const roleIcons = {
 const validRoles = ['Developer', 'Product Owner', 'Reviewer', 'DevOps', 'AI', 'HR', 'Training']
 
 export default function CrewManagement() {
+  const apiBase = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
   const [crew, setCrew] = useState([])
   const [loading, setLoading] = useState(false)
   const [submitLoading, setSubmitLoading] = useState(false)
@@ -52,7 +53,7 @@ export default function CrewManagement() {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/crew`)
+      const res = await fetch(`${apiBase}/api/crew`)
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}))
         throw new Error(errorData.detail || 'Failed to fetch crew members')
@@ -151,8 +152,8 @@ export default function CrewManagement() {
         tool_access_whitelist: parseCommaList(formData.tool_access_whitelist),
       }
       const endpoint = editingId
-        ? `${import.meta.env.VITE_API_URL}/api/crew/${editingId}`
-        : `${import.meta.env.VITE_API_URL}/api/crew`
+        ? `${apiBase}/api/crew/${editingId}`
+        : `${apiBase}/api/crew`
       
       const method = editingId ? 'PUT' : 'POST'
       const res = await fetch(endpoint, {
@@ -219,7 +220,7 @@ export default function CrewManagement() {
     
     setDeleteLoading(crew_id)
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/crew/${crew_id}`, {
+      const res = await fetch(`${apiBase}/api/crew/${crew_id}`, {
         method: 'DELETE',
       })
       

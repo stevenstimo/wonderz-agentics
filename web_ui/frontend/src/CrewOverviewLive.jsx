@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { User, Shield, Code, FileText, Zap, Container } from 'lucide-react'
+import { fetchJsonStrict } from './apiClient'
 
 const roleIcons = {
   'Product Owner': FileText,
@@ -16,11 +17,7 @@ export default function CrewOverviewLive() {
 
   useEffect(() => {
     setLoading(true)
-    fetch(`${import.meta.env.VITE_API_URL}/api/crew`)
-      .then(res => {
-        if (!res.ok) throw new Error('Failed to fetch crew')
-        return res.json()
-      })
+    fetchJsonStrict('/api/crew')
       .then(setCrew)
       .catch(e => setError(e.message))
       .finally(() => setLoading(false))
