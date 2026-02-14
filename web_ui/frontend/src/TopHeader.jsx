@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { supabase } from './supabase'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 
 function getInitials(user) {
   const source =
@@ -22,6 +22,7 @@ function getAvatarUrl(user) {
 export default function TopHeader() {
   const [user, setUser] = useState(null)
   const [backendOk, setBackendOk] = useState(null)
+  const navigate = useNavigate()
 
   useEffect(() => {
     let mounted = true
@@ -74,15 +75,22 @@ export default function TopHeader() {
               title={backendOk === null ? 'Backend status onbekend' : backendOk ? 'Backend online' : 'Backend check required'}
             />
           </Link>
-          {!user ? (
-            <span className="top-header-signin">Sign in</span>
-          ) : avatarUrl ? (
-            <img className="top-header-avatar" src={avatarUrl} alt="Account avatar" />
-          ) : (
-            <div className="top-header-avatar top-header-avatar-fallback">
-              {getInitials(user)}
-            </div>
-          )}
+          <button
+            type="button"
+            className="top-header-account-link"
+            title="Open account instellingen"
+            onClick={() => navigate('/settings')}
+          >
+            {!user ? (
+              <span className="top-header-signin">Sign in</span>
+            ) : avatarUrl ? (
+              <img className="top-header-avatar" src={avatarUrl} alt="Account avatar" />
+            ) : (
+              <div className="top-header-avatar top-header-avatar-fallback">
+                {getInitials(user)}
+              </div>
+            )}
+          </button>
         </div>
       </div>
     </header>

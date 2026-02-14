@@ -137,6 +137,16 @@ code {
   min-width: 64px;
 }
 
+.top-header-account-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
 .top-header-signin {
   font-weight: 600;
   font-size: 0.9rem;

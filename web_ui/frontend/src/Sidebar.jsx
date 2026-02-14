@@ -153,14 +153,15 @@ export default function Sidebar() {
           <PlusCircle className="w-5 h-5" />
           New Mission
         </button>
-        <div
-          className="flex items-center gap-2 mt-6 text-gray-400 text-xs cursor-pointer hover:text-gray-600"
+        <NavLink
+          to="/settings"
+          className={({ isActive }) => (
+            `nav-item mt-4 ${isActive ? 'nav-item-active' : ''}`
+          )}
         >
-          <NavLink to="/settings" className="flex items-center gap-2">
-            <Settings className="w-4 h-4" />
-            Settings
-          </NavLink>
-        </div>
+          <Settings className="w-4 h-4" />
+          <span>Settings</span>
+        </NavLink>
       </div>
     </aside>
   )
