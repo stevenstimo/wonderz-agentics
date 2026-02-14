@@ -1,7 +1,8 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs'
-import { extname, join, relative } from 'node:path'
+import { extname, join, relative, basename } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-const ROOT = new URL('../', import.meta.url).pathname
+const ROOT = fileURLToPath(new URL('../', import.meta.url))
 const SRC_DIR = join(ROOT, 'src')
 const ALLOWED_FILE = 'PageLayout.jsx'
 
@@ -26,7 +27,7 @@ function collectFiles(dir) {
 
 const files = collectFiles(SRC_DIR)
 for (const file of files) {
-  if (file.endsWith(`/${ALLOWED_FILE}`)) {
+  if (basename(file) === ALLOWED_FILE) {
     continue
   }
 
