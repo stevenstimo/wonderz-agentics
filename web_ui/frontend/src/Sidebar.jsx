@@ -3,7 +3,7 @@ import { Home, Users, Layers, ClipboardList, Settings, PlusCircle, BookOpen, Shi
 
 const primaryMenu = [
   { label: 'Mission Control', icon: Layers, path: '/' },
-  { label: 'The Brains', icon: Activity, path: '/status' },
+  { label: 'The Brains', icon: Activity, path: '/the-brains' },
   { label: 'Job Center', icon: ClipboardList, path: '/job-center' },
 ]
 
