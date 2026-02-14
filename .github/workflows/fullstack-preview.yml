@@ -44,24 +44,29 @@ jobs:
           node-version: '18'
       - name: Install backend dependencies
         run: |
-          cd web-ui/backend
+          cd web_ui/backend
           python -m venv .venv
           source .venv/bin/activate
           pip install --upgrade pip
           pip install -r requirements.txt || pip install fastapi uvicorn asyncpg
       - name: Install frontend dependencies
         run: |
-          cd web-ui/frontend
+          cd web_ui/frontend
           npm install
+      - name: Frontend checks
+        run: |
+          cd web_ui/frontend
+          npm run check:layout-shell
+          npm run build
       - name: Start backend
         run: |
-          cd web-ui/backend
+          cd web_ui/backend
           source .venv/bin/activate
           nohup uvicorn api_main:app --host 0.0.0.0 --port 8022 &
           sleep 5
       - name: Start frontend
         run: |
-          cd web-ui/frontend
+          cd web_ui/frontend
           nohup npm run dev -- --host --port 3000 &
           sleep 5
       - name: Healthcheck backend
