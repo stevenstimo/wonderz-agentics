@@ -26,7 +26,7 @@ const STATIC_BRAINS_MAP = {
 };
 
 export default function StatusIntelligence() {
-  const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+  const apiBase = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
