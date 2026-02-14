@@ -1119,6 +1119,35 @@ def _clean_answer_for_ui(answer: str) -> str:
     return "\n".join(cleaned_lines).strip()
 
 
+def _question_requests_advice(question: str) -> bool:
+    q = (question or "").lower()
+    markers = (
+        "advies",
+        "adviseer",
+        "raad je",
+        "aanraden",
+        "recommend",
+        "suggest",
+    )
+    return any(m in q for m in markers)
+
+
+def _apply_response_style(resp: DaveDevResponse, question: str) -> DaveDevResponse:
+    answer = _clean_answer_for_ui(resp.answer or "")
+    lines = [line for line in answer.splitlines() if not line.strip().lower().startswith("eerste actie nu:")]
+    answer = "\n".join(lines).strip()
+    if _question_requests_advice(question) and answer and not answer.lower().startswith("mijn advies is"):
+        lowered = answer[0].lower() + answer[1:] if answer[0].isupper() else answer
+        answer = f"Mijn advies is {lowered}"
+    return DaveDevResponse(
+        answer=answer,
+        vscode_prompt=resp.vscode_prompt,
+        code_references=resp.code_references,
+        confidence=resp.confidence,
+        llm_used=resp.llm_used,
+    )
+
+
 def _is_input_behavior_question(question: str) -> bool:
     q = (question or "").lower()
     markers = (
@@ -1214,22 +1243,12 @@ def _build_hr_improvements_width_answer(req: DaveDevPromptRequest) -> DaveDevRes
 
 def _build_width_answer(req: DaveDevPromptRequest) -> DaveDevResponse:
     """Answer common UI width questions with concrete project values."""
-    page = (req.page or "").strip() or "onbekend"
-    tool = (req.selected_tool or "").strip() or "onbekend"
     question = (req.question or "").lower()
     mentions_540 = "540" in question
     if mentions_540:
         intro = "de pagina is niet vast 540 px breed."
-        outro = (
-            f"Eerste actie nu: voor `{page}` / `{tool}` is de meest relevante breedte meestal "
-            "de container (`max-w-5xl` ~ 1024 px), niet 540 px."
-        )
     else:
         intro = "de pagina gebruikt een flexibele layout met een vaste sidebar en een begrensde contentcontainer."
-        outro = (
-            f"Eerste actie nu: voor `{page}` / `{tool}` is de meest relevante breedte meestal "
-            "de container (`max-w-5xl` ~ 1024 px)."
-        )
     answer = (
         f"{intro}\n\n"
         "Concrete stappen:\n"
@@ -1238,8 +1257,7 @@ def _build_width_answer(req: DaveDevPromptRequest) -> DaveDevResponse:
         "- Devbot container op `/devbot`: `max-w-5xl` = ongeveer 1024 px\n"
         "- Dave Dev chatbubbel: `max-w-md` = ongeveer 448 px\n"
         "- Mobiel (`max-width: 600px`): sidebar wordt `100vw` en content schuift onder de topbar\n\n"
-        "Bron: `web_ui/frontend/src/DevbotHome.jsx`, `web_ui/frontend/src/DaveDevConsole.jsx`, `web_ui/frontend/src/index.css`\n\n"
-        f"{outro}"
+        "Bron: `web_ui/frontend/src/DevbotHome.jsx`, `web_ui/frontend/src/DaveDevConsole.jsx`, `web_ui/frontend/src/index.css`"
     )
     return DaveDevResponse(answer=answer, confidence=0.95, llm_used="layout-context")
 
@@ -1247,14 +1265,13 @@ def _build_width_answer(req: DaveDevPromptRequest) -> DaveDevResponse:
 def _build_chatbox_answer(req: DaveDevPromptRequest) -> DaveDevResponse:
     """Answer chatbox width questions with component-specific values."""
     answer = (
-        "de beperkende regel is `max-w-md` in `web_ui/frontend/src/DaveDevConsole.jsx`; daardoor ogen chatbubbels smal op desktop.\n\n"
+        "Mijn advies is om de chatbubbelbreedte te verhogen; de beperkende regel is `max-w-md` in `web_ui/frontend/src/DaveDevConsole.jsx`.\n\n"
         "Concrete stappen:\n"
         "- Chatpaneel container gebruikt `h-full` en vult de beschikbare contentruimte\n"
         "- Berichtenwrapper gebruikt `max-w-md` (ongeveer 448 px) in `DaveDevConsole.jsx`\n"
         "- Devbot paginawrapper gebruikt `max-w-5xl` (ongeveer 1024 px) in `DevbotHome.jsx`\n"
         "- Op mobiel blijft de layout responsief via breakpointregels in `index.css`\n\n"
-        "Bron: `web_ui/frontend/src/DaveDevConsole.jsx`, `web_ui/frontend/src/DevbotHome.jsx`, `web_ui/frontend/src/index.css`\n\n"
-        "Eerste actie nu: als je bredere chatbubbels wilt, verander `max-w-md` naar `max-w-xl` of `max-w-full` in `web_ui/frontend/src/DaveDevConsole.jsx`."
+        "Bron: `web_ui/frontend/src/DaveDevConsole.jsx`, `web_ui/frontend/src/DevbotHome.jsx`, `web_ui/frontend/src/index.css`"
     )
     return DaveDevResponse(answer=answer, confidence=0.95, llm_used="layout-context")
 
@@ -1262,15 +1279,14 @@ def _build_chatbox_answer(req: DaveDevPromptRequest) -> DaveDevResponse:
 def _build_sidebar_answer(req: DaveDevPromptRequest) -> DaveDevResponse:
     """Answer sidebar visibility questions with concrete project paths."""
     answer = (
-        "de sidebar zit wel op veel pagina's, maar niet elke route gebruikt dezelfde layout-structuur.\n\n"
+        "Mijn advies is om de route-layout in `main.jsx` te normaliseren; de sidebar ontbreekt waar routes niet dezelfde parent-structuur gebruiken.\n\n"
         "Concrete stappen:\n"
         "- Controleer routing in `web_ui/frontend/src/main.jsx` (o.a. `/devbot` en `/devbot/dave`)\n"
         "- Controleer `web_ui/frontend/src/DevbotHome.jsx`: deze heeft `dashboard-container`, `Sidebar` en `content-area`\n"
         "- Controleer `web_ui/frontend/src/DaveDevConsole.jsx`: dit is een losse console-component zonder eigen `Sidebar`; hij verwacht parent layout\n"
         "- Controleer algemene layout classes in `web_ui/frontend/src/index.css` (`.dashboard-container`, `.sidebar`, `.content-area`)\n"
         "- Als een pagina de sidebar mist: voeg de pagina onder een parent met `Sidebar` toe, of render `Sidebar` direct in die pagina\n\n"
-        "Bron: `web_ui/frontend/src/main.jsx`, `web_ui/frontend/src/DevbotHome.jsx`, `web_ui/frontend/src/DaveDevConsole.jsx`\n\n"
-        "Eerste actie nu: open `web_ui/frontend/src/main.jsx` en `web_ui/frontend/src/DevbotHome.jsx` en verifieer dat de route die je test via de parent met `Sidebar` loopt."
+        "Bron: `web_ui/frontend/src/main.jsx`, `web_ui/frontend/src/DevbotHome.jsx`, `web_ui/frontend/src/DaveDevConsole.jsx`"
     )
     return DaveDevResponse(answer=answer, confidence=0.95, llm_used="layout-context")
 
@@ -1304,11 +1320,11 @@ def ask_dave_dev(req: DaveDevPromptRequest):
     """Ask Dave Dev a technical question with repo-aware context."""
     question = (req.question or "").strip()
     if not question:
-        return DaveDevResponse(
+        return _apply_response_style(DaveDevResponse(
             answer="Stel een technische vraag zodat ik je gericht kan helpen.",
             confidence=0.2,
             llm_used=None,
-        )
+        ), question)
 
     def _looks_real_key(value: Optional[str]) -> bool:
         if not value:
@@ -1348,6 +1364,8 @@ def ask_dave_dev(req: DaveDevPromptRequest):
         f"Huidige intent: {intent}. "
         "Antwoordformat (altijd):\n"
         "Start direct met de uitkomst in de eerste zin.\n\n"
+        "Gebruik geen vaste afsluiters zoals 'Eerste actie nu'.\n"
+        "Als je advies geeft, begin de eerste zin met 'Mijn advies is ...'.\n\n"
         "Analyse:\n"
         "- concrete bevindingen met bestandspaden (en regels indien beschikbaar).\n\n"
         "Fix:\n"
@@ -1381,34 +1399,34 @@ def ask_dave_dev(req: DaveDevPromptRequest):
 
     # Deterministic path for chat input/typing behavior questions.
     if _is_input_behavior_question(q_lower):
-        return _build_input_behavior_answer(req)
+        return _apply_response_style(_build_input_behavior_answer(req), question)
 
     # Deterministic path for HR Improvements width/layout questions.
     hr_markers = ["hr improvements", "/hr/improvements", "hr-improvements", "hr improvements pagina"]
     hr_layout_markers = ["smal", "smaller", "breed", "breedte", "width", "layout", "opmaak"]
     if any(m in q_lower for m in hr_markers) and any(m in q_lower for m in hr_layout_markers):
-        return _build_hr_improvements_width_answer(req)
+        return _apply_response_style(_build_hr_improvements_width_answer(req), question)
 
     # Shortcut for chatbox-specific size questions; must run before generic width logic.
     chatbox_markers = ["chatbox", "chat box", "chatbubbel", "bubble", "berichtvak", "message box"]
     if any(marker in q_lower for marker in chatbox_markers):
-        return _build_chatbox_answer(req)
+        return _apply_response_style(_build_chatbox_answer(req), question)
 
     # Route chat-width questions to chatbox answer instead of generic page-width answer.
     chat_width_markers = ["chat", "chatten", "bericht", "bubble"]
     width_markers = ["smal", "smaller", "breed", "breedte", "width", "desktop", "px"]
     if any(marker in q_lower for marker in chat_width_markers) and any(marker in q_lower for marker in width_markers):
-        return _build_chatbox_answer(req)
+        return _apply_response_style(_build_chatbox_answer(req), question)
 
     # Shortcut for UI width/px questions in this project.
     width_markers = ["breedte", "width", "px", "hoe breed", "pagina breed"]
     if any(marker in q_lower for marker in width_markers) and not _is_input_behavior_question(q_lower):
-        return _build_width_answer(req)
+        return _apply_response_style(_build_width_answer(req), question)
 
     # Shortcut for sidebar visibility questions in this project.
     sidebar_markers = ["sidebar", "zijbalk", "menu links", "menu linksbalk"]
     if any(marker in q_lower for marker in sidebar_markers):
-        return _build_sidebar_answer(req)
+        return _apply_response_style(_build_sidebar_answer(req), question)
 
     # High-signal shortcut for "latest update" style questions.
     latest_markers = ["laatste", "recent", "update", "wijziging", "changed", "changelog"]
@@ -1439,15 +1457,14 @@ def ask_dave_dev(req: DaveDevPromptRequest):
                 "Concrete stappen:\n"
                 f"- Laatste commit: {latest_commit or 'onbekend'}\n"
                 f"- Top recente commits:\n{commit_section}\n"
-                f"- Huidige wijzigingen (top):\n{changes or '- geen open wijzigingen'}\n\n"
-                "Eerste actie nu: open die bovenste gewijzigde file en review de diff om impact te bevestigen."
+                f"- Huidige wijzigingen (top):\n{changes or '- geen open wijzigingen'}"
             )
-            return DaveDevResponse(
+            return _apply_response_style(DaveDevResponse(
                 answer=_clean_answer_for_ui(answer),
                 code_references=None,
                 confidence=0.9,
                 llm_used="git-context",
-            )
+            ), question)
 
     llm_errors: List[str] = []
 
@@ -1476,7 +1493,7 @@ def ask_dave_dev(req: DaveDevPromptRequest):
                 if content and isinstance(content, list):
                     answer = "\n".join(part.get("text", "") for part in content if isinstance(part, dict)).strip()
                 if answer:
-                    return DaveDevResponse(answer=_clean_answer_for_ui(answer), confidence=0.9, llm_used="Anthropic")
+                    return _apply_response_style(DaveDevResponse(answer=_clean_answer_for_ui(answer), confidence=0.9, llm_used="Anthropic"), question)
             llm_errors.append(f"Anthropic {response.status_code}: {response.text[:180]}")
         except Exception as exc:
             llm_errors.append(f"Anthropic exception: {exc}")
@@ -1504,7 +1521,7 @@ def ask_dave_dev(req: DaveDevPromptRequest):
                 data = response.json()
                 answer = data.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
                 if answer:
-                    return DaveDevResponse(answer=_clean_answer_for_ui(answer), confidence=0.85, llm_used="OpenAI")
+                    return _apply_response_style(DaveDevResponse(answer=_clean_answer_for_ui(answer), confidence=0.85, llm_used="OpenAI"), question)
             llm_errors.append(f"OpenAI {response.status_code}: {response.text[:180]}")
         except Exception as exc:
             llm_errors.append(f"OpenAI exception: {exc}")
@@ -1533,7 +1550,7 @@ def ask_dave_dev(req: DaveDevPromptRequest):
                 data = response.json()
                 answer = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "").strip()
                 if answer:
-                    return DaveDevResponse(answer=_clean_answer_for_ui(answer), confidence=0.8, llm_used="Gemini")
+                    return _apply_response_style(DaveDevResponse(answer=_clean_answer_for_ui(answer), confidence=0.8, llm_used="Gemini"), question)
             llm_errors.append(f"Gemini {response.status_code}: {response.text[:180]}")
         except Exception as exc:
             llm_errors.append(f"Gemini exception: {exc}")
@@ -1542,17 +1559,17 @@ def ask_dave_dev(req: DaveDevPromptRequest):
     lower_question = question.lower()
     responses = {
         "architecture": {
-            "answer": "de stack is modulair met FastAPI backend, React frontend en SQLAlchemy/Postgres.\n\nConcrete stappen:\n- Werk via adapters voor platformintegratie\n- Houd domain models platform-onafhankelijk\n- Centraliseer orchestration in de API-laag\n\nEerste actie nu: open tools/adapters.py en models/unified.py en voeg je nieuwe platformadapter als aparte class toe.",
+            "answer": "Mijn advies is om de modulaire stack aan te houden met FastAPI backend, React frontend en SQLAlchemy/Postgres.\n\nConcrete stappen:\n- Werk via adapters voor platformintegratie\n- Houd domain models platform-onafhankelijk\n- Centraliseer orchestration in de API-laag",
             "vscode_prompt": "Design new adapter for [PLATFORM]. Follow pattern in tools/adapters.py: (1) Inherit from BaseAdapter, (2) Implement get_product(id), (3) Map to UnifiedProduct, (4) Add error handling.",
             "code_references": ["tools/adapters.py", "models/unified.py"],
         },
         "frontend": {
-            "answer": "React + Vite + Tailwind met API-calls naar backend endpoints.\n\nConcrete stappen:\n- Maak de component\n- Voeg state + loading/error states toe\n- Koppel aan het endpoint\n- Valideer response mapping\n\nEerste actie nu: maak featurecomponent in web_ui/frontend/src en verbind met CONFIG api endpoint.",
+            "answer": "Mijn advies is om React + Vite + Tailwind te gebruiken met API-calls naar backend endpoints.\n\nConcrete stappen:\n- Maak de component\n- Voeg state + loading/error states toe\n- Koppel aan het endpoint\n- Valideer response mapping",
             "vscode_prompt": "Create React component for [FEATURE]: (1) Import hooks, (2) Define component, (3) Use Tailwind classes, (4) Fetch from /api/[endpoint], (5) Return JSX.",
             "code_references": ["web_ui/frontend/src/"],
         },
         "database": {
-            "answer": "SQLAlchemy models + Alembic migrations bovenop Postgres.\n\nConcrete stappen:\n- Update het model\n- Genereer migration via autogenerate\n- Draai upgrade head\n- Pas endpoint aan en test\n\nEerste actie nu: wijzig model in models/sql_models.py en genereer direct migration.",
+            "answer": "Mijn advies is om SQLAlchemy models + Alembic migrations bovenop Postgres te gebruiken.\n\nConcrete stappen:\n- Update het model\n- Genereer migration via autogenerate\n- Draai upgrade head\n- Pas endpoint aan en test",
             "vscode_prompt": "Add table [NAME]: (1) SQLAlchemy model in models/sql_models.py, (2) Pydantic model in models/ui.py, (3) Alembic migration, (4) API endpoints.",
             "code_references": ["models/sql_models.py", "models/ui.py"],
         },
@@ -1560,16 +1577,16 @@ def ask_dave_dev(req: DaveDevPromptRequest):
 
     for key, data in responses.items():
         if key in lower_question:
-            return DaveDevResponse(
+            return _apply_response_style(DaveDevResponse(
                 answer=data["answer"],
                 vscode_prompt=data["vscode_prompt"],
                 code_references=data["code_references"],
                 confidence=0.65,
                 llm_used="static",
-            )
+            ), question)
 
     debug_hint = llm_errors[0] if llm_errors else "Geen geldige API key geconfigureerd"
-    return DaveDevResponse(
+    return _apply_response_style(DaveDevResponse(
         answer=(
             "Ik kan nu geen live LLM-antwoord geven. "
             f"Reden: {debug_hint}. "
@@ -1577,7 +1594,7 @@ def ask_dave_dev(req: DaveDevPromptRequest):
         ),
         confidence=0.2,
         llm_used=None,
-    )
+    ), question)
 
 
 @app.post("/api/dave-dev/generate-prompt")
