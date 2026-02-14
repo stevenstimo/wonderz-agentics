@@ -9,6 +9,7 @@ from typing import List, Optional
 import base64
 
 from fastapi import FastAPI, HTTPException, Request, Body, Depends, Query
+import requests
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -23,12 +24,15 @@ sys.path.insert(0, repo_root)
 sys.path.insert(0, backend_dir)
 
 from models.ui import CrewMember, Task, TaskCrewShare, ImprovementItem, HiredAgent, ApprovalRequest, TrainingSession, Talent
-from models.sql_models import CrewMemberSQL, TalentSQL
+from models.sql_models import CrewMemberSQL, TalentSQL, SettingsSQL
 from models.unified import UnifiedProduct
 from tools.adapters import ShopifyAdapter, WordPressAdapter
 from agents.ceo_manager import CEOManagerAgent
 from agents.hr_agent import HRAgent
+
 from config import ANTHROPIC_API_KEY
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 # --- Database setup ---
 
@@ -38,6 +42,7 @@ if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL environment variable is not set. Configure it as a Fly.io secret or in your .env file.")
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
 
 # --- FastAPI app instance ---
 app = FastAPI(title="Multi-Agentic Crew - Orchestrator API")
@@ -50,9 +55,7 @@ cors_origins = (
     else [
         "http://localhost:3000",
         "http://localhost:5173",
-        "http://localhost:5174",
-        "https://wonderz-agentics.vercel.app",
-        "https://frontend-rho-one-99.vercel.app",
+        "http://localhost:8000",
     ]
 )
 app.add_middleware(
@@ -63,6 +66,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+
 # --- Error Response Models ---
 class ErrorResponse(BaseModel):
     """Standard error response format"""
@@ -71,7 +76,6 @@ class ErrorResponse(BaseModel):
     details: Optional[dict] = None
     timestamp: Optional[str] = None
 
-
 class ExplainerSection(BaseModel):
     slug: str
     title: str
@@ -79,28 +83,33 @@ class ExplainerSection(BaseModel):
     source: Optional[str] = None
     updated_at: Optional[str] = None
 
-
 # --- Middleware for Global Error Handling ---
 @app.middleware("http")
 async def error_handling_middleware(request: Request, call_next):
     """Global error handling middleware"""
+    from fastapi.responses import JSONResponse
     try:
         response = await call_next(request)
         return response
     except ValueError as e:
-        return {
-            "error": str(e),
-            "code": "VALIDATION_ERROR",
-            "timestamp": str(datetime.now())
-        }, 400
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": str(e),
+                "code": "VALIDATION_ERROR",
+                "timestamp": str(datetime.now())
+            }
+        )
     except Exception as e:
-        return {
-            "error": "Internal server error",
-            "code": "INTERNAL_ERROR",
-            "details": {"message": str(e)},
-            "timestamp": str(datetime.now())
-        }, 500
-
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": "Internal server error",
+                "code": "INTERNAL_ERROR",
+                "details": {"message": str(e)},
+                "timestamp": str(datetime.now())
+            }
+        )
 
 # --- Database session dependency ---
 def get_db():
@@ -565,6 +574,13 @@ class RegisterImprovementInput(BaseModel):
     source: Optional[str] = "hr_manager"
 
 
+class SettingsInput(BaseModel):
+    gemini_api_key: Optional[str] = None
+    anthropic_api_key: Optional[str] = None
+    supabase_url: Optional[str] = None
+    supabase_key: Optional[str] = None
+
+
 # --- Dummy clients for demonstration ---
 class DummyShopifyClient:
     async def get_product(self, product_id):
@@ -871,6 +887,7 @@ async def hr_register_improvement(req: RegisterImprovementInput):
     }
 
 
+
 @app.on_event("startup")
 async def on_startup():
     """Startup hook - skip database initialization."""
@@ -893,6 +910,7 @@ class DaveDevResponse(BaseModel):
     vscode_prompt: Optional[str] = None
     code_references: Optional[List[str]] = None
     confidence: float = 0.9
+    llm_used: Optional[str] = None
 
 # --- DAVE DEV ENDPOINTS ---
 @app.get("/api/dave-dev/info")
@@ -919,55 +937,184 @@ def get_dave_dev_info():
 
 @app.post("/api/dave-dev/ask", response_model=DaveDevResponse)
 def ask_dave_dev(req: DaveDevPromptRequest):
-    """Ask Dave Dev a technical question"""
-    question = req.question.lower()
-    
-    # Context-aware responses
+    """Ask Dave Dev a technical question."""
+    question = (req.question or "").strip()
+    if not question:
+        return DaveDevResponse(
+            answer="Stel een technische vraag zodat ik je gericht kan helpen.",
+            confidence=0.2,
+            llm_used=None,
+        )
+
+    def _looks_real_key(value: Optional[str]) -> bool:
+        if not value:
+            return False
+        normalized = value.strip().lower()
+        bad_prefixes = ("dummy", "your_", "placeholder", "test", "sk-...")
+        return not normalized.startswith(bad_prefixes)
+
+    anthropic_key = ANTHROPIC_API_KEY
+    openai_key = OPENAI_API_KEY
+    gemini_key = GEMINI_API_KEY
+
+    # Allow API keys saved via /api/settings to be used when env keys are missing.
+    db = SessionLocal()
+    try:
+        settings = db.query(SettingsSQL).filter(SettingsSQL.id == 'default').first()
+        if settings:
+            if not _looks_real_key(anthropic_key) and _looks_real_key(settings.anthropic_api_key):
+                anthropic_key = settings.anthropic_api_key
+            if not _looks_real_key(gemini_key) and _looks_real_key(settings.gemini_api_key):
+                gemini_key = settings.gemini_api_key
+    finally:
+        db.close()
+
+    system_prompt = (
+        "Je bent Dave Dev, een pragmatische, analytische en directe technische consultant. "
+        "Geef concrete, technisch correcte antwoorden in het Nederlands met korte stappen."
+    )
+
+    # If crew member instructions exist, use those as authoritative persona.
+    db = SessionLocal()
+    try:
+        agent_data = db.query(CrewMemberSQL).filter(CrewMemberSQL.name == "Dave Dev").first()
+        if agent_data and agent_data.system_instructions:
+            system_prompt = agent_data.system_instructions
+    finally:
+        db.close()
+
+    full_user_prompt = question
+    if req.context:
+        full_user_prompt += f"\n\nContext:\n{req.context}"
+    llm_errors: List[str] = []
+
+    if _looks_real_key(anthropic_key):
+        try:
+            response = requests.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": anthropic_key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                json={
+                    "model": "claude-3-5-sonnet-latest",
+                    "max_tokens": 600,
+                    "temperature": 0.4,
+                    "system": system_prompt,
+                    "messages": [{"role": "user", "content": full_user_prompt}],
+                },
+                timeout=20,
+            )
+            if response.ok:
+                data = response.json()
+                content = data.get("content", [])
+                answer = ""
+                if content and isinstance(content, list):
+                    answer = "\n".join(part.get("text", "") for part in content if isinstance(part, dict)).strip()
+                if answer:
+                    return DaveDevResponse(answer=answer, confidence=0.9, llm_used="Anthropic")
+            llm_errors.append(f"Anthropic {response.status_code}: {response.text[:180]}")
+        except Exception as exc:
+            llm_errors.append(f"Anthropic exception: {exc}")
+
+    if _looks_real_key(openai_key):
+        try:
+            response = requests.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {openai_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": "gpt-4o-mini",
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": full_user_prompt},
+                    ],
+                    "max_tokens": 600,
+                    "temperature": 0.4,
+                },
+                timeout=20,
+            )
+            if response.ok:
+                data = response.json()
+                answer = data.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+                if answer:
+                    return DaveDevResponse(answer=answer, confidence=0.85, llm_used="OpenAI")
+            llm_errors.append(f"OpenAI {response.status_code}: {response.text[:180]}")
+        except Exception as exc:
+            llm_errors.append(f"OpenAI exception: {exc}")
+
+    if _looks_real_key(gemini_key):
+        try:
+            response = requests.post(
+                "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
+                params={"key": gemini_key},
+                headers={"Content-Type": "application/json"},
+                json={
+                    "contents": [{"role": "user", "parts": [{"text": f"SYSTEM: {system_prompt}\nUSER: {full_user_prompt}"}]}],
+                    "generationConfig": {
+                        "temperature": 0.4,
+                        "maxOutputTokens": 600,
+                    },
+                },
+                timeout=20,
+            )
+            if response.ok:
+                data = response.json()
+                answer = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "").strip()
+                if answer:
+                    return DaveDevResponse(answer=answer, confidence=0.8, llm_used="Gemini")
+            llm_errors.append(f"Gemini {response.status_code}: {response.text[:180]}")
+        except Exception as exc:
+            llm_errors.append(f"Gemini exception: {exc}")
+
+    # Static fallback only when live LLM is unavailable.
+    lower_question = question.lower()
     responses = {
         "architecture": {
             "answer": "Wonderz-Agentics uses modular, platform-agnostic architecture. FastAPI (backend) + React/Tailwind (frontend) + Supabase (database). Adapter pattern for multi-platform integration.",
             "vscode_prompt": "Design new adapter for [PLATFORM]. Follow pattern in tools/adapters.py: (1) Inherit from BaseAdapter, (2) Implement get_product(id), (3) Map to UnifiedProduct, (4) Add error handling.",
-            "code_references": ["tools/adapters.py", "models/unified.py"]
+            "code_references": ["tools/adapters.py", "models/unified.py"],
         },
         "frontend": {
             "answer": "React + Tailwind + Vite. Components use useState/useEffect hooks, React Router for navigation, fetch for API calls.",
             "vscode_prompt": "Create React component for [FEATURE]: (1) Import hooks, (2) Define component, (3) Use Tailwind classes, (4) Fetch from /api/[endpoint], (5) Return JSX.",
-            "code_references": ["web_ui/frontend/src/"]
+            "code_references": ["web_ui/frontend/src/"],
         },
         "database": {
             "answer": "Supabase (PostgreSQL). SQLAlchemy ORM for backend. Tables: crew_members, talents, jobs, training_sessions.",
             "vscode_prompt": "Add table [NAME]: (1) SQLAlchemy model in models/sql_models.py, (2) Pydantic model in models/ui.py, (3) Alembic migration, (4) API endpoints.",
-            "code_references": ["models/sql_models.py", "models/ui.py"]
+            "code_references": ["models/sql_models.py", "models/ui.py"],
         },
         "talent": {
             "answer": "Talents = potential crew members. HR promotes via POST /api/talents/{id}/promote. Creates CrewMember, deletes Talent.",
             "vscode_prompt": "Talent workflow: (1) POST /api/talents, (2) User clicks Promote, (3) Modal with role/instructions, (4) POST /api/talents/{id}/promote, (5) Update lists.",
-            "code_references": ["web_ui/frontend/src/TalentOverview.jsx", "web_ui/backend/api_main.py"]
-        }
+            "code_references": ["web_ui/frontend/src/TalentOverview.jsx", "web_ui/backend/api_main.py"],
+        },
     }
-    
-    # Find best match
-    best_match = None
-    for key in responses.keys():
-        if key in question:
-            best_match = key
-            break
-    
-    if best_match:
-        data = responses[best_match]
-        return DaveDevResponse(
-            answer=data["answer"],
-            vscode_prompt=data["vscode_prompt"],
-            code_references=data["code_references"],
-            confidence=0.95
-        )
-    else:
-        return DaveDevResponse(
-            answer=f"Topics: architecture, frontend, database, talent. Be more specific?",
-            vscode_prompt=None,
-            code_references=None,
-            confidence=0.5
-        )
+
+    for key, data in responses.items():
+        if key in lower_question:
+            return DaveDevResponse(
+                answer=data["answer"],
+                vscode_prompt=data["vscode_prompt"],
+                code_references=data["code_references"],
+                confidence=0.6,
+                llm_used="static",
+            )
+
+    debug_hint = llm_errors[0] if llm_errors else "Geen geldige API key geconfigureerd"
+    return DaveDevResponse(
+        answer=(
+            "Ik kan nu geen live LLM-antwoord geven. "
+            f"Reden: {debug_hint}. "
+            "Configureer ANTHROPIC_API_KEY, OPENAI_API_KEY of GEMINI_API_KEY (env of via /api/settings)."
+        ),
+        confidence=0.2,
+        llm_used=None,
+    )
 
 @app.post("/api/dave-dev/generate-prompt")
 def generate_vscode_prompt(req: DaveDevPromptRequest):
@@ -989,6 +1136,55 @@ Start with API endpoint → database model → frontend."""
     return {
         "vscode_prompt": vscode_prompt,
         "instructions": "Copy into Cursor/Copilot in VS Code"
+    }
+
+
+# --- SETTINGS API ENDPOINTS ---
+@app.get("/api/settings")
+def get_settings(db: Session = Depends(get_db)):
+    """Get settings (API keys, config)"""
+    settings = db.query(SettingsSQL).filter(SettingsSQL.id == 'default').first()
+    if not settings:
+        return {
+            "gemini_api_key": "",
+            "anthropic_api_key": "",
+            "supabase_url": "",
+            "supabase_key": "",
+        }
+    return {
+        "gemini_api_key": settings.gemini_api_key or "",
+        "anthropic_api_key": settings.anthropic_api_key or "",
+        "supabase_url": settings.supabase_url or "",
+        "supabase_key": settings.supabase_key or "",
+    }
+
+
+@app.post("/api/settings")
+def save_settings(req: SettingsInput, db: Session = Depends(get_db)):
+    """Save settings (API keys, config)"""
+    settings = db.query(SettingsSQL).filter(SettingsSQL.id == 'default').first()
+    if not settings:
+        settings = SettingsSQL(id='default')
+        db.add(settings)
+    
+    if req.gemini_api_key is not None:
+        settings.gemini_api_key = req.gemini_api_key
+    if req.anthropic_api_key is not None:
+        settings.anthropic_api_key = req.anthropic_api_key
+    if req.supabase_url is not None:
+        settings.supabase_url = req.supabase_url
+    if req.supabase_key is not None:
+        settings.supabase_key = req.supabase_key
+    
+    db.commit()
+    db.refresh(settings)
+    return {
+        "status": "success",
+        "message": "Settings saved",
+        "gemini_api_key": settings.gemini_api_key or "",
+        "anthropic_api_key": settings.anthropic_api_key or "",
+        "supabase_url": settings.supabase_url or "",
+        "supabase_key": settings.supabase_key or "",
     }
 
 
