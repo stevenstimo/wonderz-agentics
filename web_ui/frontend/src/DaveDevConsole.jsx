@@ -28,6 +28,21 @@ export default function DaveDevConsole() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  const buildRequestContext = (questionText) => {
+    const recentUserMessages = messages
+      .filter((m) => m.type === 'user')
+      .slice(-5)
+      .map((m) => m.text);
+
+    return {
+      question: questionText,
+      context: `Active panel: Dave Dev Console\nPage title: ${document.title}`,
+      page: window.location.pathname,
+      selected_tool: 'Dave Dev Console',
+      recent_messages: recentUserMessages,
+    };
+  };
+
   const handleSendMessage = async () => {
     if (!input.trim()) return;
 
@@ -37,10 +52,11 @@ export default function DaveDevConsole() {
     setLoading(true);
 
     try {
+      const payload = buildRequestContext(input);
       const res = await fetch(`/api/dave-dev/ask`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: input })
+        body: JSON.stringify(payload)
       });
 
       const data = await res.json();
