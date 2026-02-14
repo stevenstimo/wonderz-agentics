@@ -20,7 +20,6 @@ const HiringHall = ({ onHire }) => {
     role: '',
     goal: '',
     category: 'Creative',
-    category: 'Creative',
     systemInstruction: '',
     knowledgeSources: '',
     tools: []

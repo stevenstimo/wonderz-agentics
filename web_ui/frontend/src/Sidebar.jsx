@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { Home, Users, Layers, ClipboardList, Settings, PlusCircle, BookOpen, Shield, Code } from 'lucide-react'
+import { Home, Users, Layers, ClipboardList, Settings, PlusCircle, BookOpen, Shield, Code, Activity } from 'lucide-react'
 
 const primaryMenu = [
   { label: 'Mission Control', icon: Layers, path: '/' },
@@ -137,6 +137,15 @@ export default function Sidebar() {
       </div>
 
       <div className="mt-auto">
+        <NavLink
+          to="/status"
+          className={({ isActive }) => (
+            `nav-item ${isActive ? 'nav-item-active' : ''}`
+          )}
+        >
+          <Activity className="w-5 h-5" />
+          <span>Status</span>
+        </NavLink>
         <button
           onClick={() => console.log('Add New clicked')}
           className="btn-manage w-full gap-2"

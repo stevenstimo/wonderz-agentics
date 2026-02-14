@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { supabase } from './supabase'
+import { Link } from 'react-router-dom'
 
 function getInitials(user) {
   const source =
@@ -20,6 +21,7 @@ function getAvatarUrl(user) {
 
 export default function TopHeader() {
   const [user, setUser] = useState(null)
+  const [backendOk, setBackendOk] = useState(null)
 
   useEffect(() => {
     let mounted = true
@@ -39,6 +41,26 @@ export default function TopHeader() {
     }
   }, [])
 
+  useEffect(() => {
+    let active = true
+    const checkHealth = async () => {
+      try {
+        const res = await fetch('/api/health')
+        if (!active) return
+        setBackendOk(res.ok)
+      } catch (_err) {
+        if (!active) return
+        setBackendOk(false)
+      }
+    }
+    checkHealth()
+    const timer = setInterval(checkHealth, 30000)
+    return () => {
+      active = false
+      clearInterval(timer)
+    }
+  }, [])
+
   const avatarUrl = getAvatarUrl(user)
 
   return (
@@ -46,6 +68,12 @@ export default function TopHeader() {
       <div className="top-header-inner">
         <div className="top-header-brand">Wonderz</div>
         <div className="top-header-account">
+          <Link to="/status" title="Open status dashboard">
+            <span
+              className={`inline-block w-2.5 h-2.5 rounded-full mr-3 ${backendOk === null ? 'bg-gray-400' : backendOk ? 'bg-emerald-500' : 'bg-amber-500'}`}
+              title={backendOk === null ? 'Backend status onbekend' : backendOk ? 'Backend online' : 'Backend check required'}
+            />
+          </Link>
           {!user ? (
             <span className="top-header-signin">Sign in</span>
           ) : avatarUrl ? (
