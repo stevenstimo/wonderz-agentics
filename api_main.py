@@ -1158,7 +1158,7 @@ def _build_input_behavior_answer(req: DaveDevPromptRequest) -> DaveDevResponse:
     prewrap_line = _find_line(console_file, "whitespace-pre-wrap")
 
     answer = (
-        "Kort antwoord: ja, Dave Dev gebruikt nu multiline invoer en ondersteunt Enter verzenden + Shift+Enter nieuwe regel.\n\n"
+        "ja, Dave Dev gebruikt nu multiline invoer en ondersteunt Enter verzenden + Shift+Enter nieuwe regel.\n\n"
         "Analyse:\n"
         f"- `web_ui/frontend/src/DaveDevConsole.jsx`: {textarea_line or 'textarea regel niet gevonden'}\n"
         f"- `web_ui/frontend/src/DaveDevConsole.jsx`: {onkeydown_line or 'onKeyDown regel niet gevonden'}\n"
@@ -1193,7 +1193,7 @@ def _build_hr_improvements_width_answer(req: DaveDevPromptRequest) -> DaveDevRes
     grid_line = _find_line(hr_file, "md:grid-cols-2")
 
     answer = (
-        "Kort antwoord: `/hr/improvements` is in de container niet smaller dan `/devbot`; "
+        "`/hr/improvements` is in de container niet smaller dan `/devbot`; "
         "de code gebruikt juist een bredere wrapper op HR Improvements.\n\n"
         "Analyse:\n"
         f"- `web_ui/frontend/src/HRImprovements.jsx`: {hr_line or 'max-w regel niet gevonden'}\n"
@@ -1219,13 +1219,13 @@ def _build_width_answer(req: DaveDevPromptRequest) -> DaveDevResponse:
     question = (req.question or "").lower()
     mentions_540 = "540" in question
     if mentions_540:
-        intro = "Kort antwoord: de pagina is niet vast 540 px breed."
+        intro = "de pagina is niet vast 540 px breed."
         outro = (
             f"Eerste actie nu: voor `{page}` / `{tool}` is de meest relevante breedte meestal "
             "de container (`max-w-5xl` ~ 1024 px), niet 540 px."
         )
     else:
-        intro = "Kort antwoord: de pagina gebruikt een flexibele layout met een vaste sidebar en een begrensde contentcontainer."
+        intro = "de pagina gebruikt een flexibele layout met een vaste sidebar en een begrensde contentcontainer."
         outro = (
             f"Eerste actie nu: voor `{page}` / `{tool}` is de meest relevante breedte meestal "
             "de container (`max-w-5xl` ~ 1024 px)."
@@ -1247,7 +1247,7 @@ def _build_width_answer(req: DaveDevPromptRequest) -> DaveDevResponse:
 def _build_chatbox_answer(req: DaveDevPromptRequest) -> DaveDevResponse:
     """Answer chatbox width questions with component-specific values."""
     answer = (
-        "Kort antwoord: de chatbox zelf is breed, maar de individuele chatbubbels zijn bewust smaller.\n\n"
+        "de beperkende regel is `max-w-md` in `web_ui/frontend/src/DaveDevConsole.jsx`; daardoor ogen chatbubbels smal op desktop.\n\n"
         "Concrete stappen:\n"
         "- Chatpaneel container gebruikt `h-full` en vult de beschikbare contentruimte\n"
         "- Berichtenwrapper gebruikt `max-w-md` (ongeveer 448 px) in `DaveDevConsole.jsx`\n"
@@ -1262,7 +1262,7 @@ def _build_chatbox_answer(req: DaveDevPromptRequest) -> DaveDevResponse:
 def _build_sidebar_answer(req: DaveDevPromptRequest) -> DaveDevResponse:
     """Answer sidebar visibility questions with concrete project paths."""
     answer = (
-        "Kort antwoord: de sidebar zit wel op veel pagina's, maar niet elke route gebruikt dezelfde layout-structuur.\n\n"
+        "de sidebar zit wel op veel pagina's, maar niet elke route gebruikt dezelfde layout-structuur.\n\n"
         "Concrete stappen:\n"
         "- Controleer routing in `web_ui/frontend/src/main.jsx` (o.a. `/devbot` en `/devbot/dave`)\n"
         "- Controleer `web_ui/frontend/src/DevbotHome.jsx`: deze heeft `dashboard-container`, `Sidebar` en `content-area`\n"
@@ -1347,7 +1347,7 @@ def ask_dave_dev(req: DaveDevPromptRequest):
         "Als bronnen conflicteren, volg code/runtime context. "
         f"Huidige intent: {intent}. "
         "Antwoordformat (altijd):\n"
-        "Kort antwoord: 1-2 zinnen met directe uitkomst.\n\n"
+        "Start direct met de uitkomst in de eerste zin.\n\n"
         "Analyse:\n"
         "- concrete bevindingen met bestandspaden (en regels indien beschikbaar).\n\n"
         "Fix:\n"
@@ -1394,6 +1394,12 @@ def ask_dave_dev(req: DaveDevPromptRequest):
     if any(marker in q_lower for marker in chatbox_markers):
         return _build_chatbox_answer(req)
 
+    # Route chat-width questions to chatbox answer instead of generic page-width answer.
+    chat_width_markers = ["chat", "chatten", "bericht", "bubble"]
+    width_markers = ["smal", "smaller", "breed", "breedte", "width", "desktop", "px"]
+    if any(marker in q_lower for marker in chat_width_markers) and any(marker in q_lower for marker in width_markers):
+        return _build_chatbox_answer(req)
+
     # Shortcut for UI width/px questions in this project.
     width_markers = ["breedte", "width", "px", "hoe breed", "pagina breed"]
     if any(marker in q_lower for marker in width_markers) and not _is_input_behavior_question(q_lower):
@@ -1429,7 +1435,7 @@ def ask_dave_dev(req: DaveDevPromptRequest):
                     changes = "\n".join(normalized_changes)
             commit_section = "\n".join(f"- {c}" for c in recent_commits) or f"- {latest_commit or 'onbekend'}"
             answer = (
-                "Kort antwoord: de meest recente wijziging komt uit de laatste commit en huidige werkboom.\n\n"
+                "de meest recente wijziging komt uit de laatste commit en huidige werkboom.\n\n"
                 "Concrete stappen:\n"
                 f"- Laatste commit: {latest_commit or 'onbekend'}\n"
                 f"- Top recente commits:\n{commit_section}\n"
@@ -1536,17 +1542,17 @@ def ask_dave_dev(req: DaveDevPromptRequest):
     lower_question = question.lower()
     responses = {
         "architecture": {
-            "answer": "Kort antwoord: de stack is modulair met FastAPI backend, React frontend en SQLAlchemy/Postgres.\n\nConcrete stappen:\n- Werk via adapters voor platformintegratie\n- Houd domain models platform-onafhankelijk\n- Centraliseer orchestration in de API-laag\n\nEerste actie nu: open tools/adapters.py en models/unified.py en voeg je nieuwe platformadapter als aparte class toe.",
+            "answer": "de stack is modulair met FastAPI backend, React frontend en SQLAlchemy/Postgres.\n\nConcrete stappen:\n- Werk via adapters voor platformintegratie\n- Houd domain models platform-onafhankelijk\n- Centraliseer orchestration in de API-laag\n\nEerste actie nu: open tools/adapters.py en models/unified.py en voeg je nieuwe platformadapter als aparte class toe.",
             "vscode_prompt": "Design new adapter for [PLATFORM]. Follow pattern in tools/adapters.py: (1) Inherit from BaseAdapter, (2) Implement get_product(id), (3) Map to UnifiedProduct, (4) Add error handling.",
             "code_references": ["tools/adapters.py", "models/unified.py"],
         },
         "frontend": {
-            "answer": "Kort antwoord: React + Vite + Tailwind met API-calls naar backend endpoints.\n\nConcrete stappen:\n- Maak de component\n- Voeg state + loading/error states toe\n- Koppel aan het endpoint\n- Valideer response mapping\n\nEerste actie nu: maak featurecomponent in web_ui/frontend/src en verbind met CONFIG api endpoint.",
+            "answer": "React + Vite + Tailwind met API-calls naar backend endpoints.\n\nConcrete stappen:\n- Maak de component\n- Voeg state + loading/error states toe\n- Koppel aan het endpoint\n- Valideer response mapping\n\nEerste actie nu: maak featurecomponent in web_ui/frontend/src en verbind met CONFIG api endpoint.",
             "vscode_prompt": "Create React component for [FEATURE]: (1) Import hooks, (2) Define component, (3) Use Tailwind classes, (4) Fetch from /api/[endpoint], (5) Return JSX.",
             "code_references": ["web_ui/frontend/src/"],
         },
         "database": {
-            "answer": "Kort antwoord: SQLAlchemy models + Alembic migrations bovenop Postgres.\n\nConcrete stappen:\n- Update het model\n- Genereer migration via autogenerate\n- Draai upgrade head\n- Pas endpoint aan en test\n\nEerste actie nu: wijzig model in models/sql_models.py en genereer direct migration.",
+            "answer": "SQLAlchemy models + Alembic migrations bovenop Postgres.\n\nConcrete stappen:\n- Update het model\n- Genereer migration via autogenerate\n- Draai upgrade head\n- Pas endpoint aan en test\n\nEerste actie nu: wijzig model in models/sql_models.py en genereer direct migration.",
             "vscode_prompt": "Add table [NAME]: (1) SQLAlchemy model in models/sql_models.py, (2) Pydantic model in models/ui.py, (3) Alembic migration, (4) API endpoints.",
             "code_references": ["models/sql_models.py", "models/ui.py"],
         },
