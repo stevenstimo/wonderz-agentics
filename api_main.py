@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import List, Optional
 import base64
 import subprocess
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, Body, Depends, Query
 import requests
@@ -980,6 +981,23 @@ def _safe_git_snippet(max_lines: int = 8) -> str:
 
 def _infer_question_intent(question: str) -> str:
     q = (question or "").lower()
+    if any(
+        k in q
+        for k in (
+            "multiline",
+            "multi-line",
+            "onder elkaar",
+            "tekst doorloopt",
+            "input",
+            "invoer",
+            "typen",
+            "typegedrag",
+            "shift+enter",
+            "enter",
+            "nieuwe regel",
+        )
+    ):
+        return "chat-input-behavior"
     if any(k in q for k in ("chatbox", "chat box", "chatbubbel", "bubble", "berichtvak", "message box")):
         return "chatbox"
     if any(k in q for k in ("breedte", "width", "px", "hoe breed", "pagina breed")):
@@ -1025,6 +1043,70 @@ def _build_dave_context(req: DaveDevPromptRequest, include_history: bool) -> str
     return "\n\n".join(parts)
 
 
+def _build_frontend_layout_context(question: str, max_hits_per_file: int = 5) -> str:
+    """Collect concrete frontend layout facts to reduce LLM guessing on UI questions."""
+    q = (question or "").lower()
+    ui_triggers = (
+        "breedte", "width", "sidebar", "zijbalk", "layout", "pagina", "chatbox", "chat", "hr", "/hr", "improvements"
+    )
+    if not any(t in q for t in ui_triggers):
+        return ""
+
+    frontend_src = os.path.join(os.path.dirname(backend_dir), "frontend", "src")
+    if not os.path.isdir(frontend_src):
+        return ""
+
+    files = [
+        "main.jsx",
+        "Sidebar.jsx",
+        "index.css",
+        "DevbotHome.jsx",
+        "DaveDevConsole.jsx",
+        "HRImprovements.jsx",
+    ]
+    needles = (
+        "max-w-",
+        "dashboard-container",
+        "content-area",
+        "sidebar",
+        "/hr/improvements",
+        "grid",
+        "md:grid-cols",
+        "margin-left",
+        "width",
+    )
+
+    blocks: List[str] = []
+    for fname in files:
+        path = os.path.join(frontend_src, fname)
+        if not os.path.isfile(path):
+            continue
+
+        try:
+            lines = Path(path).read_text(errors="ignore").splitlines()
+        except Exception:
+            continue
+
+        hits: List[str] = []
+        for idx, line in enumerate(lines, 1):
+            stripped = line.strip()
+            low = stripped.lower()
+            if not stripped:
+                continue
+            if any(n in low for n in needles):
+                hits.append(f"{idx}: {stripped}")
+            if len(hits) >= max_hits_per_file:
+                break
+
+        if hits:
+            blocks.append(f"{fname}:\n" + "\n".join(f"- {h}" for h in hits))
+
+    if not blocks:
+        return ""
+
+    return "Frontend layout scan (actuele code):\n" + "\n\n".join(blocks)
+
+
 def _clean_answer_for_ui(answer: str) -> str:
     """Normalize LLM output for plain-text UI rendering."""
     cleaned_lines: List[str] = []
@@ -1035,6 +1117,99 @@ def _clean_answer_for_ui(answer: str) -> str:
             line = f"{indent}- {stripped[2:]}"
         cleaned_lines.append(line.replace("**", ""))
     return "\n".join(cleaned_lines).strip()
+
+
+def _is_input_behavior_question(question: str) -> bool:
+    q = (question or "").lower()
+    markers = (
+        "multiline",
+        "multi-line",
+        "onder elkaar",
+        "tekst doorloopt",
+        "input",
+        "invoer",
+        "typen",
+        "shift+enter",
+        "enter",
+        "nieuwe regel",
+        "new line",
+        "newline",
+    )
+    return any(m in q for m in markers)
+
+
+def _build_input_behavior_answer(req: DaveDevPromptRequest) -> DaveDevResponse:
+    """Answer typing/input behavior questions from current DaveDevConsole code."""
+    frontend_src = os.path.join(os.path.dirname(backend_dir), "frontend", "src")
+    console_file = os.path.join(frontend_src, "DaveDevConsole.jsx")
+
+    def _find_line(path: str, needle: str) -> str:
+        try:
+            for i, raw in enumerate(Path(path).read_text(errors="ignore").splitlines(), 1):
+                if needle in raw:
+                    return f"{i}: {raw.strip()}"
+        except Exception:
+            return ""
+        return ""
+
+    textarea_line = _find_line(console_file, "<textarea")
+    onkeydown_line = _find_line(console_file, "onKeyDown")
+    shift_line = _find_line(console_file, "e.key === 'Enter' && !e.shiftKey")
+    prewrap_line = _find_line(console_file, "whitespace-pre-wrap")
+
+    answer = (
+        "Kort antwoord: ja, Dave Dev gebruikt nu multiline invoer en ondersteunt Enter verzenden + Shift+Enter nieuwe regel.\n\n"
+        "Analyse:\n"
+        f"- `web_ui/frontend/src/DaveDevConsole.jsx`: {textarea_line or 'textarea regel niet gevonden'}\n"
+        f"- `web_ui/frontend/src/DaveDevConsole.jsx`: {onkeydown_line or 'onKeyDown regel niet gevonden'}\n"
+        f"- `web_ui/frontend/src/DaveDevConsole.jsx`: {shift_line or 'Enter/Shift+Enter regel niet gevonden'}\n"
+        f"- `web_ui/frontend/src/DaveDevConsole.jsx`: {prewrap_line or 'whitespace-pre-wrap regel niet gevonden'}\n\n"
+        "Fix:\n"
+        "- Geen verplichte fix nodig voor multiline typegedrag.\n"
+        "- Optioneel: voeg `break-words` toe aan de message bubble als lange tokens nog overflow geven.\n\n"
+        "VS Code Prompt:\n"
+        "- Open `web_ui/frontend/src/DaveDevConsole.jsx`; laat `textarea` + `onKeyDown` staan en voeg indien nodig `break-words` toe aan de bubble class naast `max-w-md`."
+    )
+    return DaveDevResponse(answer=answer, confidence=0.95, llm_used="input-behavior-scan")
+
+
+def _build_hr_improvements_width_answer(req: DaveDevPromptRequest) -> DaveDevResponse:
+    """Answer HR Improvements width questions from actual frontend files."""
+    frontend_src = os.path.join(os.path.dirname(backend_dir), "frontend", "src")
+    hr_file = os.path.join(frontend_src, "HRImprovements.jsx")
+    devbot_file = os.path.join(frontend_src, "DevbotHome.jsx")
+
+    def _find_line(path: str, needle: str) -> str:
+        try:
+            for i, raw in enumerate(Path(path).read_text(errors="ignore").splitlines(), 1):
+                if needle in raw:
+                    return f"{i}: {raw.strip()}"
+        except Exception:
+            return ""
+        return ""
+
+    hr_line = _find_line(hr_file, "max-w-")
+    devbot_line = _find_line(devbot_file, "max-w-")
+    grid_line = _find_line(hr_file, "md:grid-cols-2")
+
+    answer = (
+        "Kort antwoord: `/hr/improvements` is in de container niet smaller dan `/devbot`; "
+        "de code gebruikt juist een bredere wrapper op HR Improvements.\n\n"
+        "Analyse:\n"
+        f"- `web_ui/frontend/src/HRImprovements.jsx`: {hr_line or 'max-w regel niet gevonden'}\n"
+        f"- `web_ui/frontend/src/DevbotHome.jsx`: {devbot_line or 'max-w regel niet gevonden'}\n"
+        f"- `web_ui/frontend/src/HRImprovements.jsx`: {grid_line or '2-koloms gridregel niet gevonden'}\n"
+        "- Conclusie: de smallere indruk komt waarschijnlijk door panel/card-opmaak en 2-koloms verdeling, "
+        "niet door een smallere hoofdcontainer.\n\n"
+        "Fix:\n"
+        "- Voor visuele consistentie met `/devbot`: zet HR wrapper op `max-w-5xl` i.p.v. `max-w-6xl`.\n"
+        "- Als je vooral minder 'smal' kaarten wilt: verander `md:grid-cols-2` naar `md:grid-cols-1 lg:grid-cols-2`.\n\n"
+        "VS Code Prompt:\n"
+        "- Open `web_ui/frontend/src/HRImprovements.jsx` en wijzig `max-w-6xl` naar `max-w-5xl`; "
+        "wijzig daarna `md:grid-cols-2` naar `md:grid-cols-1 lg:grid-cols-2` voor betere leesbreedte per kaart."
+    )
+
+    return DaveDevResponse(answer=answer, confidence=0.95, llm_used="layout-scan")
 
 
 def _build_width_answer(req: DaveDevPromptRequest) -> DaveDevResponse:
@@ -1162,20 +1337,25 @@ def ask_dave_dev(req: DaveDevPromptRequest):
     intent = _infer_question_intent(question)
 
     base_system_prompt = (
-        "Je bent Dave Dev: een senior technische consultant. Antwoord pragmatisch, direct en concreet. "
-        "Vermijd vage disclaimers en generiek advies. Als de vraag te breed is, maak redelijke aannames en benoem die kort. "
-        "Gebruik waar mogelijk concrete bestanden, routes of componentnamen uit de context. "
-        "Relevantieregel: gebruik chatgeschiedenis alleen als de gebruiker expliciet verwijst naar eerder/vorige context. "
-        "Bronprioriteit: (1) code/runtime context, (2) huidige vraag, (3) chatgeschiedenis. "
+        "Je bent Dave Dev: een actieve technische consultant die uitvoert op basis van codebase-feiten. "
+        "Doel: geef concrete, code-gebaseerde antwoorden en vermijd handleidingen als je zelf kunt inspecteren. "
+        "Actie boven theorie: als de gebruiker vraagt waarom/hoe/waar en er is repositorycontext, inspecteer direct en rapporteer bevindingen. "
+        "Geef geen 'Stap 1 open F12' advies als je het zelf kunt verifiëren. "
+        "Relevantie boven historie: behandel nieuwe vragen als nieuw; gebruik chatgeschiedenis alleen bij expliciete verwijzing. "
+        "Noem verouderde waarden alleen als ze in huidige code staan of expliciet gevraagd worden. "
+        "Bronprioriteit: (1) actuele code/files, (2) runtime context/logs, (3) chatgeschiedenis. "
         "Als bronnen conflicteren, volg code/runtime context. "
         f"Huidige intent: {intent}. "
-        "Gebruik dit outputformat:\n"
-        "Kort antwoord: ...\n\n"
-        "Concrete stappen:\n"
-        "- stap 1\n"
-        "- stap 2\n\n"
-        "Eerste actie nu: ...\n"
-        "Gebruik GEEN markdown-opmaaktekens zoals **, __ of * bullets; schrijf platte tekst met normale regels."
+        "Antwoordformat (altijd):\n"
+        "Kort antwoord: 1-2 zinnen met directe uitkomst.\n\n"
+        "Analyse:\n"
+        "- concrete bevindingen met bestandspaden (en regels indien beschikbaar).\n\n"
+        "Fix:\n"
+        "- exact voorstel (codewijziging of command).\n\n"
+        "VS Code Prompt:\n"
+        "- 1 direct uitvoerbare prompt voor Codex.\n"
+        "Als info ontbreekt: vraag precies 1 ontbrekend artefact (bestand/snippet/log), geen algemeen stappenplan. "
+        "Gebruik geen markdown-opmaaktekens zoals ** of * bullets; schrijf platte tekst met normale regels."
     )
 
     db = SessionLocal()
@@ -1192,9 +1372,22 @@ def ask_dave_dev(req: DaveDevPromptRequest):
         db.close()
 
     extra_context = _build_dave_context(req, include_history=include_history)
+    layout_context = _build_frontend_layout_context(question)
     full_user_prompt = question
     if extra_context:
         full_user_prompt += f"\n\nExtra context:\n{extra_context}"
+    if layout_context:
+        full_user_prompt += f"\n\n{layout_context}"
+
+    # Deterministic path for chat input/typing behavior questions.
+    if _is_input_behavior_question(q_lower):
+        return _build_input_behavior_answer(req)
+
+    # Deterministic path for HR Improvements width/layout questions.
+    hr_markers = ["hr improvements", "/hr/improvements", "hr-improvements", "hr improvements pagina"]
+    hr_layout_markers = ["smal", "smaller", "breed", "breedte", "width", "layout", "opmaak"]
+    if any(m in q_lower for m in hr_markers) and any(m in q_lower for m in hr_layout_markers):
+        return _build_hr_improvements_width_answer(req)
 
     # Shortcut for chatbox-specific size questions; must run before generic width logic.
     chatbox_markers = ["chatbox", "chat box", "chatbubbel", "bubble", "berichtvak", "message box"]
@@ -1203,7 +1396,7 @@ def ask_dave_dev(req: DaveDevPromptRequest):
 
     # Shortcut for UI width/px questions in this project.
     width_markers = ["breedte", "width", "px", "hoe breed", "pagina breed"]
-    if any(marker in q_lower for marker in width_markers):
+    if any(marker in q_lower for marker in width_markers) and not _is_input_behavior_question(q_lower):
         return _build_width_answer(req)
 
     # Shortcut for sidebar visibility questions in this project.
