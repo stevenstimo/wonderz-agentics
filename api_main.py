@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, validator
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, Session
 
 # Add root path to sys.path for imports
@@ -48,6 +48,105 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 # --- FastAPI app instance ---
 app = FastAPI(title="Multi-Agentic Crew - Orchestrator API")
+
+
+@app.get("/api/health")
+def health_check():
+    """Lightweight readiness endpoint for UI status checks."""
+    return {
+        "status": "ok",
+        "service": "backend",
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+    }
+
+
+@app.get("/api/health/details")
+def health_details():
+    """Detailed readiness for UI status dashboard."""
+    db_ok = False
+    db_error = None
+
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        db_ok = True
+    except Exception as exc:
+        db_error = str(exc)
+
+    return {
+        "status": "ok" if db_ok else "degraded",
+        "service": "backend",
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "checks": {
+            "database": {
+                "ok": db_ok,
+                "detail": "SELECT 1 succeeded" if db_ok else f"Database check failed: {db_error}",
+            },
+            "dave_dev_endpoint": {
+                "ok": True,
+                "detail": "Dave Dev endpoints registered",
+            },
+        },
+    }
+
+
+@app.get("/api/status/recent")
+def status_recent_changes():
+    """Expose a small recent-change snapshot for status UI."""
+    snippet = _safe_git_snippet(max_lines=8)
+    commits = []
+    changed = []
+
+    if snippet:
+        for block in snippet.split("\n\n"):
+            if block.startswith("Recent commits:"):
+                commits = [line.strip() for line in block.splitlines()[1:] if line.strip()]
+            if block.startswith("Working tree snapshot:"):
+                changed = [line.strip() for line in block.splitlines()[1:] if line.strip()]
+
+    return {
+        "status": "ok",
+        "recent_commits": commits[:5],
+        "working_tree_top": changed[:8],
+    }
+
+
+@app.get("/api/status/summary")
+def status_summary():
+    """Single payload for frontend status dashboard."""
+    health = health_details()
+    recent = status_recent_changes()
+
+    settings_ok = False
+    active_providers: List[str] = []
+    db = SessionLocal()
+    try:
+        settings = db.query(SettingsSQL).filter(SettingsSQL.id == "default").first()
+        if settings:
+            has_anthropic = bool(getattr(settings, "anthropic_api_key", None))
+            has_gemini = bool(getattr(settings, "gemini_api_key", None))
+            settings_ok = has_anthropic or has_gemini
+            if has_anthropic:
+                active_providers.append("Anthropic")
+            if has_gemini:
+                active_providers.append("Gemini")
+    finally:
+        db.close()
+
+    return {
+        "status": "ok" if health.get("status") == "ok" else "degraded",
+        "health": health,
+        "dave_dev": {
+            "ok": True,
+            "status": "active",
+            "specialization": "Full-stack Technical Consultant & Agentic Architecture Specialist",
+        },
+        "settings": {
+            "ok": settings_ok,
+            "active_providers": active_providers,
+        },
+        "recent": recent,
+    }
 
 # --- CORS ---
 cors_origins_env = os.getenv("CORS_ORIGINS")
