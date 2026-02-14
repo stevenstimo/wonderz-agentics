@@ -1014,8 +1014,22 @@ def _build_width_answer(req: DaveDevPromptRequest) -> DaveDevResponse:
     """Answer common UI width questions with concrete project values."""
     page = (req.page or "").strip() or "onbekend"
     tool = (req.selected_tool or "").strip() or "onbekend"
+    question = (req.question or "").lower()
+    mentions_540 = "540" in question
+    if mentions_540:
+        intro = "Kort antwoord: de pagina is niet vast 540 px breed."
+        outro = (
+            f"Eerste actie nu: voor `{page}` / `{tool}` is de meest relevante breedte meestal "
+            "de container (`max-w-5xl` ~ 1024 px), niet 540 px."
+        )
+    else:
+        intro = "Kort antwoord: de pagina gebruikt een flexibele layout met een vaste sidebar en een begrensde contentcontainer."
+        outro = (
+            f"Eerste actie nu: voor `{page}` / `{tool}` is de meest relevante breedte meestal "
+            "de container (`max-w-5xl` ~ 1024 px)."
+        )
     answer = (
-        "Kort antwoord: nee, de pagina is niet vast 540 px breed.\n\n"
+        f"{intro}\n\n"
         "Concrete stappen:\n"
         "- Sidebar breedte: 240 px (`.sidebar` in `web_ui/frontend/src/index.css`)\n"
         "- Content offset: `margin-left: 240px` (`.content-area`)\n"
@@ -1023,7 +1037,7 @@ def _build_width_answer(req: DaveDevPromptRequest) -> DaveDevResponse:
         "- Dave Dev chatbubbel: `max-w-md` = ongeveer 448 px\n"
         "- Mobiel (`max-width: 600px`): sidebar wordt `100vw` en content schuift onder de topbar\n\n"
         "Bron: `web_ui/frontend/src/DevbotHome.jsx`, `web_ui/frontend/src/DaveDevConsole.jsx`, `web_ui/frontend/src/index.css`\n\n"
-        f"Eerste actie nu: voor `{page}` / `{tool}` is de meest relevante breedte meestal de container (`max-w-5xl` ~ 1024 px), niet 540 px."
+        f"{outro}"
     )
     return DaveDevResponse(answer=answer, confidence=0.95, llm_used="layout-context")
 
