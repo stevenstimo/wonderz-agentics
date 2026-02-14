@@ -146,7 +146,7 @@ export default function HRImprovements() {
     <div className="dashboard-container">
       <Sidebar />
       <main className="content-area">
-        <div className="max-w-6xl mx-auto">
+        <div className="max-w-5xl mx-auto">
           <div className="panel-card mb-8">
             <div className="flex items-center justify-between gap-4 flex-wrap">
               <div>
@@ -195,7 +195,7 @@ export default function HRImprovements() {
             {!error && !loading && flatItems.length === 0 && (
               <div className="text-sm text-gray-500">Geen verbeterpunten gevonden.</div>
             )}
-            <div className="grid gap-6 md:grid-cols-2">
+            <div className="grid gap-6 md:grid-cols-1 lg:grid-cols-2">
               {flatItems.map(item => {
                 const isOpen = !!expanded[item.id]
                 return (
