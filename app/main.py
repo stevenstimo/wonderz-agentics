@@ -224,6 +224,15 @@ async def intelligence_overview():
     return _runtime_overview_payload()
 
 
+@app.get("/api/health")
+async def api_health():
+    from app.db import _pool
+    return {
+        "status": "ok",
+        "db_connected": _pool is not None,
+    }
+
+
 @app.on_event("startup")
 async def on_startup():
     await init_db_pool()
