@@ -13,6 +13,7 @@ export default function DaveDevConsole() {
   const [loading, setLoading] = useState(false);
   const [copiedIndex, setCopiedIndex] = useState(null);
   const messagesEndRef = useRef(null);
+  const inputRef = useRef(null);
   const apiBase = import.meta.env.VITE_API_URL || '';
 
   useEffect(() => {
@@ -27,6 +28,12 @@ export default function DaveDevConsole() {
     // Auto-scroll to bottom
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  useEffect(() => {
+    if (!inputRef.current) return;
+    inputRef.current.style.height = '0px';
+    inputRef.current.style.height = `${Math.min(inputRef.current.scrollHeight, 180)}px`;
+  }, [input]);
 
   const buildRequestContext = (questionText) => {
     const recentUserMessages = messages
@@ -174,13 +181,19 @@ export default function DaveDevConsole() {
       {/* Input */}
       <div className="bg-gray-800 border-t border-gray-700 p-4">
         <div className="flex gap-2">
-          <input
-            type="text"
+          <textarea
+            ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleSendMessage();
+              }
+            }}
             placeholder="Ask about architecture, frontend, database..."
-            className="flex-1 bg-gray-700 text-white rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-600"
+            rows={1}
+            className="flex-1 bg-gray-700 text-white rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-600 resize-none overflow-y-auto"
             disabled={loading}
           />
           <button
