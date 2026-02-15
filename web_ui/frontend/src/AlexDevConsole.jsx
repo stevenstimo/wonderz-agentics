@@ -49,19 +49,24 @@ export default function AlexDevConsole() {
     return subscribeRelayEvents(setRelayEvents);
   }, []);
 
+  const shouldConsultDave = (question) => {
+    const q = question.toLowerCase();
+    if (q.startsWith('@dave')) return true;
+    return /(met dave|vraag dave|overleg.*dave|dave.*overleggen)/i.test(question);
+  };
+
   const runRelayAttempts = async (attempts, traceBase) => {
     let data = null;
     let lastError = 'Relay failed';
     for (const attempt of attempts) {
-      const startedAt = new Date().toISOString();
       addRelayEvent({
         trace_id: traceBase.trace_id,
         from: traceBase.from,
         to: traceBase.to,
-        step: `request:${attempt.path}`,
+        step: 'handoff',
+        channel: attempt.path,
         status: 'started',
-        question: traceBase.question,
-        started_at: startedAt,
+        content: traceBase.question,
       });
       const res = await apiFetch(attempt.path, {
         method: 'POST',
@@ -72,11 +77,12 @@ export default function AlexDevConsole() {
       if (res.ok) {
         addRelayEvent({
           trace_id: traceBase.trace_id,
-          from: traceBase.from,
-          to: traceBase.to,
-          step: `request:${attempt.path}`,
+          from: traceBase.to,
+          to: traceBase.from,
+          step: 'reply',
+          channel: attempt.path,
           status: 'success',
-          answer_preview: (parsed.answer || parsed.response || '').slice(0, 140),
+          content: (parsed.answer || parsed.response || '').slice(0, 400),
         });
         data = parsed;
         break;
@@ -86,7 +92,8 @@ export default function AlexDevConsole() {
         trace_id: traceBase.trace_id,
         from: traceBase.from,
         to: traceBase.to,
-        step: `request:${attempt.path}`,
+        step: 'handoff',
+        channel: attempt.path,
         status: 'failed',
         error: lastError,
       });
@@ -98,16 +105,25 @@ export default function AlexDevConsole() {
   const handleSendMessage = async () => {
     if (!input.trim()) return;
     const question = input;
-    const isDaveRelay = question.trim().toLowerCase().startsWith('@dave');
-    const relayQuestion = isDaveRelay ? question.trim().replace(/^@dave\s*/i, '') : question;
+    const consultDave = shouldConsultDave(question);
+    const relayQuestion = question.trim().replace(/^@dave\s*/i, '');
     const traceId = `trace-${Date.now()}`;
     setMessages(prev => [...prev, { type: 'user', text: question }]);
     setInput('');
     setLoading(true);
 
     try {
-      const attempts = isDaveRelay
-        ? [
+      addRelayEvent({
+        trace_id: traceId,
+        from: 'user',
+        to: 'alex-dev',
+        step: 'user_request',
+        status: 'success',
+        content: question,
+      });
+
+      if (consultDave) {
+        const daveAttempts = [
             { path: '/api/dave-dev/ask', body: { question: relayQuestion } },
             {
               path: '/api/devbot/ask',
@@ -118,8 +134,71 @@ export default function AlexDevConsole() {
                 selected_tool: 'Alex->Dave Relay',
               },
             },
-          ]
-        : [
+          ];
+
+        const daveData = await runRelayAttempts(daveAttempts, {
+          trace_id: traceId,
+          from: 'alex-dev',
+          to: 'dave-dev',
+          question: relayQuestion,
+        });
+
+        const daveAnswer = daveData.answer || daveData.response || 'Geen antwoord van Dave ontvangen.';
+        const synthPrompt = [
+          'Je bent Alex Dev (frontend engineer).',
+          'Je hebt intern advies ontvangen van Dave Dev.',
+          'Geef alleen het eindantwoord aan de gebruiker in helder Nederlands.',
+          'Noem kort dat je Dave hebt geraadpleegd.',
+          'Vraag van gebruiker:',
+          question,
+          '',
+          'Antwoord van Dave:',
+          daveAnswer,
+        ].join('\n');
+
+        const alexSynthesisAttempts = [
+          { path: '/api/alex-dev/ask', body: { question: synthPrompt } },
+          {
+            path: '/api/devbot/ask',
+            body: {
+              prompt: synthPrompt,
+              question: synthPrompt,
+              agent_id: 'alex-dev',
+              selected_tool: 'Alex Synthesizer',
+            },
+          },
+        ];
+
+        let finalText = '';
+        try {
+          const synthesized = await runRelayAttempts(alexSynthesisAttempts, {
+            trace_id: traceId,
+            from: 'alex-dev',
+            to: 'alex-dev',
+            question: 'Synthese van Dave antwoord voor gebruiker',
+          });
+          finalText = synthesized.answer || synthesized.response || '';
+        } catch {
+          finalText = `Ik heb Dave geraadpleegd. Dit is zijn kernantwoord:\n\n${daveAnswer}`;
+        }
+
+        addRelayEvent({
+          trace_id: traceId,
+          from: 'alex-dev',
+          to: 'user',
+          step: 'final_answer',
+          status: 'success',
+          content: finalText.slice(0, 400),
+        });
+
+        setMessages(prev => [...prev, {
+          type: 'assistant',
+          text: finalText
+        }]);
+        return;
+      }
+
+      const attempts = [
             { path: '/api/alex-dev/ask', body: { question } },
             {
               path: '/api/devbot/ask',
@@ -130,28 +209,38 @@ export default function AlexDevConsole() {
                 selected_tool: 'Alex Dev Console',
               },
             },
-            {
-              path: '/api/dave-dev/ask',
-              body: {
-                question: `Beantwoord als Alex Dev (frontend engineer). Vraag: ${question}`,
-              },
-            },
           ];
 
       const data = await runRelayAttempts(attempts, {
         trace_id: traceId,
         from: 'alex-dev',
-        to: isDaveRelay ? 'dave-dev' : 'alex-dev',
-        question: isDaveRelay ? relayQuestion : question,
+        to: 'alex-dev',
+        question,
+      });
+
+      const finalAnswer = data.answer || data.response || 'Alex kon nu geen antwoord formuleren.';
+      addRelayEvent({
+        trace_id: traceId,
+        from: 'alex-dev',
+        to: 'user',
+        step: 'final_answer',
+        status: 'success',
+        content: finalAnswer.slice(0, 400),
       });
 
       setMessages(prev => [...prev, {
         type: 'assistant',
-        text: isDaveRelay
-          ? `Alex -> Dave relay response:\n\n${data.answer || data.response || 'Geen antwoord van Dave ontvangen.'}`
-          : (data.answer || data.response || 'Alex kon nu geen antwoord formuleren.')
+        text: finalAnswer
       }]);
     } catch (err) {
+      addRelayEvent({
+        trace_id: traceId,
+        from: 'alex-dev',
+        to: 'user',
+        step: 'final_answer',
+        status: 'failed',
+        error: err.message || 'Onbekende fout',
+      });
       setMessages(prev => [...prev, {
         type: 'assistant',
         text: `Alex Dev is niet bereikbaar: ${err.message || 'probeer opnieuw.'}`
@@ -203,7 +292,7 @@ export default function AlexDevConsole() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-            placeholder="Vraag iets aan Alex Dev... of gebruik @dave ..."
+            placeholder="Vraag iets aan Alex Dev... gebruik @dave of 'overleg met Dave'"
             className="flex-1 bg-gray-700 text-white rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-600"
             disabled={loading}
           />
@@ -217,11 +306,12 @@ export default function AlexDevConsole() {
         </div>
         <div className="mt-3 rounded-lg border border-gray-700 bg-gray-900 p-3">
           <div className="text-xs font-semibold text-cyan-300 mb-2">Worker Trace (live)</div>
-          <div className="space-y-1 max-h-28 overflow-y-auto">
-            {relayEvents.slice(-6).reverse().map((event) => (
+          <div className="space-y-1 max-h-36 overflow-y-auto">
+            {relayEvents.slice(-10).reverse().map((event) => (
               <div key={event.id} className="text-xs text-gray-300">
-                [{new Date(event.at).toLocaleTimeString()}] {event.from} {'->'} {event.to} | {event.step} | {event.status}
-                {event.error ? ` | ${event.error}` : ''}
+                [{new Date(event.at).toLocaleTimeString()}] {event.from} {'->'} {event.to} | {event.step}
+                {event.content ? ` | ${event.content}` : ''}
+                {event.error ? ` | fout: ${event.error}` : ''}
               </div>
             ))}
             {relayEvents.length === 0 && (
