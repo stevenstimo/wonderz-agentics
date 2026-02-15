@@ -58,14 +58,47 @@ export default function DaveDevConsole() {
 
     try {
       if (isAlexRelay) {
-        const alexRes = await apiFetch('/api/alex-dev/ask', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ question: relayQuestion || input })
-        });
-        const alexData = await parseJsonSafe(alexRes);
-        if (!alexRes.ok) {
-          throw new Error(alexData.detail || alexData.error || 'Alex relay unavailable');
+        const alexQuestion = relayQuestion || input;
+        const relayAttempts = [
+          {
+            path: '/api/alex-dev/ask',
+            body: { question: alexQuestion },
+          },
+          {
+            path: '/api/devbot/ask',
+            body: {
+              prompt: alexQuestion,
+              question: alexQuestion,
+              agent_id: 'alex-dev',
+              selected_tool: 'Dave Dev Relay',
+            },
+          },
+          {
+            path: '/api/dave-dev/ask',
+            body: {
+              question: `Beantwoord als Alex Dev (frontend engineer). Vraag: ${alexQuestion}`,
+            },
+          },
+        ];
+
+        let alexData = null;
+        let relayError = 'Alex relay unavailable';
+        for (const attempt of relayAttempts) {
+          const relayRes = await apiFetch(attempt.path, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(attempt.body),
+          });
+          const parsed = await parseJsonSafe(relayRes);
+          if (relayRes.ok) {
+            alexData = parsed;
+            break;
+          }
+          relayError = parsed?.detail || parsed?.error || `${relayRes.status} ${relayRes.statusText}` || relayError;
+        }
+
+        if (!alexData) {
+          throw new Error(relayError);
         }
 
         setMessages(prev => [...prev, {

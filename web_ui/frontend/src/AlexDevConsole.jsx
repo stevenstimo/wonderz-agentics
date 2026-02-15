@@ -50,29 +50,46 @@ export default function AlexDevConsole() {
     setLoading(true);
 
     try {
-      const res = await apiFetch('/api/alex-dev/ask', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question })
-      });
-
-      let data = await parseJsonSafe(res);
-
-      if (!res.ok) {
-        const fallback = await apiFetch('/api/devbot/ask', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+      const attempts = [
+        {
+          path: '/api/alex-dev/ask',
+          body: { question },
+        },
+        {
+          path: '/api/devbot/ask',
+          body: {
             prompt: question,
             question,
             agent_id: 'alex-dev',
             selected_tool: 'Alex Dev Console',
-          })
+          },
+        },
+        {
+          path: '/api/dave-dev/ask',
+          body: {
+            question: `Beantwoord als Alex Dev (frontend engineer). Vraag: ${question}`,
+          },
+        },
+      ];
+
+      let data = null;
+      let lastError = 'Alex Dev endpoint unavailable';
+      for (const attempt of attempts) {
+        const res = await apiFetch(attempt.path, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(attempt.body),
         });
-        data = await parseJsonSafe(fallback);
-        if (!fallback.ok) {
-          throw new Error(data.detail || data.error || 'Alex Dev endpoint unavailable');
+        const parsed = await parseJsonSafe(res);
+        if (res.ok) {
+          data = parsed;
+          break;
         }
+        lastError = parsed?.detail || parsed?.error || `${res.status} ${res.statusText}` || lastError;
+      }
+
+      if (!data) {
+        throw new Error(lastError);
       }
 
       setMessages(prev => [...prev, {
