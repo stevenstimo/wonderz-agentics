@@ -15,10 +15,27 @@ export default function DaveDevConsole() {
   const messagesEndRef = useRef(null);
   const apiBase = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
 
+  async function parseJsonSafe(res) {
+    const raw = await res.text();
+    try {
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return { error: raw || 'Invalid JSON response from backend' };
+    }
+  }
+
+  async function apiFetch(path, options = undefined) {
+    const first = await fetch(path, options);
+    if (first.ok) return first;
+    if (!apiBase) return first;
+    const direct = await fetch(`${apiBase}${path}`, options);
+    return direct.ok ? direct : first;
+  }
+
   useEffect(() => {
     // Load Dave Dev profile
-    fetch(`/api/dave-dev/info`)
-      .then(res => res.json())
+    apiFetch('/api/dave-dev/info')
+      .then(parseJsonSafe)
       .then(data => setDave(data))
       .catch(err => console.error('Failed to load Dave Dev:', err));
   }, [apiBase]);
@@ -31,24 +48,49 @@ export default function DaveDevConsole() {
   const handleSendMessage = async () => {
     if (!input.trim()) return;
 
+    const isAlexRelay = input.trim().toLowerCase().startsWith('@alex');
+    const relayQuestion = isAlexRelay ? input.trim().replace(/^@alex\s*/i, '') : null;
+
     // Add user message
     setMessages(prev => [...prev, { type: 'user', text: input }]);
     setInput('');
     setLoading(true);
 
     try {
-      const res = await fetch(`/api/dave-dev/ask`, {
+      if (isAlexRelay) {
+        const alexRes = await apiFetch('/api/alex-dev/ask', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ question: relayQuestion || input })
+        });
+        const alexData = await parseJsonSafe(alexRes);
+        if (!alexRes.ok) {
+          throw new Error(alexData.detail || alexData.error || 'Alex relay unavailable');
+        }
+
+        setMessages(prev => [...prev, {
+          type: 'assistant',
+          text: `Dave -> Alex relay response:\n\n${alexData.answer || alexData.response || 'Geen antwoord van Alex ontvangen.'}`,
+          confidence: alexData.confidence
+        }]);
+        return;
+      }
+
+      const res = await apiFetch('/api/dave-dev/ask', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ question: input })
       });
 
-      const data = await res.json();
+      const data = await parseJsonSafe(res);
+      if (!res.ok) {
+        throw new Error(data.detail || data.error || 'Dave Dev request failed');
+      }
 
       // Add assistant response
       setMessages(prev => [...prev, {
         type: 'assistant',
-        text: data.answer,
+        text: data.answer || 'Ik heb nu geen antwoord kunnen vormen.',
         vscode_prompt: data.vscode_prompt,
         code_references: data.code_references,
         confidence: data.confidence
@@ -56,7 +98,7 @@ export default function DaveDevConsole() {
     } catch (err) {
       setMessages(prev => [...prev, {
         type: 'assistant',
-        text: 'Error getting response. Please try again.'
+        text: `Error getting response: ${err.message || 'Please try again.'}`
       }]);
     } finally {
       setLoading(false);

@@ -15,12 +15,16 @@ import ExplainerPersona from './ExplainerPersona.jsx'
 import ExplainerCrew from './ExplainerCrew.jsx'
 import DeveloperBot from './DeveloperBot.jsx'
 import DevbotHome from './DevbotHome.jsx'
+import AlexDevConsole from './AlexDevConsole.jsx'
 import TalentOverview from './TalentOverview.jsx'
 import Settings from './Settings.jsx'
 import SherlockWidget from './SherlockWidget.jsx'
 import StatusIntelligence from './StatusIntelligence.jsx'
+import Status from './Status.jsx'
 import TopHeader from './TopHeader.jsx'
 import MyAccount from './MyAccount.jsx'
+import HRFeedback from './HRFeedback.jsx'
+import RequireSuperAdmin from './RequireSuperAdmin.jsx'
 import './index.css'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
@@ -30,21 +34,31 @@ ReactDOM.createRoot(document.getElementById('root')).render(
       <div className="app-shell">
         <Routes>
           <Route path="/" element={<App />} />
+          <Route path="/status" element={<Status />} />
           <Route path="/job-center" element={<JobCenter />} />
           <Route path="/crew/management" element={<CrewManagement />} />
           <Route path="/training/management" element={<TrainingManagement />} />
           <Route path="/approvals" element={<ApprovalDashboard />} />
           <Route path="/hr/improvements" element={<HRImprovements />} />
+          <Route path="/hr/feedback" element={<HRFeedback />} />
           <Route path="/explainer/how-it-works" element={<ExplainerHowItWorks />} />
           <Route path="/explainer/persona" element={<ExplainerPersona />} />
           <Route path="/explainer/crew" element={<ExplainerCrew />} />
           <Route path="/devbot" element={<DevbotHome />} />
           <Route path="/hiring" element={<HiringHall onHire={() => {}} />} />
           <Route path="/talents" element={<TalentOverview />} />
-          <Route path="/settings" element={<Settings />} />
+          <Route
+            path="/settings"
+            element={(
+              <RequireSuperAdmin>
+                <Settings />
+              </RequireSuperAdmin>
+            )}
+          />
           <Route path="/my-account" element={<MyAccount />} />
           <Route path="/the-brains" element={<StatusIntelligence />} />
           <Route path="/devbot/dave" element={<DaveDevConsole />} />
+          <Route path="/devbot/alex" element={<AlexDevConsole />} />
         </Routes>
       </div>
       <SherlockWidget />
