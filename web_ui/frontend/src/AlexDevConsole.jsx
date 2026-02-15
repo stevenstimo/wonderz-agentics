@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Send } from 'lucide-react';
+import { addRelayEvent, listRelayEvents, subscribeRelayEvents } from './workerRelayBus';
 
 export default function AlexDevConsole() {
   const [alex, setAlex] = useState(null);
@@ -11,6 +12,7 @@ export default function AlexDevConsole() {
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [relayEvents, setRelayEvents] = useState([]);
   const messagesEndRef = useRef(null);
   const apiBase = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
 
@@ -42,59 +44,112 @@ export default function AlexDevConsole() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  useEffect(() => {
+    setRelayEvents(listRelayEvents());
+    return subscribeRelayEvents(setRelayEvents);
+  }, []);
+
+  const runRelayAttempts = async (attempts, traceBase) => {
+    let data = null;
+    let lastError = 'Relay failed';
+    for (const attempt of attempts) {
+      const startedAt = new Date().toISOString();
+      addRelayEvent({
+        trace_id: traceBase.trace_id,
+        from: traceBase.from,
+        to: traceBase.to,
+        step: `request:${attempt.path}`,
+        status: 'started',
+        question: traceBase.question,
+        started_at: startedAt,
+      });
+      const res = await apiFetch(attempt.path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(attempt.body),
+      });
+      const parsed = await parseJsonSafe(res);
+      if (res.ok) {
+        addRelayEvent({
+          trace_id: traceBase.trace_id,
+          from: traceBase.from,
+          to: traceBase.to,
+          step: `request:${attempt.path}`,
+          status: 'success',
+          answer_preview: (parsed.answer || parsed.response || '').slice(0, 140),
+        });
+        data = parsed;
+        break;
+      }
+      lastError = parsed?.detail || parsed?.error || `${res.status} ${res.statusText}` || lastError;
+      addRelayEvent({
+        trace_id: traceBase.trace_id,
+        from: traceBase.from,
+        to: traceBase.to,
+        step: `request:${attempt.path}`,
+        status: 'failed',
+        error: lastError,
+      });
+    }
+    if (!data) throw new Error(lastError);
+    return data;
+  };
+
   const handleSendMessage = async () => {
     if (!input.trim()) return;
     const question = input;
+    const isDaveRelay = question.trim().toLowerCase().startsWith('@dave');
+    const relayQuestion = isDaveRelay ? question.trim().replace(/^@dave\s*/i, '') : question;
+    const traceId = `trace-${Date.now()}`;
     setMessages(prev => [...prev, { type: 'user', text: question }]);
     setInput('');
     setLoading(true);
 
     try {
-      const attempts = [
-        {
-          path: '/api/alex-dev/ask',
-          body: { question },
-        },
-        {
-          path: '/api/devbot/ask',
-          body: {
-            prompt: question,
-            question,
-            agent_id: 'alex-dev',
-            selected_tool: 'Alex Dev Console',
-          },
-        },
-        {
-          path: '/api/dave-dev/ask',
-          body: {
-            question: `Beantwoord als Alex Dev (frontend engineer). Vraag: ${question}`,
-          },
-        },
-      ];
+      const attempts = isDaveRelay
+        ? [
+            { path: '/api/dave-dev/ask', body: { question: relayQuestion } },
+            {
+              path: '/api/devbot/ask',
+              body: {
+                prompt: relayQuestion,
+                question: relayQuestion,
+                agent_id: 'dave-dev',
+                selected_tool: 'Alex->Dave Relay',
+              },
+            },
+          ]
+        : [
+            { path: '/api/alex-dev/ask', body: { question } },
+            {
+              path: '/api/devbot/ask',
+              body: {
+                prompt: question,
+                question,
+                agent_id: 'alex-dev',
+                selected_tool: 'Alex Dev Console',
+              },
+            },
+            {
+              path: '/api/dave-dev/ask',
+              body: {
+                question: `Beantwoord als Alex Dev (frontend engineer). Vraag: ${question}`,
+              },
+            },
+          ];
 
-      let data = null;
-      let lastError = 'Alex Dev endpoint unavailable';
-      for (const attempt of attempts) {
-        const res = await apiFetch(attempt.path, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(attempt.body),
-        });
-        const parsed = await parseJsonSafe(res);
-        if (res.ok) {
-          data = parsed;
-          break;
-        }
-        lastError = parsed?.detail || parsed?.error || `${res.status} ${res.statusText}` || lastError;
-      }
-
-      if (!data) {
-        throw new Error(lastError);
-      }
+      const data = await runRelayAttempts(attempts, {
+        trace_id: traceId,
+        from: 'alex-dev',
+        to: isDaveRelay ? 'dave-dev' : 'alex-dev',
+        question: isDaveRelay ? relayQuestion : question,
+      });
 
       setMessages(prev => [...prev, {
         type: 'assistant',
-        text: data.answer || data.response || 'Alex kon nu geen antwoord formuleren.'
+        text: isDaveRelay
+          ? `Alex -> Dave relay response:\n\n${data.answer || data.response || 'Geen antwoord van Dave ontvangen.'}`
+          : (data.answer || data.response || 'Alex kon nu geen antwoord formuleren.')
       }]);
     } catch (err) {
       setMessages(prev => [...prev, {
@@ -148,7 +203,7 @@ export default function AlexDevConsole() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-            placeholder="Vraag iets aan Alex Dev..."
+            placeholder="Vraag iets aan Alex Dev... of gebruik @dave ..."
             className="flex-1 bg-gray-700 text-white rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-600"
             disabled={loading}
           />
@@ -159,6 +214,20 @@ export default function AlexDevConsole() {
           >
             <Send className="w-4 h-4" />
           </button>
+        </div>
+        <div className="mt-3 rounded-lg border border-gray-700 bg-gray-900 p-3">
+          <div className="text-xs font-semibold text-cyan-300 mb-2">Worker Trace (live)</div>
+          <div className="space-y-1 max-h-28 overflow-y-auto">
+            {relayEvents.slice(-6).reverse().map((event) => (
+              <div key={event.id} className="text-xs text-gray-300">
+                [{new Date(event.at).toLocaleTimeString()}] {event.from} {'->'} {event.to} | {event.step} | {event.status}
+                {event.error ? ` | ${event.error}` : ''}
+              </div>
+            ))}
+            {relayEvents.length === 0 && (
+              <div className="text-xs text-gray-500">Nog geen worker relay events.</div>
+            )}
+          </div>
         </div>
       </div>
     </div>

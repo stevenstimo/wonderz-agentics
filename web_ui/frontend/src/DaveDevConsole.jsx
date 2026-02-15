@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Send, Code, Copy, CheckCircle } from 'lucide-react';
+import { addRelayEvent, listRelayEvents, subscribeRelayEvents } from './workerRelayBus';
 
 export default function DaveDevConsole() {
   const [dave, setDave] = useState(null);
@@ -12,6 +13,7 @@ export default function DaveDevConsole() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [copiedIndex, setCopiedIndex] = useState(null);
+  const [relayEvents, setRelayEvents] = useState([]);
   const messagesEndRef = useRef(null);
   const apiBase = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
 
@@ -45,11 +47,61 @@ export default function DaveDevConsole() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  useEffect(() => {
+    setRelayEvents(listRelayEvents());
+    return subscribeRelayEvents(setRelayEvents);
+  }, []);
+
+  const runRelayAttempts = async (attempts, traceBase) => {
+    let data = null;
+    let lastError = 'Relay failed';
+    for (const attempt of attempts) {
+      addRelayEvent({
+        trace_id: traceBase.trace_id,
+        from: traceBase.from,
+        to: traceBase.to,
+        step: `request:${attempt.path}`,
+        status: 'started',
+        question: traceBase.question,
+      });
+      const relayRes = await apiFetch(attempt.path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(attempt.body),
+      });
+      const parsed = await parseJsonSafe(relayRes);
+      if (relayRes.ok) {
+        addRelayEvent({
+          trace_id: traceBase.trace_id,
+          from: traceBase.from,
+          to: traceBase.to,
+          step: `request:${attempt.path}`,
+          status: 'success',
+          answer_preview: (parsed.answer || parsed.response || '').slice(0, 140),
+        });
+        data = parsed;
+        break;
+      }
+      lastError = parsed?.detail || parsed?.error || `${relayRes.status} ${relayRes.statusText}` || lastError;
+      addRelayEvent({
+        trace_id: traceBase.trace_id,
+        from: traceBase.from,
+        to: traceBase.to,
+        step: `request:${attempt.path}`,
+        status: 'failed',
+        error: lastError,
+      });
+    }
+    if (!data) throw new Error(lastError);
+    return data;
+  };
+
   const handleSendMessage = async () => {
     if (!input.trim()) return;
 
     const isAlexRelay = input.trim().toLowerCase().startsWith('@alex');
     const relayQuestion = isAlexRelay ? input.trim().replace(/^@alex\s*/i, '') : null;
+    const traceId = `trace-${Date.now()}`;
 
     // Add user message
     setMessages(prev => [...prev, { type: 'user', text: input }]);
@@ -81,25 +133,12 @@ export default function DaveDevConsole() {
           },
         ];
 
-        let alexData = null;
-        let relayError = 'Alex relay unavailable';
-        for (const attempt of relayAttempts) {
-          const relayRes = await apiFetch(attempt.path, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(attempt.body),
-          });
-          const parsed = await parseJsonSafe(relayRes);
-          if (relayRes.ok) {
-            alexData = parsed;
-            break;
-          }
-          relayError = parsed?.detail || parsed?.error || `${relayRes.status} ${relayRes.statusText}` || relayError;
-        }
-
-        if (!alexData) {
-          throw new Error(relayError);
-        }
+        const alexData = await runRelayAttempts(relayAttempts, {
+          trace_id: traceId,
+          from: 'dave-dev',
+          to: 'alex-dev',
+          question: alexQuestion,
+        });
 
         setMessages(prev => [...prev, {
           type: 'assistant',
@@ -238,7 +277,7 @@ export default function DaveDevConsole() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-            placeholder="Ask about architecture, frontend, database..."
+            placeholder="Ask about architecture... of gebruik @alex ..."
             className="flex-1 bg-gray-700 text-white rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-600"
             disabled={loading}
           />
@@ -249,6 +288,20 @@ export default function DaveDevConsole() {
           >
             <Send className="w-4 h-4" />
           </button>
+        </div>
+        <div className="mt-3 rounded-lg border border-gray-700 bg-gray-900 p-3">
+          <div className="text-xs font-semibold text-indigo-300 mb-2">Worker Trace (live)</div>
+          <div className="space-y-1 max-h-28 overflow-y-auto">
+            {relayEvents.slice(-6).reverse().map((event) => (
+              <div key={event.id} className="text-xs text-gray-300">
+                [{new Date(event.at).toLocaleTimeString()}] {event.from} {'->'} {event.to} | {event.step} | {event.status}
+                {event.error ? ` | ${event.error}` : ''}
+              </div>
+            ))}
+            {relayEvents.length === 0 && (
+              <div className="text-xs text-gray-500">Nog geen worker relay events.</div>
+            )}
+          </div>
         </div>
       </div>
     </div>
