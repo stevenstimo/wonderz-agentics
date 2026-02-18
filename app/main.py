@@ -148,6 +148,107 @@ async def get_job_legacy(job_id: str):
         return dict(row)
 
 
+# -----------  Status / health summary  -----------
+import subprocess, redis as _redis_lib
+
+@app.get("/api/status/summary")
+async def status_summary():
+    """Live service health dashboard data."""
+    import app.db as _db
+    checks = {}
+
+    # 1. Database
+    try:
+        pool = _db._pool
+        if pool:
+            async with pool.acquire() as conn:
+                ver = await conn.fetchval("SELECT version()")
+            checks["database"] = {"ok": True, "detail": "Connected", "version": ver[:60] if ver else ""}
+        else:
+            checks["database"] = {"ok": False, "detail": "Pool not initialized"}
+    except Exception as e:
+        checks["database"] = {"ok": False, "detail": str(e)[:120]}
+
+    # 2. Redis
+    try:
+        r = _redis_lib.Redis(host="localhost", port=6379, socket_timeout=2)
+        r.ping()
+        checks["redis"] = {"ok": True, "detail": "PONG"}
+    except Exception as e:
+        checks["redis"] = {"ok": False, "detail": str(e)[:120]}
+
+    # 3. Celery worker
+    try:
+        r = _redis_lib.Redis(host="localhost", port=6379, socket_timeout=2)
+        # Check if any worker has registered
+        from celery import Celery as _Celery
+        _c = _Celery(broker="redis://localhost:6379/0")
+        insp = _c.control.inspect(timeout=2)
+        active = insp.active_queues() or {}
+        if active:
+            workers = list(active.keys())
+            checks["celery_worker"] = {"ok": True, "detail": f"{len(workers)} worker(s): {', '.join(workers)}"}
+        else:
+            checks["celery_worker"] = {"ok": False, "detail": "No workers responding"}
+    except Exception as e:
+        checks["celery_worker"] = {"ok": False, "detail": str(e)[:120]}
+
+    # 4. Frontend (vite on :3000)
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=3) as client:
+            resp = await client.get("http://localhost:3000/")
+            checks["frontend"] = {"ok": resp.status_code == 200, "detail": f"HTTP {resp.status_code}"}
+    except Exception as e:
+        checks["frontend"] = {"ok": False, "detail": str(e)[:120]}
+
+    # 5. Backend (self)
+    checks["backend"] = {"ok": True, "detail": "Running (this service)"}
+
+    # 6. Systemd service states
+    services = {}
+    for svc in ["wonderz-backend", "wonderz-worker", "wonderz-frontend", "redis-server"]:
+        try:
+            result = subprocess.run(["systemctl", "is-active", svc], capture_output=True, text=True, timeout=3)
+            state = result.stdout.strip()
+            services[svc] = {"active": state == "active", "state": state}
+        except Exception:
+            services[svc] = {"active": False, "state": "unknown"}
+
+    # 7. Recent git commits
+    recent_commits = []
+    try:
+        result = subprocess.run(
+            ["git", "log", "--oneline", "-5"],
+            capture_output=True, text=True, timeout=5,
+            cwd="/home/exedev/wonderz-agentics"
+        )
+        recent_commits = [l for l in result.stdout.strip().split("\n") if l]
+    except Exception:
+        pass
+
+    # 8. LLM keys configured
+    settings = {
+        "anthropic_key_set": bool(os.getenv("ANTHROPIC_API_KEY")),
+        "openai_key_set": bool(os.getenv("OPENAI_API_KEY")),
+        "active_providers": [p for p, v in [
+            ("Anthropic", os.getenv("ANTHROPIC_API_KEY")),
+            ("OpenAI", os.getenv("OPENAI_API_KEY")),
+        ] if v],
+        "ok": bool(os.getenv("ANTHROPIC_API_KEY") or os.getenv("OPENAI_API_KEY")),
+    }
+
+    all_ok = all(c["ok"] for c in checks.values())
+
+    return {
+        "status": "ok" if all_ok else "degraded",
+        "health": {"status": "ok" if all_ok else "degraded", "checks": checks},
+        "systemd": services,
+        "settings": settings,
+        "recent": {"recent_commits": recent_commits},
+    }
+
+
 from fastapi import Request
 
 
