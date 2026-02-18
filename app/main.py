@@ -205,9 +205,27 @@ async def status_summary():
     # 5. Backend (self)
     checks["backend"] = {"ok": True, "detail": "Running (this service)"}
 
+    # 5b. Terminal (ttyd on 7681)
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=3) as client:
+            resp = await client.get("http://localhost:7681/")
+            checks["terminal"] = {"ok": resp.status_code == 200, "detail": f"HTTP {resp.status_code} (port 7681)"}
+    except Exception as e:
+        checks["terminal"] = {"ok": False, "detail": str(e)[:120]}
+
+    # 5c. Codex Web (port 7682)
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=3) as client:
+            resp = await client.get("http://localhost:7682/")
+            checks["codex_web"] = {"ok": resp.status_code == 200, "detail": f"HTTP {resp.status_code} (port 7682)"}
+    except Exception as e:
+        checks["codex_web"] = {"ok": False, "detail": str(e)[:120]}
+
     # 6. Systemd service states
     services = {}
-    for svc in ["wonderz-backend", "wonderz-worker", "wonderz-frontend", "redis-server"]:
+    for svc in ["wonderz-backend", "wonderz-worker", "wonderz-frontend", "redis-server", "wonderz-terminal", "wonderz-codex-web"]:
         try:
             result = subprocess.run(["systemctl", "is-active", svc], capture_output=True, text=True, timeout=3)
             state = result.stdout.strip()

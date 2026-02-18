@@ -4,7 +4,8 @@ import PageLayout from './PageLayout'
 import {
   Layers, ClipboardList, Users, Code, PlusCircle,
   Activity, Briefcase, ArrowRight, Zap, CheckCircle2,
-  AlertTriangle, RefreshCw, Server, Database, Cpu, Globe, Bot
+  AlertTriangle, RefreshCw, Server, Database, Cpu, Globe, Bot,
+  Terminal, Sparkles
 } from 'lucide-react'
 
 const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8090'
@@ -173,6 +174,18 @@ export default function Dashboard() {
             detail={services?.celery_worker?.detail || 'Task queue'}
           />
           <ServiceCard
+            label="Terminal (ttyd)"
+            icon={Terminal}
+            ok={services?.terminal?.ok ?? null}
+            detail={services?.terminal?.detail || 'Port 7681'}
+          />
+          <ServiceCard
+            label="Codex Console"
+            icon={Sparkles}
+            ok={services?.codex_web?.ok ?? null}
+            detail={services?.codex_web?.detail || 'Port 7682'}
+          />
+          <ServiceCard
             label="LLM Providers"
             icon={Bot}
             ok={settings?.ok ?? null}
@@ -257,6 +270,36 @@ export default function Dashboard() {
           </div>
           <ArrowRight className="w-5 h-5 ml-auto" />
         </Link>
+      </div>
+
+      {/* Dev Tools */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+        <a
+          href={`${window.location.protocol}//${window.location.hostname}:7681`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-4 bg-gray-900 text-white rounded-xl p-6 shadow-lg hover:shadow-xl transition-all hover:scale-[1.01]"
+        >
+          <Terminal className="w-8 h-8 text-green-400" />
+          <div>
+            <h3 className="text-lg font-semibold">Terminal</h3>
+            <p className="text-gray-400 text-sm">Full shell access to the VM</p>
+          </div>
+          <ArrowRight className="w-5 h-5 ml-auto text-gray-500" />
+        </a>
+        <a
+          href={`${window.location.protocol}//${window.location.hostname}:7682`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-4 bg-gray-900 text-white rounded-xl p-6 shadow-lg hover:shadow-xl transition-all hover:scale-[1.01]"
+        >
+          <Sparkles className="w-8 h-8 text-yellow-400" />
+          <div>
+            <h3 className="text-lg font-semibold">Codex Console</h3>
+            <p className="text-gray-400 text-sm">AI coding assistant — give prompts to Codex</p>
+          </div>
+          <ArrowRight className="w-5 h-5 ml-auto text-gray-500" />
+        </a>
       </div>
 
       {/* Recent Missions */}
