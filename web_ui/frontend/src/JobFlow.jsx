@@ -329,9 +329,14 @@ export default function JobFlow() {
   })
 
   const taskDoneCount = planTasks.filter(t => t.status === 'success').length
-  const generatedText = ((jobData?.artifacts || [])
-    .map(a => (a?.proposed_data || {}).text)
-    .find(t => typeof t === 'string' && t.trim().length > 0) || '').trim()
+  const generatedText = (
+    ((jobData?.artifacts || [])
+      .map(a => (a?.proposed_data || {}).text)
+      .find(t => typeof t === 'string' && t.trim().length > 0)) ||
+    jobData?.job?.context?.copy_agent?.data?.draft_text ||
+    jobData?.job?.context?.copy_agent?.content ||
+    ''
+  ).trim()
 
   return (
     <PageLayout size="wide" padded>
