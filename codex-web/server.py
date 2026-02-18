@@ -418,6 +418,7 @@ Rules:
                     cwd=PROJECT_DIR
                 )
                 running_tasks[task_id] = process
+                collected_output = []  # Collect agent text for thread history
 
                 async def read_stream(stream, stream_type):
                     while True:
@@ -429,6 +430,13 @@ Rules:
                             try:
                                 event = json.loads(text)
                                 await websocket.send_json({"type": "event", "task_id": task_id, "data": event})
+                                # Collect agent message text for thread history
+                                if event.get("type") == "item.completed" and event.get("item", {}).get("text"):
+                                    collected_output.append(event["item"]["text"])
+                                elif event.get("type") == "message" and event.get("message", {}).get("role") == "assistant":
+                                    for b in event.get("message", {}).get("content", []):
+                                        if b.get("type") == "text" and b.get("text"):
+                                            collected_output.append(b["text"])
                             except json.JSONDecodeError:
                                 await websocket.send_json({"type": "output", "task_id": task_id, "stream": stream_type, "data": text})
 
@@ -440,8 +448,9 @@ Rules:
                 return_code = await process.wait()
                 running_tasks.pop(task_id, None)
                 
-                # Save assistant response summary to thread
-                add_thread_message(thread_id, "assistant", f"Task completed (code: {return_code})", model)
+                # Save full assistant response to thread
+                response_text = "\n\n".join(collected_output) if collected_output else f"Task completed (code: {return_code})"
+                add_thread_message(thread_id, "assistant", response_text, model)
                 
                 await websocket.send_json({"type": "done", "task_id": task_id, "thread_id": thread_id, "return_code": return_code})
 
