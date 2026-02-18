@@ -10,6 +10,7 @@ import CrewManagement from './CrewManagement.jsx'
 import TrainingManagement from './TrainingManagement.jsx'
 import ApprovalDashboard from './ApprovalDashboard.jsx'
 import JobCenter from './JobCenter.jsx'
+import AgentsOverview from './AgentsOverview.jsx'
 import NewCrewMember from './NewCrewMember.jsx'
 import ExplainerHowItWorks from './ExplainerHowItWorks.jsx'
 import ExplainerPersona from './ExplainerPersona.jsx'
@@ -34,6 +35,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <Route path="/jobs/new" element={<JobFlow />} />
           <Route path="/crew" element={<CrewManagement />} />
           <Route path="/crew/management" element={<CrewManagement />} />
+          <Route path="/agents" element={<AgentsOverview />} />
           <Route path="/agents/new" element={<NewCrewMember />} />
           <Route path="/training/management" element={<TrainingManagement />} />
           <Route path="/approvals" element={<ApprovalDashboard />} />
