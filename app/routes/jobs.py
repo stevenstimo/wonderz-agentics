@@ -531,11 +531,23 @@ async def get_job(job_id: str):
                 job_id
             )
         
+        def _parse_artifact(a):
+            """Ensure proposed_data and original_data are dicts, not JSON strings."""
+            d = dict(a)
+            for field in ('proposed_data', 'original_data'):
+                val = d.get(field)
+                if isinstance(val, str):
+                    try:
+                        d[field] = json.loads(val)
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+            return d
+
         return {
             "job": dict(job),
             "clarifications": [dict(c) for c in clarifications],
             "steps": [dict(s) for s in steps],
-            "artifacts": [dict(a) for a in artifacts]
+            "artifacts": [_parse_artifact(a) for a in artifacts]
         }
     
     except HTTPException:

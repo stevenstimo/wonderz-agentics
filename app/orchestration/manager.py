@@ -317,8 +317,8 @@ class OperationsManager:
             step_id,
             artifact_type,
             name,
-            original_data or {},
-            proposed_data or {},
+            json.dumps(original_data or {}, default=_json_default),
+            json.dumps(proposed_data or {}, default=_json_default),
             review_feedback,
             storage_path
         )
@@ -470,24 +470,29 @@ class OperationsManager:
                         "context",
                         proposed_data=ctx.data
                     )
-                except Exception:
+                except Exception as e:
                     # non-fatal: log and continue
-                    pass
+                    import logging
+                    logging.getLogger(__name__).warning("Failed to persist shared_context artifact for job %s: %s", job_id, e)
 
-                # Optionally store any artifacts returned by agent
+                # Store any artifacts returned by agent
                 if isinstance(result, dict) and result.get("artifacts"):
                     for art in result.get("artifacts"):
-                        await self.append_artifact(
-                            conn,
-                            job_id,
-                            art.get("name"),
-                            art.get("type", "json"),
-                            original_data=art.get("original_data"),
-                            proposed_data=art.get("proposed_data"),
-                            review_feedback=art.get("review_feedback"),
-                            storage_path=art.get("storage_path"),
-                            step_id=art.get("step_id")
-                        )
+                        try:
+                            await self.append_artifact(
+                                conn,
+                                job_id,
+                                art.get("name"),
+                                art.get("type", "json"),
+                                original_data=art.get("original_data"),
+                                proposed_data=art.get("proposed_data"),
+                                review_feedback=art.get("review_feedback"),
+                                storage_path=art.get("storage_path"),
+                                step_id=art.get("step_id")
+                            )
+                        except Exception as e:
+                            import logging
+                            logging.getLogger(__name__).error("Failed to persist artifact '%s' for job %s: %s", art.get('name'), job_id, e)
 
                 # Advance
                 current_step = next_agent

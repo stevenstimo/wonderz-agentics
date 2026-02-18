@@ -333,9 +333,7 @@ export default function JobFlow() {
     ((jobData?.artifacts || [])
       .map(a => (a?.proposed_data || {}).text)
       .find(t => typeof t === 'string' && t.trim().length > 0)) ||
-    jobData?.job?.context?.copy_agent?.data?.draft_text ||
-    jobData?.job?.context?.copy_agent?.content ||
-    ''
+    'Geen tekst beschikbaar'
   ).trim()
 
   return (
