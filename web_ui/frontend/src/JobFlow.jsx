@@ -1,9 +1,9 @@
+import { apiBase as API } from './apiBase'
 import { useState, useRef, useEffect } from 'react'
 import { supabase } from './supabase'
 import PageLayout from './PageLayout'
 import { Sparkles, Play, CheckCircle, XCircle, Loader2, ChevronRight, Circle } from 'lucide-react'
 
-const API = import.meta.env.VITE_API_URL || 'http://localhost:8090'
 
 // Status mapping van backend naar UI fase
 function getPhase(status) {

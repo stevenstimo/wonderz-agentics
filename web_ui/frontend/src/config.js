@@ -5,11 +5,13 @@
  * Deze file wordt gebruikt door zowel frontend als backend
  */
 
+import { apiBase } from './apiBase'
+
 export const CONFIG = {
   // ===== API Endpoints =====
   api: {
-    // Backend API URL
-    baseUrl: import.meta.env.VITE_API_URL || 'http://localhost:8090',
+    // Backend API URL (auto-detected via apiBase.js)
+    baseUrl: apiBase,
     
     // API endpoints
     endpoints: {

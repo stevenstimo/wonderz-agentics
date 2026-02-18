@@ -1,3 +1,4 @@
+import { apiBase } from './apiBase'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import PageLayout from './PageLayout'
@@ -8,7 +9,6 @@ import {
   Terminal, Sparkles
 } from 'lucide-react'
 
-const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8090'
 
 function ServiceCard({ label, ok, detail, icon: Icon }) {
   return (

@@ -1,7 +1,7 @@
+import { apiBase } from './apiBase'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 
-const apiBase = (import.meta.env.VITE_API_URL || 'http://localhost:8090').replace(/\/$/, '')
 
 export default function AgentsOverview() {
   const [agents, setAgents] = useState([])

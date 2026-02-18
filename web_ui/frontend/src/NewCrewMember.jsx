@@ -1,6 +1,6 @@
+import { apiBase } from './apiBase'
 import { useMemo, useState } from 'react'
 
-const apiBase = (import.meta.env.VITE_API_URL || 'http://localhost:8090').replace(/\/$/, '')
 
 const roleOptions = [
   { value: 'copywriter', label: 'Copywriter' },

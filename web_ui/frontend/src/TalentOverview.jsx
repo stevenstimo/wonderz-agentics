@@ -1,9 +1,9 @@
+import { apiBase } from './apiBase'
 import { useEffect, useMemo, useState } from 'react'
 import { ChevronUp, Plus, Pencil } from 'lucide-react'
 import PageLayout from './PageLayout'
 import { buildAuthHeaders, getCurrentUserRole, isSuperAdmin } from './authz'
 
-const apiBase = (import.meta.env.VITE_API_URL || 'http://localhost:8090').replace(/\/$/, '')
 const crewRoles = ['Developer', 'Product Owner', 'Reviewer', 'DevOps', 'AI', 'HR', 'Training', 'CIO']
 
 export default function TalentOverview() {

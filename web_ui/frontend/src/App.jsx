@@ -12,10 +12,9 @@ import {
   Sparkles, Code, FileText, Shield, Container, 
   Loader2, CheckCircle, XCircle, Download, Zap 
 } from 'lucide-react'
+import { apiBase, wsBase } from './apiBase'
 
 function App() {
-  const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8090'
-  const wsBase = (import.meta.env.VITE_WS_URL || apiBase).replace(/^http/, 'ws').replace(/\/$/, '')
   const stages = [
     { id: 'initialization', name: 'Initialization', icon: Sparkles, color: 'text-indigo-600' },
     { id: 'requirements', name: 'Requirements', icon: FileText, color: 'text-blue-600' },

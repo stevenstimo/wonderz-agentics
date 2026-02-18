@@ -1,8 +1,8 @@
+import { apiBase } from './apiBase'
 import { useEffect, useMemo, useState } from 'react'
 import PageLayout from './PageLayout'
 import { buildAuthHeaders, getCurrentUserRole, isSuperAdmin } from './authz'
 
-const apiBase = (import.meta.env.VITE_API_URL || 'http://localhost:8090').replace(/\/$/, '')
 
 const renderMarkdown = (text) => {
   if (!text) return <p className="text-slate-700">No content</p>

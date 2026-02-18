@@ -1,7 +1,7 @@
+import { apiBase as API_URL } from './apiBase'
 import React, { useState } from 'react';
 import PageLayout from './PageLayout';
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8090";
 
 function ChatBubble({ message, isUser }) {
 	return (

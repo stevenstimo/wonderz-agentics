@@ -1,3 +1,4 @@
+import { apiBase } from './apiBase'
 import { useEffect, useMemo, useState } from 'react'
 import { Plus, Edit2, Trash2, User, Shield, Code, Container, RefreshCw, X, Check, AlertCircle, Loader } from 'lucide-react'
 import PageLayout from './PageLayout'
@@ -14,7 +15,6 @@ const roleIcons = {
 }
 
 const validRoles = ['Developer', 'Product Owner', 'Reviewer', 'DevOps', 'AI', 'HR', 'Training', 'CIO']
-const apiBase = (import.meta.env.VITE_API_URL || 'http://localhost:8090').replace(/\/$/, '')
 
 const initialFormData = {
   name: '',

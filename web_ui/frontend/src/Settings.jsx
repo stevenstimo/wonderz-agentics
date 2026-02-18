@@ -1,9 +1,9 @@
+import { apiBase } from './apiBase'
 import { useState, useEffect } from 'react'
 import PageLayout from './PageLayout'
 import { Save, Eye, EyeOff, AlertCircle } from 'lucide-react'
 import { buildAuthHeaders } from './authz'
 
-const apiBase = (import.meta.env.VITE_API_URL || 'http://localhost:8090').replace(/\/$/, '')
 
 export default function Settings() {
   const [settings, setSettings] = useState({
