@@ -10,4 +10,7 @@ psycopg2-binary
 gunicorn
 
 requests
+httpx
+beautifulsoup4
+openai
 alembic>=1.13.0
