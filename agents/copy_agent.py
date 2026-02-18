@@ -144,7 +144,7 @@ async def run(payload: Dict[str, Any]) -> Dict[str, Any]:
         'artifacts': [
             {
                 'name': 'copy_draft',
-                'type': 'copy_draft',
+                'type': 'text',
                 'proposed_data': {'text': content},
                 'original_data': {},
                 'review_feedback': None,

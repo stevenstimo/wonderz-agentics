@@ -331,12 +331,13 @@ export default function JobFlow() {
   })
 
   const taskDoneCount = planTasks.filter(t => t.status === 'success').length
-  const generatedText = (
-    ((jobData?.artifacts || [])
-      .map(a => (a?.proposed_data || {}).text)
-      .find(t => typeof t === 'string' && t.trim().length > 0)) ||
-    'Geen tekst beschikbaar'
-  ).trim()
+  const generatedText = (jobData?.artifacts || [])
+    .find(a => a?.name === 'copy_draft')
+    ?.proposed_data
+    ?.text
+  const displayText = (typeof generatedText === 'string' && generatedText.trim().length > 0)
+    ? generatedText.trim()
+    : 'Geen tekst beschikbaar - agent heeft geen artifact opgeslagen'
 
   return (
     <PageLayout size="wide" padded>
@@ -517,11 +518,7 @@ export default function JobFlow() {
             </div>
             <div className="bg-white border border-gray-200 rounded-2xl p-5 mb-6">
               <div className="text-xs uppercase tracking-wide text-gray-500 mb-2">Gegenereerde tekst</div>
-              {generatedText ? (
-                <pre className="whitespace-pre-wrap text-sm text-gray-800 leading-6 font-sans">{generatedText}</pre>
-              ) : (
-                <p className="text-sm text-gray-500">Nog geen tekst gevonden in artifacts.</p>
-              )}
+              <pre className="whitespace-pre-wrap text-sm text-gray-800 leading-6 font-sans">{displayText}</pre>
             </div>
             {!showFeedback ? (
               <div className="flex gap-3">
