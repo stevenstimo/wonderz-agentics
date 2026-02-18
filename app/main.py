@@ -35,6 +35,31 @@ app.add_middleware(
 app.include_router(jobs_router)
 
 
+# --- Stub endpoints for JobCenter compatibility ---
+
+@app.get("/api/crew")
+async def get_crew():
+    """Return agent crew status."""
+    agents = [
+        {"name": "CEO Agent", "role": "intake", "status": "active"},
+        {"name": "Copy Agent", "role": "copywriting", "status": "active"},
+        {"name": "Review Agent", "role": "review", "status": "active"},
+    ]
+    return {"crew": agents, "total": len(agents)}
+
+
+@app.get("/api/explainer/sections")
+async def get_explainer_sections():
+    """Return platform status sections."""
+    return {
+        "sections": [
+            {"title": "Agents Active", "value": 3, "detail": "CEO, Copy, Review"},
+            {"title": "Jobs Today", "value": "—", "detail": "Check Job Center"},
+        ],
+        "meta": {"version": "1.0", "platform": "Wonderz Agentics"}
+    }
+
+
 @app.on_event("startup")
 async def on_startup():
     await init_db_pool()

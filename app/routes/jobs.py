@@ -101,6 +101,44 @@ async def _next_step_index(conn, job_id: str) -> int:
 
 # ============ Routes ============
 
+@router.get("")
+async def list_jobs(status_filter: str = None, limit: int = 50, offset: int = 0):
+    """List all jobs, optionally filtered by status."""
+    pool = _db._pool
+    if not pool:
+        raise HTTPException(status_code=503, detail="DB pool not initialised")
+    async with pool.acquire() as conn:
+        if status_filter:
+            rows = await conn.fetch(
+                "SELECT id, user_id, job_post, status, source_platform, context, created_at, updated_at "
+                "FROM jobs WHERE status=$1 ORDER BY created_at DESC LIMIT $2 OFFSET $3",
+                status_filter, limit, offset
+            )
+        else:
+            rows = await conn.fetch(
+                "SELECT id, user_id, job_post, status, source_platform, context, created_at, updated_at "
+                "FROM jobs ORDER BY created_at DESC LIMIT $1 OFFSET $2",
+                limit, offset
+            )
+        jobs = []
+        for r in rows:
+            ctx = r["context"]
+            if isinstance(ctx, str):
+                import json as _json
+                ctx = _json.loads(ctx)
+            jobs.append({
+                "job_id": str(r["id"]),
+                "user_id": str(r["user_id"]),
+                "job_post": r["job_post"][:200] if r["job_post"] else None,
+                "status": r["status"],
+                "source_platform": r["source_platform"],
+                "context": ctx,
+                "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+                "updated_at": r["updated_at"].isoformat() if r["updated_at"] else None,
+            })
+        return {"jobs": jobs, "total": len(jobs)}
+
+
 @router.post("", response_model=CreateJobResponse, status_code=status.HTTP_201_CREATED)
 async def create_job(req: CreateJobRequest, background_tasks: BackgroundTasks = None):
     """
