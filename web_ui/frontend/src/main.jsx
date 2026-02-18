@@ -5,6 +5,7 @@ import ReactDOM from 'react-dom/client'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 
 import App from './App.jsx'
+import Dashboard from './Dashboard.jsx'
 import HRImprovements from './HRImprovements.jsx'
 import CrewManagement from './CrewManagement.jsx'
 import TrainingManagement from './TrainingManagement.jsx'
@@ -30,7 +31,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     <BrowserRouter>
       <CommandCenter>
         <Routes>
-          <Route path="/" element={<App />} />
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/generator" element={<App />} />
           <Route path="/job-center" element={<JobCenter />} />
           <Route path="/jobs/new" element={<JobFlow />} />
           <Route path="/crew" element={<CrewManagement />} />

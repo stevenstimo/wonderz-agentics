@@ -5,7 +5,7 @@ import { supabase } from './supabase'
 import { getCurrentUserRole, isSuperAdmin } from './authz'
 
 const primaryMenu = [
-  { label: 'Mission Control', icon: Layers, path: '/' },
+  { label: 'Mission Control', icon: Layers, path: '/dashboard' },
   { label: 'Job Center', icon: ClipboardList, path: '/job-center' },
 ]
 
