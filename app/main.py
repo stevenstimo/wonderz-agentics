@@ -42,6 +42,11 @@ app.include_router(jobs_router)
 
 # --- Stub endpoints for JobCenter compatibility ---
 
+@app.get("/api/health")
+async def health_check():
+    return {"status": "ok"}
+
+
 @app.get("/api/crew")
 async def get_crew():
     """Return agent crew status."""

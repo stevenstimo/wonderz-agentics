@@ -1,20 +1,12 @@
 /**
- * Dynamically resolve the backend API base URL.
- * - If accessed via wonderz-agentic.exe.xyz → use https://wonderz-agentic.exe.xyz:8090
- * - If accessed via localhost → use http://localhost:8090
- * - VITE_API_URL env var always wins if set.
+ * API base URL.
+ * 
+ * Vite proxies /api/* and /ws/* to the backend (localhost:8090).
+ * So the frontend just uses relative paths — no cross-origin, no port issues.
+ * VITE_API_URL env var overrides if set (for non-Vite contexts).
  */
 const _env = import.meta.env.VITE_API_URL;
-let _base;
-if (_env) {
-  _base = _env.replace(/\/$/, '');
-} else if (typeof window !== 'undefined' && window.location.hostname !== 'localhost') {
-  _base = `${window.location.protocol}//${window.location.hostname}:8090`;
-} else {
-  _base = 'http://localhost:8090';
-}
-
-export const apiBase = _base;
-
-// WebSocket base (same host, ws(s) protocol)
-export const wsBase = _base.replace(/^http/, 'ws');
+export const apiBase = _env ? _env.replace(/\/$/, '') : '';
+export const wsBase = _env
+  ? _env.replace(/^http/, 'ws').replace(/\/$/, '')
+  : `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}`;
