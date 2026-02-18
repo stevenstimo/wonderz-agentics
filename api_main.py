@@ -35,6 +35,12 @@ from agents.hr_agent import HRAgent
 from config import ANTHROPIC_API_KEY
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+SUPABASE_URL = os.getenv("SUPABASE_URL", "https://cqasccazioqjodctawzx.supabase.co")
+SUPABASE_ANON_KEY = os.getenv(
+    "SUPABASE_ANON_KEY",
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNxYXNjY2F6aW9xam9kY3Rhd3p4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA4MDU0NDEsImV4cCI6MjA4NjM4MTQ0MX0.h8wkn_Tg0pEXmQppnQcRbV7Bxw1pSP_0xPqAnVxLA38",
+)
+SUPER_ADMIN_EMAIL = "stevenstimo@gmail.com"
 
 # --- Database setup ---
 
@@ -42,8 +48,25 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL environment variable is not set. Configure it as a Fly.io secret or in your .env file.")
-engine = create_engine(DATABASE_URL)
+
+# SQLAlchemy sync engine cannot use asyncpg driver in threadpool endpoints.
+if DATABASE_URL.startswith("postgresql+asyncpg://"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql+asyncpg://", "postgresql+psycopg2://", 1)
+
+# Local fallback: when DATABASE_URL points to Docker host "postgres", switch to sqlite.
+if ":" in DATABASE_URL:
+    DATABASE_URL = "sqlite:///./wonderz_local.db"
+
+engine_kwargs = {}
+if DATABASE_URL.startswith("sqlite"):
+    engine_kwargs = {"connect_args": {"check_same_thread": False}}
+
+engine = create_engine(DATABASE_URL, **engine_kwargs)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+# Ensure local fallback sqlite has required tables.
+from models.sql_models import Base
+Base.metadata.create_all(bind=engine)
 
 
 # --- FastAPI app instance ---
@@ -155,8 +178,13 @@ cors_origins = (
     if cors_origins_env
     else [
         "http://localhost:3000",
+        "http://localhost:3001",
         "http://localhost:5173",
         "http://localhost:8000",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:3001",
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:8000",
     ]
 )
 app.add_middleware(
@@ -183,6 +211,11 @@ class ExplainerSection(BaseModel):
     body_markdown: str
     source: Optional[str] = None
     updated_at: Optional[str] = None
+
+
+class UpdateExplainerSectionRequest(BaseModel):
+    title: Optional[str] = None
+    body_markdown: Optional[str] = None
 
 # --- Middleware for Global Error Handling ---
 @app.middleware("http")
@@ -219,6 +252,62 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def _extract_bearer_token(request: Request) -> str:
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing bearer token")
+    token = auth_header.split(" ", 1)[1].strip()
+    if not token:
+        raise HTTPException(status_code=401, detail="Missing bearer token")
+    return token
+
+
+def _fetch_supabase_user(access_token: str) -> dict:
+    try:
+        response = requests.get(
+            f"{SUPABASE_URL}/auth/v1/user",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "apikey": SUPABASE_ANON_KEY,
+            },
+            timeout=10,
+        )
+    except requests.RequestException as exc:
+        raise HTTPException(status_code=503, detail=f"Auth service unavailable: {exc}") from exc
+
+    if response.status_code != 200:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    return response.json()
+
+
+def _resolve_user_role(db: Session, user_id: str, email: str) -> str:
+    if (email or "").strip().lower() == SUPER_ADMIN_EMAIL:
+        return "super_admin"
+
+    row = db.execute(
+        text("SELECT role::text AS role FROM user_roles WHERE user_id = :user_id"),
+        {"user_id": user_id},
+    ).mappings().first()
+    return row["role"] if row and row.get("role") else "member"
+
+
+def get_current_user_context(request: Request, db: Session = Depends(get_db)) -> dict:
+    access_token = _extract_bearer_token(request)
+    user = _fetch_supabase_user(access_token)
+    user_id = user.get("id")
+    email = user.get("email", "")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid token user payload")
+    role = _resolve_user_role(db, user_id=user_id, email=email)
+    return {"id": user_id, "email": email, "role": role}
+
+
+def require_super_admin(user: dict = Depends(get_current_user_context)) -> dict:
+    if user.get("role") != "super_admin":
+        raise HTTPException(status_code=403, detail="Super admin required")
+    return user
 
 
 # --- Demo data ---
@@ -543,6 +632,15 @@ class CreateTalentRequest(BaseModel):
     skills: Optional[list[dict]] = []
     avatar_url: Optional[str] = None
 
+
+class UpdateTalentRequest(BaseModel):
+    name: Optional[str] = None
+    persona: Optional[str] = None
+    quality: Optional[str] = None
+    growth: Optional[str] = None
+    skills: Optional[list[dict]] = None
+    avatar_url: Optional[str] = None
+
 class PromoteTalentRequest(BaseModel):
     role: str
     system_instructions: str
@@ -552,6 +650,7 @@ class PromoteTalentRequest(BaseModel):
 class CreateCrewMemberRequest(BaseModel):
     name: str
     role: str
+    avatar_url: Optional[str] = None
     specialization: Optional[str] = None
     permissions: Optional[List[str]] = None
     system_instructions: str
@@ -573,7 +672,7 @@ class CreateCrewMemberRequest(BaseModel):
     
     @validator('role')
     def validate_role(cls, v):
-        valid_roles = ['Developer', 'Product Owner', 'Reviewer', 'DevOps', 'AI', 'HR', 'Training']
+        valid_roles = ['Developer', 'Product Owner', 'Reviewer', 'DevOps', 'AI', 'HR', 'Training', 'CIO']
         if v not in valid_roles:
             raise ValueError(f"Role must be one of: {', '.join(valid_roles)}")
         return v
@@ -604,6 +703,7 @@ class CreateCrewMemberRequest(BaseModel):
 class UpdateCrewMemberRequest(BaseModel):
     name: Optional[str] = None
     role: Optional[str] = None
+    avatar_url: Optional[str] = None
     specialization: Optional[str] = None
     status: Optional[str] = None
     current_task: Optional[str] = None
@@ -622,6 +722,10 @@ class CreateJobRequest(BaseModel):
     store_id: Optional[str] = None
     job_type: str = "pdp_optimization"
     payload: Optional[dict] = None
+    job_post: Optional[str] = None
+    prompt: Optional[str] = None
+    user_id: Optional[str] = None
+    source_platform: Optional[str] = None
 
 
 class MakePlanRequest(BaseModel):
@@ -742,7 +846,11 @@ def get_talent(talent_id: str, db: Session = Depends(get_db)):
     )
 
 @app.post("/api/talents", response_model=Talent)
-def create_talent(req: CreateTalentRequest, db: Session = Depends(get_db)):
+def create_talent(
+    req: CreateTalentRequest,
+    _user: dict = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
     talent_id = str(uuid4())
     t = TalentSQL(
         id=talent_id,
@@ -768,8 +876,52 @@ def create_talent(req: CreateTalentRequest, db: Session = Depends(get_db)):
         created_at=t.created_at
     )
 
+
+@app.put("/api/talents/{talent_id}", response_model=Talent)
+def update_talent(
+    talent_id: str,
+    req: UpdateTalentRequest,
+    _user: dict = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    t = db.query(TalentSQL).filter(TalentSQL.id == talent_id).first()
+    if not t:
+        raise HTTPException(status_code=404, detail="Talent not found")
+
+    if req.name is not None:
+        t.name = req.name
+    if req.persona is not None:
+        t.persona = req.persona
+    if req.quality is not None:
+        t.quality = req.quality
+    if req.growth is not None:
+        t.growth = req.growth
+    if req.skills is not None:
+        t.skills = json.dumps(req.skills)
+    if req.avatar_url is not None:
+        t.avatar_url = req.avatar_url
+
+    db.commit()
+    db.refresh(t)
+    return Talent(
+        id=t.id,
+        name=t.name,
+        persona=t.persona,
+        quality=t.quality,
+        growth=t.growth,
+        skills=json.loads(t.skills) if t.skills else [],
+        avatar_url=t.avatar_url,
+        created_at=t.created_at
+    )
+
+
 @app.post("/api/talents/{talent_id}/promote", response_model=CrewMember)
-def promote_talent_to_crew(talent_id: str, req: PromoteTalentRequest, db: Session = Depends(get_db)):
+def promote_talent_to_crew(
+    talent_id: str,
+    req: PromoteTalentRequest,
+    _user: dict = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
     """Promote a talent to a crew member (activate them)"""
     # Get the talent
     talent = db.query(TalentSQL).filter(TalentSQL.id == talent_id).first()
@@ -847,15 +999,84 @@ def get_crew(db: Session = Depends(get_db)):
 
 
 @app.post("/api/crew", response_model=CrewMember)
-def add_crew_member(crew: CrewMember, db: Session = Depends(get_db)):
+def add_crew_member(
+    req: CreateCrewMemberRequest,
+    _user: dict = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    crew_id = str(uuid4())
     db_crew = CrewMemberSQL(
-        id=crew.id or str(uuid4()),
+        id=crew_id,
+        name=req.name,
+        role=req.role,
+        specialization=req.specialization,
+        status='active',
+        current_task=None,
+        progress=0,
+        avatar_url=req.avatar_url,
+        system_instructions=req.system_instructions,
+        knowledge_base_sources=None,
+        tool_access_whitelist=None,
+        hiring_logic=req.hiring_logic,
+        persona=req.persona,
+        quality_notes=req.quality_notes,
+        growth=req.growth,
+        development_notes=req.development_notes
+    )
+    db.add(db_crew)
+    db.commit()
+    db.refresh(db_crew)
+    return CrewMember(
+        id=db_crew.id,
+        name=db_crew.name,
+        role=db_crew.role,
+        specialization=db_crew.specialization,
+        status=db_crew.status,
+        current_task=db_crew.current_task,
+        progress=db_crew.progress or 0,
+        avatar_url=db_crew.avatar_url,
+        system_instructions=db_crew.system_instructions,
+        knowledge_base_sources=None,
+        tool_access_whitelist=None,
+        hiring_logic=db_crew.hiring_logic,
+        persona=db_crew.persona,
+        quality_notes=db_crew.quality_notes,
+        growth=getattr(db_crew, 'growth', None),
+        development_notes=db_crew.development_notes,
+    )
+
+
+@app.put("/api/crew/{crew_id}", response_model=CrewMember)
+def update_crew_member(
+    crew_id: str,
+    req: UpdateCrewMemberRequest,
+    _user: dict = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    crew = db.query(CrewMemberSQL).filter(CrewMemberSQL.id == crew_id).first()
+    if not crew:
+        raise HTTPException(status_code=404, detail="Crew member not found")
+
+    update_fields = [
+        "name", "role", "avatar_url", "specialization", "status", "current_task",
+        "progress", "system_instructions", "hiring_logic", "persona",
+        "quality_notes", "growth", "development_notes"
+    ]
+    for field in update_fields:
+        value = getattr(req, field)
+        if value is not None:
+            setattr(crew, field, value)
+
+    db.commit()
+    db.refresh(crew)
+    return CrewMember(
+        id=crew.id,
         name=crew.name,
         role=crew.role,
         specialization=crew.specialization,
         status=crew.status,
         current_task=crew.current_task,
-        progress=crew.progress,
+        progress=crew.progress or 0,
         avatar_url=crew.avatar_url,
         system_instructions=crew.system_instructions,
         knowledge_base_sources=None,
@@ -863,13 +1084,23 @@ def add_crew_member(crew: CrewMember, db: Session = Depends(get_db)):
         hiring_logic=crew.hiring_logic,
         persona=crew.persona,
         quality_notes=crew.quality_notes,
-        growth=getattr(crew, 'growth', None),
-        development_notes=crew.development_notes
+        growth=getattr(crew, "growth", None),
+        development_notes=crew.development_notes,
     )
-    db.add(db_crew)
+
+
+@app.delete("/api/crew/{crew_id}")
+def deactivate_crew_member(
+    crew_id: str,
+    _user: dict = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    crew = db.query(CrewMemberSQL).filter(CrewMemberSQL.id == crew_id).first()
+    if not crew:
+        raise HTTPException(status_code=404, detail="Crew member not found")
+    crew.status = "inactive"
     db.commit()
-    db.refresh(db_crew)
-    return crew
+    return {"status": "success", "message": "Crew member deactivated"}
 
 
 @app.get("/api/tasks", response_model=List[Task])
@@ -891,6 +1122,25 @@ async def get_explainer_sections(slug: str = Query(None)):
     return {"sections": demo_explainer_sections, "meta": meta}
 
 
+@app.put("/api/explainer/sections/{slug}")
+async def update_explainer_section(
+    slug: str,
+    req: UpdateExplainerSectionRequest,
+    _user: dict = Depends(require_super_admin),
+):
+    section = next((s for s in demo_explainer_sections if s["slug"] == slug), None)
+    if not section:
+        raise HTTPException(status_code=404, detail="Explainer section not found")
+
+    if req.title is not None:
+        section["title"] = req.title
+    if req.body_markdown is not None:
+        section["body_markdown"] = req.body_markdown
+    section["updated_at"] = datetime.utcnow().isoformat()
+
+    return {"status": "success", "section": section, "meta": _build_explainer_meta()}
+
+
 @app.get("/api/products/unified", response_model=List[UnifiedProduct])
 async def get_unified_products():
     """Return a demo list of unified products from multiple platforms via adapters."""
@@ -901,15 +1151,171 @@ async def get_unified_products():
     return [shopify_product, wp_product]
 
 
+_demo_jobs = {}
+
+
+def _build_demo_plan(prompt_text: str):
+    return [
+        {"step_index": 1, "agent_role": "copywriter", "description": "Analyseer briefing", "requires_approval": False},
+        {"step_index": 2, "agent_role": "developer", "description": "Werk concept uit", "requires_approval": False},
+        {"step_index": 3, "agent_role": "reviewer", "description": "Kwaliteitscontrole", "requires_approval": True},
+    ]
+
+
+def _demo_now_iso() -> str:
+    return datetime.utcnow().isoformat() + "Z"
+
+
+def _demo_running_steps():
+    return [
+        {"step_index": 1, "step_name": "copy_agent", "agent_role": "copywriter", "status": "in_progress", "created_at": _demo_now_iso()},
+        {"step_index": 2, "step_name": "reviewer_agent", "agent_role": "reviewer", "status": "pending", "created_at": _demo_now_iso()},
+    ]
+
+
+def _maybe_progress_demo_job(job_state: dict):
+    """Assumption-based: demo API auto-progresses RUNNING jobs to JOB_READY after a short delay."""
+    job = job_state.get("job", {})
+    if job.get("status") != "RUNNING":
+        return
+    started_at = job.get("running_started_at")
+    if not started_at:
+        return
+    try:
+        elapsed = (datetime.utcnow() - datetime.fromisoformat(started_at.replace("Z", ""))).total_seconds()
+    except Exception:
+        elapsed = 0
+    if elapsed < 4:
+        return
+
+    job["status"] = "JOB_READY"
+    job["updated_at"] = _demo_now_iso()
+    job_state["steps"] = [
+        {"step_index": 1, "step_name": "copy_agent", "agent_role": "copywriter", "status": "success", "created_at": _demo_now_iso()},
+        {"step_index": 2, "step_name": "reviewer_agent", "agent_role": "reviewer", "status": "success", "created_at": _demo_now_iso()},
+    ]
+    prompt_text = job.get("context", {}).get("job_post", "")
+    generated = (
+        f"Dit is een gegenereerde tekst op basis van je briefing: {prompt_text}. "
+        "De inhoud is opgesteld in duidelijke taal en geoptimaliseerd voor leesbaarheid."
+    ).strip()
+    job_state["artifacts"] = [
+        {
+            "id": str(uuid.uuid4()),
+            "job_id": job.get("id"),
+            "artifact_type": "copy_draft",
+            "proposed_data": {"text": generated},
+            "created_at": _demo_now_iso(),
+        }
+    ]
+
+
 @app.post("/api/jobs")
 async def create_job(req: CreateJobRequest):
     job_id = str(uuid.uuid4())
-    return {"job_id": job_id, "status": "queued"}
+    prompt_text = (req.job_post or req.prompt or ((req.payload or {}).get("job_post") if isinstance(req.payload, dict) else None) or "").strip()
+
+    _demo_jobs[job_id] = {
+        "job": {
+            "id": job_id,
+            "status": "PLAN_PROPOSED",
+            "context": {
+                "job_post": prompt_text,
+                "plan": _build_demo_plan(prompt_text),
+            },
+            "created_at": _demo_now_iso(),
+            "updated_at": _demo_now_iso(),
+        },
+        "clarifications": [],
+        "steps": [],
+        "artifacts": [],
+    }
+
+    return {"job_id": job_id, "status": "PLAN_PROPOSED"}
 
 
 @app.get("/api/jobs/{job_id}")
 async def get_job(job_id: str):
-    return {"job_id": job_id, "status": "pending"}
+    job = _demo_jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    _maybe_progress_demo_job(job)
+    return job
+
+
+@app.patch("/api/jobs/{job_id}/answer")
+async def submit_job_answer(job_id: str, payload: dict = Body(default={})):
+    job_state = _demo_jobs.get(job_id)
+    if not job_state:
+        raise HTTPException(status_code=404, detail="Job not found")
+    answers = payload.get("answers") if isinstance(payload, dict) else {}
+    if not isinstance(answers, dict):
+        answers = {}
+    job_state["job"]["context"]["answers"] = answers
+    job_state["job"]["updated_at"] = _demo_now_iso()
+    return {"job_id": job_id, "status": job_state["job"]["status"], "message": "Answers received."}
+
+
+@app.post("/api/jobs/{job_id}/approve-plan")
+async def approve_plan(job_id: str):
+    job_state = _demo_jobs.get(job_id)
+    if not job_state:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    job = job_state["job"]
+    if job.get("status") not in {"PLAN_PROPOSED", "INTAKE_CLARIFICATION"}:
+        raise HTTPException(status_code=400, detail=f"Job is not in PLAN_PROPOSED state (current: {job.get('status')})")
+
+    job["status"] = "RUNNING"
+    job["running_started_at"] = _demo_now_iso()
+    job["updated_at"] = _demo_now_iso()
+    job_state["steps"] = _demo_running_steps()
+    return {"job_id": job_id, "status": "RUNNING", "message": "Plan approved. Workflow started."}
+
+
+@app.post("/api/jobs/{job_id}/request-changes")
+async def request_plan_changes(job_id: str, payload: dict = Body(default={})):
+    job_state = _demo_jobs.get(job_id)
+    if not job_state:
+        raise HTTPException(status_code=404, detail="Job not found")
+    feedback = (payload or {}).get("feedback", "")
+    job_state["job"]["status"] = "PLAN_PROPOSED"
+    job_state["job"]["context"]["plan_feedback"] = feedback
+    job_state["job"]["updated_at"] = _demo_now_iso()
+    return {"job_id": job_id, "status": "PLAN_PROPOSED", "message": "Changes requested."}
+
+
+@app.post("/api/jobs/{job_id}/feedback")
+async def submit_job_feedback(job_id: str, payload: dict = Body(default={})):
+    job_state = _demo_jobs.get(job_id)
+    if not job_state:
+        raise HTTPException(status_code=404, detail="Job not found")
+    feedback = (payload or {}).get("feedback", "")
+    job_state["job"]["context"]["review_feedback"] = feedback
+    job_state["job"]["status"] = "RUNNING"
+    job_state["job"]["running_started_at"] = _demo_now_iso()
+    job_state["job"]["updated_at"] = _demo_now_iso()
+    job_state["steps"] = _demo_running_steps()
+    return {"job_id": job_id, "status": "RUNNING", "message": "Feedback recorded. Workflow restarted."}
+
+
+@app.post("/api/jobs/{job_id}/approve")
+async def approve_job(job_id: str):
+    job_state = _demo_jobs.get(job_id)
+    if not job_state:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    job = job_state["job"]
+    # Assumption-based backward compatibility:
+    # some frontends use /approve for plan confirmation; route that to plan approval behavior.
+    if job.get("status") in {"PLAN_PROPOSED", "INTAKE_CLARIFICATION"}:
+        return await approve_plan(job_id)
+    if job.get("status") != "JOB_READY":
+        raise HTTPException(status_code=400, detail=f"Job not ready for approval (current: {job.get('status')})")
+
+    job["status"] = "COMPLETED"
+    job["updated_at"] = _demo_now_iso()
+    return {"job_id": job_id, "status": "COMPLETED", "message": "Job approved."}
 
 
 # --- CEO/Manager Agent endpoints ---
@@ -1720,8 +2126,14 @@ Start with API endpoint → database model → frontend."""
 
 
 # --- SETTINGS API ENDPOINTS ---
+@app.get("/api/me")
+def get_me(user: dict = Depends(get_current_user_context)):
+    """Get current authenticated user context."""
+    return user
+
+
 @app.get("/api/settings")
-def get_settings(db: Session = Depends(get_db)):
+def get_settings(_user: dict = Depends(require_super_admin), db: Session = Depends(get_db)):
     """Get settings (API keys, config)"""
     settings = db.query(SettingsSQL).filter(SettingsSQL.id == 'default').first()
     if not settings:
@@ -1740,7 +2152,7 @@ def get_settings(db: Session = Depends(get_db)):
 
 
 @app.post("/api/settings")
-def save_settings(req: SettingsInput, db: Session = Depends(get_db)):
+def save_settings(req: SettingsInput, _user: dict = Depends(require_super_admin), db: Session = Depends(get_db)):
     """Save settings (API keys, config)"""
     settings = db.query(SettingsSQL).filter(SettingsSQL.id == 'default').first()
     if not settings:
