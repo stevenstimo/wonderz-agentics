@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, NavLink } from 'react-router-dom'
 import { Home, Users, Layers, ClipboardList, Settings, PlusCircle, BookOpen, Shield, Code, Activity } from 'lucide-react'
 import { supabase } from './supabase'
-import { extractRole } from './authz'
+import { getCurrentUserRole, isSuperAdmin } from './authz'
 
 const primaryMenu = [
   { label: 'Mission Control', icon: Layers, path: '/' },
@@ -10,7 +10,8 @@ const primaryMenu = [
 ]
 
 const managementMenu = [
-  { label: 'Crew', icon: Users, path: '/crew/management' },
+  { label: 'Crew', icon: Users, path: '/crew' },
+  { label: 'Agents', icon: Users, path: '/agents' },
   { label: 'Talents', icon: Users, path: '/talents' },
   { label: 'Training Hub', icon: ClipboardList, path: '/training/management' },
   { label: 'Improvements', icon: ClipboardList, path: '/hr/improvements' },
@@ -51,26 +52,44 @@ function initials(user) {
 
 export default function Sidebar() {
   const [user, setUser] = useState(null)
+  const [role, setRole] = useState('member')
 
   useEffect(() => {
-    let mounted = true
+    let active = true
 
-    supabase.auth.getSession().then(({ data }) => {
-      if (!mounted) return
-      setUser(data?.session?.user || null)
-    })
+    const sync = async () => {
+      const { data } = await supabase.auth.getSession()
+      const sessionUser = data?.session?.user || null
+      if (!active) return
+      setUser(sessionUser)
 
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      try {
+        const ctx = await getCurrentUserRole()
+        if (active) setRole(ctx.role || 'member')
+      } catch {
+        if (active) setRole('member')
+      }
+    }
+
+    sync()
+
+    const { data: listener } = supabase.auth.onAuthStateChange(async (_event, session) => {
       setUser(session?.user || null)
+      try {
+        const ctx = await getCurrentUserRole()
+        setRole(ctx.role || 'member')
+      } catch {
+        setRole('member')
+      }
     })
 
     return () => {
-      mounted = false
+      active = false
       listener.subscription.unsubscribe()
     }
   }, [])
 
-  const role = useMemo(() => extractRole(user), [user])
+  const canManageSettings = isSuperAdmin(role)
 
   return (
     <aside className="sidebar">
@@ -84,13 +103,11 @@ export default function Sidebar() {
         </div>
 
         <nav className="space-y-2">
-          {primaryMenu.map(item => (
+          {primaryMenu.map((item) => (
             <NavLink
               key={item.label}
               to={item.path}
-              className={({ isActive }) => (
-                `nav-item ${isActive ? 'nav-item-active' : ''}`
-              )}
+              className={({ isActive }) => `nav-item ${isActive ? 'nav-item-active' : ''}`}
             >
               <item.icon className="w-5 h-5" />
               <span>{item.label}</span>
@@ -100,24 +117,18 @@ export default function Sidebar() {
 
         <div className="nav-section-title">Management</div>
         <nav className="space-y-2">
-          {managementMenu.map(item => (
+          {managementMenu.map((item) => (
             item.path ? (
               <NavLink
                 key={item.label}
                 to={item.path}
-                className={({ isActive }) => (
-                  `nav-item ${isActive ? 'nav-item-active' : ''}`
-                )}
+                className={({ isActive }) => `nav-item ${isActive ? 'nav-item-active' : ''}`}
               >
                 <item.icon className="w-5 h-5" />
                 <span>{item.label}</span>
               </NavLink>
             ) : (
-              <div
-                key={item.label}
-                onClick={() => console.log(`Clicked: ${item.label}`)}
-                className="nav-item"
-              >
+              <div key={item.label} className="nav-item">
                 <item.icon className="w-5 h-5" />
                 <span>{item.label}</span>
               </div>
@@ -127,7 +138,7 @@ export default function Sidebar() {
 
         <div className="nav-section-title">Knowledge</div>
         <nav className="space-y-2">
-          {secondaryMenu.map(item => (
+          {secondaryMenu.map((item) => (
             item.children ? (
               <div key={item.label} className="space-y-1">
                 <div className="nav-item">
@@ -135,13 +146,11 @@ export default function Sidebar() {
                   <span>{item.label}</span>
                 </div>
                 <div className="space-y-1 pl-4">
-                  {item.children.map(child => (
+                  {item.children.map((child) => (
                     <NavLink
                       key={child.label}
                       to={child.path}
-                      className={({ isActive }) => (
-                        `nav-item text-sm ${isActive ? 'nav-item-active' : ''}`
-                      )}
+                      className={({ isActive }) => `nav-item text-sm ${isActive ? 'nav-item-active' : ''}`}
                     >
                       <span className="w-1.5 h-1.5 rounded-full bg-indigo-300" />
                       <span>{child.label}</span>
@@ -153,19 +162,13 @@ export default function Sidebar() {
               <NavLink
                 key={item.label}
                 to={item.path}
-                className={({ isActive }) => (
-                  `nav-item ${isActive ? 'nav-item-active' : ''}`
-                )}
+                className={({ isActive }) => `nav-item ${isActive ? 'nav-item-active' : ''}`}
               >
                 <item.icon className="w-5 h-5" />
                 <span>{item.label}</span>
               </NavLink>
             ) : (
-              <div
-                key={item.label}
-                onClick={() => console.log(`Clicked: ${item.label}`)}
-                className="nav-item"
-              >
+              <div key={item.label} className="nav-item">
                 <item.icon className="w-5 h-5" />
                 <span>{item.label}</span>
               </div>
@@ -182,38 +185,38 @@ export default function Sidebar() {
             </div>
             <div className="min-w-0">
               <div className="text-sm font-medium text-gray-900 truncate">{displayName(user)}</div>
-              <div className="text-xs text-gray-500 truncate">{user?.email || 'Not signed in'} • {role}</div>
+              <div className="text-xs text-gray-500 truncate">{user?.email || 'Not signed in'} - {role}</div>
             </div>
           </div>
         </Link>
 
         <NavLink
           to="/status"
-          className={({ isActive }) => (
-            `nav-item ${isActive ? 'nav-item-active' : ''}`
-          )}
+          className={({ isActive }) => `nav-item ${isActive ? 'nav-item-active' : ''}`}
         >
           <Activity className="w-5 h-5" />
           <span>Status</span>
         </NavLink>
 
-        <button
-          onClick={() => console.log('Add New clicked')}
-          className="btn-manage w-full gap-2"
-        >
+        <NavLink to="/jobs/new" className="btn-manage w-full gap-2 flex items-center justify-center">
           <PlusCircle className="w-5 h-5" />
           New Mission
-        </button>
-
-        <NavLink
-          to="/settings"
-          className={({ isActive }) => (
-            `nav-item ${isActive ? 'nav-item-active' : ''}`
-          )}
-        >
-          <Settings className="w-4 h-4" />
-          <span>Settings</span>
         </NavLink>
+
+        <NavLink to="/agents/new" className="btn-manage w-full gap-2 flex items-center justify-center">
+          <PlusCircle className="w-5 h-5" />
+          Nieuwe Agent
+        </NavLink>
+
+        {canManageSettings && (
+          <NavLink
+            to="/settings"
+            className={({ isActive }) => `nav-item ${isActive ? 'nav-item-active' : ''}`}
+          >
+            <Settings className="w-4 h-4" />
+            <span>Settings</span>
+          </NavLink>
+        )}
       </div>
     </aside>
   )

@@ -10,6 +10,7 @@ import CrewManagement from './CrewManagement.jsx'
 import TrainingManagement from './TrainingManagement.jsx'
 import ApprovalDashboard from './ApprovalDashboard.jsx'
 import JobCenter from './JobCenter.jsx'
+import NewCrewMember from './NewCrewMember.jsx'
 import ExplainerHowItWorks from './ExplainerHowItWorks.jsx'
 import ExplainerPersona from './ExplainerPersona.jsx'
 import ExplainerCrew from './ExplainerCrew.jsx'
@@ -17,20 +18,23 @@ import DeveloperBot from './DeveloperBot.jsx'
 import DevbotHome from './DevbotHome.jsx'
 import TalentOverview from './TalentOverview.jsx'
 import Settings from './Settings.jsx'
-import TopHeader from './TopHeader.jsx'
 import Status from './Status.jsx'
 import MyAccount from './MyAccount.jsx'
+import CommandCenter from './CommandCenter.jsx'
+import JobFlow from './JobFlow.jsx'
 import './index.css'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <BrowserRouter>
-      <TopHeader />
-      <div className="app-shell">
+      <CommandCenter>
         <Routes>
           <Route path="/" element={<App />} />
           <Route path="/job-center" element={<JobCenter />} />
+          <Route path="/jobs/new" element={<JobFlow />} />
+          <Route path="/crew" element={<CrewManagement />} />
           <Route path="/crew/management" element={<CrewManagement />} />
+          <Route path="/agents/new" element={<NewCrewMember />} />
           <Route path="/training/management" element={<TrainingManagement />} />
           <Route path="/approvals" element={<ApprovalDashboard />} />
           <Route path="/hr/improvements" element={<HRImprovements />} />
@@ -45,7 +49,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <Route path="/my-account" element={<MyAccount />} />
           <Route path="/devbot/dave" element={<DaveDevConsole />} />
         </Routes>
-      </div>
+      </CommandCenter>
     </BrowserRouter>
   </React.StrictMode>,
 )
