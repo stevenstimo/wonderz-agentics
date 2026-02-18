@@ -1,73 +1,108 @@
+"""Reviewer Agent — proofreader that checks text quality using OpenAI."""
 import json
 import os
 import httpx
 from typing import Any, Dict
 
-ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
-ANTHROPIC_MODEL = "claude-3-haiku-20240307"
+KEYS_FILE = "/home/exedev/.config/wonderz-keys.json"
+OPENAI_MODEL = "gpt-4o-mini"
 
 
-async def _review_with_anthropic(copy_text: str, objective: str, target_audience: str) -> Dict[str, str]:
-    api_key = os.getenv('ANTHROPIC_API_KEY', '').strip()
+def _get_openai_key() -> str:
+    try:
+        keys = json.load(open(KEYS_FILE))
+        for k in keys:
+            if k["name"] == "OPENAI_API_KEY" and k.get("value"):
+                return k["value"]
+    except Exception:
+        pass
+    return os.getenv("OPENAI_API_KEY", "")
 
-    # Assumption-based: fallback heuristic keeps pipeline operational without external API.
-    if not api_key or api_key in {'dummy_key', 'VULL_HIER_JE_KEY_IN', 'MIJNKEY'}:
-        status = 'APPROVED' if len(copy_text.strip()) >= 120 else 'NEEDS_CHANGES'
-        feedback = (
-            'Tekst is inhoudelijk sterk genoeg voor publicatie.'
-            if status == 'APPROVED'
-            else 'Tekst is te kort. Voeg meer concrete details en voorbeelden toe.'
-        )
-        return {'status': status, 'feedback': feedback}
+
+async def _review_with_openai(copy_text: str, job_post: str, objective: str, target_audience: str) -> Dict[str, str]:
+    api_key = _get_openai_key()
+    if not api_key:
+        raise RuntimeError("OpenAI API key not found")
+
+    # Extract expected word count
+    import re
+    m = re.search(r'(\d+)\s*woord', job_post, re.IGNORECASE)
+    expected_words = int(m.group(1)) if m else 400
+    actual_words = len(copy_text.split())
 
     system_prompt = (
-        'You are a strict Dutch content reviewer. '
-        'Return only valid JSON with keys: status, feedback. '
-        'status must be APPROVED or NEEDS_CHANGES.'
-    )
-    user_prompt = (
-        f"Beoordeel deze Nederlandse tekst.\n"
-        f"Doel: {objective}\n"
-        f"Doelgroep: {target_audience}\n\n"
-        f"TEKST:\n{copy_text}\n\n"
-        "Criteria: duidelijkheid, juistheid, bruikbaarheid voor doelgroep."
+        "Je bent een strenge Nederlandse proofreader/redacteur. "
+        "Beoordeel de aangeleverde tekst op de volgende criteria:\n"
+        "1. RELEVANTIE: Gaat de tekst écht over het gevraagde onderwerp? Geen off-topic content.\n"
+        "2. WOORDENAANTAL: Bevat de tekst ongeveer het gevraagde aantal woorden (±15%)?\n"
+        "3. TAALGEBRUIK: Correct Nederlands, geen spelfouten, vloeiende zinnen.\n"
+        "4. STRUCTUUR: Goede alinea-indeling, logische opbouw.\n"
+        "5. INHOUD: Feitelijk correct, informatief, specifiek (niet vaag of generiek).\n\n"
+        "Antwoord ALLEEN met valid JSON:\n"
+        '{"status": "APPROVED" of "NEEDS_CHANGES", "feedback": "uitgebreide feedback", "score": 1-10}\n\n'
+        "Keur ALLEEN goed (APPROVED) als de tekst aan ALLE criteria voldoet. "
+        "Wees streng maar eerlijk."
     )
 
-    payload = {
-        'model': ANTHROPIC_MODEL,
-        'max_tokens': 350,
-        'system': system_prompt,
-        'messages': [{'role': 'user', 'content': user_prompt}],
-    }
-    headers = {
-        'x-api-key': api_key,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
-    }
+    user_prompt = (
+        f"OPDRACHT: {job_post}\n"
+        f"Doel: {objective}\n"
+        f"Doelgroep: {target_audience}\n"
+        f"Verwacht aantal woorden: {expected_words}\n"
+        f"Werkelijk aantal woorden: {actual_words}\n\n"
+        f"TE BEOORDELEN TEKST:\n---\n{copy_text}\n---\n"
+    )
 
     async with httpx.AsyncClient(timeout=60) as client:
-        resp = await client.post(ANTHROPIC_API_URL, headers=headers, json=payload)
+        resp = await client.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={
+                "model": OPENAI_MODEL,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                "max_tokens": 500,
+                "temperature": 0.3,
+            },
+        )
         resp.raise_for_status()
         data = resp.json()
 
-    raw = ''.join(chunk.get('text', '') for chunk in (data.get('content') or []) if isinstance(chunk, dict)).strip()
+    raw = data["choices"][0]["message"]["content"].strip()
+
+    # Parse JSON from response
     parsed = None
     try:
         parsed = json.loads(raw)
-    except Exception:
+    except json.JSONDecodeError:
         start = raw.find('{')
         end = raw.rfind('}')
-        if start != -1 and end != -1 and end > start:
-            parsed = json.loads(raw[start:end + 1])
+        if start != -1 and end > start:
+            try:
+                parsed = json.loads(raw[start:end + 1])
+            except json.JSONDecodeError:
+                pass
 
     if not isinstance(parsed, dict):
-        raise RuntimeError('Reviewer response is not valid JSON')
+        return {'status': 'NEEDS_CHANGES', 'feedback': f'Reviewer kon respons niet parsen: {raw[:200]}'}
 
-    status = str(parsed.get('status', '')).upper()
-    if status not in {'APPROVED', 'NEEDS_CHANGES'}:
+    status = str(parsed.get('status', 'NEEDS_CHANGES')).upper()
+    if status not in ('APPROVED', 'NEEDS_CHANGES'):
         status = 'NEEDS_CHANGES'
-    feedback = str(parsed.get('feedback') or 'Geen feedback ontvangen van reviewer-model.')
-    return {'status': status, 'feedback': feedback}
+    feedback = str(parsed.get('feedback', 'Geen specifieke feedback.'))
+    score = parsed.get('score', 0)
+    try:
+        score = int(score)
+    except (ValueError, TypeError):
+        score = 5
+
+    # Auto-approve if score >= 7 (good enough quality)
+    if score >= 7:
+        status = 'APPROVED'
+
+    return {'status': status, 'feedback': feedback, 'score': score}
 
 
 async def run(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -87,28 +122,25 @@ async def run(payload: Dict[str, Any]) -> Dict[str, Any]:
             'summary': 'Draft ontbreekt',
         }
 
-    brief_context = (((context or {}).get('brief') or {}).get('context') or {})
-    objective = str(brief_context.get('objective') or context.get('objective') or 'Doel niet gespecificeerd')
-    target_audience = str(brief_context.get('target_audience') or context.get('target_audience') or 'Doelgroep niet gespecificeerd')
+    job_post = (
+        context.get('job_post')
+        or (context.get('payload') or {}).get('job_post')
+        or 'Onbekende opdracht'
+    )
+    brief_context = ((context.get('brief') or {}).get('context')) or {}
+    objective = str(brief_context.get('objective') or context.get('objective') or '')
+    target_audience = str(brief_context.get('target_audience') or context.get('target_audience') or 'algemeen publiek')
 
-    try:
-        verdict = await _review_with_anthropic(copy_text, objective, target_audience)
-    except Exception:
-        # Assumption-based: treat transient reviewer model failures as APPROVED with explicit fallback note.
-        verdict = {
-            'status': 'APPROVED',
-            'feedback': 'Reviewer fallback gebruikt wegens tijdelijke model-onbeschikbaarheid.'
-        }
-    status = verdict['status']
-    feedback = verdict['feedback']
+    verdict = await _review_with_openai(copy_text, job_post, objective, target_audience)
 
     return {
-        'status': status,
-        'feedback': feedback,
-        'summary': f"Reviewer verdict: {status}",
+        'status': verdict['status'],
+        'feedback': verdict['feedback'],
+        'score': verdict.get('score', 0),
+        'summary': f"Reviewer: {verdict['status']} (score: {verdict.get('score', '?')})",
         'data': {
             'objective': objective,
             'target_audience': target_audience,
-            'model': ANTHROPIC_MODEL,
+            'model': OPENAI_MODEL,
         },
     }
