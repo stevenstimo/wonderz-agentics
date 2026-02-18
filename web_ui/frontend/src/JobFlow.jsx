@@ -139,7 +139,7 @@ export default function JobFlow() {
         const r = await fetch(API + '/api/jobs', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ job_post: text, user_id: 'anonymous', source_platform: 'custom' })
+          body: JSON.stringify({ job_post: text, user_id: '00000000-0000-0000-0000-000000000001', source_platform: 'custom' })
         })
         if (!r.ok) {
           const err = await r.json().catch(() => ({}))

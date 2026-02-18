@@ -18,10 +18,10 @@ import time
 import logging
 from datetime import datetime
 from typing import Optional, Dict, Any
-from fastapi import APIRouter, HTTPException, Depends, status
+from fastapi import APIRouter, HTTPException, Depends, status, BackgroundTasks
 from pydantic import ValidationError
 
-from app.db import _pool
+import app.db as _db
 from app.orchestration.manager import OperationsManager
 from app.services.deployment import DeploymentService
 from models.unified import JobStatus
@@ -102,7 +102,7 @@ async def _next_step_index(conn, job_id: str) -> int:
 # ============ Routes ============
 
 @router.post("", response_model=CreateJobResponse, status_code=status.HTTP_201_CREATED)
-async def create_job(req: CreateJobRequest):
+async def create_job(req: CreateJobRequest, background_tasks: BackgroundTasks = None):
     """
     Create a new job and start the intake flow.
     
@@ -115,7 +115,7 @@ async def create_job(req: CreateJobRequest):
     - job_post must be at least 10 characters
     - source_platform defaults to 'shopify'
     """
-    if not _pool:
+    if not _db._pool:
         logger.error("DB pool not initialized")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -127,7 +127,7 @@ async def create_job(req: CreateJobRequest):
     try:
         logger.info(f"Creating job {job_id} for user {req.user_id}")
         
-        async with _pool.acquire() as conn:
+        async with _db._pool.acquire() as conn:
             # Create job record
             await conn.execute(
                 """
@@ -151,13 +151,22 @@ async def create_job(req: CreateJobRequest):
             detail=f"Failed to create job: {str(e)}"
         )
     
-    # Queue intake flow (don't wait for result)
+    # Run intake flow
+    async def _run_intake_inline(jid, jp):
+        try:
+            mgr = get_operations_manager()
+            await mgr.start_intake_flow(jid, jp)
+            logger.info(f"Intake completed for job {jid}")
+        except Exception as exc:
+            logger.error(f"Inline intake failed for job {jid}: {exc}", exc_info=True)
+
     try:
         run_intake.delay(job_id, req.job_post)
         logger.info(f"Intake task queued for job {job_id}")
     except Exception as e:
-        logger.error(f"Failed to queue intake task for job {job_id}: {e}", exc_info=True)
-        # Don't fail the request if task queueing fails initially
+        logger.warning(f"Celery unavailable, running intake inline for job {job_id}: {e}")
+        import asyncio
+        asyncio.ensure_future(_run_intake_inline(job_id, req.job_post))
     
     return CreateJobResponse(
         job_id=job_id,
@@ -185,14 +194,14 @@ async def submit_intake_answer(
     """
     job_id = _validate_job_id(job_id)
     
-    if not _pool:
+    if not _db._pool:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Database unavailable"
         )
     
     # Verify job exists
-    async with _pool.acquire() as conn:
+    async with _db._pool.acquire() as conn:
         job = await conn.fetchrow("SELECT id, status FROM jobs WHERE id=$1", job_id)
         if not job:
             logger.warning(f"Job not found: {job_id}")
@@ -212,7 +221,7 @@ async def submit_intake_answer(
         logger.info(f"Processing intake answers for job {job_id}")
         
         # Store clarification answers
-        async with _pool.acquire() as conn:
+        async with _db._pool.acquire() as conn:
             for q_id, answer in req.answers.items():
                 await conn.execute(
                     """
@@ -223,12 +232,25 @@ async def submit_intake_answer(
                     answer, q_id, job_id
                 )
         
-        # Queue intake answers processing
-        run_intake_answers.delay(job_id, req.answers)
-        logger.info(f"Intake answers task queued for job {job_id}")
+        # Run intake answers processing
+        async def _run_answers_inline(jid, answers):
+            try:
+                mgr_ans = get_operations_manager()
+                await mgr_ans.handle_user_answer(jid, answers)
+                logger.info(f"Intake answers processed for job {jid}")
+            except Exception as exc:
+                logger.error(f"Inline intake answers failed for job {jid}: {exc}", exc_info=True)
+
+        try:
+            run_intake_answers.delay(job_id, req.answers)
+            logger.info(f"Intake answers task queued for job {job_id}")
+        except Exception:
+            logger.warning(f"Celery unavailable, running answers inline for job {job_id}")
+            import asyncio
+            asyncio.ensure_future(_run_answers_inline(job_id, req.answers))
         
         # Fetch updated job status
-        async with _pool.acquire() as conn:
+        async with _db._pool.acquire() as conn:
             updated_job = await conn.fetchrow("SELECT status FROM jobs WHERE id=$1", job_id)
         
         return {
@@ -263,13 +285,13 @@ async def approve_plan(
     """
     job_id = _validate_job_id(job_id)
     
-    if not _pool:
+    if not _db._pool:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Database unavailable"
         )
     
-    async with _pool.acquire() as conn:
+    async with _db._pool.acquire() as conn:
         job = await conn.fetchrow("SELECT id, status, context FROM jobs WHERE id=$1", job_id)
         if not job:
             raise HTTPException(
@@ -289,10 +311,26 @@ async def approve_plan(
         # Approve the plan (transitions to RUNNING)
         await manager.approve_plan(job_id)
         
-        # Queue job execution
+        # Run job execution
         context = json.loads(job['context']) if isinstance(job['context'], str) else job['context']
-        run_job.delay(job_id, None, context)
-        logger.info(f"Job execution task queued for job {job_id}")
+
+        async def _run_job_inline(jid, ctx):
+            try:
+                from workers.tasks import _build_agent_runner
+                runner = _build_agent_runner(jid)
+                mgr_run = OperationsManager(agent_runner=runner)
+                await mgr_run.run_workflow(jid, None, ctx)
+                logger.info(f"Workflow completed for job {jid}")
+            except Exception as exc:
+                logger.error(f"Inline workflow failed for job {jid}: {exc}", exc_info=True)
+
+        try:
+            run_job.delay(job_id, None, context)
+            logger.info(f"Job execution task queued for job {job_id}")
+        except Exception:
+            logger.warning(f"Celery unavailable, running workflow inline for job {job_id}")
+            import asyncio
+            asyncio.ensure_future(_run_job_inline(job_id, context))
 
         return {
             "job_id": job_id,
@@ -320,14 +358,14 @@ async def request_plan_changes(
     """
     job_id = _validate_job_id(job_id)
     
-    if not _pool:
+    if not _db._pool:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Database unavailable"
         )
     
     try:
-        async with _pool.acquire() as conn:
+        async with _db._pool.acquire() as conn:
             job = await conn.fetchrow("SELECT id, status FROM jobs WHERE id=$1", job_id)
             if not job:
                 raise HTTPException(
@@ -374,14 +412,14 @@ async def submit_feedback(
     """
     job_id = _validate_job_id(job_id)
     
-    if not _pool:
+    if not _db._pool:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Database unavailable"
         )
     
     try:
-        async with _pool.acquire() as conn:
+        async with _db._pool.acquire() as conn:
             job = await conn.fetchrow("SELECT id, status FROM jobs WHERE id=$1", job_id)
             if not job:
                 raise HTTPException(
@@ -437,14 +475,14 @@ async def approve_and_deploy(
     """
     job_id = _validate_job_id(job_id)
     
-    if not _pool:
+    if not _db._pool:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Database unavailable"
         )
     
     try:
-        async with _pool.acquire() as conn:
+        async with _db._pool.acquire() as conn:
             job = await conn.fetchrow("SELECT id, status FROM jobs WHERE id=$1", job_id)
             if not job:
                 raise HTTPException(
@@ -497,14 +535,14 @@ async def get_job(job_id: str):
     """
     job_id = _validate_job_id(job_id)
     
-    if not _pool:
+    if not _db._pool:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Database unavailable"
         )
     
     try:
-        async with _pool.acquire() as conn:
+        async with _db._pool.acquire() as conn:
             # Fetch job
             job = await conn.fetchrow("SELECT * FROM jobs WHERE id=$1", job_id)
             if not job:

@@ -11,6 +11,11 @@ from models.unified import JobStatus, StrategicBrief, ExecutionPlan
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
+def _json_default(obj):
+    if hasattr(obj, 'isoformat'):
+        return obj.isoformat()
+    return str(obj)
+
 
 @dataclass
 class SharedContext:
@@ -209,14 +214,14 @@ class OperationsManager:
     async def store_job_context(self, conn: asyncpg.Connection, job_id: str, data: Dict[str, Any]):
         """Store or update job context data (brief, plan, answers, etc.)."""
         existing = await self.get_job_context(conn, job_id)
-        if existing:
+        if isinstance(existing, dict):
             existing.update(data)
         else:
             existing = data
 
         await conn.execute(
             "UPDATE jobs SET context=$1, updated_at=now() WHERE id=$2",
-            json.dumps(existing),
+            json.dumps(existing, default=_json_default),
             job_id
         )
 
@@ -225,7 +230,14 @@ class OperationsManager:
         row = await conn.fetchrow("SELECT context FROM jobs WHERE id=$1", job_id)
         if not row:
             return None
-        return row.get("context") or {}
+        raw = row.get("context")
+        if not raw:
+            return {}
+        if isinstance(raw, str):
+            return json.loads(raw)
+        if isinstance(raw, dict):
+            return raw
+        return {}
 
     async def _connect(self):
         if not self.database_url:
@@ -272,8 +284,8 @@ class OperationsManager:
             agent_role,
             unified_tool,
             status,
-            input_payload or {},
-            output or {},
+            json.dumps(input_payload or {}, default=_json_default),
+            json.dumps(output or {}, default=_json_default),
             tokens_used,
             timing_ms,
             requires_approval

@@ -24,10 +24,24 @@ class IntakeEngine:
         self.client = Anthropic()
         self.max_retries = max_retries
 
-    def _get_fallback_brief(self, job_post: str, reason: str = "") -> StrategicBrief:
+    def _get_fallback_brief(self, job_post: str, reason: str = "", previous_answers: Optional[Dict[str, str]] = None) -> StrategicBrief:
         """Generate a fallback brief when API call fails."""
         logger.warning(f"Using fallback brief for intake. Reason: {reason}")
         
+        # If user already answered questions, treat brief as complete
+        if previous_answers and len(previous_answers) > 0:
+            answers_text = "; ".join(f"{v}" for v in previous_answers.values())
+            return StrategicBrief(
+                job_post=job_post,
+                is_complete=True,
+                clarifications=[],
+                context={
+                    "objective": next((v for k, v in previous_answers.items() if "achiev" in k.lower() or "doel" in k.lower()), answers_text),
+                    "target_audience": next((v for k, v in previous_answers.items() if "audience" in k.lower() or "doelgroep" in k.lower()), "algemeen publiek"),
+                    "platform": next((v for k, v in previous_answers.items() if "platform" in k.lower()), "web"),
+                }
+            )
+
         return StrategicBrief(
             job_post=job_post,
             is_complete=False,
@@ -130,19 +144,19 @@ Only set is_complete=true if you have: platform, objective, target_audience, AND
                     
                     if json_start == -1 or json_end <= json_start:
                         logger.error("No JSON found in Claude response")
-                        return self._get_fallback_brief(job_post, "Invalid Claude response format")
+                        return self._get_fallback_brief(job_post, "Invalid Claude response format", previous_answers=previous_answers)
                     
                     json_str = response_text[json_start:json_end]
                     data = json.loads(json_str)
                     
                 except (json.JSONDecodeError, ValueError) as e:
                     logger.error(f"JSON parsing error in intake response: {e}")
-                    return self._get_fallback_brief(job_post, f"JSON parsing error: {str(e)}")
+                    return self._get_fallback_brief(job_post, f"JSON parsing error: {str(e)}", previous_answers=previous_answers)
 
                 # Validate parsed data structure
                 if not isinstance(data, dict):
                     logger.error("Claude response is not a dict")
-                    return self._get_fallback_brief(job_post, "Invalid response structure")
+                    return self._get_fallback_brief(job_post, "Invalid response structure", previous_answers=previous_answers)
                 
                 # Convert parsed data to StrategicBrief
                 try:
@@ -168,7 +182,7 @@ Only set is_complete=true if you have: platform, objective, target_audience, AND
                     
                 except Exception as e:
                     logger.error(f"Error converting parsed data to StrategicBrief: {e}")
-                    return self._get_fallback_brief(job_post, f"Conversion error: {str(e)}")
+                    return self._get_fallback_brief(job_post, f"Conversion error: {str(e)}", previous_answers=previous_answers)
 
             except (APITimeoutError, TimeoutError) as e:
                 last_error = e
@@ -182,7 +196,7 @@ Only set is_complete=true if you have: platform, objective, target_audience, AND
                     continue
                 else:
                     logger.error(f"Max retries exceeded for timeout: {e}")
-                    return self._get_fallback_brief(job_post, f"API timeout: {str(e)}")
+                    return self._get_fallback_brief(job_post, f"API timeout: {str(e)}", previous_answers=previous_answers)
 
             except RateLimitError as e:
                 last_error = e
@@ -196,7 +210,7 @@ Only set is_complete=true if you have: platform, objective, target_audience, AND
                     continue
                 else:
                     logger.error(f"Max retries exceeded for rate limit: {e}")
-                    return self._get_fallback_brief(job_post, f"Rate limited: {str(e)}")
+                    return self._get_fallback_brief(job_post, f"Rate limited: {str(e)}", previous_answers=previous_answers)
 
             except APIError as e:
                 last_error = e
@@ -205,7 +219,7 @@ Only set is_complete=true if you have: platform, objective, target_audience, AND
                 # Don't retry on auth or validation errors
                 if "401" in str(e) or "403" in str(e):
                     logger.error("Authentication error - not retrying")
-                    return self._get_fallback_brief(job_post, f"Auth error: {str(e)}")
+                    return self._get_fallback_brief(job_post, f"Auth error: {str(e)}", previous_answers=previous_answers)
                 
                 if attempt < self.max_retries - 1:
                     wait_time = 2 ** attempt
@@ -214,16 +228,16 @@ Only set is_complete=true if you have: platform, objective, target_audience, AND
                     continue
                 else:
                     logger.error(f"Max retries exceeded: {e}")
-                    return self._get_fallback_brief(job_post, f"API error: {str(e)}")
+                    return self._get_fallback_brief(job_post, f"API error: {str(e)}", previous_answers=previous_answers)
 
             except Exception as e:
                 last_error = e
                 logger.error(f"Unexpected error in intake: {e}", exc_info=True)
-                return self._get_fallback_brief(job_post, f"Unexpected error: {str(e)}")
+                return self._get_fallback_brief(job_post, f"Unexpected error: {str(e)}", previous_answers=previous_answers)
 
         # Should not reach here, but fallback just in case
         logger.error(f"Intake failed after all retries. Last error: {last_error}")
-        return self._get_fallback_brief(job_post, f"Failed after {self.max_retries} retries")
+        return self._get_fallback_brief(job_post, f"Failed after {self.max_retries} retries", previous_answers=previous_answers)
 
     def _normalize_context(self, context: Dict) -> Dict[str, str]:
         """Convert context dict values to strings for consistency."""

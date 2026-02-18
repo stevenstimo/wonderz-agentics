@@ -40,8 +40,10 @@ async def run_migrations():
 
 
 async def init_db_pool():
-    global _pool
+    global _pool, DATABASE_URL
     if _pool is None:
+        # Re-read at runtime in case env was set after module import
+        DATABASE_URL = os.getenv("DATABASE_URL") or DATABASE_URL
         if not DATABASE_URL:
             logger.warning("DATABASE_URL not configured - database features will be unavailable")
             return None
@@ -52,6 +54,7 @@ async def init_db_pool():
                 await run_migrations()
             
             db_url = _normalized_database_url(DATABASE_URL)
+            logger.info(f"Connecting to database: {db_url[:30]}...")
             _pool = await asyncpg.create_pool(db_url)
             logger.info("✓ Database connection pool created")
         except Exception as e:
