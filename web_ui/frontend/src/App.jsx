@@ -14,7 +14,7 @@ import {
 } from 'lucide-react'
 
 function App() {
-  const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+  const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8090'
   const wsBase = (import.meta.env.VITE_WS_URL || apiBase).replace(/^http/, 'ws').replace(/\/$/, '')
   const stages = [
     { id: 'initialization', name: 'Initialization', icon: Sparkles, color: 'text-indigo-600' },

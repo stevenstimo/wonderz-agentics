@@ -132,7 +132,7 @@ export function JobLifecycleView({ jobId }) {
   useEffect(() => {
     if (!jobId) return;
 
-    const wsBase = import.meta.env.VITE_WS_BASE_URL || 'ws://localhost:8000';
+    const wsBase = import.meta.env.VITE_WS_BASE_URL || 'ws://localhost:8090';
     const ws = new WebSocket(`${wsBase}/ws/jobs/${jobId}`);
 
     ws.onmessage = (event) => {

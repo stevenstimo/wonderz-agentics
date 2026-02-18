@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import PageLayout from './PageLayout';
 
-const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8090'
 
 export default function JobCenter() {
   const [crew, setCrew] = useState([])

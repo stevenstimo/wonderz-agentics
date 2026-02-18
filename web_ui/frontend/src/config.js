@@ -83,12 +83,12 @@ export const CONFIG = {
     // Vercel Deployment
     vercel: {
       frontend: 'https://wonderz-agentics.vercel.app',
-      apiProd: 'https://wonderz-agentics.fly.dev',
+      apiProd: 'http://localhost:8090',
     },
     
     // Fly.io Deployment
     flyio: {
-      api: 'https://wonderz-agentics.fly.dev',
+      api: 'http://localhost:8090',
     },
   },
 
