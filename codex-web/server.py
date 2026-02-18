@@ -277,6 +277,45 @@ async def delete_thread(thread_id: str):
     return {"status": "deleted"}
 
 
+# --- Git status endpoint ---
+
+@app.get("/api/git-status")
+async def git_status():
+    """Return pending changes and unpushed commits."""
+    import subprocess
+    try:
+        # Uncommitted changes
+        r_status = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=PROJECT_DIR, capture_output=True, text=True, timeout=5
+        )
+        changed_files = [l for l in r_status.stdout.strip().split("\n") if l.strip()]
+
+        # Current branch
+        r_branch = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=PROJECT_DIR, capture_output=True, text=True, timeout=5
+        )
+        branch = r_branch.stdout.strip()
+
+        # Unpushed commits
+        r_unpushed = subprocess.run(
+            ["git", "log", f"origin/{branch}..HEAD", "--oneline"],
+            cwd=PROJECT_DIR, capture_output=True, text=True, timeout=5
+        )
+        unpushed = [l for l in r_unpushed.stdout.strip().split("\n") if l.strip()]
+
+        return {
+            "branch": branch,
+            "changed_files": len(changed_files),
+            "unpushed_commits": len(unpushed),
+            "files": changed_files[:20],
+            "commits": unpushed[:10],
+        }
+    except Exception as e:
+        return {"branch": "unknown", "changed_files": 0, "unpushed_commits": 0, "error": str(e)}
+
+
 # --- Deploy endpoint ---
 
 class DeployRequest(BaseModel):

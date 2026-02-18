@@ -18,6 +18,12 @@
     .btn-deploy { width: 100%; padding: 0.5rem; background: #fff; color: #1a1a1a; border: 1px solid #ddd; border-radius: 8px; font-size: 0.8rem; cursor: pointer; margin-top: 0.5rem; display: flex; align-items: center; justify-content: center; gap: 0.4rem; }
     .btn-deploy:hover { background: #f0f0f0; border-color: #999; }
     .btn-deploy.deploying { opacity: 0.6; cursor: wait; }
+    .deploy-status { font-size: 0.7rem; color: #888; padding: 0.35rem 0.5rem; margin-top: 0.25rem; }
+    .deploy-status .git-badge { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.15rem 0.5rem; border-radius: 10px; font-size: 0.65rem; font-weight: 500; }
+    .deploy-status .git-badge.changes { background: #fef3c7; color: #92400e; }
+    .deploy-status .git-badge.clean { background: #d1fae5; color: #065f46; }
+    .deploy-status .git-badge.unpushed { background: #dbeafe; color: #1e40af; }
+    .deploy-status .branch-name { font-family: monospace; font-size: 0.65rem; color: #666; display: block; margin-top: 0.2rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
     .sidebar-threads { flex: 1; overflow-y: auto; padding: 0.5rem; }
     .thread-group-label { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.05em; color: #999; padding: 0.5rem 0.5rem 0.25rem; font-weight: 600; }
@@ -129,6 +135,7 @@
       <h2>Codex Console</h2>
       <button class="btn-new" onclick="newThread()">✚ New thread</button>
       <button class="btn-deploy" id="deployBtn" onclick="deploy()">🚀 Deploy to GitHub</button>
+      <div class="deploy-status" id="deployStatus"></div>
     </div>
     <div class="sidebar-threads" id="threadList"></div>
     <div class="sidebar-footer">
@@ -592,6 +599,30 @@
 
     // --- Init ---
     promptEl.addEventListener('keydown', (e) => { if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendPrompt();} });
+
+    // Git status polling
+    async function loadGitStatus() {
+      try {
+        const res = await fetch('/api/git-status');
+        if (!res.ok) return;
+        const data = await res.json();
+        const el = document.getElementById('deployStatus');
+        let html = '';
+        if (data.changed_files > 0) {
+          html += `<span class="git-badge changes">● ${data.changed_files} unstaged</span> `;
+        }
+        if (data.unpushed_commits > 0) {
+          html += `<span class="git-badge unpushed">↑ ${data.unpushed_commits} to push</span> `;
+        }
+        if (data.changed_files === 0 && data.unpushed_commits === 0) {
+          html += `<span class="git-badge clean">✓ up to date</span>`;
+        }
+        html += `<span class="branch-name">⎇ ${data.branch || 'unknown'}</span>`;
+        el.innerHTML = html;
+      } catch(e) {}
+    }
+    loadGitStatus();
+    setInterval(loadGitStatus, 10000);
     promptEl.addEventListener('input', () => { promptEl.style.height='38px'; promptEl.style.height=Math.min(promptEl.scrollHeight,120)+'px'; });
     connectWS();
     loadThreads();
