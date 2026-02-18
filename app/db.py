@@ -11,6 +11,14 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 _pool: Optional[asyncpg.pool.Pool] = None
 
 
+def _normalized_database_url(url: Optional[str]) -> Optional[str]:
+    if not url:
+        return url
+    if url.startswith("postgresql+asyncpg://"):
+        return url.replace("postgresql+asyncpg://", "postgresql://", 1)
+    return url
+
+
 async def run_migrations():
     """Run pending database migrations."""
     try:
@@ -43,7 +51,8 @@ async def init_db_pool():
             if os.getenv("RUN_MIGRATIONS", "true").lower() == "true":
                 await run_migrations()
             
-            _pool = await asyncpg.create_pool(DATABASE_URL)
+            db_url = _normalized_database_url(DATABASE_URL)
+            _pool = await asyncpg.create_pool(db_url)
             logger.info("✓ Database connection pool created")
         except Exception as e:
             logger.warning(f"Failed to initialize database pool: {e}")

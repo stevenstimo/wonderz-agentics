@@ -26,7 +26,25 @@ from app.orchestration.manager import OperationsManager
 from app.services.deployment import DeploymentService
 from models.unified import JobStatus
 from tools.unified_bridge import UnifiedToolBridge
-from workers.tasks import run_intake, run_intake_answers, run_job
+try:
+    from workers.tasks import run_intake, run_intake_answers, run_job
+except Exception as _task_import_error:
+    _task_logger = logging.getLogger(__name__)
+
+    class _NoopTask:
+        def __init__(self, name: str):
+            self._name = name
+
+        def delay(self, *args, **kwargs):
+            _task_logger.warning(
+                "Task '%s' not scheduled because worker dependencies are unavailable: %s",
+                self._name,
+                _task_import_error,
+            )
+
+    run_intake = _NoopTask("run_intake")
+    run_intake_answers = _NoopTask("run_intake_answers")
+    run_job = _NoopTask("run_job")
 from app.models.requests import (
     CreateJobRequest,
     SubmitAnswersRequest,

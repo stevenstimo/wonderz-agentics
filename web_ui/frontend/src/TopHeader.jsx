@@ -24,6 +24,8 @@ export default function TopHeader() {
   const [backendOk, setBackendOk] = useState(null)
   const navigate = useNavigate()
 
+  const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || ''
+  const healthUrl = `${apiBaseUrl.replace(/\/$/, '')}/api/health`
   useEffect(() => {
     let mounted = true
 
@@ -46,7 +48,7 @@ export default function TopHeader() {
     let active = true
     const checkHealth = async () => {
       try {
-        const res = await fetch('/api/health')
+        const res = await fetch(apiBaseUrl ? healthUrl : '/api/health')
         if (!active) return
         setBackendOk(res.ok)
       } catch (_err) {

@@ -14,12 +14,34 @@ export default function DaveDevConsole() {
   const [copiedIndex, setCopiedIndex] = useState(null);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
-  const apiBase = import.meta.env.VITE_API_URL || '';
+  const apiBase = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+
+
+
+  async function parseJsonSafe(res) {
+    const raw = await res.text();
+    try {
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return { error: raw || 'Invalid JSON response from backend' };
+    }
+  }
+
+  async function apiFetch(path, options = undefined) {
+    // First try local proxy (/api -> backend in Vite dev).
+    const first = await fetch(path, options);
+    if (first.ok) return first;
+
+    // Fallback for environments where proxy is unavailable.
+    if (!apiBase) return first;
+    const direct = await fetch(`${apiBase}${path}`, options);
+    return direct.ok ? direct : first;
+  }
 
   useEffect(() => {
     // Load Dave Dev profile
-    fetch(`/api/dave-dev/info`)
-      .then(res => res.json())
+    apiFetch('/api/dave-dev/info')
+      .then(parseJsonSafe)
       .then(data => setDave(data))
       .catch(err => console.error('Failed to load Dave Dev:', err));
   }, [apiBase]);
@@ -60,18 +82,21 @@ export default function DaveDevConsole() {
 
     try {
       const payload = buildRequestContext(input);
-      const res = await fetch(`/api/dave-dev/ask`, {
+      const res = await apiFetch('/api/dave-dev/ask', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
 
-      const data = await res.json();
+      const data = await parseJsonSafe(res);
+      if (!res.ok) {
+        throw new Error(data.detail || data.error || 'Dave Dev request failed');
+      }
 
       // Add assistant response
       setMessages(prev => [...prev, {
         type: 'assistant',
-        text: data.answer,
+        text: data.answer || 'Ik heb nu geen antwoord kunnen vormen.',
         vscode_prompt: data.vscode_prompt,
         code_references: data.code_references,
         confidence: data.confidence
@@ -79,7 +104,7 @@ export default function DaveDevConsole() {
     } catch (err) {
       setMessages(prev => [...prev, {
         type: 'assistant',
-        text: 'Error getting response. Please try again.'
+        text: `Error getting response: ${err.message || 'Please try again.'}`
       }]);
     } finally {
       setLoading(false);
