@@ -356,9 +356,9 @@ class OperationsManager:
             if isinstance(review_out, dict):
                 status = review_out.get("status")
 
-            # If reviewer approved -> finish (or next production steps)
+            # Workflow contract: approved review transitions to JOB_READY.
             if status == "APPROVED":
-                return None
+                return "JOB_READY"
 
             # If reviewer requests changes -> go back to copy for another draft
             if status in ("NEEDS_CHANGES", "REJECTED"):
@@ -418,15 +418,19 @@ class OperationsManager:
             while steps < max_steps:
                 next_agent = self.determine_next_step(current_step, ctx)
                 if next_agent is None:
-                    # Workflow finished
-                    await self.update_job_status(conn, job_id, JobStatus.COMPLETED.value)
+                    # No deterministic next step - pause for approval
+                    await self.pause_for_approval(conn, job_id, reason="No deterministic next step")
+                    break
+
+                if next_agent == "JOB_READY":
+                    await self.update_job_status(conn, job_id, JobStatus.JOB_READY.value)
                     await self.write_job_step(
                         conn,
                         job_id,
-                        "finished",
+                        "job_ready",
                         "orchestrator",
                         "success",
-                        output={"info": "workflow completed"}
+                        output={"info": "Workflow completed and awaiting user approval"}
                     )
                     break
 

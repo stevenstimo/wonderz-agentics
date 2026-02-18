@@ -88,8 +88,10 @@ export default function JobFlow() {
       const d = await r.json()
       setJobData(d)
       const unanswered = (d.clarifications || []).filter(c => !c.user_answer)
-      const hasPendingClarifications = unanswered.length > 0
-      const newPhase = hasPendingClarifications ? 'intake' : getPhase(d.job?.status)
+      const jobStatus = d.job?.status
+      // If plan is already proposed or beyond, skip intake regardless of unanswered questions
+      const hasPendingClarifications = unanswered.length > 0 && jobStatus === 'INTAKE_CLARIFICATION'
+      const newPhase = hasPendingClarifications ? 'intake' : getPhase(jobStatus)
       setPhase(newPhase)
 
       // Toon eerste onbeantwoorde clarification vraag in chat.
