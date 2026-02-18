@@ -288,7 +288,7 @@ export default function Dashboard() {
           <ArrowRight className="w-5 h-5 ml-auto text-gray-500" />
         </a>
         <a
-          href={`${window.location.protocol}//${window.location.hostname}:7682`}
+          href={`${window.location.protocol}//${window.location.hostname}:8080`}
           target="_blank"
           rel="noopener noreferrer"
           className="flex items-center gap-4 bg-gray-900 text-white rounded-xl p-6 shadow-lg hover:shadow-xl transition-all hover:scale-[1.01]"

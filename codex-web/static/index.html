@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Codex Console - Wonderz Agentics</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; overflow: hidden; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #fff; color: #1a1a1a; display: flex; height: 100vh; }
+
+    /* Sidebar */
+    .sidebar { width: 260px; background: #f9f9f9; border-right: 1px solid #e5e5e5; display: flex; flex-direction: column; flex-shrink: 0; }
+    .sidebar-header { padding: 1rem; border-bottom: 1px solid #e5e5e5; }
+    .sidebar-header h2 { font-size: 0.95rem; font-weight: 600; margin-bottom: 0.75rem; }
+    .btn-new { width: 100%; padding: 0.5rem; background: #1a1a1a; color: #fff; border: none; border-radius: 8px; font-size: 0.8rem; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 0.4rem; }
+    .btn-new:hover { background: #333; }
+    .btn-deploy { width: 100%; padding: 0.5rem; background: #fff; color: #1a1a1a; border: 1px solid #ddd; border-radius: 8px; font-size: 0.8rem; cursor: pointer; margin-top: 0.5rem; display: flex; align-items: center; justify-content: center; gap: 0.4rem; }
+    .btn-deploy:hover { background: #f0f0f0; border-color: #999; }
+    .btn-deploy.deploying { opacity: 0.6; cursor: wait; }
+
+    .sidebar-threads { flex: 1; overflow-y: auto; padding: 0.5rem; }
+    .thread-group-label { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.05em; color: #999; padding: 0.5rem 0.5rem 0.25rem; font-weight: 600; }
+    .thread-item { padding: 0.5rem 0.6rem; border-radius: 6px; cursor: pointer; font-size: 0.8rem; color: #555; display: flex; justify-content: space-between; align-items: center; margin-bottom: 1px; }
+    .thread-item:hover { background: #eee; }
+    .thread-item.active { background: #e8e8e8; color: #1a1a1a; font-weight: 500; }
+    .thread-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+    .thread-time { font-size: 0.65rem; color: #aaa; flex-shrink: 0; margin-left: 0.5rem; }
+    .thread-delete { display: none; color: #ccc; cursor: pointer; font-size: 0.7rem; margin-left: 0.3rem; }
+    .thread-item:hover .thread-delete { display: block; }
+    .thread-item:hover .thread-time { display: none; }
+    .thread-delete:hover { color: #dc2626; }
+
+    .sidebar-footer { padding: 0.75rem; border-top: 1px solid #e5e5e5; }
+    .sidebar-footer a { display: block; padding: 0.3rem 0.5rem; font-size: 0.75rem; color: #888; text-decoration: none; border-radius: 4px; }
+    .sidebar-footer a:hover { background: #eee; color: #1a1a1a; }
+
+    /* Main area */
+    .main-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+    header { background: #fff; border-bottom: 1px solid #e5e5e5; padding: 0.5rem 1rem; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+    .header-title { font-size: 0.85rem; font-weight: 500; color: #555; display: flex; align-items: center; gap: 0.4rem; }
+    .header-links { display: flex; gap: 0.75rem; font-size: 0.7rem; }
+    .header-links a { color: #888; text-decoration: none; }
+    .header-links a:hover { color: #1a1a1a; }
+
+    .chat-area { flex: 1; display: flex; flex-direction: column; max-width: 800px; width: 100%; margin: 0 auto; overflow: hidden; }
+    .output-area { flex: 1; overflow-y: auto; padding: 1.5rem 1rem; }
+
+    /* Messages */
+    .message { margin-bottom: 1.25rem; animation: fadeIn 0.2s; }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    .msg-content { font-size: 0.9rem; line-height: 1.7; color: #333; }
+    .msg-user .msg-content { font-weight: 500; }
+    .msg-terminal { background: #1a1a1a; border-radius: 8px; padding: 0.75rem 1rem; margin: 0.5rem 0; font-family: 'SF Mono', monospace; font-size: 0.8rem; color: #ccc; white-space: pre-wrap; word-break: break-word; overflow-x: auto; }
+    .msg-terminal .cmd { color: #4ade80; }
+    .msg-error .msg-content { color: #dc2626; }
+    .file-pill { display: inline-block; background: #f0f0f0; border-radius: 4px; padding: 1px 6px; font-family: monospace; font-size: 0.8rem; }
+
+    /* Report styling */
+    .report { margin: 1rem 0; }
+    .report .report-body { font-size: 0.9rem; line-height: 1.7; color: #333; }
+    .report .report-body strong { font-weight: 600; color: #1a1a1a; display: block; margin-top: 1.25rem; margin-bottom: 0.4rem; font-size: 0.9rem; }
+    .report .report-body ol { padding-left: 1.5rem; margin: 0.25rem 0; }
+    .report .report-body ul { padding-left: 1.25rem; margin: 0.15rem 0; list-style: disc; }
+    .report .report-body li { margin: 0.2rem 0; }
+    .report .report-body li ul { margin-top: 0.15rem; }
+    .report .report-body code { background: #f0f0f0; padding: 1px 5px; border-radius: 3px; font-family: 'SF Mono', monospace; font-size: 0.82rem; color: #c7254e; }
+    .report .report-body a { color: #0369a1; text-decoration: none; }
+    .report .report-body a:hover { text-decoration: underline; }
+    .report .report-body p { margin: 0.4rem 0; }
+    
+    /* Files changed box */
+    .files-box { background: #f9f9f9; border: 1px solid #e5e5e5; border-radius: 8px; padding: 0.75rem 1rem; margin-top: 1.5rem; }
+    .files-box-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; font-size: 0.8rem; }
+    .files-box-header .count { color: #555; }
+    .files-box-header .additions { color: #16a34a; font-weight: 500; }
+    .files-box-header .deletions { color: #dc2626; font-weight: 500; }
+    .files-box-header .undo-btn { color: #888; font-size: 0.75rem; cursor: pointer; display: flex; align-items: center; gap: 0.25rem; }
+    .files-box-header .undo-btn:hover { color: #1a1a1a; }
+    .file-row { padding: 0.3rem 0; font-size: 0.8rem; display: flex; justify-content: space-between; border-top: 1px solid #eee; }
+    .file-row:first-child { border-top: none; }
+    .file-row .fname { font-family: monospace; color: #333; }
+    .file-row .fstats { font-size: 0.75rem; }
+    .file-row .fstats .add { color: #16a34a; }
+    .file-row .fstats .del { color: #dc2626; }
+    .divider { display: flex; align-items: center; gap: 1rem; margin: 1.5rem 0; color: #aaa; font-size: 0.75rem; }
+    .divider::before, .divider::after { content: ''; flex: 1; border-top: 1px solid #e5e5e5; }
+    .thinking { display: flex; align-items: center; gap: 0.5rem; color: #888; font-size: 0.85rem; padding: 0.5rem 0; }
+    .thinking-dots span { display: inline-block; width: 6px; height: 6px; background: #888; border-radius: 50%; margin: 0 2px; animation: bounce 1.4s infinite ease-in-out both; }
+    .thinking-dots span:nth-child(1) { animation-delay: -0.32s; }
+    .thinking-dots span:nth-child(2) { animation-delay: -0.16s; }
+    @keyframes bounce { 0%,80%,100% { transform: scale(0); } 40% { transform: scale(1); } }
+
+    .welcome { text-align: center; padding: 4rem 1rem 2rem; }
+    .welcome h2 { font-size: 1.5rem; font-weight: 600; margin-bottom: 0.5rem; }
+    .welcome p { color: #666; font-size: 0.9rem; max-width: 450px; margin: 0 auto; line-height: 1.6; }
+    .examples { margin-top: 1.5rem; display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: center; }
+    .example-btn { background: #f5f5f5; border: 1px solid #e5e5e5; color: #555; padding: 0.4rem 0.75rem; border-radius: 20px; cursor: pointer; font-size: 0.8rem; }
+    .example-btn:hover { background: #eee; color: #1a1a1a; }
+
+    /* Input */
+    .input-area { background: #fff; border-top: 1px solid #e5e5e5; padding: 0.75rem 1rem; flex-shrink: 0; }
+    .input-wrapper { max-width: 800px; margin: 0 auto; }
+    .input-box { background: #f5f5f5; border: 1px solid #e5e5e5; border-radius: 12px; padding: 0.5rem; }
+    .input-box:focus-within { border-color: #999; }
+    textarea { width: 100%; background: transparent; border: none; padding: 0.4rem 0.5rem; color: #1a1a1a; font-family: inherit; font-size: 0.9rem; resize: none; height: 38px; max-height: 120px; outline: none; }
+    textarea::placeholder { color: #999; }
+    .input-bottom { display: flex; align-items: center; justify-content: space-between; padding: 0.25rem 0.25rem 0; }
+    select { background: transparent; border: 1px solid #ddd; color: #666; padding: 0.3rem 0.5rem; border-radius: 6px; font-size: 0.75rem; outline: none; cursor: pointer; }
+    button.send { background: #1a1a1a; border: none; color: white; width: 32px; height: 32px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+    button.send:hover { background: #333; }
+    button.send:disabled { background: #ccc; cursor: not-allowed; }
+    button.send svg { width: 16px; height: 16px; }
+
+    .status-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; }
+    .status-dot.connected { background: #4ade80; }
+    .status-dot.disconnected { background: #ef4444; }
+
+    /* Toast */
+    .toast { position: fixed; bottom: 2rem; right: 2rem; background: #1a1a1a; color: #fff; padding: 0.75rem 1.25rem; border-radius: 8px; font-size: 0.85rem; opacity: 0; transition: opacity 0.3s; z-index: 200; }
+    .toast.show { opacity: 1; }
+  </style>
+</head>
+<body>
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <h2>Codex Console</h2>
+      <button class="btn-new" onclick="newThread()">✚ New thread</button>
+      <button class="btn-deploy" id="deployBtn" onclick="deploy()">🚀 Deploy to GitHub</button>
+    </div>
+    <div class="sidebar-threads" id="threadList"></div>
+    <div class="sidebar-footer">
+      <a href="/settings">🔑 API Keys</a>
+      <a href="https://wonderz-agentic.exe.xyz:8000/" target="_blank">🏠 Dashboard</a>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div class="main-area">
+    <header>
+      <div class="header-title" id="headerTitle">
+        <span class="status-dot disconnected" id="wsDot"></span>
+        New thread
+      </div>
+      <div class="header-links">
+        <a href="https://wonderz-agentic.exe.xyz:3000/" target="_blank">🌐 Frontend</a>
+        <a href="/api-docs">⚙️ API</a>
+        <a href="https://wonderz-agentic.exe.xyz:7681/" target="_blank">🖥️ Terminal</a>
+        <a href="https://wonderz-agentic.shelley.exe.xyz" target="_blank">🤖 Shelley</a>
+      </div>
+    </header>
+
+    <div class="chat-area">
+      <div class="output-area" id="output">
+        <div class="welcome" id="welcome">
+          <h2>Codex AI Assistant</h2>
+          <p>Geef Codex een opdracht en het past de code aan in je project. Wijzigingen zijn direct zichtbaar.</p>
+          <div class="examples">
+            <button class="example-btn" onclick="setPrompt('Leg uit wat dit project doet')">Leg project uit</button>
+            <button class="example-btn" onclick="setPrompt('Voeg dark mode toe')">Dark mode</button>
+            <button class="example-btn" onclick="setPrompt('Fix alle linting errors')">Fix errors</button>
+            <button class="example-btn" onclick="setPrompt('Voeg /api/health endpoint toe')">Health endpoint</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="input-area">
+      <div class="input-wrapper">
+        <div class="input-box">
+          <textarea id="prompt" placeholder="Ask for follow-up changes" rows="1"></textarea>
+          <div class="input-bottom">
+            <select id="model">
+              <option value="gpt-5.3-codex">GPT-5.3-Codex</option>
+              <option value="gpt-5.2-codex" selected>GPT-5.2-Codex</option>
+              <option value="gpt-5.1-codex-max">GPT-5.1-Codex-Max</option>
+              <option value="gpt-5.2">GPT-5.2</option>
+              <option value="gpt-5.1-codex-mini">GPT-5.1-Codex-Mini</option>
+              <option value="o4-mini">o4-mini</option>
+            </select>
+            <button class="send" id="sendBtn" onclick="sendPrompt()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const API = window.location.origin;
+    const output = document.getElementById('output');
+    const promptEl = document.getElementById('prompt');
+    const modelEl = document.getElementById('model');
+    const sendBtn = document.getElementById('sendBtn');
+    const wsDot = document.getElementById('wsDot');
+    const headerTitle = document.getElementById('headerTitle');
+    let ws = null;
+    let isRunning = false;
+    let startTime = null;
+    let thinkingEl = null;
+    let currentThreadId = null;
+
+    const SKIP = new Set(['thread.started','turn.started','session.started','session.end','thread.ended','turn.completed','thread.completed']);
+
+    // --- WebSocket ---
+    function connectWS() {
+      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      ws = new WebSocket(`${proto}//${location.host}/ws/codex`);
+      ws.onopen = () => wsDot.className = 'status-dot connected';
+      ws.onclose = () => { wsDot.className = 'status-dot disconnected'; setTimeout(connectWS, 2000); };
+      ws.onerror = () => {};
+      ws.onmessage = (e) => handleMessage(JSON.parse(e.data));
+    }
+
+    function handleMessage(msg) {
+      switch (msg.type) {
+        case 'start':
+          startTime = Date.now();
+          if (msg.thread_id) currentThreadId = msg.thread_id;
+          showThinking();
+          break;
+        case 'event': handleEvent(msg.data); break;
+        case 'output':
+          if (msg.data && msg.data.trim()) { removeThinking(); addTerminal(msg.data); }
+          break;
+        case 'done':
+          removeThinking(); isRunning = false; sendBtn.disabled = false;
+          if (startTime) {
+            const s = Math.round((Date.now()-startTime)/1000);
+            addDivider(`Worked for ${Math.floor(s/60)>0?Math.floor(s/60)+'m ':''}${s%60}s`);
+          }
+          if (msg.return_code !== 0) addText('error', `Afgerond met code ${msg.return_code}`);
+          startTime = null;
+          loadThreads();
+          break;
+        case 'error':
+          removeThinking(); isRunning = false; sendBtn.disabled = false;
+          addText('error', msg.data); startTime = null;
+          break;
+      }
+    }
+
+    function handleEvent(ev) {
+      if (SKIP.has(ev.type)) return;
+      if (ev.type === 'error') { if (ev.message) { removeThinking(); addText('error', ev.message); } return; }
+      if (ev.type === 'turn.failed') { removeThinking(); addText('error', ev.error?.message||'Failed'); return; }
+      if (ev.type === 'message' && ev.message?.role === 'assistant' && ev.message.content) {
+        removeThinking();
+        for (const b of ev.message.content) {
+          if (b.type === 'text' && b.text) addMarkdown(b.text);
+          else if (b.type === 'command') addCommand(Array.isArray(b.command)?b.command.join(' '):b.command);
+        }
+        showThinking();
+      } else if (ev.type === 'command_output' && ev.output?.trim()) {
+        addTerminal(ev.output);
+      } else if (ev.type === 'agent_reasoning' && ev.text) {
+        removeThinking(); addMarkdown(ev.text); showThinking();
+      }
+    }
+
+    // --- Render messages ---
+    function clearChat() {
+      output.innerHTML = '';
+    }
+
+    function showWelcome() {
+      output.innerHTML = `<div class="welcome" id="welcome">
+        <h2>Codex AI Assistant</h2>
+        <p>Geef Codex een opdracht en het past de code aan in je project.</p>
+        <div class="examples">
+          <button class="example-btn" onclick="setPrompt('Leg uit wat dit project doet')">Leg project uit</button>
+          <button class="example-btn" onclick="setPrompt('Voeg dark mode toe')">Dark mode</button>
+          <button class="example-btn" onclick="setPrompt('Fix alle linting errors')">Fix errors</button>
+          <button class="example-btn" onclick="setPrompt('Voeg /api/health endpoint toe')">Health endpoint</button>
+        </div>
+      </div>`;
+    }
+
+    function clearWelcome() { const w=document.getElementById('welcome'); if(w) w.remove(); }
+    function scrollBottom() { output.scrollTop = output.scrollHeight; }
+    function esc(t) { const d=document.createElement('div'); d.textContent=t; return d.innerHTML; }
+
+    function addUserMessage(text) { clearWelcome(); const d=document.createElement('div'); d.className='message msg-user'; d.innerHTML=`<div class="msg-content">${esc(text)}</div>`; output.appendChild(d); scrollBottom(); }
+    function addMarkdown(text) {
+      clearWelcome();
+      const d = document.createElement('div');
+      
+      // Check if this looks like a report (has bold headers or ---FILES_CHANGED---)
+      const isReport = text.includes('**Wat ik') || text.includes('**Commit') || text.includes('**Resultaat') || text.includes('---FILES_CHANGED---') || text.includes('## ');
+      
+      if (isReport) {
+        d.className = 'message report';
+        d.innerHTML = renderReport(text);
+      } else {
+        d.className = 'message msg-event';
+        d.innerHTML = `<div class="msg-content">${mdToHtml(esc(text))}</div>`;
+      }
+      output.appendChild(d); scrollBottom();
+    }
+
+    function mdToHtml(h) {
+      h = h.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+      h = h.replace(/`([^`]+)`/g, '<code>$1</code>');
+      h = h.replace(/^[\u2022\-\*] (.+)$/gm, '<li>$1</li>');
+      if (h.includes('<li>')) h = h.replace(/(<li>.*<\/li>)/gs, '<ul>$1</ul>');
+      return h;
+    }
+
+    function renderReport(text) {
+      // Split off FILES_CHANGED section if present
+      let mainText = text;
+      let filesSection = '';
+      if (text.includes('---FILES_CHANGED---')) {
+        const parts = text.split('---FILES_CHANGED---');
+        mainText = parts[0].trim();
+        filesSection = parts[1]?.trim() || '';
+      }
+
+      // Convert ## headers to **bold** headers for uniform processing
+      mainText = mainText.replace(/^## (.+)$/gm, '**$1**');
+
+      // Process main text as rich markdown
+      let html = '<div class="report-body">' + renderRichMarkdown(mainText) + '</div>';
+
+      // Render files changed box
+      if (filesSection) {
+        html += renderFilesBox(filesSection);
+      }
+
+      return html;
+    }
+
+    function renderRichMarkdown(text) {
+      const lines = text.split('\n');
+      let html = '';
+      let inOl = false;
+      let inUl = false;
+      let subUl = false;
+
+      for (let i = 0; i < lines.length; i++) {
+        let line = lines[i];
+        const trimmed = line.trim();
+        if (!trimmed) {
+          if (inOl) { html += '</ol>'; inOl = false; }
+          if (inUl) { html += '</ul>'; inUl = false; }
+          continue;
+        }
+
+        // Bold headers
+        const boldMatch = trimmed.match(/^\*\*(.+?)\*\*$/);
+        if (boldMatch) {
+          if (inOl) { html += '</ol>'; inOl = false; }
+          if (inUl) { html += '</ul>'; inUl = false; }
+          html += `<strong>${inlineFormat(boldMatch[1])}</strong>`;
+          continue;
+        }
+
+        // Numbered list
+        const olMatch = trimmed.match(/^(\d+)\. (.+)/);
+        if (olMatch) {
+          if (!inOl) { html += '<ol>'; inOl = true; }
+          if (inUl) { html += '</ul>'; inUl = false; subUl = false; }
+          html += `<li>${inlineFormat(olMatch[2])}`;
+          // Check if next lines are sub-bullets
+          let j = i + 1;
+          while (j < lines.length && /^\s+[\-\*\u2022]/.test(lines[j])) {
+            if (!subUl) { html += '<ul>'; subUl = true; }
+            const sub = lines[j].trim().replace(/^[\-\*\u2022]\s*/, '');
+            html += `<li>${inlineFormat(sub)}</li>`;
+            j++;
+          }
+          if (subUl) { html += '</ul>'; subUl = false; }
+          html += '</li>';
+          i = j - 1;
+          continue;
+        }
+
+        // Bullet list
+        const ulMatch = trimmed.match(/^[\-\*\u2022]\s+(.+)/);
+        if (ulMatch) {
+          if (!inUl) { html += '<ul>'; inUl = true; }
+          html += `<li>${inlineFormat(ulMatch[1])}</li>`;
+          continue;
+        }
+
+        // Regular paragraph
+        if (inOl) { html += '</ol>'; inOl = false; }
+        if (inUl) { html += '</ul>'; inUl = false; }
+        html += `<p>${inlineFormat(trimmed)}</p>`;
+      }
+      if (inOl) html += '</ol>';
+      if (inUl) html += '</ul>';
+      return html;
+    }
+
+    function inlineFormat(text) {
+      let h = esc(text);
+      h = h.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+      h = h.replace(/`([^`]+)`/g, '<code>$1</code>');
+      return h;
+    }
+
+    function renderFilesBox(text) {
+      const lines = text.split('\n').filter(l => l.trim());
+      if (!lines.length) return '';
+      
+      let totalAdd = 0, totalDel = 0;
+      const files = [];
+      for (const line of lines) {
+        const match = line.trim().match(/^(.+?)\s+\+(\d+)\s+\-(\d+)$/);
+        if (match) {
+          const add = parseInt(match[2]); const del = parseInt(match[3]);
+          totalAdd += add; totalDel += del;
+          files.push({ name: match[1], add, del });
+        } else {
+          files.push({ name: line.trim(), add: 0, del: 0 });
+        }
+      }
+
+      let html = '<div class="files-box">';
+      html += '<div class="files-box-header">';
+      html += `<span class="count">${files.length} file${files.length>1?'s':''} changed`;
+      if (totalAdd) html += ` <span class="additions">+${totalAdd}</span>`;
+      if (totalDel) html += ` <span class="deletions">-${totalDel}</span>`;
+      html += '</span>';
+      html += '<span class="undo-btn" title="Undo (git revert)">Undo ↩</span>';
+      html += '</div>';
+      for (const f of files) {
+        html += `<div class="file-row"><span class="fname">${esc(f.name)}</span>`;
+        if (f.add || f.del) {
+          html += `<span class="fstats">`;
+          if (f.add) html += `<span class="add">+${f.add}</span> `;
+          if (f.del) html += `<span class="del">-${f.del}</span>`;
+          html += '</span>';
+        }
+        html += '</div>';
+      }
+      html += '</div>';
+      return html;
+    }
+    function addCommand(cmd) { clearWelcome(); const d=document.createElement('div'); d.className='message msg-system'; d.innerHTML=`<div class="msg-terminal"><span class="cmd">$ ${esc(cmd)}</span></div>`; output.appendChild(d); scrollBottom(); }
+    function addTerminal(text) { clearWelcome(); const d=document.createElement('div'); d.className='message msg-system'; d.innerHTML=`<div class="msg-terminal">${esc(text)}</div>`; output.appendChild(d); scrollBottom(); }
+    function addText(type, text) { clearWelcome(); const d=document.createElement('div'); d.className=`message msg-${type}`; d.innerHTML=`<div class="msg-content">${esc(text)}</div>`; output.appendChild(d); scrollBottom(); }
+    function addDivider(text) { const d=document.createElement('div'); d.className='divider'; d.textContent=text; output.appendChild(d); scrollBottom(); }
+    function showThinking() { if(thinkingEl) return; thinkingEl=document.createElement('div'); thinkingEl.className='thinking'; thinkingEl.innerHTML='<div class="thinking-dots"><span></span><span></span><span></span></div> Codex is aan het nadenken...'; output.appendChild(thinkingEl); scrollBottom(); }
+    function removeThinking() { if(thinkingEl){thinkingEl.remove();thinkingEl=null;} }
+
+    // --- Actions ---
+    function sendPrompt() {
+      const prompt = promptEl.value.trim();
+      if (!prompt || isRunning || !ws || ws.readyState !== 1) return;
+      isRunning = true; sendBtn.disabled = true;
+      addUserMessage(prompt);
+      ws.send(JSON.stringify({ prompt, model: modelEl.value, thread_id: currentThreadId }));
+      promptEl.value = ''; promptEl.style.height = '38px';
+    }
+
+    function setPrompt(t) { promptEl.value = t; promptEl.focus(); }
+
+    function newThread() {
+      currentThreadId = null;
+      clearChat(); showWelcome();
+      headerTitle.innerHTML = '<span class="status-dot ' + (ws&&ws.readyState===1?'connected':'disconnected') + '" id="wsDot"></span> New thread';
+      document.querySelectorAll('.thread-item').forEach(el => el.classList.remove('active'));
+    }
+
+    async function openThread(id) {
+      try {
+        const res = await fetch(`${API}/api/threads/${id}`);
+        const thread = await res.json();
+        currentThreadId = id;
+        clearChat();
+        headerTitle.innerHTML = `<span class="status-dot ${ws&&ws.readyState===1?'connected':'disconnected'}" id="wsDot"></span> ${esc(thread.title)}`;
+        for (const m of thread.messages) {
+          if (m.role === 'user') addUserMessage(m.content);
+          else addMarkdown(m.content);
+        }
+        document.querySelectorAll('.thread-item').forEach(el => el.classList.toggle('active', el.dataset.id === id));
+      } catch(e) { console.error(e); }
+    }
+
+    async function deleteThread(id, ev) {
+      ev.stopPropagation();
+      if (!confirm('Thread verwijderen?')) return;
+      await fetch(`${API}/api/threads/${id}`, { method: 'DELETE' });
+      if (currentThreadId === id) newThread();
+      loadThreads();
+    }
+
+    async function deploy() {
+      const btn = document.getElementById('deployBtn');
+      btn.classList.add('deploying'); btn.textContent = '🚀 Deploying...';
+      try {
+        const msg = prompt('Commit message:', 'update from codex console');
+        if (!msg) { btn.classList.remove('deploying'); btn.textContent='🚀 Deploy to GitHub'; return; }
+        const res = await fetch(`${API}/api/deploy`, {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ message: msg })
+        });
+        const data = await res.json();
+        showToast(data.status === 'ok' ? '✅ Deployed to GitHub!' : '⚠️ ' + JSON.stringify(data.details));
+      } catch(e) { showToast('❌ Deploy failed'); }
+      btn.classList.remove('deploying'); btn.textContent = '🚀 Deploy to GitHub';
+    }
+
+    // --- Threads sidebar ---
+    async function loadThreads() {
+      try {
+        const res = await fetch(`${API}/api/threads`);
+        const threads = await res.json();
+        renderThreads(threads);
+      } catch(e) {}
+    }
+
+    function renderThreads(threads) {
+      const el = document.getElementById('threadList');
+      if (!threads.length) { el.innerHTML = '<div style="padding:1rem;color:#aaa;font-size:0.8rem;">No threads yet</div>'; return; }
+
+      const now = new Date();
+      const groups = { today: [], week: [], older: [] };
+      for (const t of threads) {
+        const d = new Date(t.updated);
+        const diff = (now - d) / 86400000;
+        if (diff < 1) groups.today.push(t);
+        else if (diff < 7) groups.week.push(t);
+        else groups.older.push(t);
+      }
+
+      let html = '';
+      if (groups.today.length) {
+        html += '<div class="thread-group-label">Today</div>';
+        html += groups.today.map(t => threadHtml(t)).join('');
+      }
+      if (groups.week.length) {
+        html += '<div class="thread-group-label">This week</div>';
+        html += groups.week.map(t => threadHtml(t)).join('');
+      }
+      if (groups.older.length) {
+        html += '<div class="thread-group-label">Older</div>';
+        html += groups.older.map(t => threadHtml(t)).join('');
+      }
+      el.innerHTML = html;
+    }
+
+    function threadHtml(t) {
+      const active = t.id === currentThreadId ? 'active' : '';
+      const ago = timeAgo(t.updated);
+      return `<div class="thread-item ${active}" data-id="${t.id}" onclick="openThread('${t.id}')">
+        <span class="thread-title">${esc(t.title)}</span>
+        <span class="thread-time">${ago}</span>
+        <span class="thread-delete" onclick="deleteThread('${t.id}', event)">✕</span>
+      </div>`;
+    }
+
+    function timeAgo(iso) {
+      const s = Math.floor((new Date() - new Date(iso)) / 1000);
+      if (s < 60) return 'now';
+      if (s < 3600) return Math.floor(s/60) + 'm';
+      if (s < 86400) return Math.floor(s/3600) + 'h';
+      return Math.floor(s/86400) + 'd';
+    }
+
+    function showToast(msg) {
+      const t = document.getElementById('toast');
+      t.textContent = msg; t.classList.add('show');
+      setTimeout(() => t.classList.remove('show'), 3000);
+    }
+
+    // --- Init ---
+    promptEl.addEventListener('keydown', (e) => { if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendPrompt();} });
+    promptEl.addEventListener('input', () => { promptEl.style.height='38px'; promptEl.style.height=Math.min(promptEl.scrollHeight,120)+'px'; });
+    connectWS();
+    loadThreads();
+  </script>
+</body>
+</html>

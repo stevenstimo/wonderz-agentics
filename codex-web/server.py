@@ -1,229 +1,463 @@
-"""Codex Web Interface — lightweight wrapper around the codex CLI."""
-import asyncio
-import json
+#!/usr/bin/env python3
+"""Codex Web Interface - Backend server"""
 import os
+import sys
+import json
+import asyncio
 import uuid
+import hashlib
 from pathlib import Path
-
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from datetime import datetime
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from typing import Optional
 
-app = FastAPI(title="Codex Web")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app = FastAPI(title="Codex Web Interface")
 
-WORK_DIR = os.getenv("CODEX_WORK_DIR", "/home/exedev/wonderz-agentics")
+PROJECT_DIR = "/home/exedev/wonderz-agentics"
+KEYS_FILE = "/home/exedev/.config/wonderz-keys.json"
+BASHRC = os.path.expanduser("~/.bashrc")
 
+# Store running tasks
+running_tasks = {}
 
-class CodexRequest(BaseModel):
-    prompt: str
-    model: str = "o4-mini"
-    approval_mode: str = "suggest"  # suggest | auto-edit | full-auto
+THREADS_FILE = "/home/exedev/.config/wonderz-threads.json"
 
 
-# Store running sessions
-_sessions: dict[str, dict] = {}
+def load_threads():
+    if os.path.exists(THREADS_FILE):
+        with open(THREADS_FILE, "r") as f:
+            return json.load(f)
+    return []
 
-HTML = """
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Codex Console</title>
-<style>
-  * { margin:0; padding:0; box-sizing:border-box; }
-  body { font-family: 'SF Mono','Fira Code',monospace; background:#0d1117; color:#c9d1d9; height:100vh; display:flex; flex-direction:column; }
-  .header { padding:16px 24px; background:#161b22; border-bottom:1px solid #30363d; display:flex; align-items:center; gap:16px; }
-  .header h1 { font-size:18px; color:#58a6ff; }
-  .header select, .header input { background:#0d1117; color:#c9d1d9; border:1px solid #30363d; border-radius:6px; padding:6px 12px; font-size:13px; }
-  .header select:focus, .header input:focus { outline:none; border-color:#58a6ff; }
-  .output { flex:1; overflow-y:auto; padding:16px 24px; font-size:13px; line-height:1.6; white-space:pre-wrap; word-break:break-word; }
-  .output .system { color:#8b949e; }
-  .output .user { color:#58a6ff; }
-  .output .codex { color:#7ee787; }
-  .output .error { color:#f85149; }
-  .output .separator { border-top:1px solid #30363d; margin:12px 0; }
-  .input-area { padding:16px 24px; background:#161b22; border-top:1px solid #30363d; display:flex; gap:12px; }
-  .input-area textarea { flex:1; background:#0d1117; color:#c9d1d9; border:1px solid #30363d; border-radius:8px; padding:12px; font-family:inherit; font-size:14px; resize:none; min-height:60px; }
-  .input-area textarea:focus { outline:none; border-color:#58a6ff; }
-  .input-area button { background:#238636; color:#fff; border:none; border-radius:8px; padding:12px 24px; font-size:14px; font-weight:600; cursor:pointer; align-self:flex-end; }
-  .input-area button:hover { background:#2ea043; }
-  .input-area button:disabled { opacity:0.5; cursor:not-allowed; }
-  .status { font-size:12px; padding:4px 10px; border-radius:12px; }
-  .status.connected { background:#238636; color:#fff; }
-  .status.disconnected { background:#f85149; color:#fff; }
-  .status.running { background:#d29922; color:#fff; }
-</style>
-</head>
-<body>
-<div class="header">
-  <h1>\u2728 Codex Console</h1>
-  <select id="model">
-    <option value="o4-mini">o4-mini</option>
-    <option value="gpt-4.1">gpt-4.1</option>
-    <option value="o3">o3</option>
-    <option value="gpt-4.1-mini">gpt-4.1-mini</option>
-  </select>
-  <select id="mode">
-    <option value="suggest">Suggest</option>
-    <option value="auto-edit">Auto-edit</option>
-    <option value="full-auto">Full-auto</option>
-  </select>
-  <span id="status" class="status disconnected">Disconnected</span>
-</div>
-<div class="output" id="output"></div>
-<div class="input-area">
-  <textarea id="prompt" placeholder="Ask Codex anything... (Enter to send, Shift+Enter for newline)" rows="2"></textarea>
-  <button id="send" onclick="sendPrompt()">Run</button>
-</div>
-<script>
-const output = document.getElementById('output');
-const promptEl = document.getElementById('prompt');
-const sendBtn = document.getElementById('send');
-const statusEl = document.getElementById('status');
-let ws = null;
-let running = false;
 
-function setStatus(s) {
-  statusEl.className = 'status ' + s;
-  statusEl.textContent = s.charAt(0).toUpperCase() + s.slice(1);
-}
+def save_threads(threads):
+    os.makedirs(os.path.dirname(THREADS_FILE), exist_ok=True)
+    with open(THREADS_FILE, "w") as f:
+        json.dump(threads, f, indent=2)
 
-function append(cls, text) {
-  const div = document.createElement('div');
-  div.className = cls;
-  div.textContent = text;
-  output.appendChild(div);
-  output.scrollTop = output.scrollHeight;
-}
 
-function addSeparator() {
-  const div = document.createElement('div');
-  div.className = 'separator';
-  output.appendChild(div);
-}
+def add_thread_message(thread_id, role, content, model=None):
+    threads = load_threads()
+    thread = None
+    for t in threads:
+        if t["id"] == thread_id:
+            thread = t
+            break
+    if not thread:
+        thread = {
+            "id": thread_id,
+            "title": content[:60] if role == "user" else "New thread",
+            "created": datetime.now().isoformat(),
+            "updated": datetime.now().isoformat(),
+            "model": model or "gpt-5.2-codex",
+            "messages": []
+        }
+        threads.insert(0, thread)
+    thread["updated"] = datetime.now().isoformat()
+    thread["messages"].append({
+        "role": role,
+        "content": content,
+        "timestamp": datetime.now().isoformat()
+    })
+    # Keep max 50 threads
+    threads = threads[:50]
+    save_threads(threads)
+    return thread
 
-function connect() {
-  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  ws = new WebSocket(`${proto}//${location.host}/ws/codex`);
-  ws.onopen = () => setStatus('connected');
-  ws.onclose = () => { setStatus('disconnected'); setTimeout(connect, 3000); };
-  ws.onerror = () => setStatus('disconnected');
-  ws.onmessage = (e) => {
-    const msg = JSON.parse(e.data);
-    if (msg.type === 'output') {
-      append('codex', msg.text);
-    } else if (msg.type === 'done') {
-      append('system', `\u2713 Done (exit code: ${msg.exit_code})`);
-      addSeparator();
-      running = false;
-      sendBtn.disabled = false;
-      promptEl.focus();
-    } else if (msg.type === 'error') {
-      append('error', msg.text);
-      running = false;
-      sendBtn.disabled = false;
-    } else if (msg.type === 'started') {
-      setStatus('running');
-    }
-  };
-}
 
-function sendPrompt() {
-  const text = promptEl.value.trim();
-  if (!text || !ws || running) return;
-  running = true;
-  sendBtn.disabled = true;
-  addSeparator();
-  append('user', '> ' + text);
-  ws.send(JSON.stringify({
-    prompt: text,
-    model: document.getElementById('model').value,
-    approval_mode: document.getElementById('mode').value,
-  }));
-  promptEl.value = '';
-}
+def get_openai_key():
+    """Get OpenAI key from stored keys or environment."""
+    keys = load_keys()
+    for k in keys:
+        if k["name"] == "OPENAI_API_KEY" and k.get("value"):
+            return k["value"]
+    return os.environ.get("OPENAI_API_KEY", "")
 
-promptEl.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendPrompt(); }
-});
 
-connect();
-append('system', 'Codex Console ready. Type a prompt and press Run.');
-append('system', 'Working directory: ' + '""" + WORK_DIR + """' + '');
-</script>
-</body>
-</html>
-"""
+def get_anthropic_key():
+    """Get Anthropic key from stored keys or environment."""
+    keys = load_keys()
+    for k in keys:
+        if k["name"] == "ANTHROPIC_API_KEY" and k.get("value"):
+            return k["value"]
+    return os.environ.get("ANTHROPIC_API_KEY", "")
 
+
+def load_keys():
+    """Load keys from JSON file."""
+    if os.path.exists(KEYS_FILE):
+        with open(KEYS_FILE, "r") as f:
+            return json.load(f)
+    return []
+
+
+def save_keys(keys):
+    """Save keys to JSON file with restricted permissions."""
+    os.makedirs(os.path.dirname(KEYS_FILE), exist_ok=True)
+    with open(KEYS_FILE, "w") as f:
+        json.dump(keys, f, indent=2)
+    os.chmod(KEYS_FILE, 0o600)
+
+
+def mask_key(value):
+    """Mask a key: show first 3 and last 4 chars."""
+    if not value or len(value) < 10:
+        return "***"
+    return value[:3] + "..." + value[-4:]
+
+
+def update_bashrc(name, value):
+    """Update or add an export line in bashrc."""
+    lines = []
+    found = False
+    if os.path.exists(BASHRC):
+        with open(BASHRC, "r") as f:
+            lines = f.readlines()
+    
+    new_lines = []
+    for line in lines:
+        if line.strip().startswith(f"export {name}="):
+            new_lines.append(f"export {name}={value}\n")
+            found = True
+        else:
+            new_lines.append(line)
+    
+    if not found:
+        new_lines.append(f"export {name}={value}\n")
+    
+    with open(BASHRC, "w") as f:
+        f.writelines(new_lines)
+
+
+def update_systemd_env(name, value):
+    """Update environment variable in systemd service files."""
+    import subprocess
+    services = [
+        "/etc/systemd/system/wonderz-backend.service",
+        "/etc/systemd/system/wonderz-codex-web.service"
+    ]
+    for svc in services:
+        if os.path.exists(svc):
+            try:
+                subprocess.run(
+                    ["sudo", "sed", "-i",
+                     f"s|Environment={name}=.*|Environment={name}={value}|",
+                     svc],
+                    capture_output=True, timeout=5
+                )
+            except:
+                pass
+    try:
+        subprocess.run(["sudo", "systemctl", "daemon-reload"], capture_output=True, timeout=5)
+    except:
+        pass
+
+
+# --- API Keys endpoints ---
+
+class KeyCreate(BaseModel):
+    name: str  # e.g. OPENAI_API_KEY
+    label: str  # e.g. "Wonderz-Agentic"
+    value: str
+
+
+@app.get("/api/keys")
+async def list_keys():
+    """List all keys (masked)."""
+    keys = load_keys()
+    return [
+        {
+            "id": k["id"],
+            "name": k["name"],
+            "label": k.get("label", k["name"]),
+            "masked": mask_key(k.get("value", "")),
+            "created": k.get("created", ""),
+            "status": "Active" if k.get("value") else "Empty",
+        }
+        for k in keys
+    ]
+
+
+@app.post("/api/keys")
+async def create_key(req: KeyCreate):
+    """Create or update a key."""
+    keys = load_keys()
+    
+    # Check if key with this name exists
+    existing = None
+    for k in keys:
+        if k["name"] == req.name:
+            existing = k
+            break
+    
+    if existing:
+        existing["value"] = req.value
+        existing["label"] = req.label
+        existing["updated"] = datetime.now().isoformat()
+    else:
+        keys.append({
+            "id": str(uuid.uuid4())[:8],
+            "name": req.name,
+            "label": req.label,
+            "value": req.value,
+            "created": datetime.now().strftime("%d %b %Y"),
+            "updated": datetime.now().isoformat(),
+        })
+    
+    save_keys(keys)
+    
+    # Also update bashrc and systemd
+    update_bashrc(req.name, req.value)
+    update_systemd_env(req.name, req.value)
+    
+    # Restart backend to pick up new keys
+    import subprocess
+    try:
+        subprocess.run(["sudo", "systemctl", "restart", "wonderz-backend"], capture_output=True, timeout=10)
+    except:
+        pass
+    
+    return {"status": "saved", "masked": mask_key(req.value)}
+
+
+@app.delete("/api/keys/{key_id}")
+async def delete_key(key_id: str):
+    """Delete a key."""
+    keys = load_keys()
+    key_to_delete = None
+    for k in keys:
+        if k["id"] == key_id:
+            key_to_delete = k
+            break
+    
+    if not key_to_delete:
+        raise HTTPException(status_code=404, detail="Key not found")
+    
+    keys = [k for k in keys if k["id"] != key_id]
+    save_keys(keys)
+    
+    return {"status": "deleted"}
+
+
+# --- Thread endpoints ---
+
+@app.get("/api/threads")
+async def list_threads():
+    threads = load_threads()
+    return [
+        {
+            "id": t["id"],
+            "title": t["title"],
+            "created": t["created"],
+            "updated": t["updated"],
+            "model": t.get("model", ""),
+            "message_count": len(t.get("messages", [])),
+        }
+        for t in threads
+    ]
+
+
+@app.get("/api/threads/{thread_id}")
+async def get_thread(thread_id: str):
+    threads = load_threads()
+    for t in threads:
+        if t["id"] == thread_id:
+            return t
+    raise HTTPException(status_code=404, detail="Thread not found")
+
+
+@app.delete("/api/threads/{thread_id}")
+async def delete_thread(thread_id: str):
+    threads = load_threads()
+    threads = [t for t in threads if t["id"] != thread_id]
+    save_threads(threads)
+    return {"status": "deleted"}
+
+
+# --- Deploy endpoint ---
+
+class DeployRequest(BaseModel):
+    message: str = "deploy from codex console"
+
+
+@app.post("/api/deploy")
+async def deploy(req: DeployRequest):
+    """Git commit and push to GitHub."""
+    import subprocess
+    results = []
+    try:
+        r1 = subprocess.run(["git", "add", "-A"], cwd=PROJECT_DIR, capture_output=True, text=True, timeout=10)
+        results.append(f"git add: {r1.returncode}")
+        r2 = subprocess.run(["git", "commit", "-m", req.message], cwd=PROJECT_DIR, capture_output=True, text=True, timeout=10)
+        results.append(f"git commit: {r2.stdout.strip() or r2.stderr.strip()}")
+        r3 = subprocess.run(["git", "push", "origin", "main"], cwd=PROJECT_DIR, capture_output=True, text=True, timeout=30)
+        results.append(f"git push: {r3.returncode} {r3.stderr.strip()}")
+        return {"status": "ok", "details": results}
+    except Exception as e:
+        return {"status": "error", "details": str(e)}
+
+
+# --- Static files ---
 
 @app.get("/")
 async def index():
-    return HTMLResponse(HTML)
+    return FileResponse(Path(__file__).parent / "static" / "index.html")
 
+
+@app.get("/settings")
+async def settings_page():
+    return FileResponse(Path(__file__).parent / "static" / "settings.html")
+
+
+@app.get("/api-docs")
+async def api_docs_page():
+    return FileResponse(Path(__file__).parent / "static" / "api.html")
+
+
+@app.get("/api/proxy-openapi")
+async def proxy_openapi():
+    """Proxy the backend OpenAPI spec to avoid CORS issues."""
+    import httpx
+    try:
+        async with httpx.AsyncClient() as client:
+            r = await client.get("http://localhost:8090/openapi.json", timeout=5)
+            return r.json()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+# --- WebSocket for Codex ---
 
 @app.websocket("/ws/codex")
 async def codex_ws(websocket: WebSocket):
     await websocket.accept()
     try:
         while True:
-            data = await websocket.receive_text()
-            msg = json.loads(data)
-            prompt = msg.get("prompt", "").strip()
-            model = msg.get("model", "o4-mini")
-            approval_mode = msg.get("approval_mode", "suggest")
+            data = await websocket.receive_json()
+            prompt = data.get("prompt", "")
+            model = data.get("model", "gpt-5.2-codex")
 
             if not prompt:
-                await websocket.send_json({"type": "error", "text": "Empty prompt"})
+                await websocket.send_json({"type": "error", "data": "Geen prompt opgegeven"})
                 continue
 
-            await websocket.send_json({"type": "started"})
+            thread_id = data.get("thread_id") or str(uuid.uuid4())[:12]
+            task_id = str(uuid.uuid4())[:8]
+            
+            # Save user message to thread
+            add_thread_message(thread_id, "user", prompt, model)
+            
+            await websocket.send_json({"type": "start", "task_id": task_id, "thread_id": thread_id, "prompt": prompt})
 
-            # Run codex CLI as subprocess
+            report_instruction = """\n\n---\nIMPORTANT: When you are done, ALWAYS end with a structured report in Dutch. Use this exact markdown format:
+
+[1-2 zinnen samenvatting van wat je hebt gedaan.]
+
+**Wat ik vond**
+
+1. [Eerste bevinding met `code` inline waar nodig]
+2. [Tweede bevinding]
+   - [Sub-detail]
+   - [Sub-detail met `code_referentie`]
+3. [Derde bevinding]
+
+**Wat ik heb aangepast**
+
+1. [Eerste aanpassing]:
+   - `bestandsnaam.py` [wat je deed]
+   - [Detail met `code` referenties]
+2. [Tweede aanpassing]:
+   - `bestandsnaam.jsx` [wat je deed]
+
+**Commit + push**
+
+- Commit: `hash`
+- Branch: `branch-naam`
+- Gepusht naar GitHub.
+
+**Resultaat**
+
+- [Wat werkt nu]
+- [Verificatie]
+
+[Optioneel: suggestie voor vervolgactie]
+
+---FILES_CHANGED---
+[lijst van gewijzigde bestanden, één per regel, format: bestandsnaam +regels -regels]
+
+Rules:
+- Write in Dutch
+- Use inline `code` for file names, variables, URLs, commands
+- Use numbered lists with sub-bullets for detail
+- Be specific: mention exact file names, line changes, commit hashes
+- The FILES_CHANGED section must list every file you modified with +/- line counts"""
+
+            full_prompt = prompt + report_instruction
+
             cmd = [
-                "codex",
-                "--model", model,
-                "--approval-mode", approval_mode,
-                "--quiet",
-                prompt,
+                "codex", "exec",
+                "--full-auto",
+                "-m", model,
+                "-C", PROJECT_DIR,
+                "--json",
+                full_prompt
             ]
 
+            env = os.environ.copy()
+            env["OPENAI_API_KEY"] = get_openai_key()
+
             try:
-                proc = await asyncio.create_subprocess_exec(
+                process = await asyncio.create_subprocess_exec(
                     *cmd,
                     stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.STDOUT,
-                    cwd=WORK_DIR,
-                    env={**os.environ, "TERM": "dumb", "NO_COLOR": "1"},
+                    stderr=asyncio.subprocess.PIPE,
+                    env=env,
+                    cwd=PROJECT_DIR
+                )
+                running_tasks[task_id] = process
+
+                async def read_stream(stream, stream_type):
+                    while True:
+                        line = await stream.readline()
+                        if not line:
+                            break
+                        text = line.decode("utf-8", errors="replace").strip()
+                        if text:
+                            try:
+                                event = json.loads(text)
+                                await websocket.send_json({"type": "event", "task_id": task_id, "data": event})
+                            except json.JSONDecodeError:
+                                await websocket.send_json({"type": "output", "task_id": task_id, "stream": stream_type, "data": text})
+
+                await asyncio.gather(
+                    read_stream(process.stdout, "stdout"),
+                    read_stream(process.stderr, "stderr")
                 )
 
-                # Stream output line by line
-                while True:
-                    line = await proc.stdout.readline()
-                    if not line:
-                        break
-                    text = line.decode("utf-8", errors="replace").rstrip()
-                    if text:
-                        await websocket.send_json({"type": "output", "text": text})
-
-                exit_code = await proc.wait()
-                await websocket.send_json({"type": "done", "exit_code": exit_code})
+                return_code = await process.wait()
+                running_tasks.pop(task_id, None)
+                
+                # Save assistant response summary to thread
+                add_thread_message(thread_id, "assistant", f"Task completed (code: {return_code})", model)
+                
+                await websocket.send_json({"type": "done", "task_id": task_id, "thread_id": thread_id, "return_code": return_code})
 
             except Exception as e:
-                await websocket.send_json({"type": "error", "text": str(e)})
+                running_tasks.pop(task_id, None)
+                await websocket.send_json({"type": "error", "task_id": task_id, "data": str(e)})
 
     except WebSocketDisconnect:
-        pass
+        for tid, proc in list(running_tasks.items()):
+            try:
+                proc.kill()
+            except:
+                pass
+        running_tasks.clear()
 
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=7682)
+    uvicorn.run(app, host="0.0.0.0", port=8080)

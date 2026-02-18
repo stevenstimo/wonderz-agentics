@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>API Docs - Wonderz Agentics</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #fff; color: #1a1a1a; }
+    
+    header { background: #fff; border-bottom: 1px solid #e5e5e5; padding: 0.5rem 1rem; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 10; }
+    header h1 { font-size: 0.95rem; font-weight: 600; }
+    .header-links { display: flex; gap: 0.75rem; font-size: 0.7rem; }
+    .header-links a { color: #888; text-decoration: none; }
+    .header-links a:hover { color: #1a1a1a; }
+    .header-links a.active { color: #1a1a1a; font-weight: 600; }
+    
+    .container { max-width: 900px; margin: 0 auto; padding: 2rem 1.5rem; }
+    
+    .api-header { margin-bottom: 2rem; }
+    .api-header h2 { font-size: 1.5rem; font-weight: 600; margin-bottom: 0.25rem; }
+    .api-header .version { display: inline-block; background: #e8f4fd; color: #0369a1; padding: 2px 8px; border-radius: 10px; font-size: 0.7rem; font-weight: 600; margin-left: 0.5rem; }
+    .api-header p { color: #666; font-size: 0.85rem; margin-top: 0.5rem; }
+    .api-header .base-url { font-family: monospace; background: #f5f5f5; padding: 0.5rem 0.75rem; border-radius: 6px; font-size: 0.8rem; margin-top: 0.75rem; color: #555; display: inline-block; }
+    
+    .endpoint-group { margin-bottom: 1.5rem; }
+    .endpoint-group h3 { font-size: 0.8rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #888; margin-bottom: 0.5rem; padding-bottom: 0.5rem; border-bottom: 1px solid #eee; }
+    
+    .endpoint { border: 1px solid #e5e5e5; border-radius: 8px; margin-bottom: 0.5rem; overflow: hidden; transition: all 0.15s; }
+    .endpoint:hover { border-color: #ccc; }
+    .endpoint-header { display: flex; align-items: center; padding: 0.6rem 0.75rem; cursor: pointer; gap: 0.75rem; }
+    .method { font-size: 0.7rem; font-weight: 700; padding: 3px 8px; border-radius: 4px; min-width: 50px; text-align: center; text-transform: uppercase; }
+    .method-get { background: #dbeafe; color: #1d4ed8; }
+    .method-post { background: #dcfce7; color: #16a34a; }
+    .method-put { background: #fef3c7; color: #d97706; }
+    .method-patch { background: #fef3c7; color: #d97706; }
+    .method-delete { background: #fee2e2; color: #dc2626; }
+    .endpoint-path { font-family: monospace; font-size: 0.85rem; font-weight: 500; }
+    .endpoint-desc { color: #888; font-size: 0.8rem; margin-left: auto; }
+    .endpoint-chevron { color: #ccc; font-size: 0.8rem; transition: transform 0.2s; }
+    .endpoint.open .endpoint-chevron { transform: rotate(180deg); }
+    
+    .endpoint-body { display: none; padding: 0.75rem; border-top: 1px solid #eee; background: #fafafa; }
+    .endpoint.open .endpoint-body { display: block; }
+    .endpoint-body p { font-size: 0.8rem; color: #666; line-height: 1.5; }
+    .endpoint-body .params { margin-top: 0.5rem; }
+    .endpoint-body .param { display: flex; gap: 0.5rem; padding: 0.35rem 0; font-size: 0.8rem; border-bottom: 1px solid #eee; }
+    .endpoint-body .param:last-child { border-bottom: none; }
+    .param-name { font-family: monospace; font-weight: 500; min-width: 120px; }
+    .param-type { color: #888; font-size: 0.75rem; }
+    .param-required { color: #dc2626; font-size: 0.65rem; font-weight: 600; }
+    
+    .loading { text-align: center; padding: 3rem; color: #999; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Wonderz Agentics</h1>
+    <div class="header-links">
+      <a href="https://wonderz-agentic.exe.xyz:8000/" target="_blank">🏠 Dashboard</a>
+      <a href="https://wonderz-agentic.exe.xyz:8080/">🚀 Codex</a>
+      <a href="https://wonderz-agentic.exe.xyz:3000/" target="_blank">🌐 Frontend</a>
+      <a href="/api-docs" class="active">⚙️ API</a>
+      <a href="https://wonderz-agentic.exe.xyz:7681/" target="_blank">🖥️ Terminal</a>
+      <a href="/settings">🔑 Keys</a>
+      <a href="https://wonderz-agentic.shelley.exe.xyz" target="_blank">🤖 Shelley</a>
+    </div>
+  </header>
+  
+  <div class="container">
+    <div class="api-header">
+      <h2>Multi-Agentic Crew API <span class="version">v0.1.0</span></h2>
+      <p>Orchestrator API voor het Wonderz multi-agent systeem.</p>
+      <div class="base-url">https://wonderz-agentic.exe.xyz:8090</div>
+    </div>
+    <div id="endpoints" class="loading">Loading API endpoints...</div>
+  </div>
+
+  <script>
+    async function loadSpec() {
+      try {
+        const res = await fetch('https://wonderz-agentic.exe.xyz:8090/openapi.json');
+        const spec = await res.json();
+        renderEndpoints(spec);
+      } catch(e) {
+        // Fallback: try via local proxy
+        try {
+          const res = await fetch('/api/proxy-openapi');
+          const spec = await res.json();
+          renderEndpoints(spec);
+        } catch(e2) {
+          document.getElementById('endpoints').innerHTML = `
+            <p>Kan API spec niet laden. <a href="https://wonderz-agentic.exe.xyz:8090/docs" target="_blank">Open Swagger docs direct →</a></p>`;
+        }
+      }
+    }
+    
+    function renderEndpoints(spec) {
+      const el = document.getElementById('endpoints');
+      const paths = spec.paths || {};
+      
+      // Group by tag
+      const groups = {};
+      for (const [path, methods] of Object.entries(paths)) {
+        for (const [method, info] of Object.entries(methods)) {
+          if (['get','post','put','patch','delete'].indexOf(method) === -1) continue;
+          const tag = (info.tags && info.tags[0]) || 'default';
+          if (!groups[tag]) groups[tag] = [];
+          groups[tag].push({ method, path, ...info });
+        }
+      }
+      
+      let html = '';
+      for (const [tag, endpoints] of Object.entries(groups)) {
+        html += `<div class="endpoint-group"><h3>${esc(tag)}</h3>`;
+        for (const ep of endpoints) {
+          const params = (ep.parameters || []).map(p => 
+            `<div class="param">
+              <span class="param-name">${esc(p.name)} ${p.required?'<span class="param-required">required</span>':''}</span>
+              <span class="param-type">${esc(p.schema?.type || p.in || '')}</span>
+            </div>`
+          ).join('');
+          
+          html += `
+            <div class="endpoint" onclick="this.classList.toggle('open')">
+              <div class="endpoint-header">
+                <span class="method method-${ep.method}">${ep.method}</span>
+                <span class="endpoint-path">${esc(ep.path)}</span>
+                <span class="endpoint-desc">${esc(ep.summary || '')}</span>
+                <span class="endpoint-chevron">▼</span>
+              </div>
+              <div class="endpoint-body">
+                ${ep.description ? `<p>${esc(ep.description)}</p>` : ''}
+                ${params ? `<div class="params">${params}</div>` : '<p style="color:#aaa">Geen parameters</p>'}
+              </div>
+            </div>`;
+        }
+        html += '</div>';
+      }
+      
+      el.innerHTML = html || '<p>Geen endpoints gevonden.</p>';
+    }
+    
+    function esc(t) { if(!t) return ''; const d=document.createElement('div'); d.textContent=t; return d.innerHTML; }
+    
+    loadSpec();
+  </script>
+</body>
+</html>

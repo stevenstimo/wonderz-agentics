@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>API Keys - Wonderz Agentics</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', sans-serif; background: #fff; color: #1a1a1a; }
+    
+    header { background: #fff; border-bottom: 1px solid #e5e5e5; padding: 0.6rem 1.5rem; display: flex; align-items: center; justify-content: space-between; }
+    header h1 { font-size: 1rem; font-weight: 600; }
+    .header-links { display: flex; gap: 1rem; font-size: 0.75rem; }
+    .header-links a { color: #888; text-decoration: none; }
+    .header-links a:hover { color: #1a1a1a; }
+    
+    .container { max-width: 900px; margin: 0 auto; padding: 2rem 1.5rem; }
+    
+    .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
+    .page-header h2 { font-size: 1.5rem; font-weight: 600; }
+    
+    .description { color: #666; font-size: 0.9rem; line-height: 1.6; margin-bottom: 2rem; }
+    .description p { margin-bottom: 0.5rem; }
+    
+    /* Table */
+    .keys-table { width: 100%; border-collapse: collapse; }
+    .keys-table th { text-align: left; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #888; padding: 0.75rem 1rem; border-bottom: 1px solid #e5e5e5; }
+    .keys-table td { padding: 1rem; border-bottom: 1px solid #f0f0f0; font-size: 0.9rem; vertical-align: middle; }
+    .keys-table tr:hover { background: #fafafa; }
+    
+    .key-name { font-weight: 500; }
+    .key-env { color: #888; font-size: 0.75rem; font-family: monospace; }
+    .status { display: inline-flex; align-items: center; gap: 0.35rem; }
+    .status-dot { width: 7px; height: 7px; border-radius: 50%; }
+    .status-dot.active { background: #4ade80; }
+    .status-dot.empty { background: #fbbf24; }
+    .secret-key { font-family: monospace; color: #666; font-size: 0.85rem; }
+    
+    .btn { padding: 0.4rem 0.9rem; border-radius: 6px; font-size: 0.8rem; cursor: pointer; border: 1px solid #ddd; background: #fff; color: #333; transition: all 0.15s; }
+    .btn:hover { background: #f5f5f5; }
+    .btn-primary { background: #1a1a1a; color: #fff; border-color: #1a1a1a; }
+    .btn-primary:hover { background: #333; }
+    .btn-danger { color: #dc2626; border-color: #fca5a5; }
+    .btn-danger:hover { background: #fef2f2; }
+    .btn-sm { padding: 0.3rem 0.6rem; font-size: 0.75rem; }
+    
+    .actions { display: flex; gap: 0.5rem; }
+    
+    /* Modal */
+    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 100; align-items: center; justify-content: center; }
+    .modal-overlay.active { display: flex; }
+    .modal { background: #fff; border-radius: 12px; padding: 2rem; width: 480px; max-width: 90vw; box-shadow: 0 20px 60px rgba(0,0,0,0.15); }
+    .modal h3 { font-size: 1.1rem; margin-bottom: 1.5rem; }
+    .form-group { margin-bottom: 1rem; }
+    .form-group label { display: block; font-size: 0.8rem; font-weight: 500; margin-bottom: 0.35rem; color: #555; }
+    .form-group select, .form-group input { width: 100%; padding: 0.6rem 0.75rem; border: 1px solid #ddd; border-radius: 8px; font-size: 0.9rem; outline: none; font-family: inherit; }
+    .form-group input[type="password"] { font-family: monospace; }
+    .form-group select:focus, .form-group input:focus { border-color: #999; }
+    .form-group .hint { font-size: 0.75rem; color: #999; margin-top: 0.25rem; }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1.5rem; }
+    
+    .empty-state { text-align: center; padding: 3rem; color: #999; }
+    .empty-state p { margin-bottom: 1rem; }
+    
+    /* Toast */
+    .toast { position: fixed; bottom: 2rem; right: 2rem; background: #1a1a1a; color: #fff; padding: 0.75rem 1.25rem; border-radius: 8px; font-size: 0.85rem; opacity: 0; transition: opacity 0.3s; z-index: 200; }
+    .toast.show { opacity: 1; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Wonderz Agentics</h1>
+    <div class="header-links">
+      <a href="https://wonderz-agentic.exe.xyz:8000/" target="_blank">🏠 Dashboard</a>
+      <a href="/">🚀 Codex</a>
+      <a href="https://wonderz-agentic.exe.xyz:3000/" target="_blank">🌐 Frontend</a>
+      <a href="https://wonderz-agentic.exe.xyz:8090/docs" target="_blank">⚙️ API</a>
+      <a href="https://wonderz-agentic.exe.xyz:7681/" target="_blank">🖥️ Terminal</a>
+      <a href="/settings">🔑 Keys</a>
+      <a href="https://wonderz-agentic.shelley.exe.xyz" target="_blank">🤖 Shelley</a>
+    </div>
+  </header>
+  
+  <div class="container">
+    <div class="page-header">
+      <h2>API Keys</h2>
+      <button class="btn btn-primary" onclick="openModal()">
+        + Create new secret key
+      </button>
+    </div>
+    
+    <div class="description">
+      <p>Beheer je API keys voor de AI services die in dit project worden gebruikt.</p>
+      <p>Keys worden veilig opgeslagen op de VM. Na opslaan is de volledige key niet meer zichtbaar.</p>
+    </div>
+    
+    <table class="keys-table" id="keysTable">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Status</th>
+          <th>Secret Key</th>
+          <th>Created</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="keysBody">
+      </tbody>
+    </table>
+    
+    <div class="empty-state" id="emptyState" style="display:none;">
+      <p>Geen API keys geconfigureerd.</p>
+      <button class="btn btn-primary" onclick="openModal()">+ Voeg je eerste key toe</button>
+    </div>
+  </div>
+  
+  <!-- Add/Edit Modal -->
+  <div class="modal-overlay" id="modal">
+    <div class="modal">
+      <h3 id="modalTitle">Create new secret key</h3>
+      <div class="form-group">
+        <label>Service</label>
+        <select id="keyName" onchange="updateLabel()">
+          <option value="OPENAI_API_KEY">OpenAI (Codex)</option>
+          <option value="ANTHROPIC_API_KEY">Anthropic (Claude)</option>
+          <option value="GEMINI_API_KEY">Google Gemini</option>
+          <option value="SUPABASE_KEY">Supabase</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Label</label>
+        <input type="text" id="keyLabel" placeholder="e.g. Wonderz-Agentic" />
+      </div>
+      <div class="form-group">
+        <label>Secret Key</label>
+        <input type="password" id="keyValue" placeholder="sk-..." autocomplete="off" />
+        <div class="hint">De key wordt veilig opgeslagen en is daarna niet meer volledig zichtbaar.</div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="saveKey()">Save key</button>
+      </div>
+    </div>
+  </div>
+  
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const API = window.location.origin;
+    
+    async function loadKeys() {
+      try {
+        const res = await fetch(`${API}/api/keys`);
+        const keys = await res.json();
+        renderKeys(keys);
+      } catch (e) {
+        console.error('Failed to load keys', e);
+      }
+    }
+    
+    function renderKeys(keys) {
+      const tbody = document.getElementById('keysBody');
+      const empty = document.getElementById('emptyState');
+      const table = document.getElementById('keysTable');
+      
+      if (keys.length === 0) {
+        table.style.display = 'none';
+        empty.style.display = 'block';
+        return;
+      }
+      
+      table.style.display = 'table';
+      empty.style.display = 'none';
+      
+      tbody.innerHTML = keys.map(k => `
+        <tr>
+          <td>
+            <div class="key-name">${esc(k.label)}</div>
+            <div class="key-env">${esc(k.name)}</div>
+          </td>
+          <td>
+            <span class="status">
+              <span class="status-dot ${k.status === 'Active' ? 'active' : 'empty'}"></span>
+              ${esc(k.status)}
+            </span>
+          </td>
+          <td><span class="secret-key">${esc(k.masked)}</span></td>
+          <td style="color:#888; font-size:0.85rem;">${esc(k.created)}</td>
+          <td>
+            <div class="actions">
+              <button class="btn btn-sm" onclick="openModalEdit('${esc(k.name)}', '${esc(k.label)}')">Replace</button>
+              <button class="btn btn-sm btn-danger" onclick="deleteKey('${esc(k.id)}', '${esc(k.label)}')">Delete</button>
+            </div>
+          </td>
+        </tr>
+      `).join('');
+    }
+    
+    function openModal() {
+      document.getElementById('modalTitle').textContent = 'Create new secret key';
+      document.getElementById('keyName').value = 'OPENAI_API_KEY';
+      document.getElementById('keyLabel').value = '';
+      document.getElementById('keyValue').value = '';
+      document.getElementById('modal').classList.add('active');
+      updateLabel();
+    }
+    
+    function openModalEdit(name, label) {
+      document.getElementById('modalTitle').textContent = 'Replace key';
+      document.getElementById('keyName').value = name;
+      document.getElementById('keyLabel').value = label;
+      document.getElementById('keyValue').value = '';
+      document.getElementById('modal').classList.add('active');
+    }
+    
+    function closeModal() {
+      document.getElementById('modal').classList.remove('active');
+    }
+    
+    function updateLabel() {
+      const name = document.getElementById('keyName').value;
+      const label = document.getElementById('keyLabel');
+      if (!label.value) {
+        const defaults = {
+          'OPENAI_API_KEY': 'Wonderz-Agentic',
+          'ANTHROPIC_API_KEY': 'Wonderz-Agentic',
+          'GEMINI_API_KEY': 'Wonderz-Agentic',
+          'SUPABASE_KEY': 'Wonderz-Agentic'
+        };
+        label.value = defaults[name] || 'Wonderz-Agentic';
+      }
+    }
+    
+    async function saveKey() {
+      const name = document.getElementById('keyName').value;
+      const label = document.getElementById('keyLabel').value || 'Wonderz-Agentic';
+      const value = document.getElementById('keyValue').value.trim();
+      
+      if (!value) {
+        showToast('Vul een key in');
+        return;
+      }
+      
+      try {
+        const res = await fetch(`${API}/api/keys`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, label, value })
+        });
+        const data = await res.json();
+        closeModal();
+        showToast(`✅ Key opgeslagen: ${data.masked}`);
+        loadKeys();
+      } catch (e) {
+        showToast('❌ Opslaan mislukt');
+      }
+    }
+    
+    async function deleteKey(id, label) {
+      if (!confirm(`Weet je zeker dat je "${label}" wilt verwijderen?`)) return;
+      
+      try {
+        await fetch(`${API}/api/keys/${id}`, { method: 'DELETE' });
+        showToast('🗑️ Key verwijderd');
+        loadKeys();
+      } catch (e) {
+        showToast('❌ Verwijderen mislukt');
+      }
+    }
+    
+    function showToast(msg) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.classList.add('show');
+      setTimeout(() => t.classList.remove('show'), 3000);
+    }
+    
+    function esc(text) {
+      const d = document.createElement('div');
+      d.textContent = text;
+      return d.innerHTML;
+    }
+    
+    // Close modal on overlay click
+    document.getElementById('modal').addEventListener('click', (e) => {
+      if (e.target === e.currentTarget) closeModal();
+    });
+    
+    // Close modal on Escape
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeModal();
+    });
+    
+    loadKeys();
+  </script>
+</body>
+</html>

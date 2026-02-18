@@ -214,12 +214,12 @@ async def status_summary():
     except Exception as e:
         checks["terminal"] = {"ok": False, "detail": str(e)[:120]}
 
-    # 5c. Codex Web (port 7682)
+    # 5c. Codex Web (port 8080)
     try:
         import httpx
         async with httpx.AsyncClient(timeout=3) as client:
-            resp = await client.get("http://localhost:7682/")
-            checks["codex_web"] = {"ok": resp.status_code == 200, "detail": f"HTTP {resp.status_code} (port 7682)"}
+            resp = await client.get("http://localhost:8080/")
+            checks["codex_web"] = {"ok": resp.status_code == 200, "detail": f"HTTP {resp.status_code} (port 8080)"}
     except Exception as e:
         checks["codex_web"] = {"ok": False, "detail": str(e)[:120]}
 
