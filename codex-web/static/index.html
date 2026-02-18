@@ -226,7 +226,11 @@
           break;
         case 'event': handleEvent(msg.data); break;
         case 'output':
-          if (msg.data && msg.data.trim()) { removeThinking(); addTerminal(msg.data); }
+          if (msg.data && msg.data.trim()) {
+            // Filter stderr noise (codex rollout errors, debug logs)
+            if (msg.stream === 'stderr' && /^\d{4}-.*?(ERROR|WARN|DEBUG|INFO|TRACE)/.test(msg.data)) break;
+            removeThinking(); addTerminal(msg.data);
+          }
           break;
         case 'done':
           removeThinking(); isRunning = false; sendBtn.disabled = false;
@@ -249,7 +253,19 @@
       if (SKIP.has(ev.type)) return;
       if (ev.type === 'error') { if (ev.message) { removeThinking(); addText('error', ev.message); } return; }
       if (ev.type === 'turn.failed') { removeThinking(); addText('error', ev.error?.message||'Failed'); return; }
-      if (ev.type === 'message' && ev.message?.role === 'assistant' && ev.message.content) {
+      // Codex CLI v0.101+ uses item.completed with item.text
+      if (ev.type === 'item.completed' && ev.item) {
+        removeThinking();
+        if (ev.item.type === 'agent_message' && ev.item.text) {
+          addMarkdown(ev.item.text);
+        } else if (ev.item.type === 'command' || ev.item.type === 'tool_call') {
+          const cmd = ev.item.command || ev.item.name || '';
+          if (cmd) addCommand(Array.isArray(cmd) ? cmd.join(' ') : cmd);
+          if (ev.item.output) addTerminal(ev.item.output);
+        }
+        showThinking();
+      // Legacy format: message with content blocks
+      } else if (ev.type === 'message' && ev.message?.role === 'assistant' && ev.message.content) {
         removeThinking();
         for (const b of ev.message.content) {
           if (b.type === 'text' && b.text) addMarkdown(b.text);
@@ -260,6 +276,9 @@
         addTerminal(ev.output);
       } else if (ev.type === 'agent_reasoning' && ev.text) {
         removeThinking(); addMarkdown(ev.text); showThinking();
+      // turn.completed shows token usage
+      } else if (ev.type === 'turn.completed' && ev.usage) {
+        // silently handled — done event follows
       }
     }
 
