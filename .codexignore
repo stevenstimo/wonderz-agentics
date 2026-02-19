@@ -1,0 +1,46 @@
+# Large/irrelevant directories
+web_ui/frontend/node_modules/
+web_ui/frontend/dist/
+node_modules/
+.venv/
+__pycache__/
+*.pyc
+
+# Build artifacts
+*.egg-info/
+dist/
+build/
+
+# Uploads (temporary files)
+.codex-uploads/
+
+# Documentation (not needed as code context)
+*.md
+!README.md
+!AGENTS.md
+
+# Config/data files
+*.json
+!package.json
+*.lock
+*.log
+
+# Binary/media
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.svg
+*.ico
+*.woff*
+*.ttf
+*.eot
+
+# K8s manifests
+k8s/
+
+# Tests (not needed unless specifically asked)
+tests/
+
+# Codex web static (separate app)
+codex-web/static/

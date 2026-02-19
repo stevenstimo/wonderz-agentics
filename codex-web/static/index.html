@@ -253,10 +253,16 @@
           if (msg.return_code !== 0) addText('error', `Afgerond met code ${msg.return_code}`);
           startTime = null;
           loadThreads();
+          // Auto-continue file queue
+          if (queueRunning && fileQueue.length > 0) scheduleNextInQueue();
+          else if (queueRunning) { queueRunning = false; addDivider('✅ All files processed'); }
           break;
         case 'error':
           removeThinking(); isRunning = false; sendBtn.disabled = false;
           addText('error', msg.data); startTime = null;
+          // Auto-continue file queue even on error
+          if (queueRunning && fileQueue.length > 0) scheduleNextInQueue();
+          else if (queueRunning) { queueRunning = false; addDivider('✅ All files processed (with errors)'); }
           break;
       }
     }
@@ -640,6 +646,40 @@
       renderAttachments();
     });
 
+    // --- File queue for sequential execution ---
+    let fileQueue = [];      // [{name, rel_path, is_text}, ...]
+    let queueBasePrompt = ''; // User's original prompt text
+    let queueRunning = false;
+    const QUEUE_DELAY_MS = 65000; // 65s between files to respect TPM rate limits
+
+    function processNextInQueue() {
+      if (fileQueue.length === 0) {
+        queueRunning = false;
+        addDivider('✅ All files processed');
+        return;
+      }
+      const file = fileQueue.shift();
+      const remaining = fileQueue.length;
+      const label = remaining > 0 ? ` [${remaining} more queued]` : '';
+      const instruction = `Read the file \`${file.rel_path}\` (${file.name}) and execute the instructions/plan described in it.${queueBasePrompt ? '\n\nAdditional context from user: ' + queueBasePrompt : ''}`;
+      addDivider(`📄 Processing: ${file.name}${label}`);
+      promptEl.value = instruction;
+      _origSendPrompt();
+    }
+
+    function scheduleNextInQueue() {
+      if (fileQueue.length === 0) {
+        queueRunning = false;
+        addDivider('✅ All files processed');
+        return;
+      }
+      const secs = Math.round(QUEUE_DELAY_MS / 1000);
+      addDivider(`⏳ Waiting ${secs}s for rate limit cooldown before next file (${fileQueue.length} remaining)...`);
+      setTimeout(processNextInQueue, QUEUE_DELAY_MS);
+    }
+
+
+
     // Override sendPrompt to handle attachments
     const _origSendPrompt = sendPrompt;
     window.sendPrompt = async function() {
@@ -647,16 +687,34 @@
       // Upload files first
       const formData = new FormData();
       pendingFiles.forEach(f => formData.append('files', f));
+      pendingFiles = [];
+      renderAttachments();
       try {
         const res = await fetch('/api/upload', { method: 'POST', body: formData });
         const data = await res.json();
-        // Build file reference instructions for Codex
         const textFiles = (data.files || []).filter(f => f.is_text && !f.error);
         const imageFiles = (data.files || []).filter(f => !f.is_text && !f.error);
+
+        // If multiple text files: queue them for sequential execution
+        if (textFiles.length > 1) {
+          queueBasePrompt = promptEl.value.trim();
+          fileQueue = textFiles.map(f => ({ name: f.name, rel_path: f.rel_path, is_text: true }));
+          // Include image refs in base prompt if any
+          if (imageFiles.length > 0) {
+            const imgList = imageFiles.map(f => `- ${f.rel_path} (${f.name})`).join('\n');
+            queueBasePrompt += `\n\nUploaded images:\n${imgList}`;
+          }
+          queueRunning = true;
+          addDivider(`📋 Queue: ${fileQueue.length} files to process sequentially`);
+          processNextInQueue();
+          return;
+        }
+
+        // Single file or only images: add to prompt as before
         let prefix = '';
-        if (textFiles.length > 0) {
-          const fileList = textFiles.map(f => `- ${f.rel_path} (${f.name})`).join('\n');
-          prefix += `\n\nI have uploaded the following files to the project directory. Read them first before proceeding:\n${fileList}\n`;
+        if (textFiles.length === 1) {
+          const f = textFiles[0];
+          prefix += `\n\nRead the file \`${f.rel_path}\` (${f.name}) and execute the instructions/plan described in it.`;
         }
         if (imageFiles.length > 0) {
           const imgList = imageFiles.map(f => `- ${f.rel_path} (${f.name})`).join('\n');
@@ -668,8 +726,6 @@
       } catch (err) {
         console.error('Upload failed:', err);
       }
-      pendingFiles = [];
-      renderAttachments();
       _origSendPrompt();
     };
 
