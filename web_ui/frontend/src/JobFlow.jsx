@@ -95,7 +95,9 @@ export default function JobFlow() {
       setPhase(newPhase)
 
       // Toon eerste onbeantwoorde clarification vraag in chat.
-      const nextQuestion = unanswered[0]?.question || d.job?.context?.brief?.clarifications?.[0]?.question
+      let _ctx = d.job?.context
+      if (typeof _ctx === 'string') try { _ctx = JSON.parse(_ctx) } catch { _ctx = {} }
+      const nextQuestion = unanswered[0]?.question || _ctx?.brief?.clarifications?.[0]?.question
       if (nextQuestion) {
         setMessages(p => {
           const lastMsg = p[p.length - 1]
@@ -230,7 +232,15 @@ export default function JobFlow() {
   const ci = stepList.indexOf(phase)
   const job = jobData?.job
   const steps = jobData?.steps || []
-  const rawPlan = job?.context?.plan ?? job?.context?.execution_plan ?? []
+
+  // context can be a JSON string or object — normalize
+  let ctx = job?.context
+  if (typeof ctx === 'string') {
+    try { ctx = JSON.parse(ctx) } catch { ctx = {} }
+  }
+  ctx = ctx || {}
+
+  const rawPlan = ctx.plan ?? ctx.execution_plan ?? []
   const plan = Array.isArray(rawPlan) ? rawPlan : (Array.isArray(rawPlan?.steps) ? rawPlan.steps : [])
 
   // Group raw step events by step_name so UI shows one logical task with latest state.
@@ -331,13 +341,16 @@ export default function JobFlow() {
   })
 
   const taskDoneCount = planTasks.filter(t => t.status === 'success').length
-  const generatedText = (jobData?.artifacts || [])
-    .find(a => a?.name === 'copy_draft')
-    ?.proposed_data
-    ?.text
+  // Find the text artifact — check multiple possible locations
+  let generatedText = null
+  for (const a of (jobData?.artifacts || [])) {
+    let pd = a?.proposed_data
+    if (typeof pd === 'string') try { pd = JSON.parse(pd) } catch { continue }
+    if (pd?.text) { generatedText = pd.text; break }
+  }
   const displayText = (typeof generatedText === 'string' && generatedText.trim().length > 0)
     ? generatedText.trim()
-    : 'Geen tekst beschikbaar - agent heeft geen artifact opgeslagen'
+    : 'Tekst wordt nog gegenereerd...'
 
   return (
     <PageLayout size="wide" padded>
@@ -512,7 +525,7 @@ export default function JobFlow() {
               <div className="flex gap-3">
                 <Sparkles className="w-5 h-5 text-indigo-600 flex-shrink-0 mt-0.5" />
                 <div className="text-sm text-indigo-700">
-                  {job?.context?.ceo_summary || 'Job is gereed voor goedkeuring.'}
+                  {ctx?.ceo_summary || 'Job is gereed voor goedkeuring.'}
                 </div>
               </div>
             </div>

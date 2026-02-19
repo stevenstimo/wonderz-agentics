@@ -10,7 +10,10 @@ const STATUS_COLORS = {
   JOB_READY: 'bg-green-100 text-green-800',
   COMPLETED: 'bg-green-200 text-green-900',
   FAILED: 'bg-red-100 text-red-800',
+  AWAITING_APPROVAL: 'bg-orange-100 text-orange-800',
 }
+
+const RESTARTABLE = ['AWAITING_APPROVAL', 'INTAKE_CLARIFICATION', 'PLAN_PROPOSED', 'FAILED']
 
 export default function JobCenter() {
   const [jobs, setJobs] = useState([])
@@ -18,6 +21,25 @@ export default function JobCenter() {
   const [jobDetail, setJobDetail] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+
+  const [restarting, setRestarting] = useState(null)
+
+  const restartJob = async (jobId, e) => {
+    e.stopPropagation()
+    setRestarting(jobId)
+    try {
+      const res = await fetch(`${apiBase}/api/jobs/${jobId}/restart`, { method: 'POST' })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        alert(err.detail || 'Restart mislukt')
+      } else {
+        await fetchJobs()
+      }
+    } catch (err) {
+      alert('Restart mislukt: ' + err.message)
+    }
+    setRestarting(null)
+  }
 
   const fetchJobs = async () => {
     setLoading(true)
@@ -102,7 +124,18 @@ export default function JobCenter() {
                 {new Date(job.created_at).toLocaleString('nl-NL')} · {job.source_platform || 'custom'}
               </div>
             </div>
-            <span className="text-slate-400 ml-4">{expandedJob === job.job_id ? '▲' : '▼'}</span>
+            <div className="flex items-center gap-2 ml-4">
+              {RESTARTABLE.includes(job.status) && (
+                <button
+                  onClick={(e) => restartJob(job.job_id, e)}
+                  disabled={restarting === job.job_id}
+                  className="px-3 py-1 text-xs font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 whitespace-nowrap"
+                >
+                  {restarting === job.job_id ? '⏳ Herstart...' : '↻ Restart'}
+                </button>
+              )}
+              <span className="text-slate-400">{expandedJob === job.job_id ? '▲' : '▼'}</span>
+            </div>
           </div>
 
           {expandedJob === job.job_id && jobDetail && (

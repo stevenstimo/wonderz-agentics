@@ -411,6 +411,13 @@ class OperationsManager:
             ctx = SharedContext(job_id=job_id, store_id=store_id)
             ctx.update("payload", initial_payload)
 
+            # Load existing job context from DB so restarted jobs have their data
+            existing_ctx = await self.get_job_context(conn, job_id)
+            if existing_ctx:
+                for k, v in existing_ctx.items():
+                    if k not in ctx.data:
+                        ctx.update(k, v)
+
             await self.update_job_status(conn, job_id, JobStatus.RUNNING.value)
             current_step = None
             steps = 0

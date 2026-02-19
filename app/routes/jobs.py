@@ -566,6 +566,84 @@ async def approve_and_deploy(
         )
 
 
+@router.post("/{job_id}/restart")
+async def restart_job(job_id: str):
+    """
+    Restart a stuck job: reset to PLAN_PROPOSED and re-run the workflow.
+    Works for AWAITING_APPROVAL, INTAKE_CLARIFICATION, PLAN_PROPOSED, FAILED.
+    """
+    job_id = _validate_job_id(job_id)
+    pool = _db._pool
+    if not pool:
+        raise HTTPException(status_code=503, detail="DB pool not initialised")
+
+    async with pool.acquire() as conn:
+        job = await conn.fetchrow("SELECT * FROM jobs WHERE id=$1", job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+
+        current = job['status']
+        restartable = ['AWAITING_APPROVAL', 'INTAKE_CLARIFICATION', 'PLAN_PROPOSED', 'FAILED']
+        if current not in restartable:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Job status '{current}' cannot be restarted. Only: {', '.join(restartable)}"
+            )
+
+        # Parse context
+        ctx = job['context']
+        if isinstance(ctx, str):
+            ctx = json.loads(ctx)
+        ctx = ctx or {}
+
+        # If no plan exists yet, generate a default one
+        if 'plan' not in ctx:
+            ctx['brief'] = ctx.get('brief', {})
+            ctx['brief']['is_complete'] = True
+            ctx['plan'] = {
+                'brief': ctx['brief'],
+                'steps': [
+                    {'agent_role': 'copywriter', 'step_index': 1, 'description': 'Write text', 'requires_approval': False},
+                    {'agent_role': 'reviewer', 'step_index': 2, 'description': 'Review text', 'requires_approval': False},
+                ],
+                'hired_agents': ['copywriter', 'reviewer'],
+                'estimated_duration_seconds': 120,
+            }
+
+        # Reset retry counter
+        if 'metadata' in ctx:
+            ctx['metadata']['retries'] = 0
+            ctx['metadata'].pop('awaiting_manual_approval', None)
+
+        # Clear previous agent output so copy_agent writes fresh
+        ctx.pop('copy_agent', None)
+        ctx.pop('reviewer_agent', None)
+
+        # Update job to RUNNING and start workflow
+        await conn.execute(
+            "UPDATE jobs SET status='RUNNING', context=$1, updated_at=NOW() WHERE id=$2",
+            json.dumps(ctx, default=str), job_id
+        )
+
+    # Run workflow in background
+    try:
+        from workers.tasks import run_job
+        run_job.delay(str(job_id))
+    except Exception:
+        import asyncio
+        from app.orchestration.manager import WorkflowManager
+        wm = WorkflowManager()
+        asyncio.create_task(
+            wm.run_workflow(str(job_id), None, {'context': ctx})
+        )
+
+    return {
+        'job_id': str(job_id),
+        'status': 'RUNNING',
+        'message': f'Job restarted from {current}. Workflow running.'
+    }
+
+
 @router.get("/{job_id}")
 async def get_job(job_id: str):
     """
