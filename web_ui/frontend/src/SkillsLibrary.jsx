@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { apiBase } from './apiBase'
+import PageLayout from './PageLayout'
 import './SkillsLibrary.css'
 
 export default function SkillsLibrary() {
@@ -42,10 +43,15 @@ export default function SkillsLibrary() {
   }
 
   if (loading) {
-    return <div className="loading">Laden...</div>
+    return (
+      <PageLayout size="wide" padded>
+        <div className="loading">Laden...</div>
+      </PageLayout>
+    )
   }
 
   return (
+    <PageLayout size="wide" padded>
     <div className="skills-library">
       <h1>Skills Library</h1>
       <p className="subtitle">
@@ -152,5 +158,6 @@ export default function SkillsLibrary() {
         </div>
       )}
     </div>
+    </PageLayout>
   )
 }
