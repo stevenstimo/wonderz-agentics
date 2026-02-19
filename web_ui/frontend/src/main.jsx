@@ -7,6 +7,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import App from './App.jsx'
 import Dashboard from './Dashboard.jsx'
 import HRImprovements from './HRImprovements.jsx'
+import HRDashboard from './HRDashboard.jsx'
 import CrewManagement from './CrewManagement.jsx'
 import TrainingManagement from './TrainingManagement.jsx'
 import ApprovalDashboard from './ApprovalDashboard.jsx'
@@ -42,6 +43,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <Route path="/agents/new" element={<NewCrewMember />} />
           <Route path="/training/management" element={<TrainingManagement />} />
           <Route path="/approvals" element={<ApprovalDashboard />} />
+          <Route path="/hr" element={<HRDashboard />} />
           <Route path="/hr/improvements" element={<HRImprovements />} />
           <Route path="/explainer/how-it-works" element={<ExplainerHowItWorks />} />
           <Route path="/explainer/persona" element={<ExplainerPersona />} />

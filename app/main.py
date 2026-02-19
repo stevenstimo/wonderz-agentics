@@ -6,11 +6,13 @@ from pydantic import BaseModel
 import uuid
 import asyncio
 
+import app.db as _db
 from app.db import init_db_pool, close_db_pool
 
 # Import job flow routes
 from app.routes.jobs import router as jobs_router
 from app.routes.agents import router as agents_router
+from app.routes.hr import router as hr_router
 
 # Celery task will be imported lazily to avoid starting worker at import time
 
@@ -40,6 +42,7 @@ app.add_middleware(
 # Include routes
 app.include_router(jobs_router)
 app.include_router(agents_router)
+app.include_router(hr_router)
 
 
 # --- Stub endpoints for JobCenter compatibility ---
@@ -72,13 +75,56 @@ async def get_explainer_sections():
     }
 
 
+# ----------- Scheduled tasks -----------
+_hr_scan_task = None
+
+
 @app.on_event("startup")
 async def on_startup():
     await init_db_pool()
 
+    # Schedule daily HR scan at 2:00 AM
+    async def _daily_hr_scan():
+        import asyncio
+        while True:
+            try:
+                # Calculate seconds until next 2:00 AM
+                from datetime import datetime, timedelta
+                now = datetime.now()
+                next_run = now.replace(hour=2, minute=0, second=0, microsecond=0)
+                if next_run <= now:
+                    next_run += timedelta(days=1)
+                wait_seconds = (next_run - now).total_seconds()
+
+                import logging
+                logging.getLogger(__name__).info(
+                    f"HR scan scheduled in {wait_seconds/3600:.1f}h (at {next_run.strftime('%H:%M')})"
+                )
+                await asyncio.sleep(wait_seconds)
+
+                # Run the scan
+                from app.services.hr_manager import HRManager
+                pool = _db._pool if hasattr(_db, '_pool') else None
+                if pool:
+                    hr = HRManager(pool)
+                    result = await hr.scan_job_steps(since_days=7)
+                    logging.getLogger(__name__).info(f"Daily HR scan completed: {result}")
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).error(f"HR scan error: {e}")
+                await asyncio.sleep(3600)  # Retry in 1 hour
+
+    global _hr_scan_task
+    _hr_scan_task = asyncio.create_task(_daily_hr_scan())
+
 
 @app.on_event("shutdown")
 async def on_shutdown():
+    global _hr_scan_task
+    if _hr_scan_task:
+        _hr_scan_task.cancel()
     await close_db_pool()
 
 
