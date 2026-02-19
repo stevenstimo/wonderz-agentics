@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import PageLayout from './PageLayout'
-import { AlertTriangle, CheckCircle, XCircle, BarChart3, RefreshCw, Filter } from 'lucide-react'
+import { AlertTriangle, CheckCircle, XCircle, BarChart3, RefreshCw, Filter, TrendingUp } from 'lucide-react'
 
 const IMPACT_COLORS = {
   HIGH: { bg: 'bg-red-50', border: 'border-red-200', badge: 'bg-red-100 text-red-800' },
@@ -50,7 +50,7 @@ export default function HRDashboard() {
   async function triggerScan() {
     setScanning(true)
     try {
-      await fetch('/api/hr/scan', { method: 'POST' })
+      await fetch('/api/hr/scan-patterns', { method: 'POST' })
       await loadAll()
     } catch (e) {
       console.error('Scan failed:', e)
@@ -83,6 +83,23 @@ export default function HRDashboard() {
     }
   }
 
+  async function approveTraining(pointId, sourceUrl) {
+    try {
+      await fetch('/api/hr/approve-training', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          point_id: pointId,
+          source_url: sourceUrl,
+          approved_by: 'user'
+        })
+      })
+      await loadAll()
+    } catch (e) {
+      console.error('Approve training failed:', e)
+    }
+  }
+
   const agentRoles = report ? Object.keys(report) : []
 
   return (
@@ -100,7 +117,7 @@ export default function HRDashboard() {
             className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 text-sm font-medium"
           >
             <RefreshCw className={`w-4 h-4 ${scanning ? 'animate-spin' : ''}`} />
-            {scanning ? 'Scanning...' : 'Run Scan'}
+            {scanning ? 'Scanning...' : 'Scan Issues'}
           </button>
         </div>
 
@@ -194,52 +211,115 @@ export default function HRDashboard() {
             </div>
           ) : (
             <div className="space-y-3">
-              {points.map(point => {
-                const impactKey = (point.impact || '').toUpperCase()
-                const colors = IMPACT_COLORS[impactKey] || IMPACT_COLORS.LOW
-                return (
-                  <div key={point.point_id} className={`rounded-xl border p-4 ${colors.bg} ${colors.border}`}>
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className={`text-xs font-semibold px-2 py-0.5 rounded ${colors.badge}`}>
-                            {impactKey || point.impact}
-                          </span>
-                          <span className="text-xs font-mono text-gray-500">{point.point_id}</span>
-                          <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded capitalize">
-                            {(point.agent_role || point.agent_id || '').replace('_', ' ')}
-                          </span>
-                          <span className="text-xs text-gray-500">×{point.frequency}</span>
-                        </div>
-                        <p className="text-sm text-gray-800">{point.issue_description}</p>
-                        {point.created_at && (
-                          <p className="text-xs text-gray-400 mt-1">
-                            Aangemaakt: {new Date(point.created_at).toLocaleDateString('nl-NL')}
-                          </p>
-                        )}
-                      </div>
-                      <div className="flex gap-2 flex-shrink-0">
-                        <button
-                          onClick={() => resolvePoint(point.point_id)}
-                          className="flex items-center gap-1 px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-medium hover:bg-green-700"
-                        >
-                          <CheckCircle className="w-3.5 h-3.5" /> Opgelost
-                        </button>
-                        <button
-                          onClick={() => dismissPoint(point.point_id)}
-                          className="flex items-center gap-1 px-3 py-1.5 bg-gray-200 text-gray-600 rounded-lg text-xs font-medium hover:bg-gray-300"
-                        >
-                          <XCircle className="w-3.5 h-3.5" /> Afwijzen
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )
-              })}
+              {points.map(point => (
+                <DevelopmentPointCard
+                  key={point.point_id}
+                  point={point}
+                  onResolve={resolvePoint}
+                  onDismiss={dismissPoint}
+                  onApprove={approveTraining}
+                />
+              ))}
             </div>
           )}
         </div>
       </div>
     </PageLayout>
+  )
+}
+
+function DevelopmentPointCard({ point, onResolve, onDismiss, onApprove }) {
+  const [showApproval, setShowApproval] = useState(false)
+  const [trainingUrl, setTrainingUrl] = useState(point.source_url || '')
+  const [approving, setApproving] = useState(false)
+
+  const impactKey = (point.impact || '').toUpperCase()
+  const colors = IMPACT_COLORS[impactKey] || IMPACT_COLORS.LOW
+
+  async function handleApprove() {
+    if (!trainingUrl) return
+    setApproving(true)
+    await onApprove(point.point_id, trainingUrl)
+    setApproving(false)
+    setShowApproval(false)
+  }
+
+  return (
+    <div className={`rounded-xl border p-4 ${colors.bg} ${colors.border}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 mb-1">
+            <span className={`text-xs font-semibold px-2 py-0.5 rounded ${colors.badge}`}>
+              {impactKey || point.impact}
+            </span>
+            <span className="text-xs font-mono text-gray-500">{point.point_id}</span>
+            <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded capitalize">
+              {(point.agent_role || point.agent_id || '').replace('_', ' ')}
+            </span>
+            <span className="text-xs text-gray-500">×{point.frequency}</span>
+          </div>
+          <p className="text-sm text-gray-800">{point.issue_description}</p>
+          {point.created_at && (
+            <p className="text-xs text-gray-400 mt-1">
+              Aangemaakt: {new Date(point.created_at).toLocaleDateString('nl-NL')}
+            </p>
+          )}
+          {point.source_url && (
+            <p className="text-xs text-gray-500 mt-1 truncate">Bron: {point.source_url}</p>
+          )}
+        </div>
+      </div>
+
+      <div className="mt-3 space-y-2">
+        {!showApproval ? (
+          <button
+            onClick={() => setShowApproval(true)}
+            className="flex items-center gap-2 px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-medium hover:bg-indigo-700"
+          >
+            <TrendingUp className="w-3.5 h-3.5" /> Approve Training
+          </button>
+        ) : (
+          <div className="space-y-2">
+            <input
+              type="url"
+              value={trainingUrl}
+              onChange={e => setTrainingUrl(e.target.value)}
+              placeholder="Training URL"
+              className="w-full px-3 py-2 border rounded-lg text-sm"
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowApproval(false)}
+                className="flex-1 px-3 py-2 bg-gray-200 rounded-lg text-xs"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleApprove}
+                disabled={!trainingUrl || approving}
+                className="flex-1 px-3 py-2 bg-indigo-600 text-white rounded-lg text-xs disabled:opacity-50"
+              >
+                {approving ? 'Starting...' : 'Start'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="flex gap-2">
+          <button
+            onClick={() => onResolve(point.point_id)}
+            className="flex items-center gap-1 px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-medium hover:bg-green-700"
+          >
+            <CheckCircle className="w-3.5 h-3.5" /> Opgelost
+          </button>
+          <button
+            onClick={() => onDismiss(point.point_id)}
+            className="flex items-center gap-1 px-3 py-1.5 bg-gray-200 text-gray-600 rounded-lg text-xs font-medium hover:bg-gray-300"
+          >
+            <XCircle className="w-3.5 h-3.5" /> Afwijzen
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
