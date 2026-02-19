@@ -3,15 +3,24 @@ import { Link, useNavigate } from 'react-router-dom'
 import PageLayout from './PageLayout'
 import { supabase } from './supabase'
 import { getCurrentUserRole } from './authz'
-import { Lock, User, Mail, Shield, LogOut, Loader } from 'lucide-react'
+import { User, Loader } from 'lucide-react'
 
 function fallbackName(user) {
   return user?.user_metadata?.full_name || user?.user_metadata?.name || user?.email || 'Unknown user'
 }
 
+function withTimeout(promise, ms = 8000) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('Verzoek duurde te lang. Probeer de pagina te herladen.')), ms))
+  ])
+}
+
 export default function MyAccount() {
+  const navigate = useNavigate()
   const [user, setUser] = useState(null)
   const [role, setRole] = useState('member')
+  const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
@@ -41,6 +50,11 @@ export default function MyAccount() {
 
     const { data: listener } = supabase.auth.onAuthStateChange(async (_event, session) => {
       const currentUser = session?.user || null
+      if (!currentUser) {
+        setUser(null)
+        setLoading(false)
+        return
+      }
       setUser(currentUser)
       setFullName(fallbackName(currentUser))
       try {
@@ -65,20 +79,20 @@ export default function MyAccount() {
     setBusy(true)
     setError('')
     setMessage('')
-
-    const { error: updateError } = await supabase.auth.updateUser({
-      data: {
-        full_name: fullName.trim(),
-        name: fullName.trim(),
-      },
-    })
-
-    if (updateError) {
-      setError(updateError.message)
-    } else {
-      setMessage('Profiel bijgewerkt.')
+    try {
+      const { error: updateError } = await withTimeout(supabase.auth.updateUser({
+        data: { full_name: fullName.trim(), name: fullName.trim() },
+      }))
+      if (updateError) {
+        setError(updateError.message)
+      } else {
+        setMessage('Profiel bijgewerkt.')
+      }
+    } catch (e) {
+      setError(e.message || 'Profiel opslaan mislukt')
+    } finally {
+      setBusy(false)
     }
-    setBusy(false)
   }
 
   const handleChangePassword = async () => {
@@ -86,29 +100,34 @@ export default function MyAccount() {
     setBusy(true)
     setError('')
     setMessage('')
-
-    const { error: updateError } = await supabase.auth.updateUser({
-      password: newPassword,
-    })
-
-    if (updateError) {
-      setError(updateError.message)
-    } else {
-      setMessage('Wachtwoord gewijzigd.')
-      setNewPassword('')
+    try {
+      const { error: updateError } = await withTimeout(supabase.auth.updateUser({ password: newPassword }))
+      if (updateError) {
+        setError(updateError.message)
+      } else {
+        setMessage('Wachtwoord gewijzigd.')
+        setNewPassword('')
+      }
+    } catch (e) {
+      setError(e.message || 'Wachtwoord wijzigen mislukt')
+    } finally {
+      setBusy(false)
     }
-    setBusy(false)
   }
 
   const handleSignOut = async () => {
     setBusy(true)
     setError('')
-    await supabase.auth.signOut()
-    setBusy(false)
+    try {
+      await withTimeout(supabase.auth.signOut())
+    } catch (e) {
+      console.error('signOut error:', e)
+    } finally {
+      setBusy(false)
+      setUser(null)
+      navigate('/login')
+    }
   }
-
-  const [loading, setLoading] = useState(true)
-  const navigate = useNavigate()
 
   if (loading && !user) {
     return (
@@ -151,7 +170,10 @@ export default function MyAccount() {
           <p className="page-subtitle">Bekijk en beheer je profielgegevens.</p>
         </div>
 
-        <div className="space-y-3 text-sm text-gray-700">
+        {error && <div className="p-3 bg-red-50 text-red-700 rounded-lg text-sm">{error}</div>}
+        {message && <div className="p-3 bg-emerald-50 text-emerald-700 rounded-lg text-sm">{message}</div>}
+
+        <div className="space-y-3">
           <label className="block text-sm font-medium text-gray-700">Naam</label>
           <input
             type="text"
@@ -171,12 +193,11 @@ export default function MyAccount() {
 
         <div className="space-y-2 text-sm text-gray-700">
           <div><span className="font-semibold">Email:</span> {user.email || '-'}</div>
-          <div><span className="font-semibold">Rol:</span> {role}</div>
-          <div><span className="font-semibold">User ID:</span> <code>{user.id}</code></div>
-          <p className="text-xs text-gray-500">E-mail aanpassen is momenteel niet beschikbaar.</p>
+          <div><span className="font-semibold">Rol:</span> <span className={role === 'super_admin' ? 'text-indigo-600 font-semibold' : ''}>{role}</span></div>
+          <div><span className="font-semibold">User ID:</span> <code className="text-xs">{user.id}</code></div>
         </div>
 
-        <div className="space-y-3 text-sm text-gray-700">
+        <div className="space-y-3">
           <label className="block text-sm font-medium text-gray-700">Nieuw wachtwoord</label>
           <input
             type="password"
@@ -195,17 +216,16 @@ export default function MyAccount() {
           </button>
         </div>
 
-        <button
-          type="button"
-          onClick={handleSignOut}
-          disabled={busy}
-          className="px-4 py-2 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50"
-        >
-          Uitloggen
-        </button>
-
-        {error && <div className="text-sm text-red-600">{error}</div>}
-        {message && <div className="text-sm text-emerald-700">{message}</div>}
+        <div className="pt-2 border-t">
+          <button
+            type="button"
+            onClick={handleSignOut}
+            disabled={busy}
+            className="px-4 py-2 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50"
+          >
+            {busy ? 'Bezig...' : 'Uitloggen'}
+          </button>
+        </div>
       </div>
     </PageLayout>
   )
