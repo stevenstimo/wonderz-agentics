@@ -170,6 +170,11 @@ async def run(payload: Dict[str, Any]) -> Dict[str, Any]:
     # --- Load agent skills ---
     agent_config = payload.get('agent_config') or {}
     agent_id = agent_config.get('agent_id', '')
+    logger.warning('=== COPY_AGENT DEBUG ===')
+    logger.warning('job_id: %s', job_id)
+    logger.warning('agent_config: %s', agent_config)
+    logger.warning('agent_id: %s', agent_id)
+    logger.warning('========================')
     task_context = dict(context or {})
     task_context.setdefault('job_post', job_post)
     task_context.setdefault('platform', fields['platform'])
