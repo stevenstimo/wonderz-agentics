@@ -10,6 +10,7 @@ from app.db import init_db_pool, close_db_pool
 
 # Import job flow routes
 from app.routes.jobs import router as jobs_router
+from app.routes.agents import router as agents_router
 
 # Celery task will be imported lazily to avoid starting worker at import time
 
@@ -36,8 +37,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include job flow routes
+# Include routes
 app.include_router(jobs_router)
+app.include_router(agents_router)
 
 
 # --- Stub endpoints for JobCenter compatibility ---

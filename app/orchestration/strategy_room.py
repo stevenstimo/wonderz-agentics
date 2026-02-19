@@ -1,7 +1,7 @@
-"""
-StrategyRoom: Converts StrategicBrief to ExecutionPlan.
+"""StrategyRoom: Converts StrategicBrief to ExecutionPlan.
 
 The CEO Agent uses this to determine which agents to hire and in what sequence.
+Now with dynamic agent selection from the hired_agents table.
 """
 
 from typing import List, Dict, Optional
@@ -10,52 +10,167 @@ from datetime import datetime
 import json
 import logging
 import time
+import asyncpg
 from anthropic import Anthropic, APIError, APITimeoutError, RateLimitError
 
 logger = logging.getLogger(__name__)
 
 
-class HiredAgent:
-    """Represents a hired agent for a job."""
-    def __init__(self, role: str, agent_id: str):
-        self.role = role
-        self.agent_id = agent_id
-
-
 class StrategyRoom:
-    """Creates ExecutionPlans from StrategicBriefs."""
+    """Creates ExecutionPlans from StrategicBriefs with dynamic agent selection."""
+
+    # Role → tool mapping
+    ROLE_TOOLS = {
+        "copywriter": "write_copy",
+        "seo": "optimize_seo",
+        "reviewer": "review_content",
+        "developer": "write_code",
+        "paid_ads_manager": "manage_ads",
+        "data_analyst": "analyze_data",
+    }
+
+    # Role → description templates
+    ROLE_DESCRIPTIONS = {
+        "copywriter": "Write {word_count} words about {topic}",
+        "seo": "Optimize content for SEO targeting {kpi}",
+        "reviewer": "Review content for quality, clarity, and alignment",
+        "developer": "Implement technical changes",
+        "paid_ads_manager": "Create and optimize ad campaigns",
+        "data_analyst": "Analyze data and generate insights",
+    }
 
     def __init__(self, model: str = "claude-3-5-sonnet-20241022", max_retries: int = 3):
         self.model = model
         self.client = Anthropic()
         self.max_retries = max_retries
 
+    async def get_available_agents(self, db_pool, role: str = None) -> List[dict]:
+        """Fetch hired agents from database, optionally filtered by role."""
+        if not db_pool:
+            return []
+
+        try:
+            async with db_pool.acquire() as conn:
+                if role:
+                    agents = await conn.fetch(
+                        "SELECT * FROM hired_agents WHERE role = $1 AND status = 'active'",
+                        role
+                    )
+                else:
+                    agents = await conn.fetch(
+                        "SELECT * FROM hired_agents WHERE status = 'active'"
+                    )
+            return [dict(a) for a in agents]
+        except Exception as e:
+            logger.warning(f"Failed to fetch hired agents: {e}")
+            return []
+
+    def _determine_required_roles(self, brief: StrategicBrief) -> List[str]:
+        """Determine which agent roles are needed based on the brief."""
+        roles = []
+
+        # Always need a writer
+        roles.append("copywriter")
+
+        # SEO if platform is website/blog
+        platform = brief.context.get("platform", "").lower()
+        if platform in ("website", "blog", "web"):
+            roles.append("seo")
+
+        # Always need a reviewer
+        roles.append("reviewer")
+
+        return roles
+
+    def _get_step_description(self, role: str, brief: StrategicBrief) -> str:
+        """Generate step description based on role and brief."""
+        template = self.ROLE_DESCRIPTIONS.get(role, f"Execute {role} task")
+        word_count = brief.context.get("word_count", "300")
+        topic = brief.job_post[:80] if brief.job_post else "the topic"
+        kpi = brief.context.get("kpi", "organic traffic")
+        return template.format(word_count=word_count, topic=topic, kpi=kpi)
+
+    def _get_tool_for_role(self, role: str) -> str:
+        """Map role to unified tool."""
+        return self.ROLE_TOOLS.get(role, "execute_task")
+
+    async def generate_dynamic_plan(
+        self,
+        brief: StrategicBrief,
+        db_pool=None
+    ) -> ExecutionPlan:
+        """Generate plan with dynamic agent selection from hired_agents table.
+
+        This is the new async version that reads from the database.
+        Falls back to role-based fallback IDs when no matching agent is found.
+        """
+        if not brief.is_complete:
+            raise ValueError("StrategicBrief is not complete; cannot generate plan.")
+
+        required_roles = self._determine_required_roles(brief)
+
+        plan_steps = []
+        missing_agents = []
+
+        for idx, role in enumerate(required_roles):
+            # Try to find a hired agent for this role
+            agents = await self.get_available_agents(db_pool, role)
+
+            if not agents:
+                # No agent for this role — mark for hiring, use fallback ID
+                missing_agents.append({
+                    "role": role,
+                    "reason": f"No active {role} agent found, needs hiring"
+                })
+                agent_id = f"agent:{role}"
+            else:
+                # Use highest-scoring available agent
+                sorted_agents = sorted(
+                    agents,
+                    key=lambda a: (a.get("performance_score", 0), a.get("completed_tasks", 0)),
+                    reverse=True
+                )
+                agent_id = sorted_agents[0]["agent_id"]
+
+            plan_steps.append(JobStep(
+                step_index=idx + 1,
+                agent_role=role,
+                agent_id=agent_id,
+                unified_tool=self._get_tool_for_role(role),
+                requires_approval=(role == "reviewer"),
+                description=self._get_step_description(role, brief)
+            ))
+
+        # hired_agents list: role names of all agents involved
+        hired_list = [s.agent_role for s in plan_steps]
+
+        return ExecutionPlan(
+            brief=brief,
+            steps=plan_steps,
+            hired_agents=hired_list,
+            estimated_duration_seconds=len(plan_steps) * 120
+        ), missing_agents
+
     def _get_fallback_plan(self, brief: StrategicBrief, reason: str = "") -> ExecutionPlan:
         """Generate a safe fallback plan when API call fails."""
         logger.warning(f"Using fallback plan. Reason: {reason}")
-        
-        # Basic copywriter → reviewer sequence
+
         steps = [
             JobStep(
                 step_index=1,
                 agent_role="copywriter",
-                unified_tool="read_product",
+                agent_id="agent:copywriter",
+                unified_tool="write_copy",
                 requires_approval=False,
-                description="Read and analyze current product data"
+                description="Create content based on the brief"
             ),
             JobStep(
                 step_index=2,
-                agent_role="copywriter",
-                unified_tool="write_description",
-                requires_approval=True,
-                description="Create improved product description"
-            ),
-            JobStep(
-                step_index=3,
                 agent_role="reviewer",
-                unified_tool="analyze_seo",
-                requires_approval=False,
-                description="Review copy for SEO and brand alignment"
+                agent_id="agent:reviewer",
+                unified_tool="review_content",
+                requires_approval=True,
+                description="Review copy for quality and alignment"
             )
         ]
 
@@ -67,32 +182,21 @@ class StrategyRoom:
         )
 
     def generate_execution_plan(
-        self, 
+        self,
         brief: StrategicBrief,
         available_agents: Optional[List[str]] = None
     ) -> ExecutionPlan:
+        """Create an ExecutionPlan from a validated StrategicBrief.
+
+        This is the synchronous version used by the existing intake flow.
+        It still tries Claude for smart planning but falls back gracefully.
+        Now includes agent_id in steps (using fallback IDs since no DB access here).
         """
-        Create an ExecutionPlan from a validated StrategicBrief.
-        
-        Args:
-            brief: The validated StrategicBrief from IntakeEngine
-            available_agents: List of agent roles we currently have access to
-        
-        Returns:
-            ExecutionPlan with step-by-step instructions and required hires
-            
-        Handles:
-        - API timeouts with retry logic and exponential backoff
-        - Rate limiting with longer backoff
-        - JSON parsing failures with sensible fallback plan
-        - Invalid responses with default sequencing
-        """
-        
         if not brief.is_complete:
             raise ValueError("StrategicBrief is not complete; cannot generate plan.")
 
         available_agents = available_agents or []
-        
+
         system_prompt = """You are a project manager planning an AI bureau workflow.
 
 Given a strategic brief, create a detailed step-by-step execution plan.
@@ -102,7 +206,7 @@ For the objective in the brief, determine:
 2. What tools each agent will use
 3. Whether each step requires approval
 
-Available agent roles: copywriter, developer, seo_specialist, reviewer, paid_ads_manager, data_analyst
+Available agent roles: copywriter, developer, seo, reviewer, paid_ads_manager, data_analyst
 
 Respond with JSON:
 {
@@ -110,25 +214,25 @@ Respond with JSON:
         {
             "step_index": 1,
             "agent_role": "copywriter",
-            "unified_tool": "read_product",
+            "unified_tool": "write_copy",
             "requires_approval": false,
-            "description": "Fetch the current product data"
+            "description": "Write the requested content"
         }
     ],
     "required_hires": ["copywriter"],
     "estimated_duration_seconds": 300
 }
 
-The 'unified_tool' should be one of: read_product, read_ad, write_description, write_ad, analyze_seo, deploy_changes, etc.
+The 'unified_tool' should be one of: write_copy, optimize_seo, review_content, write_code, manage_ads, analyze_data, execute_task.
 """
 
-        context_str = json.dumps(brief.context, indent=2)
         user_message = f"""
 Strategic Brief:
 - Objective: {brief.context.get('objective', 'Unknown')}
 - Platform: {brief.context.get('platform', 'Unknown')}
 - Target Audience: {brief.context.get('target_audience', 'Not specified')}
 - KPI: {brief.context.get('kpi', 'Not specified')}
+- Job Post: {brief.job_post[:300]}
 
 Available agents: {', '.join(available_agents) or 'None specified'}
 
@@ -140,7 +244,7 @@ Create a step-by-step plan to achieve the objective.
         for attempt in range(self.max_retries):
             try:
                 logger.debug(f"StrategyRoom API call attempt {attempt + 1}/{self.max_retries}")
-                
+
                 response = self.client.messages.create(
                     model=self.model,
                     max_tokens=2000,
@@ -149,47 +253,44 @@ Create a step-by-step plan to achieve the objective.
                 )
 
                 response_text = response.content[0].text
-                
-                # Parse JSON response
+
                 try:
                     json_start = response_text.find("{")
                     json_end = response_text.rfind("}") + 1
-                    
+
                     if json_start == -1 or json_end <= json_start:
                         logger.error("No JSON found in strategy response")
                         return self._get_fallback_plan(brief, "Invalid response format")
-                    
+
                     json_str = response_text[json_start:json_end]
                     data = json.loads(json_str)
-                    
+
                 except (json.JSONDecodeError, ValueError) as e:
                     logger.error(f"JSON parsing error in strategy response: {e}")
                     return self._get_fallback_plan(brief, f"JSON parsing: {str(e)}")
 
-                # Validate response structure
                 if not isinstance(data, dict) or "steps" not in data:
                     logger.error("Invalid strategy response structure")
                     return self._get_fallback_plan(brief, "Missing steps in response")
 
-                # Convert to JobStep objects with validation
                 try:
                     steps = []
                     for i, s in enumerate(data.get("steps", []), 1):
                         if not isinstance(s, dict):
-                            logger.warning(f"Step {i} is not a dict, skipping")
                             continue
-                        
+
+                        role = s.get("agent_role", "unknown")
                         step = JobStep(
                             step_index=s.get("step_index", i),
-                            agent_role=s.get("agent_role", "unknown"),
-                            unified_tool=s.get("unified_tool", "read_product"),
+                            agent_role=role,
+                            agent_id=f"agent:{role}",
+                            unified_tool=s.get("unified_tool", self._get_tool_for_role(role)),
                             requires_approval=s.get("requires_approval", False),
                             description=s.get("description", "")
                         )
                         steps.append(step)
-                    
+
                     if not steps:
-                        logger.error("No valid steps parsed from response")
                         return self._get_fallback_plan(brief, "No valid steps in response")
 
                     plan = ExecutionPlan(
@@ -201,7 +302,7 @@ Create a step-by-step plan to achieve the objective.
 
                     logger.info(f"Plan generated: {len(steps)} steps, {len(plan.hired_agents)} hires")
                     return plan
-                    
+
                 except Exception as e:
                     logger.error(f"Error converting parsed data to ExecutionPlan: {e}")
                     return self._get_fallback_plan(brief, f"Conversion error: {str(e)}")
@@ -209,53 +310,33 @@ Create a step-by-step plan to achieve the objective.
             except (APITimeoutError, TimeoutError) as e:
                 last_error = e
                 logger.warning(f"Timeout on attempt {attempt + 1}: {str(e)}")
-                
                 if attempt < self.max_retries - 1:
-                    wait_time = 2 ** attempt  # 1s, 2s, 4s
-                    logger.info(f"Retrying in {wait_time}s...")
-                    time.sleep(wait_time)
+                    time.sleep(2 ** attempt)
                     continue
-                else:
-                    logger.error(f"Max retries exceeded for timeout")
-                    return self._get_fallback_plan(brief, f"API timeout: {str(e)}")
+                return self._get_fallback_plan(brief, f"API timeout: {str(e)}")
 
             except RateLimitError as e:
                 last_error = e
-                logger.warning(f"Rate limit error on attempt {attempt + 1}: {str(e)}")
-                
+                logger.warning(f"Rate limit on attempt {attempt + 1}: {str(e)}")
                 if attempt < self.max_retries - 1:
-                    wait_time = 2 ** (attempt + 1)  # 2s, 4s, 8s
-                    logger.info(f"Rate limited. Waiting {wait_time}s...")
-                    time.sleep(wait_time)
+                    time.sleep(2 ** (attempt + 1))
                     continue
-                else:
-                    logger.error("Max retries exceeded for rate limit")
-                    return self._get_fallback_plan(brief, f"Rate limited: {str(e)}")
+                return self._get_fallback_plan(brief, f"Rate limited: {str(e)}")
 
             except APIError as e:
                 last_error = e
                 logger.error(f"API error on attempt {attempt + 1}: {str(e)}")
-                
-                # Don't retry auth/validation errors
                 if "401" in str(e) or "403" in str(e):
-                    logger.error("Authentication error - not retrying")
                     return self._get_fallback_plan(brief, f"Auth error: {str(e)}")
-                
                 if attempt < self.max_retries - 1:
-                    wait_time = 2 ** attempt
-                    logger.info(f"Retrying in {wait_time}s...")
-                    time.sleep(wait_time)
+                    time.sleep(2 ** attempt)
                     continue
-                else:
-                    logger.error("Max retries exceeded")
-                    return self._get_fallback_plan(brief, f"API error: {str(e)}")
+                return self._get_fallback_plan(brief, f"API error: {str(e)}")
 
             except Exception as e:
                 last_error = e
                 logger.error(f"Unexpected error in strategy room: {e}", exc_info=True)
                 return self._get_fallback_plan(brief, f"Unexpected error: {str(e)}")
 
-        # Should not reach here
         logger.error(f"Plan generation failed after all retries. Last error: {last_error}")
         return self._get_fallback_plan(brief, f"Failed after {self.max_retries} retries")
-

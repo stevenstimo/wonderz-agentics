@@ -141,9 +141,32 @@ class OperationsManager:
             await conn.close()
 
     async def generate_and_propose_plan(self, job_id: str, brief: StrategicBrief):
-        """Generate an execution plan from a complete brief."""
-        plan = self.strategy_room.generate_execution_plan(brief)
+        """Generate an execution plan from a complete brief.
         
+        Uses dynamic agent selection: reads hired_agents from DB and picks
+        the best available agent per required role.
+        """
+        # Try dynamic plan with DB lookup first
+        missing_agents = []
+        try:
+            # Try the shared pool first, then create a temporary one
+            from app.db import _pool as db_pool
+            if not db_pool and self.database_url:
+                import asyncpg as _apg
+                temp_pool = await _apg.create_pool(self.database_url, min_size=1, max_size=2)
+                try:
+                    plan, missing_agents = await self.strategy_room.generate_dynamic_plan(brief, temp_pool)
+                finally:
+                    await temp_pool.close()
+            elif db_pool:
+                plan, missing_agents = await self.strategy_room.generate_dynamic_plan(brief, db_pool)
+            else:
+                plan = self.strategy_room.generate_execution_plan(brief)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"Dynamic plan failed, using sync fallback: {e}")
+            plan = self.strategy_room.generate_execution_plan(brief)
+
         conn = await self._connect()
         try:
             await self.store_job_context(conn, job_id, {
@@ -161,12 +184,14 @@ class OperationsManager:
                         {
                             "step_index": s.step_index,
                             "agent_role": s.agent_role,
+                            "agent_id": s.agent_id,
                             "tool": s.unified_tool,
                             "description": s.description
                         }
                         for s in plan.steps
                     ],
-                    "required_hires": plan.hired_agents
+                    "required_hires": plan.hired_agents,
+                    "missing_agents": missing_agents
                 }
             )
         finally:

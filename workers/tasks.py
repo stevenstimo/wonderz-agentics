@@ -15,27 +15,84 @@ from app.orchestration.manager import OperationsManager
 
 logger = logging.getLogger(__name__)
 
+# Map agent_role -> Python module name
+ROLE_TO_MODULE = {
+    "copywriter": "copy_agent",
+    "reviewer": "reviewer_agent",
+    "seo": "seo_agent",
+    "developer": "developer_agent",
+    "paid_ads_manager": "ads_agent",
+    "data_analyst": "data_agent",
+}
+
+
 def _build_agent_runner(job_id: str, store_id: str = None):
     async def real_agent_runner(agent_name: str, input_payload: dict):
+        """Run an agent by name.
+
+        Supports two naming conventions:
+        - Legacy: 'copy_agent', 'reviewer_agent' (direct module names)
+        - Dynamic: role-based names via the determine_next_step graph
+
+        When the plan includes an agent_id (from hired_agents), we look up the
+        agent config from the DB and inject it into the payload.
+        """
         try:
-            mod = __import__(f"agents.{agent_name}", fromlist=["run"])  # e.g. agents.copy_agent
+            # Determine module name: try direct import first, then role mapping
+            module_name = agent_name  # e.g. "copy_agent"
+            try:
+                mod = __import__(f"agents.{module_name}", fromlist=["run"])
+            except ModuleNotFoundError:
+                # Try role-based mapping
+                mapped = ROLE_TO_MODULE.get(agent_name)
+                if mapped:
+                    mod = __import__(f"agents.{mapped}", fromlist=["run"])
+                    module_name = mapped
+                else:
+                    raise
+
             run_fn = getattr(mod, "run")
 
             # Build ToolsProxy according to permissions
             try:
                 from agents.agent_permissions import AGENT_ALLOWED_TOOLS
-                allowed = AGENT_ALLOWED_TOOLS.get(agent_name, [])
+                allowed = AGENT_ALLOWED_TOOLS.get(module_name, [])
             except Exception:
                 allowed = []
 
             from agents.tools_proxy import ToolsProxy
             tools = ToolsProxy(allowed)
 
+            # Try to load agent config from hired_agents table
+            agent_config = None
+            try:
+                import app.db as _db
+                pool = _db._pool
+                if pool:
+                    async with pool.acquire() as conn:
+                        # Try exact agent_id match first
+                        agent_config = await conn.fetchrow(
+                            "SELECT * FROM hired_agents WHERE agent_id = $1 AND status = 'active'",
+                            f"agent:{agent_name}"
+                        )
+                        if not agent_config:
+                            # Try by role
+                            role = agent_name.replace("_agent", "")
+                            agent_config = await conn.fetchrow(
+                                "SELECT * FROM hired_agents WHERE role = $1 AND status = 'active' ORDER BY performance_score DESC LIMIT 1",
+                                role
+                            )
+                    if agent_config:
+                        agent_config = dict(agent_config)
+            except Exception as e:
+                logger.debug(f"Could not load agent config for {agent_name}: {e}")
+
             payload_with_tools = {
                 "job_id": job_id,
                 "store_id": store_id,
                 "context": input_payload.get("context", {}),
                 "tools": tools,
+                "agent_config": agent_config,
                 **(input_payload or {})
             }
 

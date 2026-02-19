@@ -243,6 +243,10 @@ export default function JobFlow() {
   const rawPlan = ctx.plan ?? ctx.execution_plan ?? []
   const plan = Array.isArray(rawPlan) ? rawPlan : (Array.isArray(rawPlan?.steps) ? rawPlan.steps : [])
 
+  // Extract missing agents from the plan generation step output
+  const planGenStep = steps.find(s => s.step_name === 'plan_generation')
+  const missingAgents = planGenStep?.output?.missing_agents || rawPlan?.missing_agents || []
+
   // Group raw step events by step_name so UI shows one logical task with latest state.
   const groupedSteps = Object.values(
     steps.reduce((acc, step, idx) => {
@@ -455,19 +459,37 @@ export default function JobFlow() {
                       <div className="text-sm font-medium text-gray-800">
                         {step.description || 'Taak'}
                       </div>
-                      <div className="text-xs text-gray-500 mt-0.5">
+                      <div className="text-xs text-gray-500 mt-0.5 flex items-center gap-2">
                         {(() => {
                           const role = step.agent_role || step.role || step.name || 'agent'
                           const roleOccurrence = plan.slice(0, i + 1).filter(s => (s.agent_role || s.role || s.name || 'agent') === role).length
                           const roleTotal = plan.filter(s => (s.agent_role || s.role || s.name || 'agent') === role).length
                           return `${role} (${roleOccurrence}/${roleTotal})`
                         })()}
+                        {step.agent_id && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] bg-indigo-50 text-indigo-600 font-mono">
+                            {step.agent_id}
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
                 ))
               )}
             </div>
+
+            {/* Missing agents notice */}
+            {missingAgents.length > 0 && (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6">
+                <h3 className="text-sm font-semibold text-amber-800 mb-2">⚠️ Nieuwe agents nodig</h3>
+                {missingAgents.map((h, i) => (
+                  <div key={i} className="text-xs text-amber-700">
+                    <strong>{h.role}</strong>: {h.reason}
+                  </div>
+                ))}
+              </div>
+            )}
+
             <div className="flex justify-end">
               <button onClick={approvePlan} disabled={loading}
                 className="flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-40 font-medium">

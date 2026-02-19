@@ -37,6 +37,7 @@ class JobStep(BaseModel):
     """A single step in the ExecutionPlan."""
     step_index: int
     agent_role: str  # e.g., "copywriter", "developer", "reviewer"
+    agent_id: str = ""  # concrete agent_id from hired_agents (e.g. "agent:copywriter")
     unified_tool: str  # e.g., "read_product", "write_description"
     requires_approval: bool = False
     description: str = ""
