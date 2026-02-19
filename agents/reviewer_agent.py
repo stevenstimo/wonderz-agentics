@@ -33,7 +33,9 @@ async def _review_with_openai(copy_text: str, job_post: str, objective: str, tar
     system_prompt = (
         "Je bent een strenge Nederlandse proofreader/redacteur. "
         "Beoordeel de aangeleverde tekst op de volgende criteria:\n"
-        "1. RELEVANTIE: Gaat de tekst écht over het gevraagde onderwerp? Geen off-topic content.\n"
+        "1. RELEVANTIE (BELANGRIJKST): Gaat de tekst écht over het gevraagde onderwerp? "
+        "Als de tekst generiek is of NIET specifiek over het onderwerp gaat, is het ALTIJD NEEDS_CHANGES met score 1. "
+        "Een tekst over 'schrijven' of 'communicatie' terwijl het onderwerp 'korfbal' is = NEEDS_CHANGES.\n"
         "2. WOORDENAANTAL: Bevat de tekst ongeveer het gevraagde aantal woorden (±15%)?\n"
         "3. TAALGEBRUIK: Correct Nederlands, geen spelfouten, vloeiende zinnen.\n"
         "4. STRUCTUUR: Goede alinea-indeling, logische opbouw.\n"

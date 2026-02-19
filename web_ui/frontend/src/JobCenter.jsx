@@ -13,7 +13,7 @@ const STATUS_COLORS = {
   AWAITING_APPROVAL: 'bg-orange-100 text-orange-800',
 }
 
-const RESTARTABLE = ['AWAITING_APPROVAL', 'INTAKE_CLARIFICATION', 'PLAN_PROPOSED', 'FAILED']
+const RESTARTABLE = ['AWAITING_APPROVAL', 'INTAKE_CLARIFICATION', 'PLAN_PROPOSED', 'FAILED', 'JOB_READY', 'COMPLETED']
 
 export default function JobCenter() {
   const [jobs, setJobs] = useState([])

@@ -583,7 +583,7 @@ async def restart_job(job_id: str):
             raise HTTPException(status_code=404, detail="Job not found")
 
         current = job['status']
-        restartable = ['AWAITING_APPROVAL', 'INTAKE_CLARIFICATION', 'PLAN_PROPOSED', 'FAILED']
+        restartable = ['AWAITING_APPROVAL', 'INTAKE_CLARIFICATION', 'PLAN_PROPOSED', 'FAILED', 'JOB_READY', 'COMPLETED']
         if current not in restartable:
             raise HTTPException(
                 status_code=400,

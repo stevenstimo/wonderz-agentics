@@ -38,23 +38,31 @@ async def _generate_with_openai(job_post: str, objective: str, target_audience: 
     if not api_key:
         raise RuntimeError("OpenAI API key not found")
 
-    # Extract word count from job_post if mentioned
+    # Extract word count and topic from job_post
     import re as _re
     m = _re.search(r'(\d+)\s*woord', job_post, _re.IGNORECASE)
     word_count = int(m.group(1)) if m else 400
 
+    # Extract the actual topic — remove word count instructions
+    topic = _re.sub(r'schrijf\s+(een\s+)?(tekst|artikel|blog|stuk)\s+(van\s+)?', '', job_post, flags=_re.IGNORECASE).strip()
+    topic = _re.sub(r'\d+\s*woorden?\s*(over)?', '', topic, flags=_re.IGNORECASE).strip()
+    topic = topic.strip(' .,;:-') or job_post  # fallback to full job_post
+
     system_prompt = (
         "Je bent een ervaren Nederlandse copywriter. "
         "Schrijf vloeiend, informatief Nederlands. "
-        "De tekst moet inhoudelijk correct, specifiek over het onderwerp, en goed gestructureerd zijn. "
+        "De tekst moet VOLLEDIG en UITSLUITEND gaan over het opgegeven onderwerp. "
+        "Schrijf GEEN generieke tekst over schrijven, marketing of communicatie. "
+        "Schrijf specifieke, feitelijke informatie over het onderwerp. "
         "Gebruik alinea's. Geen opsommingen tenzij gevraagd. "
         "Schrijf EXACT het gevraagde aantal woorden (±10%). "
         "Lever ALLEEN de tekst, zonder titel, zonder uitleg."
     )
 
     user_prompt = (
-        f"Schrijf een Nederlandse tekst van {word_count} woorden.\n\n"
-        f"Onderwerp/opdracht: {job_post}\n"
+        f"ONDERWERP: {topic}\n\n"
+        f"Schrijf een informatieve Nederlandse tekst van {word_count} woorden over {topic}.\n"
+        f"De HELE tekst moet gaan over {topic}. Geen enkele alinea mag off-topic zijn.\n"
     )
     if objective:
         user_prompt += f"Doel: {objective}\n"

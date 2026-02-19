@@ -63,7 +63,7 @@ export default function JobFlow() {
   const [jobData, setJobData] = useState(null)   // { job, clarifications, steps, artifacts }
   const [phase, setPhase] = useState('intake')
   const [input, setInput] = useState('')
-  const [messages, setMessages] = useState([{ from: 'ceo', text: 'Hallo. Beschrijf je job.' }])
+  const [messages, setMessages] = useState([{ from: 'ceo', text: 'Hallo! Beschrijf je opdracht zo specifiek mogelijk. Bijvoorbeeld:\n\n• "Schrijf een tekst van 400 woorden over de brandweer"\n• "Maak een SEO-artikel van 300 woorden over padel voor een sportblog"\n\nHoe specifieker, hoe beter het resultaat.' }])
   const [loading, setLoading] = useState(false)
   const [jobId, setJobId] = useState(null)
   const [feedback, setFeedback] = useState('')
@@ -397,17 +397,45 @@ export default function JobFlow() {
               )}
               <div ref={bottomRef} />
             </div>
-            <div className="flex gap-2">
-              <input value={input} onChange={e => setInput(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && send()}
-                placeholder="Beschrijf je job..."
-                className="flex-1 px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
-                disabled={loading} />
-              <button onClick={send} disabled={loading || !input.trim()}
-                className="px-4 py-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-40">
-                <ChevronRight className="w-5 h-5" />
-              </button>
-            </div>
+            {/* Input with character guidance */}
+            {(() => {
+              const MIN_CHARS = 30
+              const GOOD_CHARS = 60
+              const len = input.length
+              const isFirst = !jobId  // first message = job description
+              const tooShort = isFirst && len > 0 && len < MIN_CHARS
+              const borderColor = tooShort ? 'border-orange-300 focus:ring-orange-400' : 'border-gray-200 focus:ring-indigo-500'
+              return (
+                <div className="space-y-1">
+                  <div className="flex gap-2">
+                    <input value={input} onChange={e => setInput(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && !tooShort && send()}
+                      placeholder={isFirst ? 'Bijv: Schrijf een tekst van 400 woorden over de brandweer' : 'Typ je antwoord...'}
+                      className={`flex-1 px-4 py-3 border rounded-xl outline-none text-sm ${borderColor}`}
+                      disabled={loading} />
+                    <button onClick={send} disabled={loading || !input.trim() || tooShort}
+                      className="px-4 py-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-40">
+                      <ChevronRight className="w-5 h-5" />
+                    </button>
+                  </div>
+                  {isFirst && (
+                    <div className="flex items-center justify-between px-1">
+                      <p className="text-xs text-slate-400">
+                        {len === 0 ? 'Geef een duidelijke beschrijving met onderwerp, woordenaantal en doel' :
+                         tooShort ? `⚠️ Te kort — minimaal ${MIN_CHARS} tekens nodig (nu ${len})` :
+                         len < GOOD_CHARS ? `✅ Ok (${len} tekens) — meer detail = beter resultaat` :
+                         `✅ Goede beschrijving (${len} tekens)`}
+                      </p>
+                      <div className="flex gap-0.5">
+                        {[...Array(3)].map((_, i) => (
+                          <div key={i} className={`w-6 h-1 rounded-full ${len === 0 ? 'bg-gray-200' : i === 0 && len >= 1 ? (tooShort ? 'bg-orange-400' : 'bg-green-400') : i === 1 && len >= MIN_CHARS ? 'bg-green-400' : i === 2 && len >= GOOD_CHARS ? 'bg-green-500' : 'bg-gray-200'}`} />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
           </div>
         )}
 
