@@ -6,6 +6,8 @@ import logging
 import httpx
 from typing import Any, Dict
 
+from app.services.skill_loader import SkillLoader
+
 logger = logging.getLogger(__name__)
 
 KEYS_FILE = "/home/exedev/.config/wonderz-keys.json"
@@ -125,7 +127,7 @@ async def _generate_with_openai(job_post: str, objective: str, target_audience: 
     return {"text": text, "total_tokens": usage.get("total_tokens", 0)}
 
 
-async def _load_skill_context(agent_id: str, context: Dict[str, Any]) -> tuple:
+async def _load_skill_context(agent_id: str, task_context: Dict[str, Any]) -> tuple:
     """Load and select applicable skills for this task. Returns (skill_context_str, skill_ids)."""
     try:
         import app.db as _db
@@ -133,45 +135,17 @@ async def _load_skill_context(agent_id: str, context: Dict[str, Any]) -> tuple:
         if not pool or not agent_id:
             return "", []
 
-        from app.services.skill_loader import SkillLoader
         loader = SkillLoader(pool)
         agent_skills = await loader.get_agent_skills(agent_id)
         if not agent_skills:
             return "", []
 
-        # Determine applicable skills based on task context
-        task_text = (context.get('job_post') or '').lower()
-        platform = (context.get('platform') or '').lower()
-        brief_ctx = ((context.get('brief') or {}).get('context')) or {}
-        target_audience = str(brief_ctx.get('target_audience') or context.get('target_audience') or '').lower()
-
-        applicable = []
-
-        # SEO skill if website/blog
-        if any(kw in platform for kw in ('website', 'blog', 'web')):
-            seo = next((s for s in agent_skills if 'seo' in s['skill_id']), None)
-            if seo:
-                applicable.append(seo)
-
-        # Voice skill based on audience
-        if any(kw in target_audience for kw in ('b2b', 'professional', 'zakelijk')):
-            voice = next((s for s in agent_skills if 'b2b-professional' in s['skill_id']), None)
-            if voice:
-                applicable.append(voice)
-        elif any(kw in target_audience for kw in ('casual', 'consumer', 'jeugd', 'jong')):
-            voice = next((s for s in agent_skills if 'casual' in s['skill_id']), None)
-            if voice:
-                applicable.append(voice)
-
-        # Structure skill (always applicable)
-        structure = next((s for s in agent_skills if 'structure' in s['skill_id']), None)
-        if structure:
-            applicable.append(structure)
-
-        # Anti-patterns skill (always applicable)
-        anti = next((s for s in agent_skills if 'anti-patterns' in s['skill_id']), None)
-        if anti:
-            applicable.append(anti)
+        applicable = loader.determine_applicable_skills(
+            agent_skills=agent_skills,
+            task_context=task_context or {},
+        )
+        if not applicable:
+            return "", []
 
         skill_context = loader.compose_skill_context(applicable)
         skill_ids = [s['skill_id'] for s in applicable]
@@ -196,7 +170,11 @@ async def run(payload: Dict[str, Any]) -> Dict[str, Any]:
     # --- Load agent skills ---
     agent_config = payload.get('agent_config') or {}
     agent_id = agent_config.get('agent_id', '')
-    skill_context, skill_ids_used = await _load_skill_context(agent_id, context)
+    task_context = dict(context or {})
+    task_context.setdefault('job_post', job_post)
+    task_context.setdefault('platform', fields['platform'])
+    task_context.setdefault('target_audience', fields['target_audience'])
+    skill_context, skill_ids_used = await _load_skill_context(agent_id, task_context)
     if skill_context:
         logger.info('copy_agent loaded %d skills for job %s', len(skill_ids_used), job_id)
 
@@ -268,7 +246,6 @@ async def run(payload: Dict[str, Any]) -> Dict[str, Any]:
             import app.db as _db
             pool = _db._pool
             if pool:
-                from app.services.skill_loader import SkillLoader
                 loader = SkillLoader(pool)
                 await loader.record_skill_usage(job_id, agent_id, skill_ids_used)
                 logger.info('Tracked %d skills for job %s', len(skill_ids_used), job_id)

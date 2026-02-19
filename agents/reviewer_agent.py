@@ -5,6 +5,8 @@ import os
 import httpx
 from typing import Any, Dict
 
+from app.services.skill_loader import SkillLoader
+
 logger = logging.getLogger(__name__)
 
 KEYS_FILE = "/home/exedev/.config/wonderz-keys.json"
@@ -176,10 +178,9 @@ async def run(payload: Dict[str, Any]) -> Dict[str, Any]:
         import app.db as _db
         pool = _db._pool
         if pool and agent_id:
-            from app.services.skill_loader import SkillLoader
             loader = SkillLoader(pool)
             reviewer_skills = await loader.get_agent_skills(agent_id)
-            anti = next((s for s in reviewer_skills if 'anti-patterns' in s['skill_id']), None)
+            anti = next((s for s in reviewer_skills if 'anti-pattern' in s['skill_id']), None)
             if anti:
                 skill_context = (
                     f"# Quality Checklist (from Anti-Patterns Skill)\n\n"
@@ -220,7 +221,6 @@ async def run(payload: Dict[str, Any]) -> Dict[str, Any]:
             import app.db as _db
             pool = _db._pool
             if pool:
-                from app.services.skill_loader import SkillLoader
                 loader = SkillLoader(pool)
                 await loader.record_skill_usage(job_id, agent_id, skill_ids_used)
         except Exception as e:

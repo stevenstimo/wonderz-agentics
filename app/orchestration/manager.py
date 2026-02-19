@@ -1,6 +1,7 @@
 import os
 import json
 import asyncio
+import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional, Callable
 import asyncpg
@@ -10,6 +11,7 @@ from app.orchestration.strategy_room import StrategyRoom
 from models.unified import JobStatus, StrategicBrief, ExecutionPlan
 
 DATABASE_URL = os.getenv("DATABASE_URL")
+logger = logging.getLogger(__name__)
 
 def _json_default(obj):
     if hasattr(obj, 'isoformat'):
@@ -443,6 +445,7 @@ class OperationsManager:
                     if k not in ctx.data:
                         ctx.update(k, v)
 
+            final_status = None
             await self.update_job_status(conn, job_id, JobStatus.RUNNING.value)
             current_step = None
             steps = 0
@@ -456,6 +459,7 @@ class OperationsManager:
 
                 if next_agent == "JOB_READY":
                     await self.update_job_status(conn, job_id, JobStatus.JOB_READY.value)
+                    final_status = JobStatus.JOB_READY.value
                     await self.write_job_step(
                         conn,
                         job_id,
@@ -468,6 +472,7 @@ class OperationsManager:
 
                 if next_agent == "AWAITING_APPROVAL":
                     await self.pause_for_approval(conn, job_id, reason="Legal requires manual approval")
+                    final_status = JobStatus.AWAITING_APPROVAL.value
                     # stop the loop; a human must resume
                     break
 
@@ -496,6 +501,7 @@ class OperationsManager:
                         output={"error": str(e)}
                     )
                     await self.update_job_status(conn, job_id, JobStatus.FAILED.value)
+                    final_status = JobStatus.FAILED.value
                     break
 
                 # --- Handle agent-level errors gracefully ---
@@ -514,6 +520,7 @@ class OperationsManager:
                             output=result,
                         )
                         await self.update_job_status(conn, job_id, "PAUSED")
+                        final_status = "PAUSED"
                         break
 
                     if error_type == "token_budget_exceeded":
@@ -522,6 +529,7 @@ class OperationsManager:
                             output=result,
                         )
                         await self.update_job_status(conn, job_id, JobStatus.FAILED.value)
+                        final_status = JobStatus.FAILED.value
                         break
 
                     # Other errors: record and continue to next step
@@ -580,8 +588,40 @@ class OperationsManager:
                 current_step = next_agent
                 steps += 1
 
+            if final_status == JobStatus.JOB_READY.value:
+                await self._update_skill_success_rates(conn, job_id, was_successful=True)
+            elif final_status == JobStatus.FAILED.value:
+                await self._update_skill_success_rates(conn, job_id, was_successful=False)
+
         finally:
             await conn.close()
+
+    async def _update_skill_success_rates(self, conn, job_id: str, was_successful: bool):
+        """Update success rates voor skills die in deze job gebruikt zijn."""
+        from app.services.skill_loader import SkillLoader
+
+        try:
+            skill_logs = await conn.fetch(
+                """
+                SELECT DISTINCT skill_id
+                FROM skill_usage_log
+                WHERE job_id = $1
+                """,
+                job_id
+            )
+
+            from app.db import db_pool
+            loader = SkillLoader(db_pool)
+            for log in skill_logs:
+                await loader.update_skill_success(
+                    skill_id=log["skill_id"],
+                    was_successful=was_successful,
+                    feedback=None
+                )
+
+            logger.info("Updated success rates for %s skills", len(skill_logs))
+        except Exception as e:
+            logger.error("Failed to update skill success rates: %s", e)
 
     async def _next_step_index(self, conn: asyncpg.Connection, job_id: str) -> int:
         row = await conn.fetchrow(
