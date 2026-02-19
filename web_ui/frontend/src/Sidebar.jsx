@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, NavLink } from 'react-router-dom'
-import { Home, Users, Layers, ClipboardList, Settings, PlusCircle, BookOpen, Shield, Code, Activity } from 'lucide-react'
+import { Home, Users, Layers, ClipboardList, Settings, PlusCircle, BookOpen, Shield, Code, Activity, Sparkles } from 'lucide-react'
 import { supabase, safeGetSession } from './supabase'
 import { getCurrentUserRole, isSuperAdmin } from './authz'
 
@@ -14,6 +14,7 @@ const managementMenu = [
   { label: 'Talents', icon: Users, path: '/talents' },
   { label: 'Training Hub', icon: ClipboardList, path: '/training' },
   { label: 'Improvements', icon: ClipboardList, path: '/hr/improvements' },
+  { label: 'Skills Library', icon: Sparkles, path: '/skills' },
   { label: 'Hiring Hall', icon: ClipboardList, path: '/hiring' },
   { label: 'Developer Bot', icon: Code, path: '/devbot' },
   { label: 'HR Feedback', icon: ClipboardList },

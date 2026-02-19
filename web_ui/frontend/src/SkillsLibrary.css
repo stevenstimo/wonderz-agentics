@@ -1,0 +1,257 @@
+.skills-library {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+.skills-library h1 {
+  font-size: 1.75rem;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+}
+
+.subtitle {
+  color: #6b7280;
+  margin-bottom: 2rem;
+}
+
+.skills-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.skill-card {
+  background: white;
+  border: 2px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 1.5rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.skill-card:hover {
+  border-color: #6366f1;
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.1);
+  transform: translateY(-2px);
+}
+
+.skill-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  margin-bottom: 1rem;
+}
+
+.skill-header h3 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.skill-type {
+  padding: 0.25rem 0.75rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.skill-type.technique { background: #dbeafe; color: #1e40af; }
+.skill-type.voice { background: #fce7f3; color: #9f1239; }
+.skill-type.checklist { background: #d1fae5; color: #065f46; }
+.skill-type.anti-patterns { background: #fee2e2; color: #991b1b; }
+
+.skill-meta {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  font-size: 0.875rem;
+}
+
+.skill-meta span {
+  color: #6b7280;
+}
+
+.domain { font-weight: 600; }
+.success-rate { color: #10b981 !important; }
+
+.skill-preview {
+  color: #6b7280;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+/* Modal */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 2rem;
+}
+
+.modal-content {
+  background: white;
+  border-radius: 16px;
+  max-width: 900px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  position: relative;
+}
+
+.modal-close {
+  position: sticky;
+  top: 1rem;
+  float: right;
+  margin-right: 1rem;
+  background: #f3f4f6;
+  border: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  font-size: 1.25rem;
+  cursor: pointer;
+  z-index: 10;
+}
+
+.modal-close:hover {
+  background: #e5e7eb;
+}
+
+.skill-detail {
+  padding: 2rem;
+}
+
+.skill-detail-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.skill-detail-header h2 {
+  margin: 0;
+}
+
+.skill-type-badge {
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.skill-type-badge.technique { background: #dbeafe; color: #1e40af; }
+.skill-type-badge.voice { background: #fce7f3; color: #9f1239; }
+.skill-type-badge.checklist { background: #d1fae5; color: #065f46; }
+.skill-type-badge.anti-patterns { background: #fee2e2; color: #991b1b; }
+
+.skill-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.stat-card {
+  background: #f9fafb;
+  padding: 1rem;
+  border-radius: 8px;
+  text-align: center;
+}
+
+.stat-card label {
+  display: block;
+  font-size: 0.75rem;
+  color: #6b7280;
+  text-transform: uppercase;
+  margin-bottom: 0.5rem;
+}
+
+.stat-card span {
+  display: block;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #111827;
+}
+
+.skill-content-section,
+.skill-agents-section {
+  margin-top: 2rem;
+}
+
+.skill-content-section h3,
+.skill-agents-section h3 {
+  margin-bottom: 1rem;
+}
+
+pre.markdown-content {
+  background: #f9fafb;
+  padding: 1.5rem;
+  border-radius: 8px;
+  max-height: 400px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-family: inherit;
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+.agents-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.agent-item {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem;
+  background: #f9fafb;
+  border-radius: 8px;
+}
+
+.agent-name {
+  flex: 1;
+  font-weight: 600;
+}
+
+.agent-role {
+  color: #6b7280;
+  font-size: 0.875rem;
+}
+
+.proficiency {
+  padding: 0.25rem 0.75rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.proficiency.expert { background: #d1fae5; color: #065f46; }
+.proficiency.competent { background: #dbeafe; color: #1e40af; }
+.proficiency.learning { background: #fef3c7; color: #92400e; }
+
+.no-agents {
+  color: #6b7280;
+  font-style: italic;
+}
+
+.loading {
+  padding: 3rem;
+  text-align: center;
+  color: #6b7280;
+  font-size: 1.125rem;
+}

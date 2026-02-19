@@ -26,6 +26,7 @@ import Status from './Status.jsx'
 import MyAccount from './MyAccount.jsx'
 import LoginPage from './LoginPage.jsx'
 import CommandCenter from './CommandCenter.jsx'
+import SkillsLibrary from './SkillsLibrary.jsx'
 import JobFlow from './JobFlow.jsx'
 import './index.css'
 
@@ -55,6 +56,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <Route path="/devbot" element={<DevbotHome />} />
           <Route path="/hiring" element={<HiringHall onHire={() => {}} />} />
           <Route path="/talents" element={<TalentOverview />} />
+          <Route path="/skills" element={<SkillsLibrary />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/status" element={<Status />} />
           <Route path="/my-account" element={<MyAccount />} />
