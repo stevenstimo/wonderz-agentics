@@ -41,6 +41,7 @@ Schrijf tekst die zowel menselijk leesbaar is als goed rankt in zoekmachines.
 ## Anti-Patterns to Avoid
 
 🚫 "Keyword Salad" - Te veel keywords zonder context
+   Example: "Beste wielrennen fiets wielrennen Nederland wielrennen routes"
    
 🚫 "Thin Content" - <300 woorden voor commercial intent pages
    
@@ -84,12 +85,20 @@ VALUES (
 
 ### Opening Patterns (Choose one per section)
 1. **Problem → Agitate → Solution**
+   "Salesteams besteden 40% van hun tijd aan administratie. Dit kost €30k per FTE per jaar. Ons platform automatiseert dit volledig."
+
 2. **Statistic → Context → Our Approach**
+   "73% van B2B leads converteert niet binnen 6 maanden. Wij verhogen dit naar 45% via automated nurturing."
+
 3. **Question → Answer → Benefit**
+   "Hoe verhoogt u leadkwaliteit zonder meer budget? Door alleen MQL-ready leads door te sturen naar sales."
 
 ### Body Patterns
 Use this structure for features:
 **Feature → Benefit → Use Case**
+
+Example:
+"Onze AI scoring engine (feature) verhoogt conversie met 28% (benefit). Klant X gebruikte dit om in Q3 2025 €2.4M extra omzet te genereren (use case)."
 
 ### CTA Construction
 Formula: **Action Verb + Value Proposition + Risk Removal**
@@ -106,18 +115,30 @@ Formula: **Action Verb + Value Proposition + Risk Removal**
 ✅ Verhoog conversie met 28%
 ✅ Bespaar 15 uur per week
 ✅ ROI +42% binnen 6 maanden
+✅ Meer dan 500 B2B bedrijven vertrouwen op ons
 
 ### Avoid (Vague Claims)
 ❌ Aanzienlijke verbetering
 ❌ Veel voordelen
 ❌ Toonaangevend platform
 ❌ Revolutionaire oplossing
+❌ Game-changer
+❌ Cutting-edge technologie (zonder bewijs)
+
+## Example Transformations
+
+### BEFORE (Weak)
+"Ons innovatieve platform helpt bedrijven beter presteren met geavanceerde features die resultaat leveren."
+
+### AFTER (Strong)
+"Automatiseer uw salesproces en verhoog conversie met 28%. Meer dan 500 B2B bedrijven vertrouwen op ons platform voor lead nurturing. Klant Acme Corp genereerde €800k extra ARR in Q4 2025."
 
 ## Verification Checklist
 - [ ] Geen superlatieven zonder cijfermatig bewijs?
 - [ ] Elke claim heeft data, testimonial of case study?
 - [ ] CTA bevat concrete waarde-propositie?
 - [ ] Taalgebruik consistent formeel (u/uw)?
+- [ ] Minimaal 1 testimonial met bedrijfsnaam + functie?
 - [ ] Geen jargon zonder uitleg?
 '
 ) ON CONFLICT (skill_id) DO NOTHING;
@@ -144,9 +165,11 @@ Schrijf alsof je met een vriend praat - toegankelijk, vriendelijk, menselijk.
 ## Do''s & Don''ts
 
 ### ✅ DO
+- Gebruik contracties: "je''d", "we''ll", "dat''s"
 - Korte zinnen: max 15-20 woorden
 - Spreek lezer direct aan: "Stel je voor..."
 - Gebruik vraagzinnen: "Herken je dit?"
+- Voeg emoji toe waar passend (niet overdrijven) 😊
 - Begin zinnen met "En" of "Maar" (casual mag dat)
 
 ### ❌ DON''T
@@ -154,13 +177,32 @@ Schrijf alsof je met een vriend praat - toegankelijk, vriendelijk, menselijk.
 - Passieve constructies: "wordt gedaan" → gebruik "we doen"
 - Lange paragrafen (max 3 zinnen)
 - Te formeel: "derhalve", "bijgevolg", "teneinde"
+- Overdreven enthousiasme: "AMAZING!!!", "SUPERVET!!!"
 
 ## Sentence Patterns
 
 ### Opening Hooks (Casual)
-1. **Relatable Question** - "Herken je dat?"
-2. **Personal Story Start** - "Vorige week probeerde ik..."
-3. **Direct Address** - "Luister, dit is niet moeilijk."
+1. **Relatable Question**
+   "Herken je dat? Je wilt sporten maar je agenda zit vol..."
+
+2. **Personal Story Start**
+   "Vorige week probeerde ik voor het eerst padel. Spoiler: ik won geen punt. 😅"
+
+3. **Direct Address**
+   "Luister, wielrennen is niet moeilijk. Je hebt een fiets, een weg, en wat lef nodig."
+
+### Body Flow
+Use short paragraphs (2-3 sentences) with breathing room.
+
+**Pattern:**
+Statement → Example → Takeaway
+
+Example:
+"Schaatsen leren is 80% vertrouwen, 20% techniek. (statement)
+
+Ik zag vorige week een 5-jarige dit sneller oppakken dan een 30-jarige. Waarom? Hij dacht er niet over na. (example)
+
+Moral: overthink het niet, gewoon doen. (takeaway)"
 
 ### Conversational Transitions
 Replace formal transitions:
@@ -169,16 +211,27 @@ Replace formal transitions:
 - Bijgevolg → Daarom
 - Ten eerste → Eerst
 
+## Example Transformations
+
+### BEFORE (Too Formal)
+"Wielrennen biedt aanzienlijke gezondheidsvoordelen. Onderzoek toont aan dat regelmatige training de cardiovasculaire conditie optimaliseert en het risico op chronische aandoeningen vermindert."
+
+### AFTER (Casual)
+"Wielrennen is gewoon goed voor je. Je hart wordt sterker, je conditie beter, en je voelt je fitter. Plus: je krijgt dat heerlijke na-sport gevoel. 💪"
+
 ## Emoji Guidelines
 Use sparingly (1-2 per article max):
-✅ After positive statements
+✅ After positive statements: "Dat lukte! 🎉"
+✅ To emphasize emotion: "Echt waar? 😲"
 ❌ Not in every sentence
+❌ Not multiple in one sentence
 
 ## Verification Checklist
 - [ ] Gebruik je "je" ipv "u"?
 - [ ] Korte paragrafen (max 3 zinnen)?
 - [ ] Geen corporate speak?
 - [ ] Leest het alsof je het hardop zou zeggen?
+- [ ] Max 2 emoji in hele tekst?
 - [ ] Begrijpelijk voor 16-jarige?
 '
 ) ON CONFLICT (skill_id) DO NOTHING;
@@ -197,33 +250,108 @@ VALUES (
 Structureer content zodat het scanbaar, leesbaar en logisch is.
 
 ## Heading Hierarchy Rules
-- Nooit een heading level overslaan. H1 → H2 → H3, niet H1 → H3.
-- H1: 1x per pagina
+
+### ✅ CORRECT
+```
+H1: Hoofdtitel (1x per pagina)
+  H2: Main section
+    H3: Subsection
+    H3: Subsection
+  H2: Main section
+    H3: Subsection
+```
+
+### ❌ INCORRECT
+```
+H1: Titel
+  H3: Subsection (H2 missing!)
+  H2: Section (wrong order)
+```
+
+**Rule:** Nooit een heading level overslaan. H1 → H2 → H3, niet H1 → H3.
 
 ## Paragraph Length Guidelines
-**Short-form content:** 2-4 zinnen max per paragraaf
-**Long-form content:** 4-6 zinnen max, whitespace elke 100-150 woorden
+
+**Short-form content (blogs, articles):**
+- Opening paragraph: 2-3 zinnen
+- Body paragraphs: 3-4 zinnen max
+- Conclusion: 2-3 zinnen
+
+**Long-form content (guides, whitepapers):**
+- Body paragraphs: 4-6 zinnen max
+- Add whitespace every 100-150 words
+
 **Rule:** Als een paragraaf >6 zinnen heeft, split het op.
 
 ## List Usage
-- Bullet lists: 3+ items van gelijke waarde, non-sequential
-- Numbered lists: Sequential steps, ranking
-- NIET voor slechts 2 items
+
+### When to Use Bullet Lists
+✅ 3+ items van gelijke waarde
+✅ Non-sequential items (volgorde maakt niet uit)
+✅ Quick scan items
+
+Example:
+"Wat heb je nodig voor wielrennen?
+- Een fiets (duh)
+- Een helm
+- Comfortabele kleding
+- Waterfles"
+
+### When to Use Numbered Lists
+✅ Sequential steps (volgorde belangrijk)
+✅ Ranking/prioriteit
+✅ Instructions
+
+Example:
+"Zo leer je schaatsen:
+1. Zet helm en schaatsen aan
+2. Loop eerst op het ijs (niet glijden)
+3. Oefenen kleine glijbewegingen
+4. Werk naar langere glijders"
+
+### When NOT to Use Lists
+❌ Alleen 2 items (gebruik "en" ipv lijst)
+❌ Lange uitleg per item (gebruik H3 subsections)
+❌ Narrative flow (gebruik prose)
 
 ## Opening Structure Pattern
+
 **Hook → Context → Promise**
 
+Example:
+"Wielrennen lijkt intimiderend. (hook) Al die fancy fietsen, teams in Lycra, en jargon over "wattage" en "cadans". (context) Maar ik beloof je: binnen 2 weken fiets je met plezier. (promise)"
+
 ## Body Section Pattern
+
 **Problem → Solution → Benefit**
 
+Example:
+"Beginners maken vaak deze fout: ze fietsen met te zwaar verzet. (problem) 
+
+Gebruik een lichter verzet en draai sneller. (solution) 
+
+Je benen blijven fris, je gaat sneller, en je geniet meer. (benefit)"
+
 ## Closing Structure Pattern
+
 **Recap → CTA → Encouragement**
 
+Example:
+"Recap: lichte verzet, hoge cadans, bouw langzaam op. (recap)
+
+Probeer het volgende rit. (CTA)
+
+Je gaat het verschil merken, dat beloof ik. (encouragement)"
+
 ## Whitespace Rules
+
 Add extra line break after:
 - Every 2-3 paragraphs
 - Before/after lists
 - Before/after headings
+- Before/after quotes or examples
+
+**Rule:** Als een "wall of text" ontstaat (>200 woorden zonder break), voeg whitespace toe.
 
 ## Verification Checklist
 - [ ] H1 → H2 → H3 hiërarchie correct?
@@ -245,39 +373,167 @@ VALUES (
     ARRAY['copywriter', 'reviewer', 'content-writer'],
     '# Common Writing Anti-Patterns
 
+## Doel
+Herken en vermijd deze veelvoorkomende fouten die content zwak maken.
+
 ## 🚫 Anti-Pattern 1: Vague Value Propositions
-FOUT: "Ons platform helpt bedrijven beter presteren."
-FIX: Vervang elke vage claim met een cijfer of concreet voordeel.
+
+### FOUT
+"Ons platform helpt bedrijven beter presteren met innovatieve oplossingen."
+
+### WAAROM FOUT
+- "Helpt" = te vaag
+- "Beter presteren" = niet meetbaar
+- "Innovatieve oplossingen" = betekenisloos buzzword
+
+### FIX
+"Ons platform verhoogt leadconversie met 28% via AI-scoring. Meer dan 500 B2B bedrijven gebruiken het."
+
+**Regel:** Vervang elke vage claim met een cijfer of concreet voordeel.
+
+---
 
 ## 🚫 Anti-Pattern 2: Feature Dumping
-FOUT: Features zonder benefits.
-FIX: Elke feature MOET een benefit + use case hebben.
+
+### FOUT
+"Ons product heeft:
+- Dashboard
+- Rapportage
+- Integraties
+- Analytics
+- Automatisering
+- API access"
+
+### WAAROM FOUT
+Features zonder benefits = nutteloos
+Lezer denkt: "En dan?"
+
+### FIX
+"Krijg automatische leadscoring (feature) zodat sales alleen met warme leads spreekt (benefit). Dit verhoogde conversie bij Acme Corp met 35% (social proof)."
+
+**Regel:** Elke feature MOET een benefit + use case hebben.
+
+---
 
 ## 🚫 Anti-Pattern 3: Passive Voice Overload
-FOUT: "De data wordt geanalyseerd..."
-FIX: Zoek "wordt" en "worden". Herschrijf naar actieve stem.
+
+### FOUT
+"De data wordt geanalyseerd en inzichten worden gegenereerd waarna rapporten worden gemaakt."
+
+### WAAROM FOUT
+Passieve stem = saai, indirect, zwak
+Wie doet wat?
+
+### FIX
+"Wij analyseren uw data, genereren inzichten, en maken rapporten."
+
+Of beter (actief + benefit):
+"Ons platform analyseert data in realtime en waarschuwt u bij afwijkingen."
+
+**Regel:** Zoek "wordt" en "worden" in je tekst. Herschrijf naar actieve stem.
+
+---
 
 ## 🚫 Anti-Pattern 4: Wall of Text
-FOUT: Paragraaf van 10+ zinnen zonder witruimte.
-FIX: Split op in 2-3 zin paragrafen, voeg H2/H3 en lists toe.
+
+### FOUT
+Paragraaf van 10+ zinnen zonder witruimte, lijsten of subheadings. Lezer ziet een blok tekst en skipped het.
+
+### WAAROM FOUT
+Onleesbaar op mobile
+Scanbaarheid = 0
+Bounce rate omhoog
+
+### FIX
+- Split op in 2-3 zin paragrafen
+- Voeg H2/H3 subsections toe
+- Gebruik bullet lists voor 3+ items
+- Voeg whitespace toe elke 150 woorden
+
+**Regel:** Als een paragraaf >6 zinnen heeft, is het te lang.
+
+---
 
 ## 🚫 Anti-Pattern 5: Jargon Without Context
-FOUT: Buzzword soup zonder uitleg.
-FIX: Als je jargon gebruikt, leg het uit in 1 zin.
+
+### FOUT
+"Onze SaaS platform biedt best-in-class ML-driven insights met seamless API integratie en omnichannel attribution modeling."
+
+### WAAROM FOUT
+Buzzword soup
+Lezer denkt: "Wat betekent dit in normaal Nederlands?"
+
+### FIX
+"Ons online platform voorspelt welke leads kopen (ML = machine learning). Het werkt samen met uw CRM via API (= automatische datakoppeling)."
+
+**Regel:** Als je jargon gebruikt, leg het uit in 1 zin. Of skip de jargon helemaal.
+
+---
 
 ## 🚫 Anti-Pattern 6: Buried Lede
-FOUT: Belangrijkste info staat onderaan.
-FIX: Lead met de belangrijkste info. Uitleg komt daarna.
+
+### FOUT
+"In de moderne digitale economie waar bedrijven steeds meer data verzamelen en analyse belangrijker wordt voor competitief voordeel, biedt ons platform een oplossing die..."
+
+(150 woorden later)
+
+"...verhoogt conversie met 40%."
+
+### WAAROM FOUT
+Belangrijkste info staat onderaan
+Lezer haakt af voor de payoff
+
+### FIX
+"Verhoog conversie met 40%. Zo werkt het: [uitleg]"
+
+**Regel:** Lead met de belangrijkste info. Uitleg komt daarna.
+
+---
 
 ## 🚫 Anti-Pattern 7: No Clear CTA
-FOUT: Content eindigt zonder call-to-action.
-FIX: Elke content piece moet eindigen met een duidelijke volgende stap.
+
+### FOUT
+Article eindigt met:
+"Hopelijk vond je dit nuttig. Tot de volgende keer!"
+
+### WAAROM FOUT
+Geen call-to-action
+Lezer denkt: "Oké, en nu?"
+Gemiste conversie-kans
+
+### FIX
+"Probeer het deze week:
+→ Start met 1 route per week
+→ Bouw langzaam af
+→ Deel je voortgang in onze community [link]"
+
+**Regel:** Elke content piece moet eindigen met een duidelijke volgende stap.
+
+---
 
 ## 🚫 Anti-Pattern 8: Inconsistent Tone
-FOUT: Mix van casual en formeel in dezelfde tekst.
-FIX: Pick one tone en blijf consistent.
+
+### FOUT
+Paragraaf 1: "Yo wielrenners! Dit ga je vet vinden..."
+Paragraaf 3: "Derhalve dient men rekening te houden met de biomechanische aspecten..."
+
+### WAAROM FOUT
+Jarring shift = verwarrend
+Lezer weet niet wat de vibe is
+
+### FIX
+Pick one tone en blijf consistent:
+- Casual? Blijf casual
+- Formeel? Blijf formeel
+- Gebruik niet beide
+
+**Regel:** Als je in paragraaf 1 "je" gebruikt, gebruik dan niet "u" in paragraaf 3.
+
+---
 
 ## Verification Checklist
+Run deze checks voor je content indient:
+
 - [ ] Geen vage claims zonder cijfers?
 - [ ] Elke feature heeft een benefit?
 - [ ] Geen passieve stem ("wordt", "worden")?
