@@ -2,7 +2,7 @@ import { apiBase } from './apiBase'
 import { useState, useEffect } from 'react'
 import PageLayout from './PageLayout'
 import { Save, Eye, EyeOff, AlertCircle } from 'lucide-react'
-import { buildAuthHeaders } from './authz'
+import { buildAuthHeaders, getAccessToken } from './authz'
 
 
 export default function Settings() {
@@ -66,10 +66,10 @@ export default function Settings() {
 
       if (response.ok) {
         setMessage({ type: 'success', text: 'Settings saved successfully.' })
-      } else if (response.status === 401 || response.status === 403) {
-        setMessage({ type: 'error', text: 'Geen toegang. Alleen super admin kan settings opslaan.' })
       } else {
-        setMessage({ type: 'error', text: 'Failed to save settings' })
+        const detail = await response.json().catch(() => ({}))
+        const msg = detail?.detail || (response.status === 401 ? 'Niet ingelogd — log opnieuw in.' : response.status === 403 ? 'Geen toegang (alleen super admin).' : `Save failed (${response.status})`)
+        setMessage({ type: 'error', text: msg })
       }
     } catch {
       setMessage({ type: 'error', text: 'Error saving settings' })

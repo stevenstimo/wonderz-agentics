@@ -29,25 +29,31 @@ def _mask_key(key: Optional[str]) -> str:
 
 async def _check_admin(request: Request):
     """Check if the request comes from super admin via Supabase JWT."""
+    import json, base64
+
     auth = request.headers.get("authorization", "")
     if not auth.startswith("Bearer "):
+        logger.warning("Settings access: no Bearer token")
         raise HTTPException(status_code=401, detail="Not authenticated")
 
     token = auth[7:]
-    # Decode JWT to get email (Supabase JWTs are standard)
     try:
-        import json, base64
-        payload = token.split(".")[1]
-        # Add padding
+        parts = token.split(".")
+        if len(parts) < 2:
+            raise ValueError("Malformed JWT")
+        payload = parts[1]
+        # Add padding for base64
         payload += "=" * (4 - len(payload) % 4)
         data = json.loads(base64.urlsafe_b64decode(payload))
-        email = data.get("email", "").lower()
+        email = (data.get("email") or "").lower().strip()
+        logger.info(f"Settings access by: {email}")
         if email != SUPER_ADMIN_EMAIL:
-            raise HTTPException(status_code=403, detail="Only super admin can access settings")
-    except (IndexError, ValueError, Exception) as e:
-        if isinstance(e, HTTPException):
-            raise
-        raise HTTPException(status_code=401, detail="Invalid token")
+            raise HTTPException(status_code=403, detail=f"Only super admin can access settings (got: {email or 'no email in token'})")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"JWT decode error: {e}")
+        raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
 
 
 class SettingsUpdate(BaseModel):

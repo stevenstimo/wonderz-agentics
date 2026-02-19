@@ -24,8 +24,16 @@ export async function getCurrentSessionUser() {
 }
 
 export async function getAccessToken() {
-  const { data } = await safeGetSession()
-  return data?.session?.access_token || null
+  // Try with longer timeout for token retrieval
+  const { data } = await safeGetSession(8000)
+  if (data?.session?.access_token) return data.session.access_token
+  // Retry once with direct call (no timeout wrapper)
+  try {
+    const { data: d2 } = await supabase.auth.getSession()
+    return d2?.session?.access_token || null
+  } catch {
+    return null
+  }
 }
 
 export async function buildAuthHeaders(extraHeaders = {}) {

@@ -177,8 +177,13 @@
     <div class="input-area">
       <div class="input-wrapper">
         <div class="input-box">
-          <textarea id="prompt" placeholder="Ask for follow-up changes" rows="1"></textarea>
+          <div id="attachments-bar" style="display:none;padding:0.25rem 0.5rem;display:flex;flex-wrap:wrap;gap:0.25rem;"></div>
+          <textarea id="prompt" placeholder="Ask for follow-up changes — drop files here or click 📎" rows="1"></textarea>
           <div class="input-bottom">
+            <input type="file" id="fileInput" multiple accept=".md,.txt,.png,.jpg,.jpeg,.gif,.webp,.svg,.pdf" style="display:none" onchange="handleFileSelect(event)" />
+            <button class="send" onclick="document.getElementById('fileInput').click()" title="Attach files" style="background:transparent;color:#666;">
+              📎
+            </button>
             <select id="model">
               <option value="gpt-5.3-codex">GPT-5.3-Codex</option>
               <option value="gpt-5.2-codex" selected>GPT-5.2-Codex</option>
@@ -599,6 +604,69 @@
 
     // --- Init ---
     promptEl.addEventListener('keydown', (e) => { if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendPrompt();} });
+
+    // --- File upload / drag-drop ---
+    let pendingFiles = [];
+    const attachBar = document.getElementById('attachments-bar');
+
+    function renderAttachments() {
+      if (pendingFiles.length === 0) { attachBar.style.display = 'none'; return; }
+      attachBar.style.display = 'flex';
+      attachBar.innerHTML = pendingFiles.map((f, i) =>
+        `<span style="background:#e8e8e8;border-radius:4px;padding:2px 8px;font-size:0.75rem;display:flex;align-items:center;gap:4px;">`
+        + `${f.name.endsWith('.png')||f.name.endsWith('.jpg')||f.name.endsWith('.jpeg') ? '🖼️' : '📄'} ${f.name}`
+        + `<span style="cursor:pointer;color:#999;" onclick="removeAttachment(${i})">&times;</span></span>`
+      ).join('');
+    }
+
+    window.removeAttachment = function(i) {
+      pendingFiles.splice(i, 1);
+      renderAttachments();
+    };
+
+    window.handleFileSelect = function(e) {
+      for (const f of e.target.files) pendingFiles.push(f);
+      e.target.value = '';
+      renderAttachments();
+    };
+
+    // Drag and drop on the input box
+    const inputBox = document.querySelector('.input-box');
+    inputBox.addEventListener('dragover', (e) => { e.preventDefault(); inputBox.style.borderColor = '#4f46e5'; });
+    inputBox.addEventListener('dragleave', () => { inputBox.style.borderColor = '#e5e5e5'; });
+    inputBox.addEventListener('drop', (e) => {
+      e.preventDefault(); inputBox.style.borderColor = '#e5e5e5';
+      for (const f of e.dataTransfer.files) pendingFiles.push(f);
+      renderAttachments();
+    });
+
+    // Override sendPrompt to handle attachments
+    const _origSendPrompt = sendPrompt;
+    window.sendPrompt = async function() {
+      if (pendingFiles.length === 0) { _origSendPrompt(); return; }
+      // Upload files first
+      const formData = new FormData();
+      pendingFiles.forEach(f => formData.append('files', f));
+      try {
+        const res = await fetch('/api/upload', { method: 'POST', body: formData });
+        const data = await res.json();
+        // Prepend file contents to prompt
+        let extra = '';
+        for (const f of (data.files || [])) {
+          if (f.text_content) {
+            extra += `\n\n--- Attached file: ${f.name} ---\n${f.text_content}\n--- End ${f.name} ---\n`;
+          } else if (f.path) {
+            extra += `\n\n[Attached file: ${f.name} at ${f.path}]\n`;
+          }
+        }
+        promptEl.value = promptEl.value + extra;
+      } catch (err) {
+        console.error('Upload failed:', err);
+      }
+      pendingFiles = [];
+      renderAttachments();
+      _origSendPrompt();
+    };
 
     // Git status polling
     async function loadGitStatus() {

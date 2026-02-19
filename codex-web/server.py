@@ -8,11 +8,11 @@ import uuid
 import hashlib
 from pathlib import Path
 from datetime import datetime
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, UploadFile, File
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 
 app = FastAPI(title="Codex Web Interface")
 
@@ -154,6 +154,45 @@ def update_systemd_env(name, value):
         subprocess.run(["sudo", "systemctl", "daemon-reload"], capture_output=True, timeout=5)
     except:
         pass
+
+
+# --- Upload endpoint ---
+
+UPLOAD_DIR = "/tmp/codex-uploads"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+
+@app.post("/api/upload")
+async def upload_files(files: List[UploadFile] = File(...)):
+    """Upload .md files and images. Returns file paths for use in prompts."""
+    results = []
+    for f in files:
+        ext = Path(f.filename).suffix.lower()
+        if ext not in (".md", ".txt", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".pdf"):
+            results.append({"name": f.filename, "error": f"Unsupported file type: {ext}"})
+            continue
+        safe_name = f"{uuid.uuid4().hex[:8]}_{Path(f.filename).name}"
+        dest = os.path.join(UPLOAD_DIR, safe_name)
+        content = await f.read()
+        with open(dest, "wb") as out:
+            out.write(content)
+        
+        # For text files, also read content to include in prompt
+        text_content = None
+        if ext in (".md", ".txt"):
+            try:
+                text_content = content.decode("utf-8", errors="replace")
+            except:
+                pass
+        
+        results.append({
+            "name": f.filename,
+            "path": dest,
+            "size": len(content),
+            "type": f.content_type,
+            "text_content": text_content,
+        })
+    return {"files": results}
 
 
 # --- API Keys endpoints ---
