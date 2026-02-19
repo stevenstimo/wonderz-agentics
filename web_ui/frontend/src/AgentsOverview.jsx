@@ -13,12 +13,16 @@ export default function AgentsOverview() {
     setError('')
     try {
       const res = await fetch(`${apiBase}/api/agents`)
-      const data = await res.json().catch(() => [])
+      const data = await res.json().catch(() => null)
       if (!res.ok) {
-        throw new Error('Agents ophalen mislukt')
+        const detail = data?.detail || data?.message || JSON.stringify(data)
+        console.error(`Failed to load agents: HTTP ${res.status}`, data)
+        throw new Error(`Agents ophalen mislukt (HTTP ${res.status}): ${detail}`)
       }
-      setAgents(Array.isArray(data) ? data : [])
+      const agentsList = Array.isArray(data?.agents) ? data.agents : Array.isArray(data) ? data : []
+      setAgents(agentsList)
     } catch (err) {
+      console.error('loadAgents error:', err)
       setError(err.message || 'Onbekende fout')
       setAgents([])
     } finally {
@@ -78,12 +82,12 @@ export default function AgentsOverview() {
             <tbody>
               {agents.map((agent) => (
                 <tr key={agent.agent_id} className="border-b border-gray-100 text-sm text-gray-800">
-                  <td className="py-3 pr-4">{agent.agent_name}</td>
+                  <td className="py-3 pr-4">{agent.name}</td>
                   <td className="py-3 pr-4">{agent.role}</td>
-                  <td className="py-3 pr-4">{agent.goal}</td>
-                  <td className="py-3 pr-4">{agent.tool_whitelist?.length || 0} tools</td>
+                  <td className="py-3 pr-4">{agent.specialization || '-'}</td>
+                  <td className="py-3 pr-4">{(() => { try { const t = typeof agent.tool_access_whitelist === 'string' ? JSON.parse(agent.tool_access_whitelist) : agent.tool_access_whitelist; return Array.isArray(t) ? t.length : 0; } catch { return 0; } })() } tools</td>
                   <td className="py-3 pr-4">
-                    {agent.created_at ? new Date(agent.created_at).toLocaleDateString() : '-'}
+                    {agent.hired_at ? new Date(agent.hired_at).toLocaleDateString() : '-'}
                   </td>
                   <td className="py-3 pr-0">
                     <div className="flex items-center gap-3">

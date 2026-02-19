@@ -13,6 +13,7 @@ from app.db import init_db_pool, close_db_pool
 from app.routes.jobs import router as jobs_router
 from app.routes.agents import router as agents_router
 from app.routes.hr import router as hr_router
+from app.routes.talents import router as talents_router
 
 # Celery task will be imported lazily to avoid starting worker at import time
 
@@ -43,6 +44,7 @@ app.add_middleware(
 app.include_router(jobs_router)
 app.include_router(agents_router)
 app.include_router(hr_router)
+app.include_router(talents_router)
 
 
 # --- Training session progress (top-level to avoid agent path conflicts) ---
@@ -72,7 +74,65 @@ async def get_training_progress(session_id: str):
 
 @app.get("/api/health")
 async def health_check():
-    return {"status": "ok"}
+    """Extended health check — DB, Redis, disk. Returns 503 when degraded."""
+    from datetime import datetime
+    from fastapi.responses import JSONResponse
+    import shutil
+
+    health: dict = {
+        "status": "ok",
+        "timestamp": datetime.now().isoformat(),
+        "checks": {},
+    }
+
+    # 1. Database
+    try:
+        pool = _db._pool
+        if pool:
+            async with pool.acquire() as conn:
+                result = await conn.fetchval("SELECT 1")
+                health["checks"]["database"] = "ok" if result == 1 else "error"
+        else:
+            health["checks"]["database"] = "no_pool"
+            health["status"] = "degraded"
+    except Exception as e:
+        health["checks"]["database"] = f"error: {str(e)[:80]}"
+        health["status"] = "degraded"
+
+    # 2. Redis
+    try:
+        import redis as _r
+        r = _r.Redis(host="localhost", port=6379, db=0, socket_timeout=2)
+        r.ping()
+        health["checks"]["redis"] = "ok"
+    except Exception as e:
+        health["checks"]["redis"] = f"error: {str(e)[:80]}"
+        health["status"] = "degraded"
+
+    # 3. Disk space
+    try:
+        disk = shutil.disk_usage("/")
+        pct = (disk.used / disk.total) * 100
+        health["checks"]["disk_usage"] = f"{pct:.1f}%"
+        if pct > 90:
+            health["status"] = "degraded"
+    except Exception:
+        health["checks"]["disk_usage"] = "unknown"
+
+    # Alert on degraded
+    if health["status"] != "ok":
+        try:
+            from app.services.alerting import AlertManager
+            AlertManager.get().send_alert(
+                "Service Degraded",
+                f"Health check failed: {health['checks']}",
+                priority="high",
+            )
+        except Exception:
+            pass
+
+    code = 200 if health["status"] == "ok" else 503
+    return JSONResponse(content=health, status_code=code)
 
 
 @app.get("/api/crew")
