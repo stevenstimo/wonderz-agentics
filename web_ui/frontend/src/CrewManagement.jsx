@@ -1,5 +1,6 @@
 import { apiBase } from './apiBase'
 import { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Plus, Edit2, Trash2, User, Shield, Code, Container, RefreshCw, X, Check, AlertCircle, Loader } from 'lucide-react'
 import PageLayout from './PageLayout'
 import { buildAuthHeaders, getCurrentUserRole, isSuperAdmin } from './authz'
@@ -42,6 +43,7 @@ export default function CrewManagement() {
   const [formData, setFormData] = useState(initialFormData)
   const [userRole, setUserRole] = useState('member')
 
+  const navigate = useNavigate()
   const canEdit = useMemo(() => isSuperAdmin(userRole), [userRole])
 
   const formatList = (items, delimiter) => (Array.isArray(items) ? items.join(delimiter) : '')
@@ -347,7 +349,7 @@ export default function CrewManagement() {
           {crew.map((member) => {
             const Icon = roleIcons[member.role] || User
             return (
-              <div key={member.id} className="agent-card card-management">
+              <div key={member.id} className="agent-card card-management cursor-pointer" onClick={() => navigate(`/crew/${member.id}`)}>
                 <div className="flex items-start justify-between">
                   <div className="flex items-center gap-3">
                     <img
@@ -361,10 +363,10 @@ export default function CrewManagement() {
                   </div>
                   {canEdit && (
                     <div className="flex gap-2">
-                      <button onClick={() => handleEdit(member)} disabled={deleteLoading === member.id} className="btn-icon-only" aria-label="Edit member" type="button">
+                      <button onClick={(e) => { e.stopPropagation(); handleEdit(member) }} disabled={deleteLoading === member.id} className="btn-icon-only" aria-label="Edit member" type="button">
                         <Edit2 className="w-4 h-4" />
                       </button>
-                      <button onClick={() => handleDelete(member.id)} disabled={deleteLoading !== null} className="btn-icon-only text-red-500" aria-label="Remove member" type="button">
+                      <button onClick={(e) => { e.stopPropagation(); handleDelete(member.id) }} disabled={deleteLoading !== null} className="btn-icon-only text-red-500" aria-label="Remove member" type="button">
                         {deleteLoading === member.id ? <Loader className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
                       </button>
                     </div>

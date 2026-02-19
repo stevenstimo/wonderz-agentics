@@ -27,6 +27,7 @@ import MyAccount from './MyAccount.jsx'
 import LoginPage from './LoginPage.jsx'
 import CommandCenter from './CommandCenter.jsx'
 import SkillsLibrary from './SkillsLibrary.jsx'
+import CrewDetail from './CrewDetail.jsx'
 import JobFlow from './JobFlow.jsx'
 import './index.css'
 
@@ -43,6 +44,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <Route path="/crew" element={<CrewManagement />} />
           <Route path="/crew/management" element={<CrewManagement />} />
           <Route path="/crew/new" element={<NewCrewMember />} />
+          <Route path="/crew/:memberId" element={<CrewDetail />} />
           <Route path="/agents" element={<AgentsOverview />} />
           <Route path="/agents/new" element={<NewCrewMember />} />
           <Route path="/training" element={<TrainingHub />} />
