@@ -34,6 +34,7 @@ ROLE_TO_MODULE = {
     "paid_ads_manager": "ads_agent",
     "data_analyst": "data_agent",
 }
+MODULE_TO_ROLE = {module: role for role, module in ROLE_TO_MODULE.items()}
 
 
 def _build_agent_runner(job_id: str, store_id: str = None):
@@ -86,8 +87,8 @@ def _build_agent_runner(job_id: str, store_id: str = None):
                             f"agent:{agent_name}"
                         )
                         if not agent_config:
-                            # Try by role
-                            role = agent_name.replace("_agent", "")
+                            # Try by role (module mapping preferred for copy_agent -> copywriter)
+                            role = MODULE_TO_ROLE.get(module_name) or MODULE_TO_ROLE.get(agent_name) or agent_name.replace("_agent", "")
                             agent_config = await conn.fetchrow(
                                 "SELECT * FROM hired_agents WHERE role = $1 AND status = 'active' ORDER BY performance_score DESC LIMIT 1",
                                 role
@@ -241,4 +242,3 @@ def run_job(self, job_id: str, store_id: str = None, payload: dict = None):
         else:
             logger.critical("Max retries exceeded for job %s", job_id)
             raise
-
