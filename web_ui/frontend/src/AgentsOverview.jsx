@@ -1,6 +1,7 @@
 import { apiBase } from './apiBase'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import PageLayout from './PageLayout'
 
 
 export default function AgentsOverview() {
@@ -46,6 +47,7 @@ export default function AgentsOverview() {
   }, [])
 
   return (
+    <PageLayout size="wide" padded>
     <div className="panel-card">
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div>
@@ -117,5 +119,6 @@ export default function AgentsOverview() {
         </div>
       )}
     </div>
+    </PageLayout>
   )
 }

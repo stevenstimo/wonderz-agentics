@@ -1,5 +1,6 @@
 import { apiBase } from './apiBase'
 import { useMemo, useState } from 'react'
+import PageLayout from './PageLayout'
 
 
 const roleOptions = [
@@ -87,6 +88,7 @@ export default function NewCrewMember() {
   }
 
   return (
+    <PageLayout size="wide" padded>
     <div className="panel-card max-w-3xl">
       <h1 className="page-title mb-2">Nieuwe Crew Member</h1>
       <p className="page-subtitle mb-6">Maak een nieuwe agent aan voor de Wonderz-Agentic crew.</p>
@@ -167,5 +169,6 @@ export default function NewCrewMember() {
         </button>
       </form>
     </div>
+    </PageLayout>
   )
 }
