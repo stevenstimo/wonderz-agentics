@@ -80,3 +80,8 @@ async def release_connection(conn):
     pool = _pool
     if pool and conn:
         await pool.release(conn)
+
+
+# Export pool for agent access
+# Note: This will be None until init_db_pool() is called
+db_pool = _pool
