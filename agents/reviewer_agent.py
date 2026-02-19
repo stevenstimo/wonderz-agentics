@@ -175,8 +175,8 @@ async def run(payload: Dict[str, Any]) -> Dict[str, Any]:
     skill_context = ""
     skill_ids_used = []
     try:
-        import app.db as _db
-        pool = _db._pool
+        from app.db import init_db_pool
+        pool = await init_db_pool()
         if pool and agent_id:
             loader = SkillLoader(pool)
             reviewer_skills = await loader.get_agent_skills(agent_id)
@@ -218,8 +218,8 @@ async def run(payload: Dict[str, Any]) -> Dict[str, Any]:
     # --- Track skill usage ---
     if skill_ids_used and job_id:
         try:
-            import app.db as _db
-            pool = _db._pool
+            from app.db import init_db_pool
+            pool = await init_db_pool()
             if pool:
                 loader = SkillLoader(pool)
                 await loader.record_skill_usage(job_id, agent_id, skill_ids_used)

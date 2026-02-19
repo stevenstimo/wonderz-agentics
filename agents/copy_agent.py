@@ -130,8 +130,8 @@ async def _generate_with_openai(job_post: str, objective: str, target_audience: 
 async def _load_skill_context(agent_id: str, task_context: Dict[str, Any]) -> tuple:
     """Load and select applicable skills for this task. Returns (skill_context_str, skill_ids)."""
     try:
-        import app.db as _db
-        pool = _db._pool
+        from app.db import init_db_pool
+        pool = await init_db_pool()
         if not pool or not agent_id:
             return "", []
 
@@ -243,8 +243,8 @@ async def run(payload: Dict[str, Any]) -> Dict[str, Any]:
     # --- Track skill usage ---
     if skill_ids_used and job_id:
         try:
-            import app.db as _db
-            pool = _db._pool
+            from app.db import init_db_pool
+            pool = await init_db_pool()
             if pool:
                 loader = SkillLoader(pool)
                 await loader.record_skill_usage(job_id, agent_id, skill_ids_used)
