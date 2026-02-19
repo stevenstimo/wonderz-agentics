@@ -45,6 +45,29 @@ app.include_router(agents_router)
 app.include_router(hr_router)
 
 
+# --- Training session progress (top-level to avoid agent path conflicts) ---
+
+@app.get("/api/training-sessions/{session_id}")
+async def get_training_progress(session_id: str):
+    """Get training progress for a specific session."""
+    pool = _db._pool
+    if not pool:
+        raise HTTPException(status_code=503, detail="DB pool not initialised")
+    async with pool.acquire() as conn:
+        session = await conn.fetchrow(
+            "SELECT * FROM agent_training_sessions WHERE session_id = $1",
+            session_id
+        )
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {
+        **dict(session),
+        "id": str(session["id"]),
+        "started_at": session["started_at"].isoformat() if session.get("started_at") else None,
+        "completed_at": session["completed_at"].isoformat() if session.get("completed_at") else None,
+    }
+
+
 # --- Stub endpoints for JobCenter compatibility ---
 
 @app.get("/api/health")

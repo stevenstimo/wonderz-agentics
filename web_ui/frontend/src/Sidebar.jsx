@@ -13,7 +13,7 @@ const managementMenu = [
   { label: 'Crew', icon: Users, path: '/crew' },
   { label: 'Agents', icon: Users, path: '/agents' },
   { label: 'Talents', icon: Users, path: '/talents' },
-  { label: 'Training Hub', icon: ClipboardList, path: '/training/management' },
+  { label: 'Training Hub', icon: ClipboardList, path: '/training' },
   { label: 'Improvements', icon: ClipboardList, path: '/hr/improvements' },
   { label: 'Hiring Hall', icon: ClipboardList, path: '/hiring' },
   { label: 'Developer Bot', icon: Code, path: '/devbot' },

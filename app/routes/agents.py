@@ -6,12 +6,14 @@ CRUD for hired_agents table + training endpoints.
 import uuid
 import json
 import logging
+import asyncio
 from datetime import datetime
 from typing import Optional, List
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, BackgroundTasks
 from pydantic import BaseModel
 
 import app.db as _db
+from app.services.training import run_training
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/agents", tags=["agents"])
@@ -120,7 +122,7 @@ async def create_agent(req: CreateAgentRequest):
     }
 
 
-@router.get("/{agent_id:path}")
+@router.get("/{agent_id}")
 async def get_agent(agent_id: str):
     """Get a single agent by agent_id."""
     pool = _db._pool
@@ -143,7 +145,7 @@ async def get_agent(agent_id: str):
     return d
 
 
-@router.patch("/{agent_id:path}")
+@router.patch("/{agent_id}")
 async def update_agent(agent_id: str, req: UpdateAgentRequest):
     """Update agent fields."""
     pool = _db._pool
@@ -201,7 +203,7 @@ async def update_agent(agent_id: str, req: UpdateAgentRequest):
     return {"agent_id": agent_id, "updated": True}
 
 
-@router.delete("/{agent_id:path}")
+@router.delete("/{agent_id}")
 async def deactivate_agent(agent_id: str):
     """Deactivate an agent (soft delete)."""
     pool = _db._pool
@@ -218,3 +220,76 @@ async def deactivate_agent(agent_id: str):
         raise HTTPException(status_code=404, detail="Agent not found")
 
     return {"agent_id": agent_id, "status": "inactive"}
+
+
+# ============ Training Endpoints ============
+
+class TrainAgentRequest(BaseModel):
+    source_url: str
+
+
+@router.post("/{agent_id}/train")
+async def train_agent(agent_id: str, req: TrainAgentRequest, background_tasks: BackgroundTasks):
+    """Start training an agent with a URL source."""
+    pool = _db._pool
+    if not pool:
+        raise HTTPException(status_code=503, detail="DB pool not initialised")
+
+    # Verify agent exists
+    async with pool.acquire() as conn:
+        agent = await conn.fetchrow(
+            "SELECT agent_id, name FROM hired_agents WHERE agent_id = $1",
+            agent_id
+        )
+        if not agent:
+            raise HTTPException(status_code=404, detail="Agent not found")
+
+        session_id = str(uuid.uuid4())
+
+        await conn.execute("""
+            INSERT INTO agent_training_sessions
+            (session_id, agent_id, source_url, status)
+            VALUES ($1, $2, $3, 'pending')
+        """, session_id, agent_id, req.source_url)
+
+    # Run training in background
+    background_tasks.add_task(run_training, pool, session_id, agent_id, req.source_url)
+
+    logger.info(f"Training started: agent={agent_id}, session={session_id}, url={req.source_url}")
+    return {
+        "session_id": session_id,
+        "agent_id": agent_id,
+        "status": "training_started",
+        "source_url": req.source_url
+    }
+
+
+@router.get("/{agent_id}/training-sessions")
+async def get_training_sessions(agent_id: str):
+    """Get training history for an agent."""
+    pool = _db._pool
+    if not pool:
+        raise HTTPException(status_code=503, detail="DB pool not initialised")
+
+    async with pool.acquire() as conn:
+        sessions = await conn.fetch("""
+            SELECT * FROM agent_training_sessions
+            WHERE agent_id = $1
+            ORDER BY started_at DESC
+            LIMIT 20
+        """, agent_id)
+
+    return {
+        "sessions": [
+            {
+                **dict(s),
+                "id": str(s["id"]),
+                "started_at": s["started_at"].isoformat() if s.get("started_at") else None,
+                "completed_at": s["completed_at"].isoformat() if s.get("completed_at") else None,
+            }
+            for s in sessions
+        ]
+    }
+
+
+
