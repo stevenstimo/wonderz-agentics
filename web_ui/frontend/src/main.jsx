@@ -40,6 +40,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <Route path="/jobs/new" element={<JobFlow />} />
           <Route path="/crew" element={<CrewManagement />} />
           <Route path="/crew/management" element={<CrewManagement />} />
+          <Route path="/crew/new" element={<NewCrewMember />} />
           <Route path="/agents" element={<AgentsOverview />} />
           <Route path="/agents/new" element={<NewCrewMember />} />
           <Route path="/training" element={<TrainingHub />} />

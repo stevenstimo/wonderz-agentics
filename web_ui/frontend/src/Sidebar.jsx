@@ -11,7 +11,6 @@ const primaryMenu = [
 
 const managementMenu = [
   { label: 'Crew', icon: Users, path: '/crew' },
-  { label: 'Agents', icon: Users, path: '/agents' },
   { label: 'Talents', icon: Users, path: '/talents' },
   { label: 'Training Hub', icon: ClipboardList, path: '/training' },
   { label: 'Improvements', icon: ClipboardList, path: '/hr/improvements' },
@@ -203,9 +202,9 @@ export default function Sidebar() {
           New Mission
         </NavLink>
 
-        <NavLink to="/agents/new" className="btn-manage w-full gap-2 flex items-center justify-center">
+        <NavLink to="/crew/new" className="btn-manage w-full gap-2 flex items-center justify-center">
           <PlusCircle className="w-5 h-5" />
-          Nieuwe Agent
+          New Crew Member
         </NavLink>
 
         {canManageSettings && (
