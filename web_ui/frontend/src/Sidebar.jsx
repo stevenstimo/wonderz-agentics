@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, NavLink } from 'react-router-dom'
 import { Home, Users, Layers, ClipboardList, Settings, PlusCircle, BookOpen, Shield, Code, Activity } from 'lucide-react'
-import { supabase } from './supabase'
+import { supabase, safeGetSession } from './supabase'
 import { getCurrentUserRole, isSuperAdmin } from './authz'
 
 const primaryMenu = [
@@ -57,7 +57,7 @@ export default function Sidebar() {
     let active = true
 
     const sync = async () => {
-      const { data } = await supabase.auth.getSession()
+      const { data } = await safeGetSession()
       const sessionUser = data?.session?.user || null
       if (!active) return
       setUser(sessionUser)

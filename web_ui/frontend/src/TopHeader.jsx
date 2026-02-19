@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { supabase } from './supabase'
+import { supabase, safeGetSession } from './supabase'
 import { Link, useNavigate } from 'react-router-dom'
 
 function getInitials(user) {
@@ -29,7 +29,7 @@ export default function TopHeader() {
   useEffect(() => {
     let mounted = true
 
-    supabase.auth.getSession().then(({ data }) => {
+    safeGetSession().then(({ data }) => {
       if (!mounted) return
       setUser(data?.session?.user || null)
     })

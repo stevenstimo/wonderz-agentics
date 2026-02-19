@@ -1,4 +1,4 @@
-import { supabase } from './supabase'
+import { supabase, safeGetSession } from './supabase'
 
 export const DEFAULT_ROLE = 'member'
 export const SUPER_ADMIN_EMAIL = 'stevenstimo@gmail.com'
@@ -19,14 +19,12 @@ export function extractRole(user) {
 }
 
 export async function getCurrentSessionUser() {
-  const { data, error } = await supabase.auth.getSession()
-  if (error) throw error
+  const { data } = await safeGetSession()
   return data?.session?.user || null
 }
 
 export async function getAccessToken() {
-  const { data, error } = await supabase.auth.getSession()
-  if (error) throw error
+  const { data } = await safeGetSession()
   return data?.session?.access_token || null
 }
 

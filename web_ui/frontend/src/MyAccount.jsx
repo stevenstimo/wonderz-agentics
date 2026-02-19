@@ -31,11 +31,16 @@ export default function MyAccount() {
     let mounted = true
 
     const sync = async () => {
-      const { data } = await supabase.auth.getSession()
-      const currentUser = data?.session?.user || null
-      if (!mounted) return
-      setUser(currentUser)
-      setFullName(fallbackName(currentUser))
+      try {
+        const { data } = await withTimeout(supabase.auth.getSession(), 5000)
+        const currentUser = data?.session?.user || null
+        if (!mounted) return
+        setUser(currentUser)
+        setFullName(fallbackName(currentUser))
+      } catch (e) {
+        console.error('getSession failed:', e)
+        if (!mounted) return
+      }
       setLoading(false)
 
       try {

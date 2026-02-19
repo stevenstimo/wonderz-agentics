@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { supabase } from './supabase'
+import { supabase, safeGetSession } from './supabase'
 import PageLayout from './PageLayout'
 import { Mail, Lock, Eye, EyeOff, Loader } from 'lucide-react'
 
@@ -16,7 +16,7 @@ export default function LoginPage() {
 
   // If already logged in, redirect to account
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
+    safeGetSession().then(({ data }) => {
       if (data?.session?.user) navigate('/my-account', { replace: true })
     })
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
