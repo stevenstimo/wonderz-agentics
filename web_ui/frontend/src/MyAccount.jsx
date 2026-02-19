@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import PageLayout from './PageLayout'
 import { supabase } from './supabase'
 import { getCurrentUserRole } from './authz'
+import { Lock, User, Mail, Shield, LogOut, Loader } from 'lucide-react'
 
 function fallbackName(user) {
   return user?.user_metadata?.full_name || user?.user_metadata?.name || user?.email || 'Unknown user'
@@ -25,6 +27,7 @@ export default function MyAccount() {
       if (!mounted) return
       setUser(currentUser)
       setFullName(fallbackName(currentUser))
+      setLoading(false)
 
       try {
         const ctx = await getCurrentUserRole()
@@ -104,12 +107,37 @@ export default function MyAccount() {
     setBusy(false)
   }
 
+  const [loading, setLoading] = useState(true)
+  const navigate = useNavigate()
+
+  if (loading && !user) {
+    return (
+      <PageLayout size="narrow" padded>
+        <div className="panel-card flex items-center justify-center py-12">
+          <Loader className="w-5 h-5 animate-spin text-indigo-600 mr-2" />
+          <span className="text-sm text-gray-500">Sessie laden...</span>
+        </div>
+      </PageLayout>
+    )
+  }
+
   if (!user) {
     return (
       <PageLayout size="narrow" padded>
-        <div className="panel-card">
-          <h1 className="page-title">Mijn account</h1>
-          <p className="page-subtitle">Je bent niet ingelogd.</p>
+        <div className="max-w-md mx-auto">
+          <div className="panel-card space-y-4 text-center">
+            <div className="w-16 h-16 mx-auto bg-gray-100 rounded-full flex items-center justify-center">
+              <User className="w-8 h-8 text-gray-400" />
+            </div>
+            <h1 className="page-title">Mijn account</h1>
+            <p className="text-sm text-gray-500">Log in om je profiel te bekijken en beheren.</p>
+            <Link
+              to="/login"
+              className="inline-flex items-center gap-2 px-6 py-2.5 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 transition"
+            >
+              Inloggen
+            </Link>
+          </div>
         </div>
       </PageLayout>
     )

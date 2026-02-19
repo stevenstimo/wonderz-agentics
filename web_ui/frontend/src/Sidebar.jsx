@@ -207,15 +207,13 @@ export default function Sidebar() {
           New Crew Member
         </NavLink>
 
-        {canManageSettings && (
-          <NavLink
-            to="/settings"
-            className={({ isActive }) => `nav-item ${isActive ? 'nav-item-active' : ''}`}
-          >
-            <Settings className="w-4 h-4" />
-            <span>Settings</span>
-          </NavLink>
-        )}
+        <NavLink
+          to="/settings"
+          className={({ isActive }) => `nav-item ${isActive ? 'nav-item-active' : ''}`}
+        >
+          <Settings className="w-4 h-4" />
+          <span>Settings</span>
+        </NavLink>
       </div>
     </aside>
   )
