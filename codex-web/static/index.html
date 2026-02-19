@@ -254,15 +254,15 @@
           startTime = null;
           loadThreads();
           // Auto-continue file queue
-          if (queueRunning && fileQueue.length > 0) scheduleNextInQueue();
-          else if (queueRunning) { queueRunning = false; addDivider('✅ All files processed'); }
+          if (queueRunning && fileQueue.length > 0) { scheduleNextInQueue(); }
+          else if (queueRunning) { queueRunning = false; queueWaiting = false; renderQueue(); addDivider('✅ All queued files processed'); }
           break;
         case 'error':
           removeThinking(); isRunning = false; sendBtn.disabled = false;
           addText('error', msg.data); startTime = null;
           // Auto-continue file queue even on error
-          if (queueRunning && fileQueue.length > 0) scheduleNextInQueue();
-          else if (queueRunning) { queueRunning = false; addDivider('✅ All files processed (with errors)'); }
+          if (queueRunning && fileQueue.length > 0) { scheduleNextInQueue(); }
+          else if (queueRunning) { queueRunning = false; queueWaiting = false; renderQueue(); addDivider('✅ All queued files processed (with errors)'); }
           break;
       }
     }
@@ -611,58 +611,84 @@
     // --- Init ---
     promptEl.addEventListener('keydown', (e) => { if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendPrompt();} });
 
-    // --- File upload / drag-drop ---
-    let pendingFiles = [];
-    const attachBar = document.getElementById('attachments-bar');
+    // --- File queue system ---
+    // Upload files one by one → they go into a queue.
+    // Queue processes files sequentially with cooldown between them.
+    let fileQueue = [];       // [{name, rel_path, is_text}, ...]
+    let queueRunning = false;
+    let queueWaiting = false; // true when in cooldown between files
+    const QUEUE_DELAY_MS = 65000; // 65s between files for TPM rate limits
+    const queueBar = document.getElementById('attachments-bar');
 
-    function renderAttachments() {
-      if (pendingFiles.length === 0) { attachBar.style.display = 'none'; return; }
-      attachBar.style.display = 'flex';
-      attachBar.innerHTML = pendingFiles.map((f, i) =>
-        `<span style="background:#e8e8e8;border-radius:4px;padding:2px 8px;font-size:0.75rem;display:flex;align-items:center;gap:4px;">`
-        + `${f.name.endsWith('.png')||f.name.endsWith('.jpg')||f.name.endsWith('.jpeg') ? '🖼️' : '📄'} ${f.name}`
-        + `<span style="cursor:pointer;color:#999;" onclick="removeAttachment(${i})">&times;</span></span>`
-      ).join('');
+    function renderQueue() {
+      if (fileQueue.length === 0 && !queueRunning) {
+        queueBar.style.display = 'none';
+        return;
+      }
+      queueBar.style.display = 'flex';
+      let html = '';
+      if (fileQueue.length > 0) {
+        html += `<span style="background:#e0e7ff;color:#3730a3;border-radius:4px;padding:2px 8px;font-size:0.75rem;font-weight:600;">📋 Queue: ${fileQueue.length}</span>`;
+        html += fileQueue.map((f, i) =>
+          `<span style="background:#f3f4f6;border-radius:4px;padding:2px 8px;font-size:0.75rem;display:flex;align-items:center;gap:4px;">`
+          + `📄 ${f.name}`
+          + `<span style="cursor:pointer;color:#999;" onclick="removeFromQueue(${i})">&times;</span></span>`
+        ).join('');
+      }
+      if (queueRunning && !queueWaiting) {
+        html += `<span style="background:#dcfce7;color:#166534;border-radius:4px;padding:2px 8px;font-size:0.75rem;">⚙️ Running...</span>`;
+      }
+      if (queueWaiting) {
+        html += `<span style="background:#fef9c3;color:#854d0e;border-radius:4px;padding:2px 8px;font-size:0.75rem;">⏳ Cooldown...</span>`;
+      }
+      queueBar.innerHTML = html;
     }
 
-    window.removeAttachment = function(i) {
-      pendingFiles.splice(i, 1);
-      renderAttachments();
+    window.removeFromQueue = function(i) {
+      fileQueue.splice(i, 1);
+      renderQueue();
+      if (fileQueue.length === 0 && !isRunning) { queueRunning = false; }
     };
 
-    window.handleFileSelect = function(e) {
-      for (const f of e.target.files) pendingFiles.push(f);
-      e.target.value = '';
-      renderAttachments();
-    };
-
-    // Drag and drop on the input box
-    const inputBox = document.querySelector('.input-box');
-    inputBox.addEventListener('dragover', (e) => { e.preventDefault(); inputBox.style.borderColor = '#4f46e5'; });
-    inputBox.addEventListener('dragleave', () => { inputBox.style.borderColor = '#e5e5e5'; });
-    inputBox.addEventListener('drop', (e) => {
-      e.preventDefault(); inputBox.style.borderColor = '#e5e5e5';
-      for (const f of e.dataTransfer.files) pendingFiles.push(f);
-      renderAttachments();
-    });
-
-    // --- File queue for sequential execution ---
-    let fileQueue = [];      // [{name, rel_path, is_text}, ...]
-    let queueBasePrompt = ''; // User's original prompt text
-    let queueRunning = false;
-    const QUEUE_DELAY_MS = 65000; // 65s between files to respect TPM rate limits
+    async function uploadAndQueue(files) {
+      // Upload to server, add to queue
+      const formData = new FormData();
+      for (const f of files) formData.append('files', f);
+      try {
+        const res = await fetch('/api/upload', { method: 'POST', body: formData });
+        const data = await res.json();
+        for (const f of (data.files || [])) {
+          if (f.error) { showToast(`❌ ${f.name}: ${f.error}`); continue; }
+          fileQueue.push({ name: f.name, rel_path: f.rel_path, is_text: f.is_text });
+        }
+        renderQueue();
+        showToast(`📋 ${data.files.length} file(s) added to queue (${fileQueue.length} total)`);
+        // Auto-start if nothing is running
+        if (!isRunning && !queueWaiting) {
+          processNextInQueue();
+        }
+      } catch (err) {
+        console.error('Upload failed:', err);
+        showToast('❌ Upload failed');
+      }
+    }
 
     function processNextInQueue() {
       if (fileQueue.length === 0) {
         queueRunning = false;
-        addDivider('✅ All files processed');
+        queueWaiting = false;
+        renderQueue();
+        addDivider('✅ All queued files processed');
         return;
       }
+      queueRunning = true;
+      queueWaiting = false;
       const file = fileQueue.shift();
       const remaining = fileQueue.length;
-      const label = remaining > 0 ? ` [${remaining} more queued]` : '';
-      const instruction = `Read the file \`${file.rel_path}\` (${file.name}) and execute the instructions/plan described in it.${queueBasePrompt ? '\n\nAdditional context from user: ' + queueBasePrompt : ''}`;
+      const label = remaining > 0 ? ` [${remaining} more in queue]` : '';
       addDivider(`📄 Processing: ${file.name}${label}`);
+      renderQueue();
+      const instruction = `Read the file \`${file.rel_path}\` (${file.name}) and execute the instructions/plan described in it.`;
       promptEl.value = instruction;
       _origSendPrompt();
     }
@@ -670,62 +696,38 @@
     function scheduleNextInQueue() {
       if (fileQueue.length === 0) {
         queueRunning = false;
-        addDivider('✅ All files processed');
+        queueWaiting = false;
+        renderQueue();
+        addDivider('✅ All queued files processed');
         return;
       }
+      queueWaiting = true;
+      renderQueue();
       const secs = Math.round(QUEUE_DELAY_MS / 1000);
-      addDivider(`⏳ Waiting ${secs}s for rate limit cooldown before next file (${fileQueue.length} remaining)...`);
+      addDivider(`⏳ Cooldown ${secs}s before next file (${fileQueue.length} in queue)...`);
       setTimeout(processNextInQueue, QUEUE_DELAY_MS);
     }
 
+    // File select handler — upload immediately to queue
+    window.handleFileSelect = async function(e) {
+      const files = Array.from(e.target.files);
+      e.target.value = '';
+      if (files.length > 0) await uploadAndQueue(files);
+    };
 
+    // Drag and drop on the input box
+    const inputBox = document.querySelector('.input-box');
+    inputBox.addEventListener('dragover', (e) => { e.preventDefault(); inputBox.style.borderColor = '#4f46e5'; });
+    inputBox.addEventListener('dragleave', () => { inputBox.style.borderColor = '#e5e5e5'; });
+    inputBox.addEventListener('drop', async (e) => {
+      e.preventDefault(); inputBox.style.borderColor = '#e5e5e5';
+      const files = Array.from(e.dataTransfer.files);
+      if (files.length > 0) await uploadAndQueue(files);
+    });
 
-    // Override sendPrompt to handle attachments
+    // Override sendPrompt — normal text prompts go through as-is
     const _origSendPrompt = sendPrompt;
-    window.sendPrompt = async function() {
-      if (pendingFiles.length === 0) { _origSendPrompt(); return; }
-      // Upload files first
-      const formData = new FormData();
-      pendingFiles.forEach(f => formData.append('files', f));
-      pendingFiles = [];
-      renderAttachments();
-      try {
-        const res = await fetch('/api/upload', { method: 'POST', body: formData });
-        const data = await res.json();
-        const textFiles = (data.files || []).filter(f => f.is_text && !f.error);
-        const imageFiles = (data.files || []).filter(f => !f.is_text && !f.error);
-
-        // If multiple text files: queue them for sequential execution
-        if (textFiles.length > 1) {
-          queueBasePrompt = promptEl.value.trim();
-          fileQueue = textFiles.map(f => ({ name: f.name, rel_path: f.rel_path, is_text: true }));
-          // Include image refs in base prompt if any
-          if (imageFiles.length > 0) {
-            const imgList = imageFiles.map(f => `- ${f.rel_path} (${f.name})`).join('\n');
-            queueBasePrompt += `\n\nUploaded images:\n${imgList}`;
-          }
-          queueRunning = true;
-          addDivider(`📋 Queue: ${fileQueue.length} files to process sequentially`);
-          processNextInQueue();
-          return;
-        }
-
-        // Single file or only images: add to prompt as before
-        let prefix = '';
-        if (textFiles.length === 1) {
-          const f = textFiles[0];
-          prefix += `\n\nRead the file \`${f.rel_path}\` (${f.name}) and execute the instructions/plan described in it.`;
-        }
-        if (imageFiles.length > 0) {
-          const imgList = imageFiles.map(f => `- ${f.rel_path} (${f.name})`).join('\n');
-          prefix += `\n\nUploaded images:\n${imgList}\n`;
-        }
-        if (prefix) {
-          promptEl.value = promptEl.value + prefix;
-        }
-      } catch (err) {
-        console.error('Upload failed:', err);
-      }
+    window.sendPrompt = function() {
       _origSendPrompt();
     };
 
