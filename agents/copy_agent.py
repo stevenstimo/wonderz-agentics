@@ -37,7 +37,8 @@ def _extract_brief_fields(context: Dict[str, Any]) -> Dict[str, str]:
 
 async def _generate_with_openai(job_post: str, objective: str, target_audience: str,
                                  platform: str, reviewer_feedback: str = None,
-                                 skill_context: str = "") -> dict:
+                                 skill_context: str = "",
+                                 base_system_prompt: str | None = None) -> dict:
     api_key = _get_openai_key()
     if not api_key:
         raise RuntimeError("OpenAI API key not found")
@@ -52,16 +53,17 @@ async def _generate_with_openai(job_post: str, objective: str, target_audience: 
     topic = _re.sub(r'\d+\s*woorden?\s*(over)?', '', topic, flags=_re.IGNORECASE).strip()
     topic = topic.strip(' .,;:-') or job_post  # fallback to full job_post
 
-    base_system_prompt = (
-        "Je bent een ervaren Nederlandse copywriter. "
-        "Schrijf vloeiend, informatief Nederlands. "
-        "De tekst moet VOLLEDIG en UITSLUITEND gaan over het opgegeven onderwerp. "
-        "Schrijf GEEN generieke tekst over schrijven, marketing of communicatie. "
-        "Schrijf specifieke, feitelijke informatie over het onderwerp. "
-        "Gebruik alinea's. Geen opsommingen tenzij gevraagd. "
-        "Schrijf EXACT het gevraagde aantal woorden (±10%). "
-        "Lever ALLEEN de tekst, zonder titel, zonder uitleg."
-    )
+    if not base_system_prompt:
+        base_system_prompt = (
+            "Je bent een ervaren Nederlandse copywriter. "
+            "Schrijf vloeiend, informatief Nederlands. "
+            "De tekst moet VOLLEDIG en UITSLUITEND gaan over het opgegeven onderwerp. "
+            "Schrijf GEEN generieke tekst over schrijven, marketing of communicatie. "
+            "Schrijf specifieke, feitelijke informatie over het onderwerp. "
+            "Gebruik alinea's. Geen opsommingen tenzij gevraagd. "
+            "Schrijf EXACT het gevraagde aantal woorden (±10%). "
+            "Lever ALLEEN de tekst, zonder titel, zonder uitleg."
+        )
 
     # Enhance with loaded skills
     if skill_context:
@@ -227,6 +229,10 @@ async def run(payload: Dict[str, Any]) -> Dict[str, Any]:
             reviewer_feedback = fb
 
     try:
+        base_system_prompt = (
+            agent_config.get('system_prompt')
+            or agent_config.get('system_instructions')
+        )
         result = await _generate_with_openai(
             job_post=job_post,
             objective=fields['objective'],
@@ -234,6 +240,7 @@ async def run(payload: Dict[str, Any]) -> Dict[str, Any]:
             platform=fields['platform'],
             reviewer_feedback=reviewer_feedback,
             skill_context=skill_context,
+            base_system_prompt=base_system_prompt,
         )
     except Exception as e:
         logger.error('copy_agent LLM call failed for job %s: %s', job_id, e)
