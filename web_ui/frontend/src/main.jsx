@@ -24,6 +24,7 @@ import TalentOverview from './TalentOverview.jsx'
 import Settings from './Settings.jsx'
 import Status from './Status.jsx'
 import MyAccount from './MyAccount.jsx'
+import LoginPage from './LoginPage.jsx'
 import CommandCenter from './CommandCenter.jsx'
 import JobFlow from './JobFlow.jsx'
 import './index.css'
@@ -57,6 +58,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <Route path="/settings" element={<Settings />} />
           <Route path="/status" element={<Status />} />
           <Route path="/my-account" element={<MyAccount />} />
+          <Route path="/login" element={<LoginPage />} />
           <Route path="/devbot/dave" element={<DaveDevConsole />} />
         </Routes>
       </CommandCenter>
