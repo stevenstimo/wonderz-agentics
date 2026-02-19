@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import ReactMarkdown from 'react-markdown'
 import { apiBase } from './apiBase'
 import PageLayout from './PageLayout'
 import './SkillsLibrary.css'
@@ -130,9 +131,9 @@ export default function SkillsLibrary() {
 
               <div className="skill-content-section">
                 <h3>Skill Content</h3>
-                <pre className="markdown-content">
-                  {selectedSkill.content}
-                </pre>
+                <div className="markdown-content">
+                  <ReactMarkdown>{selectedSkill.content || ''}</ReactMarkdown>
+                </div>
               </div>
 
               <div className="skill-agents-section">

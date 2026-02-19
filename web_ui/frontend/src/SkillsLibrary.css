@@ -195,17 +195,38 @@
   margin-bottom: 1rem;
 }
 
-pre.markdown-content {
+.markdown-content {
   background: #f9fafb;
   padding: 1.5rem;
   border-radius: 8px;
   max-height: 400px;
   overflow-y: auto;
-  white-space: pre-wrap;
-  word-wrap: break-word;
-  font-family: inherit;
   font-size: 0.875rem;
   line-height: 1.6;
+}
+
+.markdown-content h1,
+.markdown-content h2,
+.markdown-content h3 {
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.markdown-content ul,
+.markdown-content ol {
+  margin-left: 1.25rem;
+  margin-bottom: 0.75rem;
+}
+
+.markdown-content li {
+  margin-bottom: 0.25rem;
+}
+
+.markdown-content code {
+  background: #eef2ff;
+  padding: 0.1rem 0.3rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
 }
 
 .agents-list {
