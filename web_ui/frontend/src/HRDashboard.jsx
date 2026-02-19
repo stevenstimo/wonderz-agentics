@@ -32,7 +32,7 @@ export default function HRDashboard() {
       if (filter.agent) params.append('agent_role', filter.agent)
       const res = await fetch(`/api/hr/development-points?${params}`)
       const data = await res.json()
-      setPoints(data.development_points || [])
+      setPoints(Array.isArray(data) ? data : (data.development_points || []))
     } catch (e) {
       console.error('Failed to load points:', e)
     }
@@ -195,18 +195,19 @@ export default function HRDashboard() {
           ) : (
             <div className="space-y-3">
               {points.map(point => {
-                const colors = IMPACT_COLORS[point.impact] || IMPACT_COLORS.LOW
+                const impactKey = (point.impact || '').toUpperCase()
+                const colors = IMPACT_COLORS[impactKey] || IMPACT_COLORS.LOW
                 return (
                   <div key={point.point_id} className={`rounded-xl border p-4 ${colors.bg} ${colors.border}`}>
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 mb-1">
                           <span className={`text-xs font-semibold px-2 py-0.5 rounded ${colors.badge}`}>
-                            {point.impact}
+                            {impactKey || point.impact}
                           </span>
                           <span className="text-xs font-mono text-gray-500">{point.point_id}</span>
                           <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded capitalize">
-                            {point.agent_role?.replace('_', ' ')}
+                            {(point.agent_role || point.agent_id || '').replace('_', ' ')}
                           </span>
                           <span className="text-xs text-gray-500">×{point.frequency}</span>
                         </div>

@@ -224,7 +224,7 @@ async def on_startup():
                 pool = _db._pool if hasattr(_db, '_pool') else None
                 if pool:
                     hr = HRManager(pool)
-                    result = await hr.scan_job_steps(since_days=7)
+                    result = await hr.process_retry_patterns()
                     logging.getLogger(__name__).info(f"Daily HR scan completed: {result}")
             except asyncio.CancelledError:
                 break
@@ -551,4 +551,3 @@ async def approve_job_legacy(job_id: str, request: Request):
         raise HTTPException(status_code=500, detail=f"Failed to re-enqueue job: {e}")
 
     return {"job_id": job_id, "status": "running"}
-

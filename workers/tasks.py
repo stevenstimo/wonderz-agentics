@@ -12,6 +12,7 @@ if REPO_ROOT not in sys.path:
 
 from workers.celery_app import celery
 from app.orchestration.manager import OperationsManager
+from app.services.hr_manager import HRManager
 
 logger = logging.getLogger(__name__)
 
@@ -242,3 +243,21 @@ def run_job(self, job_id: str, store_id: str = None, payload: dict = None):
         else:
             logger.critical("Max retries exceeded for job %s", job_id)
             raise
+
+
+@celery.task
+def run_hr_scan():
+    """Background task: scan for retry patterns and create development points."""
+    import asyncio
+    from app.db import init_db_pool
+
+    async def scan():
+        pool = await init_db_pool()
+        if not pool:
+            logger.error("HR scan failed: no database pool")
+            return
+        hr = HRManager(pool)
+        result = await hr.process_retry_patterns()
+        logger.info("HR scan complete: %s", result)
+
+    asyncio.run(scan())

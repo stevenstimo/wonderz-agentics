@@ -8,7 +8,7 @@ import json
 import logging
 import uuid
 import re
-from typing import List
+from typing import List, Optional, Dict, Any
 
 import httpx
 from bs4 import BeautifulSoup
@@ -156,3 +156,50 @@ async def run_training(db_pool, session_id: str, agent_id: str, url: str):
                 SET status = 'failed', error_message = $1, completed_at = NOW()
                 WHERE session_id = $2
             """, str(e)[:1000], session_id)
+
+
+async def train_agent_from_url(
+    pool,
+    agent_id: str,
+    url: str,
+    approved_by: Optional[str] = None
+) -> Dict[str, Any]:
+    """Create a training session and run training for a given URL."""
+    if not pool:
+        raise RuntimeError("Database pool not initialized")
+
+    session_id = str(uuid.uuid4())
+
+    async with pool.acquire() as conn:
+        columns = await conn.fetch("""
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = 'agent_training_sessions'
+        """)
+        colset = {c["column_name"] for c in columns}
+
+        insert_cols = ["session_id", "agent_id", "source_url", "status"]
+        values = [session_id, agent_id, url, "pending"]
+
+        if approved_by and "approved_by" in colset:
+            insert_cols.append("approved_by")
+            values.append(approved_by)
+
+        placeholders = ", ".join(f"${i}" for i in range(1, len(values) + 1))
+        await conn.execute(
+            f"""
+                INSERT INTO agent_training_sessions
+                ({', '.join(insert_cols)})
+                VALUES ({placeholders})
+            """,
+            *values
+        )
+
+    await run_training(pool, session_id, agent_id, url)
+
+    return {
+        "session_id": session_id,
+        "agent_id": agent_id,
+        "status": "training_completed",
+        "source_url": url,
+    }
