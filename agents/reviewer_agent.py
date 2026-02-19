@@ -22,7 +22,7 @@ def _get_openai_key() -> str:
     return os.getenv("OPENAI_API_KEY", "")
 
 
-async def _review_with_openai(copy_text: str, job_post: str, objective: str, target_audience: str) -> Dict[str, str]:
+async def _review_with_openai(copy_text: str, job_post: str, objective: str, target_audience: str, skill_context: str = "") -> Dict[str, str]:
     api_key = _get_openai_key()
     if not api_key:
         raise RuntimeError("OpenAI API key not found")
@@ -33,7 +33,7 @@ async def _review_with_openai(copy_text: str, job_post: str, objective: str, tar
     expected_words = int(m.group(1)) if m else 400
     actual_words = len(copy_text.split())
 
-    system_prompt = (
+    base_system = (
         "Je bent een strenge Nederlandse proofreader/redacteur. "
         "Beoordeel de aangeleverde tekst op de volgende criteria:\n"
         "1. RELEVANTIE (BELANGRIJKST): Gaat de tekst écht over het gevraagde onderwerp? "
@@ -48,6 +48,11 @@ async def _review_with_openai(copy_text: str, job_post: str, objective: str, tar
         "Keur ALLEEN goed (APPROVED) als de tekst aan ALLE criteria voldoet. "
         "Wees streng maar eerlijk."
     )
+
+    if skill_context:
+        system_prompt = f"{base_system}\n\n{skill_context}"
+    else:
+        system_prompt = base_system
 
     user_prompt = (
         f"OPDRACHT: {job_post}\n"
@@ -162,8 +167,32 @@ async def run(payload: Dict[str, Any]) -> Dict[str, Any]:
     objective = str(brief_context.get('objective') or context.get('objective') or '')
     target_audience = str(brief_context.get('target_audience') or context.get('target_audience') or 'algemeen publiek')
 
+    # --- Load reviewer skills ---
+    agent_config = payload.get('agent_config') or {}
+    agent_id = agent_config.get('agent_id', '')
+    skill_context = ""
+    skill_ids_used = []
     try:
-        verdict = await _review_with_openai(copy_text, job_post, objective, target_audience)
+        import app.db as _db
+        pool = _db._pool
+        if pool and agent_id:
+            from app.services.skill_loader import SkillLoader
+            loader = SkillLoader(pool)
+            reviewer_skills = await loader.get_agent_skills(agent_id)
+            anti = next((s for s in reviewer_skills if 'anti-patterns' in s['skill_id']), None)
+            if anti:
+                skill_context = (
+                    f"# Quality Checklist (from Anti-Patterns Skill)\n\n"
+                    f"{anti['content']}\n\n"
+                    f"Use this checklist to evaluate the draft."
+                )
+                skill_ids_used = [anti['skill_id']]
+                logger.info('reviewer loaded anti-patterns skill for job %s', job_id)
+    except Exception as e:
+        logger.debug('Reviewer skill loading skipped: %s', e)
+
+    try:
+        verdict = await _review_with_openai(copy_text, job_post, objective, target_audience, skill_context=skill_context)
     except Exception as e:
         logger.error('reviewer_agent LLM call failed for job %s: %s', job_id, e)
         return {
@@ -185,12 +214,25 @@ async def run(payload: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as e:
         logger.debug('TokenGuard register skipped in reviewer: %s', e)
 
+    # --- Track skill usage ---
+    if skill_ids_used and job_id:
+        try:
+            import app.db as _db
+            pool = _db._pool
+            if pool:
+                from app.services.skill_loader import SkillLoader
+                loader = SkillLoader(pool)
+                await loader.record_skill_usage(job_id, agent_id, skill_ids_used)
+        except Exception as e:
+            logger.debug('Reviewer skill tracking skipped: %s', e)
+
     return {
         'status': verdict['status'],
         'feedback': verdict['feedback'],
         'score': verdict.get('score', 0),
         'summary': f"Reviewer: {verdict['status']} (score: {verdict.get('score', '?')})",
         'tokens_used': total_tokens,
+        'skills_used': skill_ids_used,
         'data': {
             'objective': objective,
             'target_audience': target_audience,

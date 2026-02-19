@@ -36,7 +36,8 @@ def _extract_brief_fields(context: Dict[str, Any]) -> Dict[str, str]:
 
 
 async def _generate_with_openai(job_post: str, objective: str, target_audience: str,
-                                 platform: str, reviewer_feedback: str = None) -> dict:
+                                 platform: str, reviewer_feedback: str = None,
+                                 skill_context: str = "") -> dict:
     api_key = _get_openai_key()
     if not api_key:
         raise RuntimeError("OpenAI API key not found")
@@ -51,7 +52,7 @@ async def _generate_with_openai(job_post: str, objective: str, target_audience: 
     topic = _re.sub(r'\d+\s*woorden?\s*(over)?', '', topic, flags=_re.IGNORECASE).strip()
     topic = topic.strip(' .,;:-') or job_post  # fallback to full job_post
 
-    system_prompt = (
+    base_system_prompt = (
         "Je bent een ervaren Nederlandse copywriter. "
         "Schrijf vloeiend, informatief Nederlands. "
         "De tekst moet VOLLEDIG en UITSLUITEND gaan over het opgegeven onderwerp. "
@@ -61,6 +62,19 @@ async def _generate_with_openai(job_post: str, objective: str, target_audience: 
         "Schrijf EXACT het gevraagde aantal woorden (±10%). "
         "Lever ALLEEN de tekst, zonder titel, zonder uitleg."
     )
+
+    # Enhance with loaded skills
+    if skill_context:
+        system_prompt = (
+            f"{base_system_prompt}\n\n"
+            f"# RELEVANT SKILLS FOR THIS TASK\n\n"
+            f"{skill_context}\n\n"
+            f"---\n\n"
+            f"IMPORTANT: Follow the best practices, patterns, and anti-patterns outlined in the skills above. "
+            f"Your output MUST align with these guidelines."
+        )
+    else:
+        system_prompt = base_system_prompt
 
     user_prompt = (
         f"ONDERWERP: {topic}\n\n"
@@ -109,6 +123,63 @@ async def _generate_with_openai(job_post: str, objective: str, target_audience: 
     return {"text": text, "total_tokens": usage.get("total_tokens", 0)}
 
 
+async def _load_skill_context(agent_id: str, context: Dict[str, Any]) -> tuple:
+    """Load and select applicable skills for this task. Returns (skill_context_str, skill_ids)."""
+    try:
+        import app.db as _db
+        pool = _db._pool
+        if not pool or not agent_id:
+            return "", []
+
+        from app.services.skill_loader import SkillLoader
+        loader = SkillLoader(pool)
+        agent_skills = await loader.get_agent_skills(agent_id)
+        if not agent_skills:
+            return "", []
+
+        # Determine applicable skills based on task context
+        task_text = (context.get('job_post') or '').lower()
+        platform = (context.get('platform') or '').lower()
+        brief_ctx = ((context.get('brief') or {}).get('context')) or {}
+        target_audience = str(brief_ctx.get('target_audience') or context.get('target_audience') or '').lower()
+
+        applicable = []
+
+        # SEO skill if website/blog
+        if any(kw in platform for kw in ('website', 'blog', 'web')):
+            seo = next((s for s in agent_skills if 'seo' in s['skill_id']), None)
+            if seo:
+                applicable.append(seo)
+
+        # Voice skill based on audience
+        if any(kw in target_audience for kw in ('b2b', 'professional', 'zakelijk')):
+            voice = next((s for s in agent_skills if 'b2b-professional' in s['skill_id']), None)
+            if voice:
+                applicable.append(voice)
+        elif any(kw in target_audience for kw in ('casual', 'consumer', 'jeugd', 'jong')):
+            voice = next((s for s in agent_skills if 'casual' in s['skill_id']), None)
+            if voice:
+                applicable.append(voice)
+
+        # Structure skill (always applicable)
+        structure = next((s for s in agent_skills if 'structure' in s['skill_id']), None)
+        if structure:
+            applicable.append(structure)
+
+        # Anti-patterns skill (always applicable)
+        anti = next((s for s in agent_skills if 'anti-patterns' in s['skill_id']), None)
+        if anti:
+            applicable.append(anti)
+
+        skill_context = loader.compose_skill_context(applicable)
+        skill_ids = [s['skill_id'] for s in applicable]
+        return skill_context, skill_ids
+
+    except Exception as e:
+        logger.debug('Skill loading skipped: %s', e)
+        return "", []
+
+
 async def run(payload: Dict[str, Any]) -> Dict[str, Any]:
     context = payload.get('context') or {}
     job_id = payload.get('job_id', '')
@@ -119,6 +190,13 @@ async def run(payload: Dict[str, Any]) -> Dict[str, Any]:
         or 'Schrijf een sterke tekst.'
     )
     fields = _extract_brief_fields(context)
+
+    # --- Load agent skills ---
+    agent_config = payload.get('agent_config') or {}
+    agent_id = agent_config.get('agent_id', '')
+    skill_context, skill_ids_used = await _load_skill_context(agent_id, context)
+    if skill_context:
+        logger.info('copy_agent loaded %d skills for job %s', len(skill_ids_used), job_id)
 
     # --- Token guard: check budget before calling LLM ---
     try:
@@ -155,6 +233,7 @@ async def run(payload: Dict[str, Any]) -> Dict[str, Any]:
             target_audience=fields['target_audience'],
             platform=fields['platform'],
             reviewer_feedback=reviewer_feedback,
+            skill_context=skill_context,
         )
     except Exception as e:
         logger.error('copy_agent LLM call failed for job %s: %s', job_id, e)
@@ -176,6 +255,19 @@ async def run(payload: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as e:
         logger.debug('TokenGuard register skipped: %s', e)
 
+    # --- Track skill usage ---
+    if skill_ids_used and job_id:
+        try:
+            import app.db as _db
+            pool = _db._pool
+            if pool:
+                from app.services.skill_loader import SkillLoader
+                loader = SkillLoader(pool)
+                await loader.record_skill_usage(job_id, agent_id, skill_ids_used)
+                logger.info('Tracked %d skills for job %s', len(skill_ids_used), job_id)
+        except Exception as e:
+            logger.debug('Skill tracking skipped: %s', e)
+
     word_count = len(content.split())
     summary = content[:120]
 
@@ -193,6 +285,7 @@ async def run(payload: Dict[str, Any]) -> Dict[str, Any]:
             'model': OPENAI_MODEL,
             'had_reviewer_feedback': reviewer_feedback is not None,
             'tokens_used': total_tokens,
+            'skills_used': skill_ids_used,
         },
         'artifacts': [
             {
