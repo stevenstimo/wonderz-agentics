@@ -19,7 +19,7 @@ import logging
 from datetime import datetime
 from typing import Optional, Dict, Any
 from fastapi import APIRouter, HTTPException, Depends, status, BackgroundTasks
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 import app.db as _db
 from app.orchestration.manager import OperationsManager
@@ -712,3 +712,62 @@ async def get_job(job_id: str):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to retrieve job: {str(e)}"
         )
+
+
+# ============ Token Budget Endpoints ============
+
+class UpdateTokenBudgetRequest(BaseModel):
+    new_budget: int
+
+
+@router.get("/{job_id}/token-usage")
+async def get_token_usage(job_id: str):
+    """Get token usage details for a job."""
+    job_id = _validate_job_id(job_id)
+    pool = _db._pool
+    if not pool:
+        raise HTTPException(status_code=503, detail="DB pool not initialised")
+
+    async with pool.acquire() as conn:
+        job = await conn.fetchrow(
+            "SELECT token_budget, tokens_used, token_limit_exceeded_at FROM jobs WHERE id = $1",
+            job_id,
+        )
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+
+        steps = await conn.fetch(
+            "SELECT step_name, tokens_used, token_limit_per_step FROM job_steps WHERE job_id = $1 ORDER BY created_at",
+            job_id,
+        )
+
+    budget = job["token_budget"] or 50000
+    used = job["tokens_used"] or 0
+    return {
+        "job_id": job_id,
+        "budget": budget,
+        "used": used,
+        "percentage": (used / budget * 100) if budget > 0 else 0,
+        "exceeded": job["token_limit_exceeded_at"] is not None,
+        "steps": [dict(s) for s in steps],
+    }
+
+
+@router.patch("/{job_id}/token-budget")
+async def update_token_budget(job_id: str, req: UpdateTokenBudgetRequest):
+    """Update token budget for a job (admin)."""
+    job_id = _validate_job_id(job_id)
+    if req.new_budget < 10000 or req.new_budget > 200000:
+        raise HTTPException(status_code=400, detail="Budget must be between 10k and 200k tokens")
+
+    pool = _db._pool
+    if not pool:
+        raise HTTPException(status_code=503, detail="DB pool not initialised")
+
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE jobs SET token_budget = $1 WHERE id = $2",
+            req.new_budget, job_id,
+        )
+
+    return {"job_id": job_id, "new_budget": req.new_budget}

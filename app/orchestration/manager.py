@@ -485,7 +485,8 @@ class OperationsManager:
                 try:
                     result = await maybe_await(self.agent_runner(next_agent, {"job_id": job_id, "store_id": store_id, "context": ctx.data}))
                 except Exception as e:
-                    # Log failure and mark job
+                    import logging as _log
+                    _log.getLogger(__name__).exception("Unexpected error in workflow step %s for job %s", next_agent, job_id)
                     await self.write_job_step(
                         conn,
                         job_id,
@@ -496,6 +497,39 @@ class OperationsManager:
                     )
                     await self.update_job_status(conn, job_id, JobStatus.FAILED.value)
                     break
+
+                # --- Handle agent-level errors gracefully ---
+                if isinstance(result, dict) and result.get("error"):
+                    error_type = result.get("error_type", "unknown")
+                    import logging as _log
+                    _log.getLogger(__name__).warning(
+                        "Agent %s returned error for job %s: %s",
+                        next_agent, job_id, result.get("summary", error_type),
+                    )
+
+                    if error_type == "rate_limit":
+                        # Pause job, let Celery retry later
+                        await self.write_job_step(
+                            conn, job_id, next_agent, next_agent, "paused",
+                            output=result,
+                        )
+                        await self.update_job_status(conn, job_id, "PAUSED")
+                        break
+
+                    if error_type == "token_budget_exceeded":
+                        await self.write_job_step(
+                            conn, job_id, next_agent, next_agent, "failed",
+                            output=result,
+                        )
+                        await self.update_job_status(conn, job_id, JobStatus.FAILED.value)
+                        break
+
+                    # Other errors: record and continue to next step
+                    await self.write_job_step(
+                        conn, job_id, next_agent, next_agent, "failed",
+                        output=result,
+                    )
+                    # Don't break — let determine_next_step decide
 
                 # Persist agent output into shared context and DB
                 ctx.update(next_agent, result)

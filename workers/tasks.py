@@ -15,6 +15,16 @@ from app.orchestration.manager import OperationsManager
 
 logger = logging.getLogger(__name__)
 
+# --- Circuit Breaker ---
+try:
+    import redis as _redis_lib
+    from app.services.circuit_breaker import CircuitBreaker
+    _redis_client = _redis_lib.Redis(host='localhost', port=6379, db=0, socket_timeout=2)
+    circuit_breaker = CircuitBreaker(_redis_client, failure_threshold=5, ttl_seconds=600)
+except Exception as _cb_err:
+    logger.warning("Circuit breaker not available: %s", _cb_err)
+    circuit_breaker = None
+
 # Map agent_role -> Python module name
 ROLE_TO_MODULE = {
     "copywriter": "copy_agent",
@@ -117,36 +127,38 @@ def _build_agent_runner(job_id: str, store_id: str = None):
 def run_intake(self, job_id: str, job_post: str):
     """
     Celery task to run the intake analysis.
-    
-    Retries:
-    - Attempt 1 immediate
-    - Attempt 2 after 60 seconds
-    - Attempt 3 after 120 seconds (2 ^ 1 * 60)
-    - Attempt 4 after 240 seconds (2 ^ 2 * 60)
-    Then dead-letter queue
+    Circuit breaker + exponential backoff retries.
     """
+    # Circuit breaker check
+    if circuit_breaker and circuit_breaker.is_open():
+        logger.error("Circuit breaker OPEN — rejecting intake for job %s", job_id)
+        raise self.retry(exc=RuntimeError("Circuit breaker open"), countdown=120)
+
     manager = OperationsManager(agent_runner=_build_agent_runner(job_id))
     try:
-        logger.info(f"Starting intake analysis for job {job_id}")
+        logger.info("Starting intake analysis for job %s", job_id)
         asyncio.run(manager.start_intake_flow(job_id, job_post))
-        logger.info(f"Completed intake analysis for job {job_id}")
-        
+        logger.info("Completed intake analysis for job %s", job_id)
+        if circuit_breaker:
+            circuit_breaker.record_success()
+
     except asyncio.TimeoutError as e:
-        logger.warning(f"Timeout during intake for job {job_id} (attempt {self.request.retries + 1}): {e}")
-        # Retry with exponential backoff
+        if circuit_breaker:
+            circuit_breaker.record_failure()
+        logger.warning("Timeout during intake for job %s (attempt %d): %s", job_id, self.request.retries + 1, e)
         raise self.retry(exc=e, countdown=60 * (2 ** self.request.retries))
-        
+
     except Exception as e:
-        logger.error(f"Error running intake for job {job_id} (attempt {self.request.retries + 1}): {e}", exc_info=True)
-        
+        if circuit_breaker:
+            circuit_breaker.record_failure()
+        logger.error("Error running intake for job %s (attempt %d): %s", job_id, self.request.retries + 1, e, exc_info=True)
+
         if self.request.retries < self.max_retries:
-            # Exponential backoff: 60s, 120s, 240s
             retry_countdown = 60 * (2 ** self.request.retries)
-            logger.info(f"Retrying intake for job {job_id} in {retry_countdown}s")
+            logger.info("Retrying intake for job %s in %ds", job_id, retry_countdown)
             raise self.retry(exc=e, countdown=retry_countdown)
         else:
-            logger.critical(f"Max retries exceeded for intake job {job_id}. Moving to dead-letter.")
-            # TODO: Log to job_steps table with status='failed'
+            logger.critical("Max retries exceeded for intake job %s", job_id)
             raise
 
 
@@ -158,30 +170,33 @@ def run_intake(self, job_id: str, job_post: str):
     time_limit=600,
 )
 def run_intake_answers(self, job_id: str, answers: dict):
-    """
-    Celery task to process intake answers and re-analyze.
-    
-    Retries with exponential backoff on failure.
-    """
+    """Celery task to process intake answers. Circuit breaker + retries."""
+    if circuit_breaker and circuit_breaker.is_open():
+        logger.error("Circuit breaker OPEN — rejecting intake answers for job %s", job_id)
+        raise self.retry(exc=RuntimeError("Circuit breaker open"), countdown=120)
+
     manager = OperationsManager(agent_runner=_build_agent_runner(job_id))
     try:
-        logger.info(f"Processing intake answers for job {job_id}")
+        logger.info("Processing intake answers for job %s", job_id)
         asyncio.run(manager.handle_user_answer(job_id, answers))
-        logger.info(f"Completed intake answers for job {job_id}")
-        
+        logger.info("Completed intake answers for job %s", job_id)
+        if circuit_breaker:
+            circuit_breaker.record_success()
+
     except asyncio.TimeoutError as e:
-        logger.warning(f"Timeout during intake answers for job {job_id} (attempt {self.request.retries + 1}): {e}")
+        if circuit_breaker:
+            circuit_breaker.record_failure()
+        logger.warning("Timeout during intake answers for job %s: %s", job_id, e)
         raise self.retry(exc=e, countdown=60 * (2 ** self.request.retries))
-        
+
     except Exception as e:
-        logger.error(f"Error processing intake answers for job {job_id} (attempt {self.request.retries + 1}): {e}", exc_info=True)
-        
+        if circuit_breaker:
+            circuit_breaker.record_failure()
+        logger.error("Error processing intake answers for job %s: %s", job_id, e, exc_info=True)
         if self.request.retries < self.max_retries:
-            retry_countdown = 60 * (2 ** self.request.retries)
-            logger.info(f"Retrying intake answers for job {job_id} in {retry_countdown}s")
-            raise self.retry(exc=e, countdown=retry_countdown)
+            raise self.retry(exc=e, countdown=60 * (2 ** self.request.retries))
         else:
-            logger.critical(f"Max retries exceeded for intake answers job {job_id}")
+            logger.critical("Max retries exceeded for intake answers job %s", job_id)
             raise
 
 
@@ -193,34 +208,37 @@ def run_intake_answers(self, job_id: str, answers: dict):
     time_limit=600,
 )
 def run_job(self, job_id: str, store_id: str = None, payload: dict = None):
-    """
-    Celery task entrypoint to run a workflow for a job id.
-    
-    Longer retry delays for job execution (120s, 240s, 480s)
-    Includes timeout handling and comprehensive logging.
-    """
+    """Celery task to run full workflow. Circuit breaker + retries."""
+    if circuit_breaker and circuit_breaker.is_open():
+        logger.error("Circuit breaker OPEN — rejecting job %s", job_id)
+        raise self.retry(exc=RuntimeError("Circuit breaker open"), countdown=120)
+
     payload = payload or {}
     manager = OperationsManager(agent_runner=_build_agent_runner(job_id, store_id))
 
     try:
-        logger.info(f"Starting job execution for job {job_id} (attempt {self.request.retries + 1})")
+        logger.info("Starting job execution for job %s (attempt %d)", job_id, self.request.retries + 1)
         asyncio.run(manager.run_workflow(job_id, store_id, payload))
-        logger.info(f"Completed job execution for job {job_id}")
-        
+        logger.info("Completed job execution for job %s", job_id)
+        if circuit_breaker:
+            circuit_breaker.record_success()
+
     except asyncio.TimeoutError as e:
-        logger.warning(f"Timeout during job execution for {job_id} (attempt {self.request.retries + 1}): {e}")
-        # Longer retry delay for job execution
+        if circuit_breaker:
+            circuit_breaker.record_failure()
+        logger.warning("Timeout during job execution for %s: %s", job_id, e)
         raise self.retry(exc=e, countdown=120 * (2 ** self.request.retries))
-        
+
     except Exception as e:
-        logger.error(f"Error running job {job_id} (attempt {self.request.retries + 1}): {e}", exc_info=True)
-        
+        if circuit_breaker:
+            circuit_breaker.record_failure()
+        logger.error("Error running job %s (attempt %d): %s", job_id, self.request.retries + 1, e, exc_info=True)
+
         if self.request.retries < self.max_retries:
             retry_countdown = 120 * (2 ** self.request.retries)
-            logger.info(f"Retrying job {job_id} in {retry_countdown}s")
+            logger.info("Retrying job %s in %ds", job_id, retry_countdown)
             raise self.retry(exc=e, countdown=retry_countdown)
         else:
-            logger.critical(f"Max retries exceeded for job {job_id}")
-            # TODO: Log to job_steps with status='failed'
+            logger.critical("Max retries exceeded for job %s", job_id)
             raise
 

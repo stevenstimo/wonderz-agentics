@@ -2,8 +2,11 @@
 import re
 import os
 import json
+import logging
 import httpx
 from typing import Any, Dict
+
+logger = logging.getLogger(__name__)
 
 KEYS_FILE = "/home/exedev/.config/wonderz-keys.json"
 OPENAI_MODEL = "gpt-4o-mini"
@@ -33,7 +36,7 @@ def _extract_brief_fields(context: Dict[str, Any]) -> Dict[str, str]:
 
 
 async def _generate_with_openai(job_post: str, objective: str, target_audience: str,
-                                 platform: str, reviewer_feedback: str = None) -> str:
+                                 platform: str, reviewer_feedback: str = None) -> dict:
     api_key = _get_openai_key()
     if not api_key:
         raise RuntimeError("OpenAI API key not found")
@@ -82,23 +85,33 @@ async def _generate_with_openai(job_post: str, objective: str, target_audience: 
         {"role": "user", "content": user_prompt},
     ]
 
-    async with httpx.AsyncClient(timeout=120) as client:
-        resp = await client.post(
-            "https://api.openai.com/v1/chat/completions",
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json={"model": OPENAI_MODEL, "messages": messages, "max_tokens": 2000, "temperature": 0.7},
-        )
-        resp.raise_for_status()
-        data = resp.json()
+    from app.utils.retry import async_retry
+
+    @async_retry(max_attempts=3, backoff_seconds=2.0, exceptions=(httpx.HTTPStatusError, httpx.ConnectError, httpx.ReadTimeout))
+    async def _call_openai(msgs):
+        async with httpx.AsyncClient(timeout=120) as client:
+            resp = await client.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json={"model": OPENAI_MODEL, "messages": msgs, "max_tokens": 2000, "temperature": 0.7},
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+    data = await _call_openai(messages)
 
     text = data["choices"][0]["message"]["content"].strip()
     if not text:
         raise RuntimeError("OpenAI returned empty content")
-    return text
+
+    # Return text + usage for token tracking
+    usage = data.get("usage", {})
+    return {"text": text, "total_tokens": usage.get("total_tokens", 0)}
 
 
 async def run(payload: Dict[str, Any]) -> Dict[str, Any]:
     context = payload.get('context') or {}
+    job_id = payload.get('job_id', '')
     job_post = (
         context.get('job_post')
         or (context.get('payload') or {}).get('job_post')
@@ -106,6 +119,25 @@ async def run(payload: Dict[str, Any]) -> Dict[str, Any]:
         or 'Schrijf een sterke tekst.'
     )
     fields = _extract_brief_fields(context)
+
+    # --- Token guard: check budget before calling LLM ---
+    try:
+        if job_id:
+            from app.services.token_guard import TokenGuard
+            guard = TokenGuard()  # will use direct connection if no pool
+            check = await guard.check_before_call(job_id, estimated_tokens=1500)
+            if not check.get('allowed'):
+                logger.warning('Token budget exceeded for job %s: %s', job_id, check)
+                return {
+                    'error': True,
+                    'error_type': 'token_budget_exceeded',
+                    'summary': f"Token budget exceeded: {check.get('reason')}",
+                    'tokens_info': check,
+                }
+            if check.get('warning'):
+                logger.info('Token budget warning for job %s: %.1f%%', job_id, check.get('percentage', 0))
+    except Exception as e:
+        logger.debug('TokenGuard check skipped: %s', e)
 
     # Check if there's reviewer feedback from a previous round
     reviewer_out = context.get('reviewer_agent') or {}
@@ -116,13 +148,33 @@ async def run(payload: Dict[str, Any]) -> Dict[str, Any]:
         if status == 'NEEDS_CHANGES' and fb:
             reviewer_feedback = fb
 
-    content = await _generate_with_openai(
-        job_post=job_post,
-        objective=fields['objective'],
-        target_audience=fields['target_audience'],
-        platform=fields['platform'],
-        reviewer_feedback=reviewer_feedback,
-    )
+    try:
+        result = await _generate_with_openai(
+            job_post=job_post,
+            objective=fields['objective'],
+            target_audience=fields['target_audience'],
+            platform=fields['platform'],
+            reviewer_feedback=reviewer_feedback,
+        )
+    except Exception as e:
+        logger.error('copy_agent LLM call failed for job %s: %s', job_id, e)
+        return {
+            'error': True,
+            'error_type': 'api_error',
+            'summary': f'LLM call failed: {str(e)[:200]}',
+        }
+
+    content = result['text']
+    total_tokens = result.get('total_tokens', 0)
+
+    # --- Token guard: register actual usage ---
+    try:
+        if job_id and total_tokens > 0:
+            from app.services.token_guard import TokenGuard
+            guard = TokenGuard()
+            await guard.register_usage(job_id, total_tokens)
+    except Exception as e:
+        logger.debug('TokenGuard register skipped: %s', e)
 
     word_count = len(content.split())
     summary = content[:120]
@@ -132,6 +184,7 @@ async def run(payload: Dict[str, Any]) -> Dict[str, Any]:
         'content': content,
         'summary': summary,
         'word_count': word_count,
+        'tokens_used': total_tokens,
         'data': {
             'draft_text': content,
             'objective': fields['objective'],
@@ -139,6 +192,7 @@ async def run(payload: Dict[str, Any]) -> Dict[str, Any]:
             'platform': fields['platform'],
             'model': OPENAI_MODEL,
             'had_reviewer_feedback': reviewer_feedback is not None,
+            'tokens_used': total_tokens,
         },
         'artifacts': [
             {

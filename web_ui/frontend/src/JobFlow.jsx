@@ -509,9 +509,28 @@ export default function JobFlow() {
               <span className={`text-xs font-medium ${hb.textClass}`}>{hb.label}</span>
             </div>
             <p className="text-gray-500 text-sm mb-2">Agents werken. Updates verschijnen live.</p>
-            <p className="text-gray-400 text-xs mb-6">
+            <p className="text-gray-400 text-xs mb-2">
               {planTasks.length > 0 ? `${taskDoneCount}/${planTasks.length} taken afgerond` : `${doneCount}/${groupedSteps.length || 0} taken afgerond`}
             </p>
+            {/* Token usage indicator */}
+            {(() => {
+              const budget = job?.token_budget || 50000
+              const used = job?.tokens_used || 0
+              const pct = budget > 0 ? (used / budget) * 100 : 0
+              const barColor = pct > 90 ? 'bg-red-500' : pct > 80 ? 'bg-orange-400' : 'bg-emerald-500'
+              return used > 0 ? (
+                <div className="mb-6">
+                  <div className="flex justify-between text-xs text-gray-500 mb-1">
+                    <span>Token budget</span>
+                    <span>{used.toLocaleString()} / {budget.toLocaleString()} ({pct.toFixed(1)}%)</span>
+                  </div>
+                  <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+                    <div className={`h-full ${barColor} rounded-full transition-all duration-500`}
+                         style={{ width: `${Math.min(pct, 100)}%` }} />
+                  </div>
+                </div>
+              ) : null
+            })()}
             <div className="space-y-3">
               {(planTasks.length > 0 ? planTasks : groupedSteps).length === 0 ? (
                 <div className="text-center py-8">
@@ -582,6 +601,12 @@ export default function JobFlow() {
             <div className="bg-white border border-gray-200 rounded-2xl p-5 mb-6">
               <div className="text-xs uppercase tracking-wide text-gray-500 mb-2">Gegenereerde tekst</div>
               <pre className="whitespace-pre-wrap text-sm text-gray-800 leading-6 font-sans">{displayText}</pre>
+              {(job?.tokens_used > 0) && (
+                <div className="mt-3 pt-3 border-t border-gray-100 flex justify-between text-xs text-gray-400">
+                  <span>Tokens gebruikt</span>
+                  <span>{(job.tokens_used || 0).toLocaleString()} / {(job.token_budget || 50000).toLocaleString()}</span>
+                </div>
+              )}
             </div>
             {!showFeedback ? (
               <div className="flex gap-3">

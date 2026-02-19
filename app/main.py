@@ -1,10 +1,17 @@
 import os
 import json
+import logging
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 import uuid
 import asyncio
+
+# --- Structured logging (Taak 6) ---
+from app.logging_config import setup_logging
+setup_logging()
+logger = logging.getLogger(__name__)
 
 import app.db as _db
 from app.db import init_db_pool, close_db_pool
@@ -45,6 +52,35 @@ app.include_router(jobs_router)
 app.include_router(agents_router)
 app.include_router(hr_router)
 app.include_router(talents_router)
+
+
+# --- Worker circuit breaker endpoints (Taak 5) ---
+
+@app.get("/api/worker/status")
+async def worker_circuit_status():
+    """Get circuit breaker status."""
+    try:
+        import redis as _r
+        from app.services.circuit_breaker import CircuitBreaker
+        r = _r.Redis(host="localhost", port=6379, db=0, socket_timeout=2)
+        cb = CircuitBreaker(r)
+        return cb.status()
+    except Exception as e:
+        return {"state": "unknown", "error": str(e)[:100]}
+
+
+@app.post("/api/worker/reset")
+async def reset_circuit_breaker():
+    """Reset circuit breaker (admin)."""
+    try:
+        import redis as _r
+        from app.services.circuit_breaker import CircuitBreaker
+        r = _r.Redis(host="localhost", port=6379, db=0, socket_timeout=2)
+        cb = CircuitBreaker(r)
+        cb.reset()
+        return {"status": "circuit_breaker_reset"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # --- Training session progress (top-level to avoid agent path conflicts) ---
