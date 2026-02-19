@@ -6,39 +6,90 @@ CRUD for hired_agents table + training endpoints.
 import uuid
 import json
 import logging
-import asyncio
-from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Any
 from fastapi import APIRouter, HTTPException, status, BackgroundTasks
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 import app.db as _db
 from app.services.training import run_training
+from app.services.agent_validator import (
+    validate_agent_config,
+    generate_agent_id,
+    AgentValidationError,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/agents", tags=["agents"])
 
 
-class CreateAgentRequest(BaseModel):
-    agent_name: str
+class AgentCreateRequest(BaseModel):
+    name: str = Field(..., min_length=3, max_length=100, alias="agent_name")
     role: str
+    system_instructions: str = Field(..., min_length=20, alias="system_prompt")
+    tool_access_whitelist: Optional[List[str]] = Field(default_factory=list, alias="tool_whitelist")
     specialization: Optional[str] = None
     goal: Optional[str] = None
-    system_prompt: Optional[str] = None
-    tool_whitelist: Optional[List[str]] = []
+
+    class Config:
+        allow_population_by_field_name = True
 
 
-class UpdateAgentRequest(BaseModel):
-    agent_name: Optional[str] = None
-    role: Optional[str] = None
-    specialization: Optional[str] = None
+class AgentUpdateRequest(BaseModel):
+    name: Optional[str] = Field(default=None, alias="agent_name")
+    system_instructions: Optional[str] = Field(default=None, alias="system_prompt")
+    tool_access_whitelist: Optional[List[str]] = Field(default=None, alias="tool_whitelist")
     status: Optional[str] = None
-    system_prompt: Optional[str] = None
-    tool_whitelist: Optional[List[str]] = None
+
+    class Config:
+        allow_population_by_field_name = True
 
 
-@router.get("")
-async def list_agents(role: str = None, status_filter: str = None):
+class AgentResponse(BaseModel):
+    agent_id: str
+    name: str
+    role: str
+    specialization: str
+    status: str
+    system_instructions: str
+    tool_access_whitelist: List[str]
+    performance_score: float
+    completed_tasks: int
+    hired_at: str
+    updated_at: str
+
+
+def _parse_tool_whitelist(value: Any) -> List[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        try:
+            return json.loads(value) or []
+        except json.JSONDecodeError:
+            return []
+    return []
+
+
+def _serialize_agent(row: Any) -> AgentResponse:
+    data = dict(row)
+    return AgentResponse(
+        agent_id=data["agent_id"],
+        name=data["name"],
+        role=data["role"],
+        specialization=data["specialization"],
+        status=data["status"],
+        system_instructions=data["system_instructions"],
+        tool_access_whitelist=_parse_tool_whitelist(data.get("tool_access_whitelist")),
+        performance_score=float(data.get("performance_score") or 0),
+        completed_tasks=int(data.get("completed_tasks") or 0),
+        hired_at=data["hired_at"].isoformat(),
+        updated_at=data["updated_at"].isoformat(),
+    )
+
+
+@router.get("", response_model=List[AgentResponse])
+async def list_agents(role: Optional[str] = None, status: Optional[str] = None):
     """List all hired agents, optionally filtered by role or status."""
     pool = _db._pool
     if not pool:
@@ -54,75 +105,77 @@ async def list_agents(role: str = None, status_filter: str = None):
             params.append(role)
             idx += 1
 
-        if status_filter:
+        if status:
             query += f" AND status = ${idx}"
-            params.append(status_filter)
+            params.append(status)
             idx += 1
 
-        query += " ORDER BY performance_score DESC, name ASC"
+        query += " ORDER BY hired_at DESC"
         rows = await conn.fetch(query, *params)
 
-    agents = []
-    for r in rows:
-        d = dict(r)
-        # Serialize UUID and datetime fields
-        d["id"] = str(d["id"])
-        d["hired_at"] = d["hired_at"].isoformat() if d.get("hired_at") else None
-        d["updated_at"] = d["updated_at"].isoformat() if d.get("updated_at") else None
-        agents.append(d)
-
-    return {"agents": agents, "total": len(agents)}
+    return [_serialize_agent(r) for r in rows]
 
 
-@router.post("", status_code=status.HTTP_201_CREATED)
-async def create_agent(req: CreateAgentRequest):
+@router.post("", response_model=AgentResponse, status_code=status.HTTP_201_CREATED)
+async def create_agent(req: AgentCreateRequest):
     """Create a new hired agent."""
     pool = _db._pool
     if not pool:
         raise HTTPException(status_code=503, detail="DB pool not initialised")
 
-    agent_id = f"agent:{req.role}:{uuid.uuid4().hex[:8]}"
+    try:
+        config = validate_agent_config(
+            name=req.name,
+            role=req.role,
+            system_instructions=req.system_instructions,
+            tool_access_whitelist=req.tool_access_whitelist,
+            specialization=req.specialization,
+        )
+    except AgentValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    agent_id = generate_agent_id(config["name"], config["role"])
 
     async with pool.acquire() as conn:
-        # Check for duplicate role+name
+        # Check for duplicate agent_id
         existing = await conn.fetchrow(
-            "SELECT agent_id FROM hired_agents WHERE name = $1 AND role = $2",
-            req.agent_name, req.role
+            "SELECT agent_id FROM hired_agents WHERE agent_id = $1",
+            agent_id,
         )
         if existing:
             raise HTTPException(
                 status_code=409,
-                detail=f"Agent with name '{req.agent_name}' and role '{req.role}' already exists"
+                detail=f"Agent with this name/role combination already exists: {agent_id}",
             )
 
-        await conn.execute(
+        row = await conn.fetchrow(
             """
             INSERT INTO hired_agents (
-                agent_id, name, role, specialization, status,
+                agent_id, name, role, specialization,
                 system_instructions, tool_access_whitelist,
-                hiring_logic, hired_at, updated_at
+                status, performance_score, completed_tasks,
+                hiring_logic
             )
-            VALUES ($1, $2, $3, $4, 'active', $5, $6, $7, NOW(), NOW())
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            RETURNING *
             """,
             agent_id,
-            req.agent_name,
-            req.role,
-            req.specialization or "",
-            req.system_prompt or "",
-            json.dumps(req.tool_whitelist or []),
-            req.goal or ""
+            config["name"],
+            config["role"],
+            config["specialization"],
+            config["system_instructions"],
+            json.dumps(config["tool_access_whitelist"]),
+            "active",
+            0.5,
+            0,
+            req.goal or "",
         )
 
-    logger.info(f"Created agent {agent_id}: {req.agent_name} ({req.role})")
-    return {
-        "agent_id": agent_id,
-        "name": req.agent_name,
-        "role": req.role,
-        "status": "active"
-    }
+    logger.info(f"Created agent {agent_id}: {config['name']} ({config['role']})")
+    return _serialize_agent(row)
 
 
-@router.get("/{agent_id}")
+@router.get("/{agent_id}", response_model=AgentResponse)
 async def get_agent(agent_id: str):
     """Get a single agent by agent_id."""
     pool = _db._pool
@@ -138,72 +191,93 @@ async def get_agent(agent_id: str):
     if not row:
         raise HTTPException(status_code=404, detail="Agent not found")
 
-    d = dict(row)
-    d["id"] = str(d["id"])
-    d["hired_at"] = d["hired_at"].isoformat() if d.get("hired_at") else None
-    d["updated_at"] = d["updated_at"].isoformat() if d.get("updated_at") else None
-    return d
+    return _serialize_agent(row)
 
 
-@router.patch("/{agent_id}")
-async def update_agent(agent_id: str, req: UpdateAgentRequest):
+@router.patch("/{agent_id}", response_model=AgentResponse)
+async def update_agent(agent_id: str, req: AgentUpdateRequest):
     """Update agent fields."""
     pool = _db._pool
     if not pool:
         raise HTTPException(status_code=503, detail="DB pool not initialised")
 
+    async with pool.acquire() as conn:
+        existing = await conn.fetchrow(
+            "SELECT * FROM hired_agents WHERE agent_id = $1",
+            agent_id,
+        )
+
+    if not existing:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    if (
+        req.name is not None
+        or req.system_instructions is not None
+        or req.tool_access_whitelist is not None
+    ):
+        try:
+            validate_agent_config(
+                name=req.name or existing["name"],
+                role=existing["role"],
+                system_instructions=req.system_instructions or existing["system_instructions"],
+                tool_access_whitelist=(
+                    req.tool_access_whitelist
+                    if req.tool_access_whitelist is not None
+                    else _parse_tool_whitelist(existing.get("tool_access_whitelist"))
+                ),
+                specialization=existing.get("specialization"),
+            )
+        except AgentValidationError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
     updates = []
-    params = []
-    idx = 1
+    params = [agent_id]
+    idx = 2
 
-    if req.agent_name is not None:
+    if req.name is not None:
         updates.append(f"name = ${idx}")
-        params.append(req.agent_name)
-        idx += 1
-
-    if req.role is not None:
-        updates.append(f"role = ${idx}")
-        params.append(req.role)
-        idx += 1
-
-    if req.specialization is not None:
-        updates.append(f"specialization = ${idx}")
-        params.append(req.specialization)
+        params.append(req.name)
         idx += 1
 
     if req.status is not None:
+        if req.status not in ["active", "inactive"]:
+            raise HTTPException(status_code=400, detail="Status must be active or inactive")
         updates.append(f"status = ${idx}")
         params.append(req.status)
         idx += 1
 
-    if req.system_prompt is not None:
+    if req.system_instructions is not None:
         updates.append(f"system_instructions = ${idx}")
-        params.append(req.system_prompt)
+        params.append(req.system_instructions)
         idx += 1
 
-    if req.tool_whitelist is not None:
+    if req.tool_access_whitelist is not None:
         updates.append(f"tool_access_whitelist = ${idx}")
-        params.append(json.dumps(req.tool_whitelist))
+        params.append(json.dumps(req.tool_access_whitelist))
         idx += 1
 
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
 
     updates.append("updated_at = NOW()")
-    params.append(agent_id)
 
-    query = f"UPDATE hired_agents SET {', '.join(updates)} WHERE agent_id = ${idx}"
+    query = f"""
+        UPDATE hired_agents
+        SET {', '.join(updates)}
+        WHERE agent_id = $1
+        RETURNING *
+    """
 
     async with pool.acquire() as conn:
-        result = await conn.execute(query, *params)
+        row = await conn.fetchrow(query, *params)
 
-    if result == "UPDATE 0":
+    if not row:
         raise HTTPException(status_code=404, detail="Agent not found")
 
-    return {"agent_id": agent_id, "updated": True}
+    return _serialize_agent(row)
 
 
-@router.delete("/{agent_id}")
+@router.delete("/{agent_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def deactivate_agent(agent_id: str):
     """Deactivate an agent (soft delete)."""
     pool = _db._pool
@@ -219,7 +293,7 @@ async def deactivate_agent(agent_id: str):
     if result == "UPDATE 0":
         raise HTTPException(status_code=404, detail="Agent not found")
 
-    return {"agent_id": agent_id, "status": "inactive"}
+    return None
 
 
 # ============ Training Endpoints ============
@@ -290,6 +364,3 @@ async def get_training_sessions(agent_id: str):
             for s in sessions
         ]
     }
-
-
-

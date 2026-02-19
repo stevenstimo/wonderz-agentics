@@ -43,7 +43,7 @@ export default function TrainingHub() {
     try {
       const res = await fetch('/api/agents')
       const data = await res.json()
-      setAgents(data.agents || [])
+      setAgents(Array.isArray(data) ? data : (data.agents || []))
     } catch (e) {
       console.error('Failed to load agents:', e)
     }

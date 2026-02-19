@@ -15,8 +15,9 @@ const toolOptions = [
   'read_product',
   'write_copy',
   'read_analytics',
-  'update_description',
-  'search_web',
+  'web_search',
+  'read_docs',
+  'write_docs',
 ]
 
 export default function NewCrewMember() {
