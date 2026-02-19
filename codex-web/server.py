@@ -158,13 +158,13 @@ def update_systemd_env(name, value):
 
 # --- Upload endpoint ---
 
-UPLOAD_DIR = "/tmp/codex-uploads"
+UPLOAD_DIR = os.path.join(PROJECT_DIR, ".codex-uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 
 @app.post("/api/upload")
 async def upload_files(files: List[UploadFile] = File(...)):
-    """Upload .md files and images. Returns file paths for use in prompts."""
+    """Upload .md files and images. Saves to project dir so Codex can read them."""
     results = []
     for f in files:
         ext = Path(f.filename).suffix.lower()
@@ -176,21 +176,18 @@ async def upload_files(files: List[UploadFile] = File(...)):
         content = await f.read()
         with open(dest, "wb") as out:
             out.write(content)
-        
-        # For text files, also read content to include in prompt
-        text_content = None
-        if ext in (".md", ".txt"):
-            try:
-                text_content = content.decode("utf-8", errors="replace")
-            except:
-                pass
-        
+
+        is_text = ext in (".md", ".txt")
+        # Relative path from project root for Codex to access
+        rel_path = os.path.relpath(dest, PROJECT_DIR)
+
         results.append({
             "name": f.filename,
             "path": dest,
+            "rel_path": rel_path,
             "size": len(content),
             "type": f.content_type,
-            "text_content": text_content,
+            "is_text": is_text,
         })
     return {"files": results}
 

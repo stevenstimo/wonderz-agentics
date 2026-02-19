@@ -650,16 +650,21 @@
       try {
         const res = await fetch('/api/upload', { method: 'POST', body: formData });
         const data = await res.json();
-        // Prepend file contents to prompt
-        let extra = '';
-        for (const f of (data.files || [])) {
-          if (f.text_content) {
-            extra += `\n\n--- Attached file: ${f.name} ---\n${f.text_content}\n--- End ${f.name} ---\n`;
-          } else if (f.path) {
-            extra += `\n\n[Attached file: ${f.name} at ${f.path}]\n`;
-          }
+        // Build file reference instructions for Codex
+        const textFiles = (data.files || []).filter(f => f.is_text && !f.error);
+        const imageFiles = (data.files || []).filter(f => !f.is_text && !f.error);
+        let prefix = '';
+        if (textFiles.length > 0) {
+          const fileList = textFiles.map(f => `- ${f.rel_path} (${f.name})`).join('\n');
+          prefix += `\n\nI have uploaded the following files to the project directory. Read them first before proceeding:\n${fileList}\n`;
         }
-        promptEl.value = promptEl.value + extra;
+        if (imageFiles.length > 0) {
+          const imgList = imageFiles.map(f => `- ${f.rel_path} (${f.name})`).join('\n');
+          prefix += `\n\nUploaded images:\n${imgList}\n`;
+        }
+        if (prefix) {
+          promptEl.value = promptEl.value + prefix;
+        }
       } catch (err) {
         console.error('Upload failed:', err);
       }

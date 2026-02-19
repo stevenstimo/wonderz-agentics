@@ -26,3 +26,4 @@ output/
 .idea/
 .vercel
 .env*.local
+.codex-uploads/
