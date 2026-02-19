@@ -21,6 +21,7 @@ from app.routes.jobs import router as jobs_router
 from app.routes.agents import router as agents_router
 from app.routes.hr import router as hr_router
 from app.routes.talents import router as talents_router
+from app.routes.crew import router as crew_router
 
 # Celery task will be imported lazily to avoid starting worker at import time
 
@@ -52,6 +53,7 @@ app.include_router(jobs_router)
 app.include_router(agents_router)
 app.include_router(hr_router)
 app.include_router(talents_router)
+app.include_router(crew_router)
 
 
 # --- Worker circuit breaker endpoints (Taak 5) ---
@@ -171,15 +173,7 @@ async def health_check():
     return JSONResponse(content=health, status_code=code)
 
 
-@app.get("/api/crew")
-async def get_crew():
-    """Return agent crew status."""
-    agents = [
-        {"name": "CEO Agent", "role": "intake", "status": "active"},
-        {"name": "Copy Agent", "role": "copywriting", "status": "active"},
-        {"name": "Review Agent", "role": "review", "status": "active"},
-    ]
-    return {"crew": agents, "total": len(agents)}
+# /api/crew is now served by app.routes.crew (database-backed)
 
 
 @app.get("/api/explainer/sections")
