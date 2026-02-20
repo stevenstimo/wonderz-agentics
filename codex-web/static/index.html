@@ -57,7 +57,9 @@
     .message { margin-bottom: 1.25rem; animation: fadeIn 0.2s; }
     @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
     .msg-content { font-size: 0.9rem; line-height: 1.7; color: #333; }
-    .msg-user .msg-content { font-weight: 500; }
+    .msg-user { display: flex; justify-content: flex-end; }
+    .msg-user .msg-content { font-weight: 500; background: #f3f4f6; border-radius: 12px 12px 2px 12px; padding: 0.6rem 1rem; max-width: 80%; display: inline-block; }
+    .msg-event { background: #fafafa; border-radius: 12px; padding: 1rem 1.2rem; border: 1px solid #f0f0f0; }
     .msg-terminal { background: #1a1a1a; border-radius: 8px; padding: 0.75rem 1rem; margin: 0.5rem 0; font-family: 'SF Mono', monospace; font-size: 0.8rem; color: #ccc; white-space: pre-wrap; word-break: break-word; overflow-x: auto; }
     .msg-terminal .cmd { color: #4ade80; }
     .msg-error .msg-content { color: #dc2626; }
@@ -126,7 +128,39 @@
     /* Toast */
     .toast { position: fixed; bottom: 2rem; right: 2rem; background: #1a1a1a; color: #fff; padding: 0.75rem 1.25rem; border-radius: 8px; font-size: 0.85rem; opacity: 0; transition: opacity 0.3s; z-index: 200; }
     .toast.show { opacity: 1; }
+    /* --- Markdown rendered content --- */
+    .md-body { line-height: 1.7; }
+    .md-body h1 { font-size: 1.4rem; font-weight: 700; margin: 1.2rem 0 0.5rem; border-bottom: 1px solid #e5e5e5; padding-bottom: 0.3rem; }
+    .md-body h2 { font-size: 1.2rem; font-weight: 700; margin: 1rem 0 0.4rem; }
+    .md-body h3 { font-size: 1.05rem; font-weight: 600; margin: 0.8rem 0 0.3rem; }
+    .md-body h4 { font-size: 0.95rem; font-weight: 600; margin: 0.6rem 0 0.2rem; }
+    .md-body p { margin: 0.4rem 0; }
+    .md-body ul, .md-body ol { margin: 0.4rem 0 0.4rem 1.5rem; }
+    .md-body li { margin: 0.15rem 0; }
+    .md-body li > ul, .md-body li > ol { margin: 0.1rem 0 0.1rem 1.2rem; }
+    .md-body code { background: #f3f4f6; color: #d6336c; padding: 0.15rem 0.35rem; border-radius: 4px; font-size: 0.85em; font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; }
+    .md-body pre { position: relative; margin: 0.6rem 0; border-radius: 8px; overflow: hidden; }
+    .md-body pre code { display: block; background: #1e1e2e; color: #cdd6f4; padding: 1rem 1.2rem; overflow-x: auto; font-size: 0.82rem; line-height: 1.5; border-radius: 8px; }
+    .md-body pre .lang-label { position: absolute; top: 0; left: 0; background: #313244; color: #a6adc8; padding: 0.15rem 0.7rem; font-size: 0.7rem; border-radius: 0 0 6px 0; }
+    .md-body pre .copy-btn { position: absolute; top: 0.4rem; right: 0.5rem; background: #45475a; color: #cdd6f4; border: none; padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.7rem; cursor: pointer; opacity: 0.6; transition: opacity 0.2s; }
+    .md-body pre .copy-btn:hover { opacity: 1; }
+    .md-body blockquote { border-left: 3px solid #d1d5db; margin: 0.5rem 0; padding: 0.3rem 0 0.3rem 1rem; color: #6b7280; }
+    .md-body strong { font-weight: 650; }
+    .md-body hr { border: none; border-top: 1px solid #e5e5e5; margin: 1rem 0; }
+    .md-body table { border-collapse: collapse; margin: 0.5rem 0; width: 100%; }
+    .md-body th, .md-body td { border: 1px solid #e5e5e5; padding: 0.35rem 0.6rem; font-size: 0.85rem; text-align: left; }
+    .md-body th { background: #f9fafb; font-weight: 600; }
+    .md-body a { color: #4f46e5; text-decoration: none; }
+    .md-body a:hover { text-decoration: underline; }
+    .md-body img { max-width: 100%; border-radius: 6px; }
+
+    /* Previous messages collapse */
+    .collapsed-msgs { text-align: center; padding: 0.5rem; cursor: pointer; color: #6b7280; font-size: 0.8rem; }
+    .collapsed-msgs:hover { color: #4f46e5; }
   </style>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/catppuccin-mocha.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 </head>
 <body>
   <!-- Sidebar -->
@@ -323,32 +357,54 @@
     function esc(t) { const d=document.createElement('div'); d.textContent=t; return d.innerHTML; }
 
     function addUserMessage(text) { clearWelcome(); const d=document.createElement('div'); d.className='message msg-user'; d.innerHTML=`<div class="msg-content">${esc(text)}</div>`; output.appendChild(d); scrollBottom(); }
+    // --- Marked.js config ---
+    (function initMarked() {
+      if (typeof marked === 'undefined') return;
+      const renderer = new marked.Renderer();
+      // Add language label + copy button to code blocks
+      renderer.code = function({ text, lang }) {
+        const language = lang || '';
+        let highlighted;
+        try {
+          highlighted = language && hljs.getLanguage(language)
+            ? hljs.highlight(text, { language }).value
+            : hljs.highlightAuto(text).value;
+        } catch { highlighted = text.replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+        const langLabel = language ? `<span class="lang-label">${language}</span>` : '';
+        const id = 'cb' + Math.random().toString(36).slice(2,8);
+        return `<pre>${langLabel}<button class="copy-btn" onclick="copyCode('${id}')">Copy</button><code id="${id}">${highlighted}</code></pre>`;
+      };
+      marked.setOptions({
+        renderer,
+        gfm: true,
+        breaks: true,
+      });
+    })();
+
+    window.copyCode = function(id) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      navigator.clipboard.writeText(el.textContent).then(() => {
+        const btn = el.parentElement.querySelector('.copy-btn');
+        if (btn) { btn.textContent = 'Copied!'; setTimeout(() => btn.textContent = 'Copy', 1500); }
+      });
+    };
+
+    function renderMd(text) {
+      if (typeof marked !== 'undefined') {
+        try { return marked.parse(text); } catch {}
+      }
+      // Fallback: basic formatting
+      let h = esc(text);
+      h = h.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+      h = h.replace(/`([^`]+)`/g, '<code>$1</code>');
+      return `<p>${h}</p>`;
+    }
+
     function addMarkdown(text) {
       clearWelcome();
       const d = document.createElement('div');
-      
-      // Check if this looks like a report (has bold headers or ---FILES_CHANGED---)
-      const isReport = text.includes('**Wat ik') || text.includes('**Commit') || text.includes('**Resultaat') || text.includes('---FILES_CHANGED---') || text.includes('## ');
-      
-      if (isReport) {
-        d.className = 'message report';
-        d.innerHTML = renderReport(text);
-      } else {
-        d.className = 'message msg-event';
-        d.innerHTML = `<div class="msg-content">${mdToHtml(esc(text))}</div>`;
-      }
-      output.appendChild(d); scrollBottom();
-    }
 
-    function mdToHtml(h) {
-      h = h.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-      h = h.replace(/`([^`]+)`/g, '<code>$1</code>');
-      h = h.replace(/^[\u2022\-\*] (.+)$/gm, '<li>$1</li>');
-      if (h.includes('<li>')) h = h.replace(/(<li>.*<\/li>)/gs, '<ul>$1</ul>');
-      return h;
-    }
-
-    function renderReport(text) {
       // Split off FILES_CHANGED section if present
       let mainText = text;
       let filesSection = '';
@@ -358,88 +414,13 @@
         filesSection = parts[1]?.trim() || '';
       }
 
-      // Convert ## headers to **bold** headers for uniform processing
-      mainText = mainText.replace(/^## (.+)$/gm, '**$1**');
-
-      // Process main text as rich markdown
-      let html = '<div class="report-body">' + renderRichMarkdown(mainText) + '</div>';
-
-      // Render files changed box
-      if (filesSection) {
-        html += renderFilesBox(filesSection);
-      }
-
-      return html;
-    }
-
-    function renderRichMarkdown(text) {
-      const lines = text.split('\n');
-      let html = '';
-      let inOl = false;
-      let inUl = false;
-      let subUl = false;
-
-      for (let i = 0; i < lines.length; i++) {
-        let line = lines[i];
-        const trimmed = line.trim();
-        if (!trimmed) {
-          if (inOl) { html += '</ol>'; inOl = false; }
-          if (inUl) { html += '</ul>'; inUl = false; }
-          continue;
-        }
-
-        // Bold headers
-        const boldMatch = trimmed.match(/^\*\*(.+?)\*\*$/);
-        if (boldMatch) {
-          if (inOl) { html += '</ol>'; inOl = false; }
-          if (inUl) { html += '</ul>'; inUl = false; }
-          html += `<strong>${inlineFormat(boldMatch[1])}</strong>`;
-          continue;
-        }
-
-        // Numbered list
-        const olMatch = trimmed.match(/^(\d+)\. (.+)/);
-        if (olMatch) {
-          if (!inOl) { html += '<ol>'; inOl = true; }
-          if (inUl) { html += '</ul>'; inUl = false; subUl = false; }
-          html += `<li>${inlineFormat(olMatch[2])}`;
-          // Check if next lines are sub-bullets
-          let j = i + 1;
-          while (j < lines.length && /^\s+[\-\*\u2022]/.test(lines[j])) {
-            if (!subUl) { html += '<ul>'; subUl = true; }
-            const sub = lines[j].trim().replace(/^[\-\*\u2022]\s*/, '');
-            html += `<li>${inlineFormat(sub)}</li>`;
-            j++;
-          }
-          if (subUl) { html += '</ul>'; subUl = false; }
-          html += '</li>';
-          i = j - 1;
-          continue;
-        }
-
-        // Bullet list
-        const ulMatch = trimmed.match(/^[\-\*\u2022]\s+(.+)/);
-        if (ulMatch) {
-          if (!inUl) { html += '<ul>'; inUl = true; }
-          html += `<li>${inlineFormat(ulMatch[1])}</li>`;
-          continue;
-        }
-
-        // Regular paragraph
-        if (inOl) { html += '</ol>'; inOl = false; }
-        if (inUl) { html += '</ul>'; inUl = false; }
-        html += `<p>${inlineFormat(trimmed)}</p>`;
-      }
-      if (inOl) html += '</ol>';
-      if (inUl) html += '</ul>';
-      return html;
-    }
-
-    function inlineFormat(text) {
-      let h = esc(text);
-      h = h.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-      h = h.replace(/`([^`]+)`/g, '<code>$1</code>');
-      return h;
+      d.className = 'message msg-event';
+      let html = `<div class="msg-content md-body">${renderMd(mainText)}</div>`;
+      if (filesSection) html += renderFilesBox(filesSection);
+      // Copy entire message button
+      html += `<button onclick="navigator.clipboard.writeText(this.closest('.message').querySelector('.md-body').innerText)" style="background:none;border:none;cursor:pointer;opacity:0.4;float:right;margin-top:0.2rem;font-size:0.9rem;" title="Copy message">📋</button>`;
+      d.innerHTML = html;
+      output.appendChild(d); scrollBottom();
     }
 
     function renderFilesBox(text) {
