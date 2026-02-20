@@ -14,6 +14,7 @@ class JobStatus(str, Enum):
     COMPLETED = "COMPLETED"                         # Job approved and deployed
     FAILED = "FAILED"                               # Job failed
     AWAITING_APPROVAL = "AWAITING_APPROVAL"         # Manual approval required during execution
+    BLOCKED = "BLOCKED"                             # Auto-retry exhausted; manual intervention required
 
 
 # ============ Intake Models ============

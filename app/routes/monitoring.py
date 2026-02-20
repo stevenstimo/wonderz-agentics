@@ -53,3 +53,26 @@ async def get_hourly_trends(hours: Optional[int] = 24):
         "period_hours": hours,
         "data": trends,
     }
+
+
+@router.get("/dead-letters")
+async def get_dead_letters():
+    """Get jobs in dead letter queue (need manual intervention)."""
+    pool = await init_db_pool()
+    if not pool:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    async with pool.acquire() as conn:
+        letters = await conn.fetch(
+            """
+            SELECT * FROM dead_letter_queue
+            WHERE resolved_at IS NULL
+            ORDER BY created_at DESC
+            LIMIT 50
+            """
+        )
+
+    return {
+        "count": len(letters),
+        "items": [dict(l) for l in letters],
+    }

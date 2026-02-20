@@ -9,6 +9,7 @@ from datetime import datetime
 from app.orchestration.intake_engine import IntakeEngine
 from app.orchestration.strategy_room import StrategyRoom
 from app.services.team_coordinator import TeamCoordinator
+from app.services.error_recovery import ErrorRecovery
 from models.unified import JobStatus, StrategicBrief, ExecutionPlan
 
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -47,6 +48,7 @@ class OperationsManager:
         self.database_url = database_url or DATABASE_URL
         self.intake_engine = IntakeEngine()
         self.strategy_room = StrategyRoom()
+        self._recovery: Optional[ErrorRecovery] = None
 
     # ============ Intake & Planning Flow ============
 
@@ -272,6 +274,20 @@ class OperationsManager:
             raise RuntimeError("DATABASE_URL is not configured")
         return await asyncpg.connect(self.database_url)
 
+    async def _get_recovery(self) -> Optional[ErrorRecovery]:
+        if self._recovery is not None:
+            return self._recovery
+        try:
+            from app.db import init_db_pool
+            pool = await init_db_pool()
+            if not pool:
+                return None
+            self._recovery = ErrorRecovery(pool)
+            return self._recovery
+        except Exception as e:
+            logger.warning("Error recovery disabled: %s", e)
+            return None
+
     async def write_job_step(
         self,
         conn: asyncpg.Connection,
@@ -288,7 +304,7 @@ class OperationsManager:
     ):
         """Insert a job_steps row and return its id."""
         step_index = await self._next_step_index(conn, job_id)
-        await conn.execute(
+        row = await conn.fetchrow(
             """
             INSERT INTO job_steps(
                 job_id,
@@ -305,6 +321,7 @@ class OperationsManager:
                 started_at
             )
             VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,now())
+            RETURNING id
             """,
             job_id,
             step_index,
@@ -318,6 +335,7 @@ class OperationsManager:
             timing_ms,
             requires_approval
         )
+        return row["id"] if row else None
 
     async def update_job_status(self, conn: asyncpg.Connection, job_id: str, status: str):
         await conn.execute(
@@ -452,6 +470,7 @@ class OperationsManager:
             await self.update_job_status(conn, job_id, JobStatus.RUNNING.value)
             current_step = None
             steps = 0
+            recovery = await self._get_recovery()
 
             while steps < max_steps:
                 next_agent = self.determine_next_step(current_step, ctx)
@@ -526,7 +545,7 @@ class OperationsManager:
                     continue
 
                 # Record step start
-                await self.write_job_step(
+                step_id = await self.write_job_step(
                     conn,
                     job_id,
                     next_agent,
@@ -537,7 +556,21 @@ class OperationsManager:
 
                 # Call the agent via the injected runner
                 try:
-                    result = await maybe_await(self.agent_runner(next_agent, {"job_id": job_id, "store_id": store_id, "context": ctx.data}))
+                    async def _call_agent():
+                        return await maybe_await(
+                            self.agent_runner(
+                                next_agent,
+                                {"job_id": job_id, "store_id": store_id, "context": ctx.data}
+                            )
+                        )
+
+                    if recovery:
+                        async def _on_retry(attempt: int, exc: Exception):
+                            if step_id:
+                                await recovery.record_retry(step_id, str(exc))
+                        result = await recovery.execute_with_retry(_call_agent, on_retry=_on_retry)
+                    else:
+                        result = await _call_agent()
                 except Exception as e:
                     import logging as _log
                     _log.getLogger(__name__).exception("Unexpected error in workflow step %s for job %s", next_agent, job_id)
@@ -549,8 +582,19 @@ class OperationsManager:
                         "failed",
                         output={"error": str(e)}
                     )
-                    await self.update_job_status(conn, job_id, JobStatus.FAILED.value)
-                    final_status = JobStatus.FAILED.value
+                    if recovery:
+                        await recovery.mark_job_for_retry(job_id, str(e))
+                        await recovery.record_dead_letter(
+                            job_id=job_id,
+                            agent_id=next_agent,
+                            error_message=str(e),
+                            retry_count=recovery.max_retries - 1,
+                        )
+                        await self.update_job_status(conn, job_id, JobStatus.BLOCKED.value)
+                        final_status = JobStatus.BLOCKED.value
+                    else:
+                        await self.update_job_status(conn, job_id, JobStatus.FAILED.value)
+                        final_status = JobStatus.FAILED.value
                     break
 
                 # --- Handle agent-level errors gracefully ---
