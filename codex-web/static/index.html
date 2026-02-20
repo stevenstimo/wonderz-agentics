@@ -293,16 +293,10 @@
           if (msg.return_code !== 0) addText('error', `Afgerond met code ${msg.return_code}`);
           startTime = null;
           loadThreads();
-          // Auto-continue file queue
-          if (queueRunning && fileQueue.length > 0) { scheduleNextInQueue(); }
-          else if (queueRunning) { queueRunning = false; queueWaiting = false; renderQueue(); addDivider('✅ All queued files processed'); }
           break;
         case 'error':
           removeThinking(); isRunning = false; sendBtn.disabled = false;
           addText('error', msg.data); startTime = null;
-          // Auto-continue file queue even on error
-          if (queueRunning && fileQueue.length > 0) { scheduleNextInQueue(); }
-          else if (queueRunning) { queueRunning = false; queueWaiting = false; renderQueue(); addDivider('✅ All queued files processed (with errors)'); }
           break;
       }
     }
@@ -598,136 +592,34 @@
     // --- Init ---
     promptEl.addEventListener('keydown', (e) => { if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendPrompt();} });
 
-    // --- File queue system ---
-    // Upload files one by one → they go into a queue.
-    // Queue processes files sequentially with cooldown between them.
-    let fileQueue = [];       // [{name, rel_path, is_text}, ...]
-    let queueRunning = false;
-    let queueWaiting = false; // true when in cooldown between files
-    const QUEUE_DELAY_MS = 65000; // 65s between files for TPM rate limits
+    // --- File attachment system ---
+    // Stage files → send all at once as a single prompt with file references
     const queueBar = document.getElementById('attachments-bar');
 
-    function renderQueue() {
-      const hasPending = pendingFiles.length > 0;
-      const hasQueued = fileQueue.length > 0;
-      if (!hasPending && !hasQueued && !queueRunning) {
-        queueBar.style.display = 'none';
-        return;
-      }
+    let pendingFiles = [];
+
+    function renderAttachments() {
+      if (pendingFiles.length === 0) { queueBar.style.display = 'none'; return; }
       queueBar.style.display = 'flex';
-      let html = '';
-      // Show pending (staged, not yet uploaded)
-      if (hasPending) {
-        html += `<span style="background:#dbeafe;color:#1e40af;border-radius:4px;padding:2px 8px;font-size:0.75rem;font-weight:600;">📤 ${pendingFiles.length} staged</span>`;
-        html += pendingFiles.map((f, i) =>
-          `<span style="background:#eff6ff;border-radius:4px;padding:2px 8px;font-size:0.75rem;display:flex;align-items:center;gap:4px;">`
-          + `${/\.(png|jpg|jpeg|gif|webp|svg)$/i.test(f.name) ? '🖼️' : '📄'} ${f.name}`
-          + `<span style="cursor:pointer;color:#999;" onclick="removePending(${i})">&times;</span></span>`
-        ).join('');
-      }
-      // Show queued (uploaded, waiting to process)
-      if (hasQueued) {
-        html += `<span style="background:#e0e7ff;color:#3730a3;border-radius:4px;padding:2px 8px;font-size:0.75rem;font-weight:600;">📋 Queue: ${fileQueue.length}</span>`;
-        html += fileQueue.map((f, i) =>
-          `<span style="background:#f3f4f6;border-radius:4px;padding:2px 8px;font-size:0.75rem;display:flex;align-items:center;gap:4px;">`
-          + `📄 ${f.name}`
-          + `<span style="cursor:pointer;color:#999;" onclick="removeFromQueue(${i})">&times;</span></span>`
-        ).join('');
-      }
-      if (queueRunning && !queueWaiting) {
-        html += `<span style="background:#dcfce7;color:#166534;border-radius:4px;padding:2px 8px;font-size:0.75rem;">⚙️ Running...</span>`;
-      }
-      if (queueWaiting) {
-        html += `<span style="background:#fef9c3;color:#854d0e;border-radius:4px;padding:2px 8px;font-size:0.75rem;">⏳ Cooldown...</span>`;
-      }
+      let html = `<span style="background:#dbeafe;color:#1e40af;border-radius:4px;padding:2px 8px;font-size:0.75rem;font-weight:600;">📤 ${pendingFiles.length} file${pendingFiles.length>1?'s':''}</span>`;
+      html += pendingFiles.map((f, i) =>
+        `<span style="background:#eff6ff;border-radius:4px;padding:2px 8px;font-size:0.75rem;display:flex;align-items:center;gap:4px;">`
+        + `${/\.(png|jpg|jpeg|gif|webp|svg)$/i.test(f.name) ? '🖼️' : '📄'} ${f.name}`
+        + `<span style="cursor:pointer;color:#999;" onclick="removePending(${i})">&times;</span></span>`
+      ).join('');
       queueBar.innerHTML = html;
     }
 
-    // Pending files staged for upload (not yet uploaded/queued)
-    let pendingFiles = [];
-
-    window.removeFromQueue = function(i) {
-      fileQueue.splice(i, 1);
-      renderQueue();
-      if (fileQueue.length === 0 && !isRunning) { queueRunning = false; }
-    };
-
     window.removePending = function(i) {
       pendingFiles.splice(i, 1);
-      renderQueue();
+      renderAttachments();
     };
 
-    async function uploadAndStartQueue(files, userPrompt) {
-      // Bulk upload all files, then queue them
-      const formData = new FormData();
-      for (const f of files) formData.append('files', f);
-      try {
-        const res = await fetch('/api/upload', { method: 'POST', body: formData });
-        const data = await res.json();
-        for (const f of (data.files || [])) {
-          if (f.error) { showToast(`❌ ${f.name}: ${f.error}`); continue; }
-          fileQueue.push({ name: f.name, rel_path: f.rel_path, is_text: f.is_text });
-        }
-        // Store user prompt as context for each file
-        if (userPrompt) queueBasePrompt = userPrompt;
-        renderQueue();
-        const count = (data.files || []).filter(f => !f.error).length;
-        showToast(`📋 ${count} file(s) queued`);
-        // Auto-start if nothing running
-        if (!isRunning && !queueWaiting && fileQueue.length > 0) {
-          queueRunning = true;
-          addDivider(`📋 Queue: ${fileQueue.length} files to process sequentially`);
-          processNextInQueue();
-        }
-      } catch (err) {
-        console.error('Upload failed:', err);
-        showToast('❌ Upload failed');
-      }
-    }
-
-    function processNextInQueue() {
-      if (fileQueue.length === 0) {
-        queueRunning = false;
-        queueWaiting = false;
-        queueBasePrompt = '';
-        renderQueue();
-        addDivider('✅ All queued files processed');
-        return;
-      }
-      queueRunning = true;
-      queueWaiting = false;
-      const file = fileQueue.shift();
-      const remaining = fileQueue.length;
-      const label = remaining > 0 ? ` [${remaining} more in queue]` : '';
-      addDivider(`📄 Processing: ${file.name}${label}`);
-      renderQueue();
-      let instruction = `Read the file \`${file.rel_path}\` (${file.name}) and execute the instructions/plan described in it.`;
-      if (queueBasePrompt) instruction += `\n\nAdditional context: ${queueBasePrompt}`;
-      promptEl.value = instruction;
-      _origSendPrompt();
-    }
-
-    function scheduleNextInQueue() {
-      if (fileQueue.length === 0) {
-        queueRunning = false;
-        queueWaiting = false;
-        queueBasePrompt = '';
-        renderQueue();
-        addDivider('✅ All queued files processed');
-        return;
-      }
-      queueWaiting = true;
-      renderQueue();
-      const secs = Math.round(QUEUE_DELAY_MS / 1000);
-      addDivider(`⏳ Cooldown ${secs}s before next file (${fileQueue.length} in queue)...`);
-      setTimeout(processNextInQueue, QUEUE_DELAY_MS);
-    }
-
-    // File select — stage files, don't upload yet
+    // File select — stage files
     window.handleFileSelect = function(e) {
       for (const f of e.target.files) pendingFiles.push(f);
       e.target.value = '';
-      renderQueue();
+      renderAttachments();
     };
 
     // Drag and drop — stage files
@@ -737,20 +629,52 @@
     inputBox.addEventListener('drop', (e) => {
       e.preventDefault(); inputBox.style.borderColor = '#e5e5e5';
       for (const f of e.dataTransfer.files) pendingFiles.push(f);
-      renderQueue();
+      renderAttachments();
     });
 
-    // Override sendPrompt — if pending files, upload+queue them with the typed text
+    // Override sendPrompt — if pending files, bulk upload then send one prompt with all file refs
     const _origSendPrompt = sendPrompt;
     window.sendPrompt = async function() {
       if (pendingFiles.length === 0) { _origSendPrompt(); return; }
       const userPrompt = promptEl.value.trim();
       const files = [...pendingFiles];
       pendingFiles = [];
-      promptEl.value = '';
-      promptEl.style.height = '38px';
-      if (userPrompt) addUserMessage(userPrompt);
-      await uploadAndStartQueue(files, userPrompt);
+      renderAttachments();
+
+      // Upload all files in one request
+      const formData = new FormData();
+      for (const f of files) formData.append('files', f);
+      let uploaded = [];
+      try {
+        const res = await fetch('/api/upload', { method: 'POST', body: formData });
+        const data = await res.json();
+        uploaded = (data.files || []).filter(f => !f.error);
+        for (const f of (data.files || [])) {
+          if (f.error) showToast(`❌ ${f.name}: ${f.error}`);
+        }
+      } catch (err) {
+        console.error('Upload failed:', err);
+        showToast('❌ Upload failed');
+        return;
+      }
+
+      if (uploaded.length === 0) return;
+
+      // Build one prompt with all file references + user text
+      const textFiles = uploaded.filter(f => f.is_text);
+      const imageFiles = uploaded.filter(f => !f.is_text);
+      let fullPrompt = userPrompt || 'Read all attached files and execute the instructions/plans described in them.';
+      if (textFiles.length > 0) {
+        const fileList = textFiles.map(f => `- \`${f.rel_path}\` (${f.name})`).join('\n');
+        fullPrompt += `\n\nAttached files to read first:\n${fileList}`;
+      }
+      if (imageFiles.length > 0) {
+        const imgList = imageFiles.map(f => `- \`${f.rel_path}\` (${f.name})`).join('\n');
+        fullPrompt += `\n\nAttached images:\n${imgList}`;
+      }
+
+      promptEl.value = fullPrompt;
+      _origSendPrompt();
     };
 
     // Git status polling
