@@ -64,6 +64,9 @@
     .msg-terminal .cmd { color: #4ade80; }
     .msg-error .msg-content { color: #dc2626; }
     .file-pill { display: inline-block; background: #f0f0f0; border-radius: 4px; padding: 1px 6px; font-family: monospace; font-size: 0.8rem; }
+    .queue-pill { display: inline-flex; align-items: center; gap: 0.35rem; background: #ecfdf3; color: #166534; border-radius: 999px; padding: 2px 8px; font-size: 0.75rem; font-weight: 600; }
+    .queue-item { display: inline-flex; align-items: center; gap: 0.35rem; background: #f0fdf4; color: #166534; border-radius: 6px; padding: 2px 8px; font-size: 0.75rem; }
+    .queue-item .qtext { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
     /* Report styling */
     .report { margin: 1rem 0; }
@@ -212,6 +215,7 @@
       <div class="input-wrapper">
         <div class="input-box">
           <div id="attachments-bar" style="display:none;padding:0.25rem 0.5rem;display:flex;flex-wrap:wrap;gap:0.25rem;"></div>
+          <div id="task-queue-bar" style="display:none;padding:0.25rem 0.5rem;display:flex;flex-wrap:wrap;gap:0.25rem;"></div>
           <textarea id="prompt" placeholder="Ask for follow-up changes — drop files here or click 📎" rows="1"></textarea>
           <div class="input-bottom">
             <input type="file" id="fileInput" multiple accept=".md,.txt,.png,.jpg,.jpeg,.gif,.webp,.svg,.pdf" style="display:none" onchange="handleFileSelect(event)" />
@@ -250,6 +254,7 @@
     let startTime = null;
     let thinkingEl = null;
     let currentThreadId = null;
+    let queuedTasks = [];
 
     const SKIP = new Set(['thread.started','turn.started','session.started','session.end','thread.ended','turn.completed','thread.completed']);
 
@@ -265,9 +270,20 @@
 
     function handleMessage(msg) {
       switch (msg.type) {
+        case 'queued':
+          if (msg.task_id) {
+            queuedTasks.push({ task_id: msg.task_id, prompt: msg.prompt || '', thread_id: msg.thread_id });
+            renderTaskQueue();
+          }
+          break;
         case 'start':
           startTime = Date.now();
           if (msg.thread_id) currentThreadId = msg.thread_id;
+          if (msg.task_id) {
+            queuedTasks = queuedTasks.filter(t => t.task_id !== msg.task_id);
+            renderTaskQueue();
+          }
+          isRunning = true;
           showThinking();
           break;
         case 'event': handleEvent(msg.data); break;
@@ -295,6 +311,10 @@
           loadThreads();
           break;
         case 'error':
+          if (msg.task_id) {
+            queuedTasks = queuedTasks.filter(t => t.task_id !== msg.task_id);
+            renderTaskQueue();
+          }
           removeThinking(); isRunning = false; sendBtn.disabled = false;
           addText('error', msg.data); startTime = null;
           break;
@@ -471,8 +491,7 @@
     // --- Actions ---
     function sendPrompt() {
       const prompt = promptEl.value.trim();
-      if (!prompt || isRunning || !ws || ws.readyState !== 1) return;
-      isRunning = true; sendBtn.disabled = true;
+      if (!prompt || !ws || ws.readyState !== 1) return;
       addUserMessage(prompt);
       ws.send(JSON.stringify({ prompt, model: modelEl.value, thread_id: currentThreadId }));
       promptEl.value = ''; promptEl.style.height = '38px';
@@ -589,6 +608,18 @@
       setTimeout(() => t.classList.remove('show'), 3000);
     }
 
+    function renderTaskQueue() {
+      const bar = document.getElementById('task-queue-bar');
+      if (!queuedTasks.length) { bar.style.display = 'none'; return; }
+      bar.style.display = 'flex';
+      const count = queuedTasks.length;
+      let html = `<span class="queue-pill">⏳ Wachtrij: ${count}</span>`;
+      const preview = queuedTasks.slice(0, 3);
+      html += preview.map(t => `<span class="queue-item"><span class="qtext">${esc(t.prompt || 'Task')}</span></span>`).join('');
+      if (count > preview.length) html += `<span class="queue-item">+${count - preview.length} meer</span>`;
+      bar.innerHTML = html;
+    }
+
     // --- Init ---
     promptEl.addEventListener('keydown', (e) => { if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendPrompt();} });
 
@@ -660,16 +691,15 @@
 
       if (uploaded.length === 0) return;
 
-      // Build one prompt with all file references + user text
-      const textFiles = uploaded.filter(f => f.is_text);
+      // Build one prompt with file contents inlined + user text
+      const textFiles = uploaded.filter(f => f.is_text && f.text_content);
       const imageFiles = uploaded.filter(f => !f.is_text);
-      let fullPrompt = userPrompt || 'Read all attached files and execute the instructions/plans described in them.';
-      if (textFiles.length > 0) {
-        const fileList = textFiles.map(f => `- \`${f.rel_path}\` (${f.name})`).join('\n');
-        fullPrompt += `\n\nAttached files to read first:\n${fileList}`;
+      let fullPrompt = userPrompt || 'Execute the instructions/plans described in the attached files.';
+      for (const f of textFiles) {
+        fullPrompt += `\n\n=== FILE: ${f.name} ===\n${f.text_content}\n=== END ${f.name} ===`;
       }
       if (imageFiles.length > 0) {
-        const imgList = imageFiles.map(f => `- \`${f.rel_path}\` (${f.name})`).join('\n');
+        const imgList = imageFiles.map(f => `- ${f.path} (${f.name})`).join('\n');
         fullPrompt += `\n\nAttached images:\n${imgList}`;
       }
 

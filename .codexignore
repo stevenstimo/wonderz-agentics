@@ -1,46 +1,22 @@
-# Large/irrelevant directories
-web_ui/frontend/node_modules/
-web_ui/frontend/dist/
-node_modules/
-.venv/
+# Ignore almost everything — Codex gets context via the prompt
+*
+
+# Only allow core source files Codex typically needs to edit
+!app/
+!app/**/*.py
+!agents/
+!agents/**/*.py
+!workers/
+!workers/**/*.py
+!codex-web/server.py
+!web_ui/frontend/src/
+!web_ui/frontend/src/**/*.jsx
+!web_ui/frontend/src/**/*.js
+!web_ui/frontend/src/**/*.css
+!requirements.txt
+!.codexignore
+
+# Still exclude heavy stuff inside allowed dirs
 __pycache__/
 *.pyc
-
-# Build artifacts
-*.egg-info/
-dist/
-build/
-
-# Uploads (temporary files)
-.codex-uploads/
-
-# Documentation (not needed as code context)
-*.md
-!README.md
-!AGENTS.md
-
-# Config/data files
-*.json
-!package.json
-*.lock
-*.log
-
-# Binary/media
-*.png
-*.jpg
-*.jpeg
-*.gif
-*.svg
-*.ico
-*.woff*
-*.ttf
-*.eot
-
-# K8s manifests
-k8s/
-
-# Tests (not needed unless specifically asked)
-tests/
-
-# Codex web static (separate app)
-codex-web/static/
+node_modules/

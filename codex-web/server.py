@@ -158,7 +158,7 @@ def update_systemd_env(name, value):
 
 # --- Upload endpoint ---
 
-UPLOAD_DIR = os.path.join(PROJECT_DIR, ".codex-uploads")
+UPLOAD_DIR = "/tmp/codex-uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 
@@ -178,16 +178,20 @@ async def upload_files(files: List[UploadFile] = File(...)):
             out.write(content)
 
         is_text = ext in (".md", ".txt")
-        # Relative path from project root for Codex to access
-        rel_path = os.path.relpath(dest, PROJECT_DIR)
+        text_content = None
+        if is_text:
+            try:
+                text_content = content.decode("utf-8", errors="replace")
+            except:
+                pass
 
         results.append({
             "name": f.filename,
             "path": dest,
-            "rel_path": rel_path,
             "size": len(content),
             "type": f.content_type,
             "is_text": is_text,
+            "text_content": text_content,
         })
     return {"files": results}
 
@@ -409,66 +413,24 @@ async def proxy_openapi():
 @app.websocket("/ws/codex")
 async def codex_ws(websocket: WebSocket):
     await websocket.accept()
-    try:
+    queue: asyncio.Queue = asyncio.Queue()
+    worker_task: Optional[asyncio.Task] = None
+
+    async def process_queue():
         while True:
-            data = await websocket.receive_json()
-            prompt = data.get("prompt", "")
-            model = data.get("model", "gpt-5.2-codex")
+            item = await queue.get()
+            if item is None:
+                queue.task_done()
+                break
 
-            if not prompt:
-                await websocket.send_json({"type": "error", "data": "Geen prompt opgegeven"})
-                continue
+            prompt = item["prompt"]
+            model = item["model"]
+            thread_id = item["thread_id"]
+            task_id = item["task_id"]
 
-            thread_id = data.get("thread_id") or str(uuid.uuid4())[:12]
-            task_id = str(uuid.uuid4())[:8]
-            
-            # Save user message to thread
-            add_thread_message(thread_id, "user", prompt, model)
-            
             await websocket.send_json({"type": "start", "task_id": task_id, "thread_id": thread_id, "prompt": prompt})
 
-            report_instruction = """\n\n---\nIMPORTANT: When you are done, ALWAYS end with a structured report in Dutch. Use this exact markdown format:
-
-[1-2 zinnen samenvatting van wat je hebt gedaan.]
-
-**Wat ik vond**
-
-1. [Eerste bevinding met `code` inline waar nodig]
-2. [Tweede bevinding]
-   - [Sub-detail]
-   - [Sub-detail met `code_referentie`]
-3. [Derde bevinding]
-
-**Wat ik heb aangepast**
-
-1. [Eerste aanpassing]:
-   - `bestandsnaam.py` [wat je deed]
-   - [Detail met `code` referenties]
-2. [Tweede aanpassing]:
-   - `bestandsnaam.jsx` [wat je deed]
-
-**Commit + push**
-
-- Commit: `hash`
-- Branch: `branch-naam`
-- Gepusht naar GitHub.
-
-**Resultaat**
-
-- [Wat werkt nu]
-- [Verificatie]
-
-[Optioneel: suggestie voor vervolgactie]
-
----FILES_CHANGED---
-[lijst van gewijzigde bestanden, één per regel, format: bestandsnaam +regels -regels]
-
-Rules:
-- Write in Dutch
-- Use inline `code` for file names, variables, URLs, commands
-- Use numbered lists with sub-bullets for detail
-- Be specific: mention exact file names, line changes, commit hashes
-- The FILES_CHANGED section must list every file you modified with +/- line counts"""
+            report_instruction = """\n\n---\nWhen done, write a short report in Dutch with markdown: what you found, what you changed (with `file names`), and the result."""
 
             full_prompt = prompt + report_instruction
 
@@ -497,7 +459,6 @@ Rules:
 
                 async def read_stream(stream, stream_type):
                     text_buffer = []  # Buffer non-JSON lines
-                    buffer_timer = None
 
                     async def flush_buffer():
                         if text_buffer:
@@ -536,18 +497,53 @@ Rules:
 
                 return_code = await process.wait()
                 running_tasks.pop(task_id, None)
-                
+
                 # Save full assistant response to thread
                 response_text = "\n\n".join(collected_output) if collected_output else f"Task completed (code: {return_code})"
                 add_thread_message(thread_id, "assistant", response_text, model)
-                
+
                 await websocket.send_json({"type": "done", "task_id": task_id, "thread_id": thread_id, "return_code": return_code})
 
             except Exception as e:
                 running_tasks.pop(task_id, None)
                 await websocket.send_json({"type": "error", "task_id": task_id, "data": str(e)})
+            finally:
+                queue.task_done()
+
+    try:
+        worker_task = asyncio.create_task(process_queue())
+        while True:
+            data = await websocket.receive_json()
+            prompt = data.get("prompt", "")
+            model = data.get("model", "gpt-5.2-codex")
+
+            if not prompt:
+                await websocket.send_json({"type": "error", "data": "Geen prompt opgegeven"})
+                continue
+
+            thread_id = data.get("thread_id") or str(uuid.uuid4())[:12]
+            task_id = str(uuid.uuid4())[:8]
+            
+            # Save user message to thread
+            add_thread_message(thread_id, "user", prompt, model)
+            await queue.put({
+                "prompt": prompt,
+                "model": model,
+                "thread_id": thread_id,
+                "task_id": task_id,
+            })
+            await websocket.send_json({
+                "type": "queued",
+                "task_id": task_id,
+                "thread_id": thread_id,
+                "prompt": prompt,
+                "position": queue.qsize(),
+            })
 
     except WebSocketDisconnect:
+        if worker_task:
+            worker_task.cancel()
+        await queue.put(None)
         for tid, proc in list(running_tasks.items()):
             try:
                 proc.kill()
