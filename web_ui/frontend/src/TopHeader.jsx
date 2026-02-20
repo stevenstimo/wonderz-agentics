@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { supabase, safeGetSession } from './supabase'
 import { Link, useNavigate } from 'react-router-dom'
+import MobileNav from './MobileNav'
 
 function getInitials(user) {
   const source =
@@ -69,7 +70,10 @@ export default function TopHeader() {
   return (
     <header className="top-header">
       <div className="top-header-inner">
-        <div className="top-header-brand">Wonderz</div>
+        <div className="flex items-center gap-3">
+          <MobileNav />
+          <div className="top-header-brand">Wonderz</div>
+        </div>
         <div className="top-header-account">
           <Link to="/status" title="Open status dashboard">
             <span

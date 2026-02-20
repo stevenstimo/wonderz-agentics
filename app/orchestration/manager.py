@@ -10,6 +10,7 @@ from app.orchestration.intake_engine import IntakeEngine
 from app.orchestration.strategy_room import StrategyRoom
 from app.services.team_coordinator import TeamCoordinator
 from app.services.error_recovery import ErrorRecovery
+from app.websocket.manager import manager as ws_manager
 from models.unified import JobStatus, StrategicBrief, ExecutionPlan
 
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -335,6 +336,7 @@ class OperationsManager:
             timing_ms,
             requires_approval
         )
+        await self._broadcast_job_snapshot(conn, job_id)
         return row["id"] if row else None
 
     async def update_job_status(self, conn: asyncpg.Connection, job_id: str, status: str):
@@ -343,6 +345,36 @@ class OperationsManager:
             status,
             job_id,
         )
+        await self._broadcast_job_snapshot(conn, job_id)
+
+    async def _broadcast_job_snapshot(self, conn: asyncpg.Connection, job_id: str) -> None:
+        try:
+            job = await conn.fetchrow("SELECT * FROM jobs WHERE id=$1", job_id)
+            if not job:
+                return
+
+            clarifications = await conn.fetch(
+                "SELECT * FROM clarifications WHERE job_id=$1 ORDER BY asked_at DESC",
+                job_id,
+            )
+            steps = await conn.fetch(
+                "SELECT * FROM job_steps WHERE job_id=$1 ORDER BY step_index",
+                job_id,
+            )
+            artifacts = await conn.fetch(
+                "SELECT * FROM artifacts WHERE job_id=$1 AND artifact_type != 'context' ORDER BY created_at DESC",
+                job_id,
+            )
+
+            payload = {
+                "job": dict(job),
+                "clarifications": [dict(c) for c in clarifications],
+                "steps": [dict(s) for s in steps],
+                "artifacts": [dict(a) for a in artifacts],
+            }
+            await ws_manager.broadcast_job_update(job_id, payload)
+        except Exception as exc:
+            logger.debug("WebSocket broadcast skipped for job %s: %s", job_id, exc)
 
     async def append_artifact(
         self,

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Plus, User, Settings, TrendingUp } from 'lucide-react'
 import PageLayout from './PageLayout'
+import { InlineEditField } from './components/InlineEditField'
 
 export default function AgentsOverview() {
   const [agents, setAgents] = useState([])
@@ -79,12 +80,25 @@ export default function AgentsOverview() {
   )
 }
 
-function AgentCard({ agent }) {
+function AgentCard({ agent, onUpdate }) {
   const statusColor = agent.status === 'active'
     ? 'bg-green-100 text-green-800'
     : 'bg-gray-100 text-gray-800'
 
   const performancePercent = Math.round((agent.performance_score || 0) * 100)
+
+  async function handleNameSave(newName) {
+    const res = await fetch(`/api/agents/${agent.agent_id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: newName })
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error(err.detail || 'Failed to update agent name')
+    }
+    if (onUpdate) onUpdate()
+  }
 
   return (
     <div className="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow">
@@ -94,7 +108,7 @@ function AgentCard({ agent }) {
             <User className="text-indigo-600" size={24} />
           </div>
           <div>
-            <h3 className="font-semibold text-gray-900">{agent.name}</h3>
+            <InlineEditField label="Name" value={agent.name} onSave={handleNameSave} />
             <p className="text-sm text-gray-600 capitalize">{agent.role}</p>
           </div>
         </div>
@@ -128,6 +142,13 @@ function AgentCard({ agent }) {
         >
           <TrendingUp size={16} />
           Train
+        </Link>
+        <Link
+          to={`/agents/${agent.agent_id}/analytics`}
+          className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-emerald-100 text-emerald-700 rounded-lg hover:bg-emerald-200 text-sm"
+        >
+          <TrendingUp size={16} />
+          Analytics
         </Link>
       </div>
     </div>

@@ -200,6 +200,8 @@ class MetricsCollector:
                     "avg_latency_ms": 0,
                     "total_tokens": 0,
                     "top_errors": [],
+                    "trend_data": [],
+                    "token_data": [],
                 }
 
             success_expr = (
@@ -257,6 +259,43 @@ class MetricsCollector:
                     agent_id,
                 )
 
+            trend_rows = await conn.fetch(
+                f"""
+                SELECT
+                    DATE_TRUNC('day', js.{time_col}) as day,
+                    COUNT(DISTINCT js.job_id) as jobs_total,
+                    SUM(CASE WHEN j.status = 'COMPLETED' THEN 1 ELSE 0 END) as jobs_completed
+                FROM job_steps js
+                LEFT JOIN jobs j ON js.job_id = j.id
+                WHERE js.{agent_col} = $1
+                  AND js.{time_col} > NOW() - INTERVAL '{days} days'
+                GROUP BY day
+                ORDER BY day
+                """,
+                agent_id,
+            )
+
+            token_data = []
+            if step_token_col:
+                token_rows = await conn.fetch(
+                    f"""
+                    SELECT
+                        COALESCE(step_name, 'unknown') as label,
+                        SUM(js.{step_token_col}) as tokens
+                    FROM job_steps js
+                    WHERE js.{agent_col} = $1
+                      AND js.{time_col} > NOW() - INTERVAL '{days} days'
+                    GROUP BY label
+                    ORDER BY tokens DESC
+                    LIMIT 10
+                    """,
+                    agent_id,
+                )
+                token_data = [
+                    {"label": row["label"], "tokens": int(row["tokens"] or 0)}
+                    for row in token_rows
+                ]
+
         return {
             "agent_id": agent_id,
             "period_days": days,
@@ -269,6 +308,15 @@ class MetricsCollector:
                 {"reason": e["retry_reason"], "count": e["count"]}
                 for e in errors
             ],
+            "trend_data": [
+                {
+                    "date": row["day"].date().isoformat(),
+                    "success_rate": round((row["jobs_completed"] or 0) / (row["jobs_total"] or 1), 3),
+                }
+                for row in trend_rows
+                if row["day"]
+            ],
+            "token_data": token_data,
         }
 
     async def get_hourly_trends(self, hours: int = 24) -> List[Dict]:

@@ -54,6 +54,9 @@ export default function AgentDetail() {
         <Link to="/agents" className="inline-flex items-center gap-2 text-sm text-gray-500 hover:text-indigo-600 mb-6">
           <ArrowLeft className="w-4 h-4" /> Back to Agents
         </Link>
+        <Link to={`/agents/${agentId}/analytics`} className="inline-flex items-center gap-2 text-sm text-indigo-600 hover:underline mb-6 ml-4">
+          View Analytics
+        </Link>
 
         <div className="bg-white rounded-lg shadow-md p-6 mb-6">
           <div className="flex items-start gap-4">

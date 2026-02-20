@@ -239,6 +239,16 @@ def run_scheduled_jobs(self):
         scheduler = JobScheduler(pool, enqueue_intake=_enqueue_intake)
         await scheduler.check_and_run_due_jobs()
 
+    try:
+        asyncio.run(run())
+        if circuit_breaker:
+            circuit_breaker.record_success()
+    except Exception as exc:
+        if circuit_breaker:
+            circuit_breaker.record_failure()
+        logger.error("Error running scheduled jobs: %s", exc, exc_info=True)
+        raise
+
 
 @celery.task
 def check_learning_events():
@@ -299,16 +309,6 @@ def check_learning_events():
                     )
 
     asyncio.run(check())
-
-    try:
-        asyncio.run(run())
-        if circuit_breaker:
-            circuit_breaker.record_success()
-    except Exception as exc:
-        if circuit_breaker:
-            circuit_breaker.record_failure()
-        logger.error("Error running scheduled jobs: %s", exc, exc_info=True)
-        raise
 
 
 @celery.task(

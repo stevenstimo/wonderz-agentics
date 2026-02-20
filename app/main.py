@@ -170,12 +170,16 @@ async def health_check():
     # Alert on degraded
     if health["status"] != "ok":
         try:
-            from app.services.alerting import AlertManager
-            AlertManager.get().send_alert(
-                "Service Degraded",
-                f"Health check failed: {health['checks']}",
-                priority="high",
-            )
+            from app.services.alerting import AlertManager, AlertLevel
+            pool = _db._pool
+            if pool:
+                alert_mgr = AlertManager(pool)
+                await alert_mgr.send_alert({
+                    "level": AlertLevel.WARNING,
+                    "title": "Service Degraded",
+                    "message": f"Health check failed: {health['checks']}",
+                    "data": health["checks"],
+                })
         except Exception:
             pass
 
@@ -251,61 +255,31 @@ async def on_shutdown():
     await close_db_pool()
 
 
+from app.websocket.manager import manager as ws_manager
+
+
 @app.websocket("/ws/jobs/{job_id}")
-async def job_progress_ws(websocket: WebSocket, job_id: str):
-    await websocket.accept()
-
-    from app.db import _pool
-    if _pool is None:
-        await websocket.close(code=1011)
-        return
-
-    last_job_updated_at = None
-    last_steps_max_created_at = None
+async def websocket_job(websocket: WebSocket, job_id: str):
+    """WebSocket endpoint for real-time job updates."""
+    await ws_manager.connect(websocket, job_id=job_id)
 
     try:
         while True:
-            async with _pool.acquire() as conn:
-                job_row = await conn.fetchrow(
-                    "SELECT id, status, context, updated_at FROM jobs WHERE id=$1",
-                    job_id
-                )
-                if not job_row:
-                    await websocket.send_json({
-                        "type": "error",
-                        "message": "job not found"
-                    })
-                    await asyncio.sleep(1.5)
-                    continue
-
-                steps_max = await conn.fetchval(
-                    "SELECT MAX(created_at) FROM job_steps WHERE job_id=$1",
-                    job_id
-                )
-
-                should_push = False
-                if job_row.get("updated_at") != last_job_updated_at:
-                    should_push = True
-                if steps_max != last_steps_max_created_at:
-                    should_push = True
-
-                if should_push:
-                    steps = await conn.fetch(
-                        "SELECT * FROM job_steps WHERE job_id=$1 ORDER BY step_index",
-                        job_id
-                    )
-                    await websocket.send_json({
-                        "type": "job_update",
-                        "job": dict(job_row),
-                        "steps": [dict(s) for s in steps]
-                    })
-                    last_job_updated_at = job_row.get("updated_at")
-                    last_steps_max_created_at = steps_max
-
-            await asyncio.sleep(1.0)
-
+            await websocket.receive_text()
     except WebSocketDisconnect:
-        return
+        ws_manager.disconnect(websocket, job_id=job_id)
+
+
+@app.websocket("/ws/user/{user_id}")
+async def websocket_user(websocket: WebSocket, user_id: str):
+    """WebSocket endpoint for user-wide notifications."""
+    await ws_manager.connect(websocket, user_id=user_id)
+
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        ws_manager.disconnect(websocket, user_id=user_id)
 
 
 @app.post("/api/legacy/jobs")

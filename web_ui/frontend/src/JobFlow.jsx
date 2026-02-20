@@ -1,8 +1,9 @@
 import { apiBase as API } from './apiBase'
 import { useState, useRef, useEffect } from 'react'
-import { supabase } from './supabase'
 import PageLayout from './PageLayout'
 import { Sparkles, Play, CheckCircle, XCircle, Loader2, ChevronRight, Circle } from 'lucide-react'
+import { useJobWebSocket } from './hooks/useJobWebSocket'
+import { DragDropJobBuilder } from './components/DragDropJobBuilder'
 
 
 // Status mapping van backend naar UI fase
@@ -70,65 +71,61 @@ export default function JobFlow() {
   const [showFeedback, setShowFeedback] = useState(false)
   const [nowMs, setNowMs] = useState(Date.now())
   const bottomRef = useRef(null)
-  const pollRef = useRef(null)
+  const { jobData: wsJobData, connected } = useJobWebSocket(jobId)
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
 
-  // Stop polling on unmount
-  useEffect(() => { return () => { if (pollRef.current) clearInterval(pollRef.current) } }, [])
   useEffect(() => {
     const t = setInterval(() => setNowMs(Date.now()), 1000)
     return () => clearInterval(t)
   }, [])
+
+  const applyJobData = (d) => {
+    if (!d) return
+    setJobData(d)
+    const unanswered = (d.clarifications || []).filter(c => !c.user_answer)
+    const jobStatus = d.job?.status
+    const hasPendingClarifications = unanswered.length > 0 && jobStatus === 'INTAKE_CLARIFICATION'
+    const newPhase = hasPendingClarifications ? 'intake' : getPhase(jobStatus)
+    setPhase(newPhase)
+
+    let _ctx = d.job?.context
+    if (typeof _ctx === 'string') try { _ctx = JSON.parse(_ctx) } catch { _ctx = {} }
+    const nextQuestion = unanswered[0]?.question || _ctx?.brief?.clarifications?.[0]?.question
+    if (nextQuestion) {
+      setMessages(p => {
+        const lastMsg = p[p.length - 1]
+        if (lastMsg?.from === 'ceo' && lastMsg?.text === nextQuestion) return p
+        return [...p, { from: 'ceo', text: nextQuestion }]
+      })
+    }
+
+    if (jobStatus === 'PLAN_PROPOSED') {
+      setMessages(p => {
+        const lastMsg = p[p.length - 1]
+        if (lastMsg?.from === 'ceo' && lastMsg?.text === 'Plan is klaar. Bekijk het hieronder.') return p
+        return [...p, { from: 'ceo', text: 'Plan is klaar. Bekijk het hieronder.' }]
+      })
+    }
+  }
 
   const loadJob = async (id) => {
     try {
       const r = await fetch(API + '/api/jobs/' + id)
       if (!r.ok) return
       const d = await r.json()
-      setJobData(d)
-      const unanswered = (d.clarifications || []).filter(c => !c.user_answer)
-      const jobStatus = d.job?.status
-      // If plan is already proposed or beyond, skip intake regardless of unanswered questions
-      const hasPendingClarifications = unanswered.length > 0 && jobStatus === 'INTAKE_CLARIFICATION'
-      const newPhase = hasPendingClarifications ? 'intake' : getPhase(jobStatus)
-      setPhase(newPhase)
-
-      // Toon eerste onbeantwoorde clarification vraag in chat.
-      let _ctx = d.job?.context
-      if (typeof _ctx === 'string') try { _ctx = JSON.parse(_ctx) } catch { _ctx = {} }
-      const nextQuestion = unanswered[0]?.question || _ctx?.brief?.clarifications?.[0]?.question
-      if (nextQuestion) {
-        setMessages(p => {
-          const lastMsg = p[p.length - 1]
-          if (lastMsg?.from === 'ceo' && lastMsg?.text === nextQuestion) return p
-          return [...p, { from: 'ceo', text: nextQuestion }]
-        })
-      }
-
+      applyJobData(d)
       return d
     } catch {
       return null
     }
   }
 
-  const startPolling = (id) => {
-    if (pollRef.current) clearInterval(pollRef.current)
-    pollRef.current = setInterval(async () => {
-      const d = await loadJob(id)
-      if (!d) return
-      const status = d.job?.status
-      const hasPendingClarifications = (d.clarifications || []).some(c => !c.user_answer)
-      // Stop polling als we in een stabiele fase zitten
-      if (!hasPendingClarifications && ['PLAN_PROPOSED', 'JOB_READY', 'COMPLETED', 'FAILED'].includes(status)) {
-        clearInterval(pollRef.current)
-        // Toon CEO vragen als die er zijn
-        if (status === 'PLAN_PROPOSED') {
-          setMessages(p => [...p, { from: 'ceo', text: 'Plan is klaar. Bekijk het hieronder.' }])
-        }
-      }
-    }, 2000)
-  }
+  useEffect(() => {
+    if (wsJobData) {
+      applyJobData(wsJobData)
+    }
+  }, [wsJobData])
 
   const send = async () => {
     if (!input.trim() || loading) return
@@ -153,7 +150,6 @@ export default function JobFlow() {
         const newId = d.job_id
         setJobId(newId)
         setMessages(p => [...p, { from: 'ceo', text: 'Job aangemaakt. CEO analyseert...' }])
-        startPolling(newId)
 
         // Laad direct jobdata; loadJob toont eventuele clarification vraag.
         setTimeout(() => {
@@ -180,7 +176,9 @@ export default function JobFlow() {
           throw new Error(err.detail || 'Server error ' + r.status)
         }
         setMessages(p => [...p, { from: 'ceo', text: 'Antwoord ontvangen. Opnieuw analyseren...' }])
-        startPolling(jobId)
+        setTimeout(() => {
+          loadJob(jobId)
+        }, 1200)
       }
     } catch (err) {
       setMessages(p => [...p, { from: 'ceo', text: 'Fout: ' + err.message }])
@@ -194,7 +192,6 @@ export default function JobFlow() {
       const r = await fetch(API + '/api/jobs/' + jobId + '/approve-plan', { method: 'POST' })
       if (!r.ok) throw new Error('Plan goedkeuren mislukt')
       setPhase('tracker')
-      startPolling(jobId)
     } catch (err) {
       alert(err.message)
     }
@@ -213,7 +210,9 @@ export default function JobFlow() {
       setFeedback('')
       setShowFeedback(false)
       setPhase('tracker')
-      startPolling(jobId)
+      setTimeout(() => {
+        loadJob(jobId)
+      }, 1200)
     } catch {}
     setLoading(false)
   }
@@ -378,6 +377,11 @@ export default function JobFlow() {
         {phase === 'intake' && (
           <div className="flex flex-col max-w-2xl mx-auto">
             <h2 className="text-2xl font-bold text-gray-900 mb-6">Nieuwe Job</h2>
+            {!jobId && (
+              <div className="mb-6">
+                <DragDropJobBuilder />
+              </div>
+            )}
             <div className="overflow-y-auto space-y-4 mb-4 min-h-64 max-h-96">
               {messages.map((msg, i) => (
                 <div key={i} className={"flex gap-3 " + (msg.from === 'user' ? 'justify-end' : 'justify-start')}>
@@ -507,6 +511,9 @@ export default function JobFlow() {
             <div className="flex items-center gap-2 mb-2">
               <span className={`w-2.5 h-2.5 rounded-full ${hb.dotClass}`} />
               <span className={`text-xs font-medium ${hb.textClass}`}>{hb.label}</span>
+              <span className={`text-xs font-medium ${connected ? 'text-green-700' : 'text-red-600'}`}>
+                {connected ? 'Live updates' : 'Disconnected'}
+              </span>
             </div>
             <p className="text-gray-500 text-sm mb-2">Agents werken. Updates verschijnen live.</p>
             <p className="text-gray-400 text-xs mb-2">
@@ -646,7 +653,6 @@ export default function JobFlow() {
             <button onClick={() => {
               setJobData(null); setPhase('intake'); setJobId(null)
               setMessages([{ from: 'ceo', text: 'Hallo. Beschrijf je volgende job.' }])
-              if (pollRef.current) clearInterval(pollRef.current)
             }} className="px-6 py-3 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700">
               Nieuwe Job
             </button>
