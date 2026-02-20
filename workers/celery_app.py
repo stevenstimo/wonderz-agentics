@@ -27,6 +27,7 @@ celery.conf.task_routes = {
     "workers.tasks.run_intake": {"queue": "intake"},
     "workers.tasks.run_intake_answers": {"queue": "intake"},
     "workers.tasks.run_scheduled_jobs": {"queue": "jobs"},
+    "workers.tasks.check_system_alerts": {"queue": "jobs"},
 }
 
 # ============ Timeout & Retry Settings ============
@@ -52,5 +53,9 @@ celery.conf.beat_schedule = {
     "run-scheduled-jobs-every-minute": {
         "task": "workers.tasks.run_scheduled_jobs",
         "schedule": 60.0,
+    },
+    "check-system-alerts-every-5-minutes": {
+        "task": "workers.tasks.check_system_alerts",
+        "schedule": 300.0,
     }
 }

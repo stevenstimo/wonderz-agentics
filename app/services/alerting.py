@@ -1,86 +1,149 @@
-"""Basic alerting — log-based with optional email.
-
-Alerts are always written to the structured log.  When SMTP credentials are
-configured they are also sent by email.
 """
-import json
-import logging
-import os
-import smtplib
+Alert management and delivery.
+"""
+from __future__ import annotations
+
+from typing import Dict
+from enum import Enum
 from datetime import datetime
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from typing import Optional
+import logging
+import httpx
+import os
 
 logger = logging.getLogger(__name__)
 
-# SMTP config from environment
-SMTP_HOST = os.getenv("SMTP_HOST", "")
-SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
-SMTP_USER = os.getenv("SMTP_USER", "")
-SMTP_PASS = os.getenv("SMTP_PASS", "")
-ALERT_FROM = os.getenv("ALERT_FROM", "alerts@wonderz-agentic.exe.xyz")
-ALERT_TO = os.getenv("ALERT_TO", "")
+
+class AlertLevel(str, Enum):
+    INFO = "info"
+    WARNING = "warning"
+    CRITICAL = "critical"
+
+
+class AlertChannel(str, Enum):
+    SLACK = "slack"
+    EMAIL = "email"
+    WEBHOOK = "webhook"
 
 
 class AlertManager:
-    """Send alerts via structured log + optional email."""
+    """
+    Manages alert detection and delivery.
+    """
 
-    _instance: Optional["AlertManager"] = None
+    def __init__(self, pool):
+        self.pool = pool
+        self.slack_webhook = os.getenv("SLACK_WEBHOOK_URL")
+        raw_emails = os.getenv("ALERT_EMAIL_RECIPIENTS", "")
+        self.email_recipients = [email.strip() for email in raw_emails.split(",") if email.strip()]
 
-    def __init__(self):
-        self.smtp_configured = bool(SMTP_HOST and SMTP_USER and SMTP_PASS and ALERT_TO)
-
-    @classmethod
-    def get(cls) -> "AlertManager":
-        if cls._instance is None:
-            cls._instance = cls()
-        return cls._instance
-
-    def send_alert(
-        self,
-        subject: str,
-        body: str,
-        priority: str = "medium",
-        extra: Optional[dict] = None,
-    ):
-        """Fire an alert.  Always logs; emails if SMTP is configured."""
-        alert_data = {
-            "alert": True,
-            "priority": priority,
-            "subject": subject,
-            "body": body,
-            "timestamp": datetime.now().isoformat(),
-            **(extra or {}),
+        # Alert thresholds
+        self.thresholds = {
+            "error_rate": 0.15,    # 15% error rate = warning
+            "success_rate": 0.80,  # <80% success = warning
+            "budget_usage": 0.80,  # 80% budget = warning
+            "health_score": 50,    # <50 health = critical
         }
 
-        # Always log
-        log_fn = {
-            "critical": logger.critical,
-            "high": logger.error,
-            "medium": logger.warning,
-            "low": logger.info,
-        }.get(priority, logger.warning)
+    async def check_and_alert(self):
+        """
+        Check all alert conditions and send notifications.
 
-        log_fn("ALERT [%s] %s: %s", priority.upper(), subject, body)
+        Called by background task every 5 minutes.
+        """
+        from app.services.metrics_collector import MetricsCollector
 
-        # Email if configured
-        if self.smtp_configured:
-            self._send_email(subject, body, priority)
+        collector = MetricsCollector(self.pool)
+        health = await collector.get_system_health()
 
-    def _send_email(self, subject: str, body: str, priority: str):
+        alerts = []
+
+        # Check health score
+        if health["health_score"] < self.thresholds["health_score"]:
+            alerts.append({
+                "level": AlertLevel.CRITICAL,
+                "title": "System Health Critical",
+                "message": f"Health score: {health['health_score']}/100",
+                "data": health,
+            })
+
+        # Check error rate
+        error_rate = health["performance"]["error_rate"]
+        if error_rate > self.thresholds["error_rate"]:
+            alerts.append({
+                "level": AlertLevel.WARNING,
+                "title": "High Error Rate",
+                "message": f"Error rate: {error_rate:.1%} (threshold: {self.thresholds['error_rate']:.1%})",
+                "data": {"error_rate": error_rate},
+            })
+
+        # Check success rate
+        success_rate = health["jobs"]["success_rate"]
+        if success_rate < self.thresholds["success_rate"]:
+            alerts.append({
+                "level": AlertLevel.WARNING,
+                "title": "Low Success Rate",
+                "message": f"Success rate: {success_rate:.1%} (threshold: {self.thresholds['success_rate']:.1%})",
+                "data": {"success_rate": success_rate},
+            })
+
+        # Check for suspended agents
+        if health["agents"]["suspended"] > 0:
+            alerts.append({
+                "level": AlertLevel.WARNING,
+                "title": "Agents Suspended",
+                "message": f"{health['agents']['suspended']} agent(s) suspended due to quality issues",
+                "data": {"suspended_count": health["agents"]["suspended"]},
+            })
+
+        # Send alerts
+        for alert in alerts:
+            await self.send_alert(alert)
+
+        return alerts
+
+    async def send_alert(self, alert: Dict):
+        """Send alert via configured channels."""
+        logger.warning("ALERT [%s]: %s - %s", alert["level"], alert["title"], alert["message"])
+
+        # Slack
+        if self.slack_webhook:
+            await self._send_slack(alert)
+
+        # Email (if critical)
+        if alert["level"] == AlertLevel.CRITICAL and self.email_recipients:
+            await self._send_email(alert)
+
+    async def _send_slack(self, alert: Dict):
+        """Send alert to Slack."""
+        color = {
+            AlertLevel.INFO: "#36a64f",
+            AlertLevel.WARNING: "#ff9900",
+            AlertLevel.CRITICAL: "#ff0000",
+        }[alert["level"]]
+
+        payload = {
+            "attachments": [{
+                "color": color,
+                "title": alert["title"],
+                "text": alert["message"],
+                "footer": "Wonderz Agentic Platform",
+                "ts": int(datetime.utcnow().timestamp()),
+            }]
+        }
+
         try:
-            msg = MIMEMultipart()
-            msg["From"] = ALERT_FROM
-            msg["To"] = ALERT_TO
-            msg["Subject"] = f"[WONDERZ {priority.upper()}] {subject}"
-            msg.attach(MIMEText(body, "plain"))
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    self.slack_webhook,
+                    json=payload,
+                    timeout=5.0,
+                )
+                response.raise_for_status()
+                logger.info("Slack alert sent successfully")
+        except Exception as exc:
+            logger.error("Failed to send Slack alert: %s", exc)
 
-            with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as server:
-                server.starttls()
-                server.login(SMTP_USER, SMTP_PASS)
-                server.send_message(msg)
-
-            logger.info("Alert email sent: %s", subject)
-        except Exception as e:
-            logger.error("Failed to send alert email: %s", e)
+    async def _send_email(self, alert: Dict):
+        """Send email alert (placeholder - integrate with your email service)."""
+        logger.info("Would send email to %s: %s", self.email_recipients, alert["title"])
+        # TODO: Integrate with SendGrid/AWS SES/etc

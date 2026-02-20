@@ -309,3 +309,29 @@ def run_hr_scan():
         logger.info("HR scan complete: %s", result)
 
     asyncio.run(scan())
+
+
+@celery.task
+def check_system_alerts():
+    """
+    Background task: Check alert conditions.
+
+    Runs every 5 minutes.
+    """
+    import asyncio
+    from app.db import init_db_pool
+    from app.services.alerting import AlertManager
+
+    async def check():
+        pool = await init_db_pool()
+        if not pool:
+            logger.error("Alert check failed: no database pool")
+            return
+
+        alert_mgr = AlertManager(pool)
+        alerts = await alert_mgr.check_and_alert()
+
+        if alerts:
+            logger.info("Sent %s alerts", len(alerts))
+
+    asyncio.run(check())
