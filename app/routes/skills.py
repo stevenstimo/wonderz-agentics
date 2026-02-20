@@ -4,6 +4,7 @@ from typing import Optional, List
 from pydantic import BaseModel
 
 import app.db as _db
+from app.services.skill_recommender import SkillRecommender
 from app.services.skill_validator import SkillValidator
 
 router = APIRouter(prefix="/api/skills", tags=["skills"])
@@ -95,6 +96,26 @@ async def get_skill_effectiveness_detail(skill_id: str, days: Optional[int] = 30
     validator = SkillValidator(pool)
     result = await validator.calculate_skill_effectiveness(skill_id, days or 30)
     return result
+
+
+@router.get("/recommendations/{agent_id:path}")
+async def get_skill_recommendations(agent_id: str, limit: int = 5):
+    """Get personalized skill recommendations for an agent."""
+    if limit <= 0:
+        raise HTTPException(status_code=400, detail="limit must be positive")
+
+    pool = _db._pool
+    if not pool:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    recommender = SkillRecommender(pool)
+    recommendations = await recommender.get_recommendations_for_agent(agent_id, limit)
+
+    return {
+        "agent_id": agent_id,
+        "recommendations": recommendations,
+        "count": len(recommendations),
+    }
 
 
 @router.get("/{skill_id:path}/agents")
