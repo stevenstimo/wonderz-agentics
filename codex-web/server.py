@@ -11,8 +11,10 @@ from datetime import datetime
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, UploadFile, File
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+import base64
 from pydantic import BaseModel
 from typing import Optional, List
+import openai
 
 app = FastAPI(title="Codex Web Interface")
 
@@ -161,10 +163,39 @@ def update_systemd_env(name, value):
 UPLOAD_DIR = "/tmp/codex-uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
+
+
+async def describe_image(image_bytes: bytes, filename: str, mime_type: str) -> str:
+    """Use GPT-4o to describe an uploaded image."""
+    api_key = get_openai_key()
+    if not api_key:
+        return "[Image uploaded but no OpenAI API key configured for vision]"
+
+    b64 = base64.b64encode(image_bytes).decode("utf-8")
+    data_url = f"data:{mime_type};base64,{b64}"
+
+    try:
+        client = openai.AsyncOpenAI(api_key=api_key)
+        resp = await client.chat.completions.create(
+            model="gpt-4o",
+            max_tokens=1000,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": f"Describe this image ({filename}) in detail. Focus on: text content, UI elements, layout, errors, code snippets, or any technical details visible. Be thorough but concise. Respond in the same language as any text in the image."},
+                    {"type": "image_url", "image_url": {"url": data_url, "detail": "high"}},
+                ],
+            }],
+        )
+        return resp.choices[0].message.content
+    except Exception as e:
+        return f"[Image vision failed: {e}]"
+
 
 @app.post("/api/upload")
 async def upload_files(files: List[UploadFile] = File(...)):
-    """Upload .md files and images. Saves to project dir so Codex can read them."""
+    """Upload .md files and images. Images are auto-described via GPT-4o vision."""
     results = []
     for f in files:
         ext = Path(f.filename).suffix.lower()
@@ -178,12 +209,20 @@ async def upload_files(files: List[UploadFile] = File(...)):
             out.write(content)
 
         is_text = ext in (".md", ".txt")
+        is_image = ext in IMAGE_EXTENSIONS
         text_content = None
+
         if is_text:
             try:
                 text_content = content.decode("utf-8", errors="replace")
             except:
                 pass
+        elif is_image:
+            # Auto-describe via vision API
+            mime = f.content_type or f"image/{ext.lstrip('.')}"
+            description = await describe_image(content, f.filename, mime)
+            text_content = f"[Image: {f.filename}]\n{description}"
+            is_text = True  # Treat as text so frontend inlines it
 
         results.append({
             "name": f.filename,

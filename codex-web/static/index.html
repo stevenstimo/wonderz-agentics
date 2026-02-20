@@ -672,7 +672,13 @@
       pendingFiles = [];
       renderAttachments();
 
-      // Upload all files in one request
+      // Check if there are images — those need vision analysis (takes a few seconds)
+      const hasImages = files.some(f => /\.(png|jpg|jpeg|gif|webp)$/i.test(f.name));
+      if (hasImages) {
+        addDivider('🔍 Analyzing images with GPT-4o Vision...');
+      }
+
+      // Upload all files in one request (images get auto-described server-side)
       const formData = new FormData();
       for (const f of files) formData.append('files', f);
       let uploaded = [];
@@ -691,16 +697,11 @@
 
       if (uploaded.length === 0) return;
 
-      // Build one prompt with file contents inlined + user text
-      const textFiles = uploaded.filter(f => f.is_text && f.text_content);
-      const imageFiles = uploaded.filter(f => !f.is_text);
+      // All files (text + vision-described images) come back as is_text with text_content
+      const contentFiles = uploaded.filter(f => f.is_text && f.text_content);
       let fullPrompt = userPrompt || 'Execute the instructions/plans described in the attached files.';
-      for (const f of textFiles) {
+      for (const f of contentFiles) {
         fullPrompt += `\n\n=== FILE: ${f.name} ===\n${f.text_content}\n=== END ${f.name} ===`;
-      }
-      if (imageFiles.length > 0) {
-        const imgList = imageFiles.map(f => `- ${f.path} (${f.name})`).join('\n');
-        fullPrompt += `\n\nAttached images:\n${imgList}`;
       }
 
       promptEl.value = fullPrompt;
