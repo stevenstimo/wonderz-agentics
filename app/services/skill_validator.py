@@ -44,7 +44,7 @@ class SkillValidator:
                     COALESCE(SUM(CASE WHEN j.status IN ('JOB_READY', 'COMPLETED') THEN 1 ELSE 0 END), 0) as successes
                 FROM jobs j
                 WHERE j.created_at > NOW() - ($2 * INTERVAL '1 day')
-                  AND j.id NOT IN (
+                  AND j.id::text NOT IN (
                     SELECT DISTINCT job_id FROM skill_usage_log WHERE skill_id = $1
                   )
                 """,
