@@ -496,24 +496,38 @@ Rules:
                 collected_output = []  # Collect agent text for thread history
 
                 async def read_stream(stream, stream_type):
+                    text_buffer = []  # Buffer non-JSON lines
+                    buffer_timer = None
+
+                    async def flush_buffer():
+                        if text_buffer:
+                            combined = "\n".join(text_buffer)
+                            text_buffer.clear()
+                            await websocket.send_json({"type": "output", "task_id": task_id, "stream": stream_type, "data": combined})
+
                     while True:
                         line = await stream.readline()
                         if not line:
+                            await flush_buffer()
                             break
-                        text = line.decode("utf-8", errors="replace").strip()
-                        if text:
-                            try:
-                                event = json.loads(text)
-                                await websocket.send_json({"type": "event", "task_id": task_id, "data": event})
-                                # Collect agent message text for thread history
-                                if event.get("type") == "item.completed" and event.get("item", {}).get("text"):
-                                    collected_output.append(event["item"]["text"])
-                                elif event.get("type") == "message" and event.get("message", {}).get("role") == "assistant":
-                                    for b in event.get("message", {}).get("content", []):
-                                        if b.get("type") == "text" and b.get("text"):
-                                            collected_output.append(b["text"])
-                            except json.JSONDecodeError:
-                                await websocket.send_json({"type": "output", "task_id": task_id, "stream": stream_type, "data": text})
+                        text = line.decode("utf-8", errors="replace").rstrip()
+                        if not text:
+                            text_buffer.append("")  # Preserve blank lines
+                            continue
+                        try:
+                            event = json.loads(text)
+                            # Flush any buffered text before sending event
+                            await flush_buffer()
+                            await websocket.send_json({"type": "event", "task_id": task_id, "data": event})
+                            # Collect agent message text for thread history
+                            if event.get("type") == "item.completed" and event.get("item", {}).get("text"):
+                                collected_output.append(event["item"]["text"])
+                            elif event.get("type") == "message" and event.get("message", {}).get("role") == "assistant":
+                                for b in event.get("message", {}).get("content", []):
+                                    if b.get("type") == "text" and b.get("text"):
+                                        collected_output.append(b["text"])
+                        except json.JSONDecodeError:
+                            text_buffer.append(text)
 
                 await asyncio.gather(
                     read_stream(process.stdout, "stdout"),

@@ -275,7 +275,13 @@
           if (msg.data && msg.data.trim()) {
             // Filter stderr noise (codex rollout errors, debug logs)
             if (msg.stream === 'stderr' && /^\d{4}-.*?(ERROR|WARN|DEBUG|INFO|TRACE)/.test(msg.data)) break;
-            removeThinking(); addTerminal(msg.data);
+            removeThinking();
+            // If it looks like markdown/text content, render as markdown; otherwise terminal
+            if (msg.stream === 'stderr') {
+              addTerminal(msg.data);
+            } else {
+              addMarkdown(msg.data);
+            }
           }
           break;
         case 'done':
