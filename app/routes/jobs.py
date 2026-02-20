@@ -24,6 +24,8 @@ from pydantic import BaseModel, ValidationError
 import app.db as _db
 from app.orchestration.manager import OperationsManager
 from app.services.deployment import DeploymentService
+from app.services.template_manager import TemplateManager
+from app.services.scheduler import JobScheduler
 from models.unified import JobStatus
 from tools.unified_bridge import UnifiedToolBridge
 try:
@@ -51,6 +53,7 @@ from app.models.requests import (
     FeedbackRequest,
     ApprovePlanRequest,
     ApproveJobRequest,
+    CreateScheduleRequest,
     CreateJobResponse,
     ErrorResponse,
 )
@@ -137,6 +140,85 @@ async def list_jobs(status_filter: str = None, limit: int = 50, offset: int = 0)
                 "updated_at": r["updated_at"].isoformat() if r["updated_at"] else None,
             })
         return {"jobs": jobs, "total": len(jobs)}
+
+
+@router.get("/templates")
+async def get_job_templates(
+    category: Optional[str] = None,
+    platform: Optional[str] = None,
+):
+    """Get available job templates."""
+    pool = await _db.init_db_pool()
+    if not pool:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    manager = TemplateManager(pool)
+    templates = await manager.get_all_templates(category, platform)
+
+    return {
+        "count": len(templates),
+        "templates": templates,
+    }
+
+
+@router.post("/templates/{template_id}/instantiate")
+async def instantiate_template(
+    template_id: str,
+    variables: Dict[str, str],
+    success: Optional[bool] = None,
+):
+    """Create job from template by filling variables."""
+    pool = await _db.init_db_pool()
+    if not pool:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    manager = TemplateManager(pool)
+    job_data = await manager.instantiate_template(template_id, variables)
+    await manager.record_template_usage(template_id, success=success)
+
+    return job_data
+
+
+@router.post("/schedules")
+async def create_job_schedule(req: CreateScheduleRequest):
+    """Create recurring job schedule."""
+    pool = await _db.init_db_pool()
+    if not pool:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    scheduler = JobScheduler(pool)
+    schedule_id = await scheduler.create_schedule(
+        req.user_id,
+        req.template_id,
+        req.job_config,
+        req.cron_expression,
+        timezone=req.timezone,
+    )
+
+    return {"schedule_id": schedule_id}
+
+
+@router.get("/schedules")
+async def get_schedules(user_id: str = "default"):
+    """Get all schedules for user."""
+    pool = await _db.init_db_pool()
+    if not pool:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    async with pool.acquire() as conn:
+        schedules = await conn.fetch(
+            """
+            SELECT * FROM job_schedules
+            WHERE user_id = $1
+            ORDER BY next_run_at
+            """,
+            user_id,
+        )
+
+    return {
+        "count": len(schedules),
+        "schedules": [dict(s) for s in schedules],
+    }
 
 
 @router.post("", response_model=CreateJobResponse, status_code=status.HTTP_201_CREATED)

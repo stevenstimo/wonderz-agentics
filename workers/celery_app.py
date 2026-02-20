@@ -25,7 +25,8 @@ celery.conf.task_queues = (
 celery.conf.task_routes = {
     "workers.tasks.run_job": {"queue": "jobs"},
     "workers.tasks.run_intake": {"queue": "intake"},
-    "workers.tasks.run_intake_answers": {"queue": "intake"}
+    "workers.tasks.run_intake_answers": {"queue": "intake"},
+    "workers.tasks.run_scheduled_jobs": {"queue": "jobs"},
 }
 
 # ============ Timeout & Retry Settings ============
@@ -44,4 +45,12 @@ celery.conf.result_expires = 3600  # Results expire after 1 hour
 celery.conf.result_backend_transport_options = {
     "retry_on_timeout": True,
     "health_check_interval": 30
+}
+
+# ============ Beat Schedule ============
+celery.conf.beat_schedule = {
+    "run-scheduled-jobs-every-minute": {
+        "task": "workers.tasks.run_scheduled_jobs",
+        "schedule": 60.0,
+    }
 }

@@ -1,4 +1,4 @@
-from typing import Dict, Optional
+from typing import Dict, Optional, Any
 
 from pydantic import BaseModel, Field
 
@@ -23,6 +23,14 @@ class ApprovePlanRequest(BaseModel):
 
 class ApproveJobRequest(BaseModel):
     approved: bool = True
+
+
+class CreateScheduleRequest(BaseModel):
+    template_id: str
+    job_config: Dict[str, Any]
+    cron_expression: str
+    user_id: str = Field(default="default")
+    timezone: str = Field(default="UTC")
 
 
 class CreateJobResponse(BaseModel):

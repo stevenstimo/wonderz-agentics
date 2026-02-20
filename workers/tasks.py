@@ -205,6 +205,54 @@ def run_intake_answers(self, job_id: str, answers: dict):
 @celery.task(
     bind=True,
     max_retries=3,
+    default_retry_delay=60,
+    soft_time_limit=540,
+    time_limit=600,
+)
+def run_scheduled_jobs(self):
+    """
+    Background task: Execute due scheduled jobs.
+
+    Runs every minute.
+    """
+    if circuit_breaker and circuit_breaker.is_open():
+        logger.error("Circuit breaker OPEN — rejecting scheduled jobs run")
+        raise self.retry(exc=RuntimeError("Circuit breaker open"), countdown=120)
+
+    async def run():
+        from app.db import init_db_pool
+        from app.services.scheduler import JobScheduler
+
+        pool = await init_db_pool()
+        if not pool:
+            logger.error("Scheduler failed: no database pool")
+            return
+
+        async def _enqueue_intake(job_id: str, job_post: str) -> None:
+            try:
+                run_intake.delay(job_id, job_post)
+            except Exception as exc:
+                logger.warning("Celery unavailable for intake of %s: %s", job_id, exc)
+                mgr = OperationsManager(agent_runner=_build_agent_runner(job_id))
+                await mgr.start_intake_flow(job_id, job_post)
+
+        scheduler = JobScheduler(pool, enqueue_intake=_enqueue_intake)
+        await scheduler.check_and_run_due_jobs()
+
+    try:
+        asyncio.run(run())
+        if circuit_breaker:
+            circuit_breaker.record_success()
+    except Exception as exc:
+        if circuit_breaker:
+            circuit_breaker.record_failure()
+        logger.error("Error running scheduled jobs: %s", exc, exc_info=True)
+        raise
+
+
+@celery.task(
+    bind=True,
+    max_retries=3,
     default_retry_delay=120,  # Longer default for job execution
     soft_time_limit=540,
     time_limit=600,

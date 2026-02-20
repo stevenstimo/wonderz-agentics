@@ -8,6 +8,7 @@ import asyncpg
 from datetime import datetime
 from app.orchestration.intake_engine import IntakeEngine
 from app.orchestration.strategy_room import StrategyRoom
+from app.services.team_coordinator import TeamCoordinator
 from models.unified import JobStatus, StrategicBrief, ExecutionPlan
 
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -370,6 +371,8 @@ class OperationsManager:
         # Simple decision graph (can be replaced with rules/ML later)
         # Minimal, configurable decision graph for MVP focusing on Copy & Review
         if current_step is None or current_step == "init":
+            if context.data.get("parallel_agents") and context.data.get("parallel_task"):
+                return "team_parallel"
             return "copy_agent"
 
         # After copy, send to reviewer
@@ -475,6 +478,52 @@ class OperationsManager:
                     final_status = JobStatus.AWAITING_APPROVAL.value
                     # stop the loop; a human must resume
                     break
+
+                if next_agent == "team_parallel":
+                    await self.write_job_step(
+                        conn,
+                        job_id,
+                        "team_parallel",
+                        "team_coordinator",
+                        "in_progress",
+                        input_payload={
+                            "agents": ctx.data.get("parallel_agents"),
+                            "task": ctx.data.get("parallel_task"),
+                        },
+                    )
+                    try:
+                        result = await self._run_team_parallel(job_id, ctx)
+                    except Exception as e:
+                        import logging as _log
+                        _log.getLogger(__name__).exception(
+                            "Unexpected error in team execution for job %s", job_id
+                        )
+                        await self.write_job_step(
+                            conn,
+                            job_id,
+                            "team_parallel",
+                            "team_coordinator",
+                            "failed",
+                            output={"error": str(e)},
+                        )
+                        await self.update_job_status(conn, job_id, JobStatus.FAILED.value)
+                        final_status = JobStatus.FAILED.value
+                        break
+
+                    ctx.update("team_parallel", result)
+                    ctx.add_history("team_parallel", result)
+                    await self.write_job_step(
+                        conn,
+                        job_id,
+                        "team_parallel",
+                        "team_coordinator",
+                        "success",
+                        output={"output_summary": summarize(result)},
+                    )
+
+                    current_step = next_agent
+                    steps += 1
+                    continue
 
                 # Record step start
                 await self.write_job_step(
@@ -595,6 +644,27 @@ class OperationsManager:
 
         finally:
             await conn.close()
+
+    async def _run_team_parallel(self, job_id: str, ctx: SharedContext) -> dict:
+        agents = ctx.data.get("parallel_agents") or []
+        task = ctx.data.get("parallel_task") or {}
+
+        from app.db import _pool as db_pool, init_db_pool
+
+        pool = db_pool
+        temp_pool = None
+        if not pool:
+            pool = await init_db_pool()
+        if not pool:
+            pool = await asyncpg.create_pool(self.database_url, min_size=1, max_size=2)
+            temp_pool = pool
+
+        coordinator = TeamCoordinator(pool, agent_runner=self.agent_runner)
+        try:
+            return await coordinator.execute_parallel(job_id, agents, task)
+        finally:
+            if temp_pool:
+                await temp_pool.close()
 
     async def _update_skill_success_rates(self, conn, job_id: str, was_successful: bool):
         """Update success rates voor skills die in deze job gebruikt zijn."""
