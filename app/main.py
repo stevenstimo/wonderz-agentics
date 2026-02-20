@@ -25,6 +25,7 @@ from app.routes.crew import router as crew_router
 from app.routes.settings import router as settings_router
 from app.routes.skills import router as skills_router
 from app.routes import training
+# from app.routes import admin
 
 # Celery task will be imported lazily to avoid starting worker at import time
 
@@ -60,6 +61,7 @@ app.include_router(crew_router)
 app.include_router(settings_router)
 app.include_router(skills_router)
 app.include_router(training.router)
+# app.include_router(admin.router)
 
 
 # --- Worker circuit breaker endpoints (Taak 5) ---
