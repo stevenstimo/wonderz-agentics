@@ -41,10 +41,8 @@ class SkillValidator:
                 """
                 SELECT
                     COUNT(DISTINCT j.id) as total,
-                    COALESCE(SUM(CASE WHEN j.status IN ('JOB_READY', 'COMPLETED') THEN 1 ELSE 0 END), 0) as successes,
-                    COALESCE(AVG(js.retry_count), 0) as avg_retries
+                    COALESCE(SUM(CASE WHEN j.status IN ('JOB_READY', 'COMPLETED') THEN 1 ELSE 0 END), 0) as successes
                 FROM jobs j
-                LEFT JOIN job_steps js ON j.id = js.job_id
                 WHERE j.created_at > NOW() - ($2 * INTERVAL '1 day')
                   AND j.id NOT IN (
                     SELECT DISTINCT job_id FROM skill_usage_log WHERE skill_id = $1
@@ -75,7 +73,6 @@ class SkillValidator:
             "baseline": {
                 "jobs": base_total,
                 "success_rate": round(base_success_rate, 3),
-                "avg_retries": round(float(base_data.get("avg_retries", 0)), 2),
             },
             "improvement": round(improvement, 3),
             "effective": improvement > 0.05,
