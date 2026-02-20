@@ -608,13 +608,25 @@
     const queueBar = document.getElementById('attachments-bar');
 
     function renderQueue() {
-      if (fileQueue.length === 0 && !queueRunning) {
+      const hasPending = pendingFiles.length > 0;
+      const hasQueued = fileQueue.length > 0;
+      if (!hasPending && !hasQueued && !queueRunning) {
         queueBar.style.display = 'none';
         return;
       }
       queueBar.style.display = 'flex';
       let html = '';
-      if (fileQueue.length > 0) {
+      // Show pending (staged, not yet uploaded)
+      if (hasPending) {
+        html += `<span style="background:#dbeafe;color:#1e40af;border-radius:4px;padding:2px 8px;font-size:0.75rem;font-weight:600;">📤 ${pendingFiles.length} staged</span>`;
+        html += pendingFiles.map((f, i) =>
+          `<span style="background:#eff6ff;border-radius:4px;padding:2px 8px;font-size:0.75rem;display:flex;align-items:center;gap:4px;">`
+          + `${/\.(png|jpg|jpeg|gif|webp|svg)$/i.test(f.name) ? '🖼️' : '📄'} ${f.name}`
+          + `<span style="cursor:pointer;color:#999;" onclick="removePending(${i})">&times;</span></span>`
+        ).join('');
+      }
+      // Show queued (uploaded, waiting to process)
+      if (hasQueued) {
         html += `<span style="background:#e0e7ff;color:#3730a3;border-radius:4px;padding:2px 8px;font-size:0.75rem;font-weight:600;">📋 Queue: ${fileQueue.length}</span>`;
         html += fileQueue.map((f, i) =>
           `<span style="background:#f3f4f6;border-radius:4px;padding:2px 8px;font-size:0.75rem;display:flex;align-items:center;gap:4px;">`
@@ -631,14 +643,22 @@
       queueBar.innerHTML = html;
     }
 
+    // Pending files staged for upload (not yet uploaded/queued)
+    let pendingFiles = [];
+
     window.removeFromQueue = function(i) {
       fileQueue.splice(i, 1);
       renderQueue();
       if (fileQueue.length === 0 && !isRunning) { queueRunning = false; }
     };
 
-    async function uploadAndQueue(files) {
-      // Upload to server, add to queue
+    window.removePending = function(i) {
+      pendingFiles.splice(i, 1);
+      renderQueue();
+    };
+
+    async function uploadAndStartQueue(files, userPrompt) {
+      // Bulk upload all files, then queue them
       const formData = new FormData();
       for (const f of files) formData.append('files', f);
       try {
@@ -648,10 +668,15 @@
           if (f.error) { showToast(`❌ ${f.name}: ${f.error}`); continue; }
           fileQueue.push({ name: f.name, rel_path: f.rel_path, is_text: f.is_text });
         }
+        // Store user prompt as context for each file
+        if (userPrompt) queueBasePrompt = userPrompt;
         renderQueue();
-        showToast(`📋 ${data.files.length} file(s) added to queue (${fileQueue.length} total)`);
-        // Auto-start if nothing is running
-        if (!isRunning && !queueWaiting) {
+        const count = (data.files || []).filter(f => !f.error).length;
+        showToast(`📋 ${count} file(s) queued`);
+        // Auto-start if nothing running
+        if (!isRunning && !queueWaiting && fileQueue.length > 0) {
+          queueRunning = true;
+          addDivider(`📋 Queue: ${fileQueue.length} files to process sequentially`);
           processNextInQueue();
         }
       } catch (err) {
@@ -664,6 +689,7 @@
       if (fileQueue.length === 0) {
         queueRunning = false;
         queueWaiting = false;
+        queueBasePrompt = '';
         renderQueue();
         addDivider('✅ All queued files processed');
         return;
@@ -675,7 +701,8 @@
       const label = remaining > 0 ? ` [${remaining} more in queue]` : '';
       addDivider(`📄 Processing: ${file.name}${label}`);
       renderQueue();
-      const instruction = `Read the file \`${file.rel_path}\` (${file.name}) and execute the instructions/plan described in it.`;
+      let instruction = `Read the file \`${file.rel_path}\` (${file.name}) and execute the instructions/plan described in it.`;
+      if (queueBasePrompt) instruction += `\n\nAdditional context: ${queueBasePrompt}`;
       promptEl.value = instruction;
       _origSendPrompt();
     }
@@ -684,6 +711,7 @@
       if (fileQueue.length === 0) {
         queueRunning = false;
         queueWaiting = false;
+        queueBasePrompt = '';
         renderQueue();
         addDivider('✅ All queued files processed');
         return;
@@ -695,27 +723,34 @@
       setTimeout(processNextInQueue, QUEUE_DELAY_MS);
     }
 
-    // File select handler — upload immediately to queue
-    window.handleFileSelect = async function(e) {
-      const files = Array.from(e.target.files);
+    // File select — stage files, don't upload yet
+    window.handleFileSelect = function(e) {
+      for (const f of e.target.files) pendingFiles.push(f);
       e.target.value = '';
-      if (files.length > 0) await uploadAndQueue(files);
+      renderQueue();
     };
 
-    // Drag and drop on the input box
+    // Drag and drop — stage files
     const inputBox = document.querySelector('.input-box');
     inputBox.addEventListener('dragover', (e) => { e.preventDefault(); inputBox.style.borderColor = '#4f46e5'; });
     inputBox.addEventListener('dragleave', () => { inputBox.style.borderColor = '#e5e5e5'; });
-    inputBox.addEventListener('drop', async (e) => {
+    inputBox.addEventListener('drop', (e) => {
       e.preventDefault(); inputBox.style.borderColor = '#e5e5e5';
-      const files = Array.from(e.dataTransfer.files);
-      if (files.length > 0) await uploadAndQueue(files);
+      for (const f of e.dataTransfer.files) pendingFiles.push(f);
+      renderQueue();
     });
 
-    // Override sendPrompt — normal text prompts go through as-is
+    // Override sendPrompt — if pending files, upload+queue them with the typed text
     const _origSendPrompt = sendPrompt;
-    window.sendPrompt = function() {
-      _origSendPrompt();
+    window.sendPrompt = async function() {
+      if (pendingFiles.length === 0) { _origSendPrompt(); return; }
+      const userPrompt = promptEl.value.trim();
+      const files = [...pendingFiles];
+      pendingFiles = [];
+      promptEl.value = '';
+      promptEl.style.height = '38px';
+      if (userPrompt) addUserMessage(userPrompt);
+      await uploadAndStartQueue(files, userPrompt);
     };
 
     // Git status polling
