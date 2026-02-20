@@ -356,6 +356,8 @@ class HRManager:
                     "open_points": len(points),
                     "points": [dict(p) for p in points],
                     "total_steps": stats["total_steps"],
+                    "failed_steps": stats["retry_steps"],
+                    "success_rate": round(1 - retry_rate, 3),
                     "retry_rate": round(retry_rate, 3),
                     "avg_retries": round(avg_retries, 2),
                 }
