@@ -4,6 +4,7 @@ from typing import Optional, List
 from pydantic import BaseModel
 
 import app.db as _db
+from app.services.skill_validator import SkillValidator
 
 router = APIRouter(prefix="/api/skills", tags=["skills"])
 
@@ -55,6 +56,45 @@ async def list_skills(domain: Optional[str] = None):
         result.append(d)
 
     return {"skills": result, "total": len(result)}
+
+
+@router.get("/effectiveness")
+async def get_skill_effectiveness(days: Optional[int] = 30):
+    """Get A/B validation metrics for all skills."""
+    if days is not None and days <= 0:
+        raise HTTPException(status_code=400, detail="days must be positive")
+
+    pool = _db._pool
+    if not pool:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    validator = SkillValidator(pool)
+    results = await validator.get_all_skill_effectiveness(days or 30)
+
+    return {
+        "period_days": days or 30,
+        "skills": results,
+        "summary": {
+            "total_skills": len(results),
+            "effective_skills": len([s for s in results if s.get("effective")]),
+            "top_performer": results[0] if results else None,
+        },
+    }
+
+
+@router.get("/effectiveness/{skill_id:path}")
+async def get_skill_effectiveness_detail(skill_id: str, days: Optional[int] = 30):
+    """Get detailed effectiveness metrics for a single skill."""
+    if days is not None and days <= 0:
+        raise HTTPException(status_code=400, detail="days must be positive")
+
+    pool = _db._pool
+    if not pool:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    validator = SkillValidator(pool)
+    result = await validator.calculate_skill_effectiveness(skill_id, days or 30)
+    return result
 
 
 @router.get("/{skill_id:path}/agents")

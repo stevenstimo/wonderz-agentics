@@ -683,8 +683,10 @@ class OperationsManager:
 
             if final_status == JobStatus.JOB_READY.value:
                 await self._update_skill_success_rates(conn, job_id, was_successful=True)
+                await self._record_skill_metrics(conn, job_id, success=True)
             elif final_status == JobStatus.FAILED.value:
                 await self._update_skill_success_rates(conn, job_id, was_successful=False)
+                await self._record_skill_metrics(conn, job_id, success=False)
 
         finally:
             await conn.close()
@@ -736,6 +738,44 @@ class OperationsManager:
             logger.info("Updated success rates for %s skills", len(skill_logs))
         except Exception as e:
             logger.error("Failed to update skill success rates: %s", e)
+
+    async def _record_skill_metrics(self, conn, job_id: str, success: bool):
+        """Record skill metrics for A/B validation."""
+        try:
+            retry_count = 0
+            execution_time_ms = 0
+
+            try:
+                retry_count = await conn.fetchval(
+                    "SELECT COALESCE(SUM(retry_count), 0) FROM job_steps WHERE job_id = $1",
+                    job_id,
+                )
+            except Exception as exc:
+                logger.debug("Retry count unavailable for job %s: %s", job_id, exc)
+
+            try:
+                execution_time_ms = await conn.fetchval(
+                    "SELECT COALESCE(SUM(timing_ms), 0) FROM job_steps WHERE job_id = $1",
+                    job_id,
+                )
+            except Exception as exc:
+                logger.debug("Execution time unavailable for job %s: %s", job_id, exc)
+
+            await conn.execute(
+                """
+                UPDATE skill_usage_log
+                SET job_success = $1,
+                    retry_count = $2,
+                    execution_time_ms = $3
+                WHERE job_id = $4
+                """,
+                success,
+                retry_count or 0,
+                execution_time_ms or 0,
+                job_id,
+            )
+        except Exception as exc:
+            logger.error("Failed to record skill metrics for job %s: %s", job_id, exc)
 
     async def _next_step_index(self, conn: asyncpg.Connection, job_id: str) -> int:
         row = await conn.fetchrow(
