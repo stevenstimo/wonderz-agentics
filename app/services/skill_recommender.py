@@ -68,29 +68,23 @@ class SkillRecommender:
                     logger.warning("No role found for agent %s", agent_id)
                     return []
 
-            reason_expr = "retry_reason" if "retry_reason" in step_cols else "COALESCE(output->>'error', CASE WHEN status = 'failed' THEN 'Step failed' ELSE NULL END)"
-            retry_filter = "retry_count > 0" if "retry_count" in step_cols else "status = 'failed'"
-            audience_expr = "context->>'audience'"
-            if "context" in job_cols:
-                audience_expr = "COALESCE(context->>'audience', context->>'target_audience')"
-
             failures = await conn.fetch(
-                f"""
+                """
                 SELECT
-                    {reason_expr} as retry_reason,
+                    js.feedback as retry_reason,
                     COUNT(*) as frequency,
                     j.context->>'platform' as platform,
-                    {audience_expr} as audience
+                    j.context->>'audience' as audience
                 FROM job_steps js
-                JOIN jobs j ON js.job_id = j.id
-                WHERE {agent_col} = $1
-                  AND ({retry_filter})
-                  AND {time_col} > NOW() - (30 * INTERVAL '1 day')
-                GROUP BY retry_reason, platform, audience
+                JOIN jobs j ON j.id::text = js.job_id::text
+                WHERE js.agent_role = $1
+                  AND js.status = 'failed'
+                  AND js.started_at > NOW() - INTERVAL '30 days'
+                GROUP BY js.feedback, platform, audience
                 ORDER BY COUNT(*) DESC
                 LIMIT 10
                 """,
-                agent_role if agent_col == "agent_role" else agent_id,
+                agent_id,
             )
 
             existing_skills = await conn.fetch(
