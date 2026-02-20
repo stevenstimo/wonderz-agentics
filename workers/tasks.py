@@ -239,6 +239,67 @@ def run_scheduled_jobs(self):
         scheduler = JobScheduler(pool, enqueue_intake=_enqueue_intake)
         await scheduler.check_and_run_due_jobs()
 
+
+@celery.task
+def check_learning_events():
+    """
+    Background task: Check for valuable learning events and propagate skills.
+
+    Runs every 6 hours.
+    """
+    async def check():
+        from app.db import init_db_pool
+        from app.services.learning_events import LearningEventManager
+        from app.services.skill_validator import SkillValidator
+
+        pool = await init_db_pool()
+        if not pool:
+            logger.error("Learning check failed: no database pool")
+            return
+
+        validator = SkillValidator(pool)
+        learning_mgr = LearningEventManager(pool)
+
+        effectiveness = await validator.get_all_skill_effectiveness(days=7)
+        for skill_data in effectiveness:
+            if not skill_data.get("effective"):
+                continue
+
+            async with pool.acquire() as conn:
+                successful_agents = await conn.fetch(
+                    """
+                    SELECT DISTINCT sul.agent_id, ha.role
+                    FROM skill_usage_log sul
+                    JOIN hired_agents ha ON sul.agent_id = ha.agent_id
+                    WHERE sul.skill_id = $1
+                      AND sul.job_success = true
+                      AND sul.logged_at > NOW() - INTERVAL '7 days'
+                    GROUP BY sul.agent_id, ha.role
+                    HAVING COUNT(*) >= 5
+                    """,
+                    skill_data["skill_id"],
+                )
+
+            for agent in successful_agents:
+                is_valuable = await learning_mgr.detect_learning_event(
+                    agent["agent_id"],
+                    skill_data["skill_id"],
+                    skill_data["improvement"],
+                )
+                if is_valuable:
+                    propagated = await learning_mgr.propagate_skill(
+                        agent["agent_id"],
+                        skill_data["skill_id"],
+                        agent["role"],
+                    )
+                    logger.info(
+                        "Propagated %s to %s agents",
+                        skill_data["skill_id"],
+                        propagated,
+                    )
+
+    asyncio.run(check())
+
     try:
         asyncio.run(run())
         if circuit_breaker:
