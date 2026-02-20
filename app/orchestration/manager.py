@@ -67,7 +67,8 @@ class OperationsManager:
             # Store the brief in job context
             await self.store_job_context(conn, job_id, {
                 "brief": brief.model_dump(),
-                "previous_answers": {}
+                "previous_answers": {},
+                "output_format": (brief.context or {}).get("output_format"),
             })
 
             if brief.is_complete:
@@ -118,7 +119,8 @@ class OperationsManager:
             # Update context
             await self.store_job_context(conn, job_id, {
                 "brief": brief.model_dump(),
-                "previous_answers": previous_answers
+                "previous_answers": previous_answers,
+                "output_format": (brief.context or {}).get("output_format"),
             })
 
             if brief.is_complete:

@@ -7,6 +7,7 @@ import httpx
 from typing import Any, Dict
 
 from app.services.skill_loader import SkillLoader
+from app.services.agent_instruction_builder import AgentInstructionBuilder
 
 logger = logging.getLogger(__name__)
 
@@ -34,26 +35,97 @@ def _extract_brief_fields(context: Dict[str, Any]) -> Dict[str, str]:
         'objective': str(brief_context.get('objective') or context.get('objective') or ''),
         'target_audience': str(brief_context.get('target_audience') or context.get('target_audience') or 'algemeen publiek'),
         'platform': str(brief_context.get('platform') or context.get('platform') or 'web'),
+        'output_format': str(
+            brief_context.get('output_format')
+            or context.get('output_format')
+            or ''
+        ),
     }
+
+
+def _normalize_output_format(value: str | None) -> str | None:
+    if not value:
+        return None
+    normalized = value.strip().lower()
+    return normalized or None
+
+
+def _build_user_prompt(
+    job_post: str,
+    objective: str,
+    target_audience: str,
+    platform: str,
+    output_format: str | None,
+    reviewer_feedback: str | None,
+) -> str:
+    fmt = _normalize_output_format(output_format)
+
+    if fmt in ("html", "json", "markdown", "code"):
+        prompt = f"OPDRACHT:\n{job_post}\n\n"
+        if objective:
+            prompt += f"Doel: {objective}\n"
+        prompt += f"Doelgroep: {target_audience}\nPlatform: {platform}\n"
+
+        if fmt == "html":
+            prompt += (
+                "\nLever uitsluitend HTML-code. Gebruik semantische HTML5-elementen. "
+                "Voeg alleen inline CSS toe als dit expliciet is gevraagd."
+            )
+        elif fmt == "json":
+            prompt += "\nLever uitsluitend geldige JSON (geen markdown fences)."
+        elif fmt == "markdown":
+            prompt += "\nLever uitsluitend Markdown."
+        elif fmt == "code":
+            prompt += "\nLever uitsluitend uitvoerbare code."
+
+        if reviewer_feedback:
+            prompt += (
+                f"\n\n--- FEEDBACK VAN PROOFREADER ---\n"
+                f"{reviewer_feedback}\n"
+                f"--- EINDE FEEDBACK ---\n\n"
+                "Pas de output volledig aan op basis van bovenstaande feedback. "
+                "Zorg dat ALLE genoemde problemen zijn opgelost."
+            )
+        return prompt
+
+    # Default: long-form copywriting
+    import re as _re
+    m = _re.search(r'(\d+)\s*woord', job_post, _re.IGNORECASE)
+    word_count = int(m.group(1)) if m else 400
+
+    topic = _re.sub(r'schrijf\s+(een\s+)?(tekst|artikel|blog|stuk)\s+(van\s+)?', '', job_post, flags=_re.IGNORECASE).strip()
+    topic = _re.sub(r'\d+\s*woorden?\s*(over)?', '', topic, flags=_re.IGNORECASE).strip()
+    topic = topic.strip(' .,;:-') or job_post
+
+    prompt = (
+        f"ONDERWERP: {topic}\n\n"
+        f"Schrijf een informatieve Nederlandse tekst van {word_count} woorden over {topic}.\n"
+        f"De HELE tekst moet gaan over {topic}. Geen enkele alinea mag off-topic zijn.\n"
+    )
+    if objective:
+        prompt += f"Doel: {objective}\n"
+    prompt += f"Doelgroep: {target_audience}\nPlatform: {platform}\n"
+
+    if reviewer_feedback:
+        prompt += (
+            f"\n--- FEEDBACK VAN PROOFREADER ---\n"
+            f"{reviewer_feedback}\n"
+            f"--- EINDE FEEDBACK ---\n\n"
+            f"Herschrijf de tekst volledig op basis van bovenstaande feedback. "
+            f"Zorg dat ALLE genoemde problemen zijn opgelost.\n"
+        )
+
+    return prompt
 
 
 async def _generate_with_openai(job_post: str, objective: str, target_audience: str,
                                  platform: str, reviewer_feedback: str = None,
                                  skill_context: str = "",
-                                 base_system_prompt: str | None = None) -> dict:
+                                 base_system_prompt: str | None = None,
+                                 output_format: str | None = None) -> dict:
     api_key = _get_openai_key()
     if not api_key:
         raise RuntimeError("OpenAI API key not found")
-
-    # Extract word count and topic from job_post
-    import re as _re
-    m = _re.search(r'(\d+)\s*woord', job_post, _re.IGNORECASE)
-    word_count = int(m.group(1)) if m else 400
-
-    # Extract the actual topic — remove word count instructions
-    topic = _re.sub(r'schrijf\s+(een\s+)?(tekst|artikel|blog|stuk)\s+(van\s+)?', '', job_post, flags=_re.IGNORECASE).strip()
-    topic = _re.sub(r'\d+\s*woorden?\s*(over)?', '', topic, flags=_re.IGNORECASE).strip()
-    topic = topic.strip(' .,;:-') or job_post  # fallback to full job_post
 
     if not base_system_prompt:
         base_system_prompt = (
@@ -80,23 +152,19 @@ async def _generate_with_openai(job_post: str, objective: str, target_audience: 
     else:
         system_prompt = base_system_prompt
 
-    user_prompt = (
-        f"ONDERWERP: {topic}\n\n"
-        f"Schrijf een informatieve Nederlandse tekst van {word_count} woorden over {topic}.\n"
-        f"De HELE tekst moet gaan over {topic}. Geen enkele alinea mag off-topic zijn.\n"
-    )
-    if objective:
-        user_prompt += f"Doel: {objective}\n"
-    user_prompt += f"Doelgroep: {target_audience}\nPlatform: {platform}\n"
+    # Inject output-format instructions (if any)
+    if output_format:
+        builder = AgentInstructionBuilder()
+        system_prompt = builder.build_prompt(system_prompt, output_format=output_format)
 
-    if reviewer_feedback:
-        user_prompt += (
-            f"\n--- FEEDBACK VAN PROOFREADER ---\n"
-            f"{reviewer_feedback}\n"
-            f"--- EINDE FEEDBACK ---\n\n"
-            f"Herschrijf de tekst volledig op basis van bovenstaande feedback. "
-            f"Zorg dat ALLE genoemde problemen zijn opgelost.\n"
-        )
+    user_prompt = _build_user_prompt(
+        job_post=job_post,
+        objective=objective,
+        target_audience=target_audience,
+        platform=platform,
+        output_format=output_format,
+        reviewer_feedback=reviewer_feedback,
+    )
 
     messages = [
         {"role": "system", "content": system_prompt},
@@ -166,6 +234,8 @@ async def run(payload: Dict[str, Any]) -> Dict[str, Any]:
         or 'Schrijf een sterke tekst.'
     )
     fields = _extract_brief_fields(context)
+    builder = AgentInstructionBuilder()
+    output_format = _normalize_output_format(fields.get('output_format')) or builder.detect_output_format(job_post)
 
     # --- Load agent skills ---
     agent_config = payload.get('agent_config') or {}
@@ -224,6 +294,7 @@ async def run(payload: Dict[str, Any]) -> Dict[str, Any]:
             reviewer_feedback=reviewer_feedback,
             skill_context=skill_context,
             base_system_prompt=base_system_prompt,
+            output_format=output_format,
         )
     except Exception as e:
         logger.error('copy_agent LLM call failed for job %s: %s', job_id, e)
@@ -235,6 +306,17 @@ async def run(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     content = result['text']
     total_tokens = result.get('total_tokens', 0)
+
+    # Validate output format before returning
+    if output_format:
+        if not builder.validate_output(content, output_format):
+            return {
+                'error': True,
+                'error_type': 'output_format_mismatch',
+                'summary': f'Output is not valid {output_format} format.',
+                'status': 'NEEDS_CHANGES',
+                'content': content,
+            }
 
     # --- Token guard: register actual usage ---
     try:

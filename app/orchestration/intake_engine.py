@@ -12,6 +12,7 @@ import json
 import logging
 import time
 from anthropic import Anthropic, APIError, APITimeoutError, RateLimitError
+from app.services.agent_instruction_builder import AgentInstructionBuilder
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,8 @@ class IntakeEngine:
     def _get_fallback_brief(self, job_post: str, reason: str = "", previous_answers: Optional[Dict[str, str]] = None) -> StrategicBrief:
         """Generate a fallback brief when API call fails."""
         logger.warning(f"Using fallback brief for intake. Reason: {reason}")
+
+        output_format = self._detect_output_format(job_post, previous_answers)
         
         # If user already answered questions, treat brief as complete
         if previous_answers and len(previous_answers) > 0:
@@ -39,6 +42,7 @@ class IntakeEngine:
                     "objective": next((v for k, v in previous_answers.items() if "achiev" in k.lower() or "doel" in k.lower()), answers_text),
                     "target_audience": next((v for k, v in previous_answers.items() if "audience" in k.lower() or "doelgroep" in k.lower()), "algemeen publiek"),
                     "platform": next((v for k, v in previous_answers.items() if "platform" in k.lower()), "web"),
+                    **({"output_format": output_format} if output_format else {}),
                 }
             )
 
@@ -62,7 +66,10 @@ class IntakeEngine:
                     created_at=datetime.utcnow()
                 )
             ],
-            context={"error": reason} if reason else {}
+            context={
+                **({"error": reason} if reason else {}),
+                **({"output_format": output_format} if output_format else {}),
+            }
         )
 
     def analyze_job_post(self, job_post: str, previous_answers: Optional[Dict[str, str]] = None) -> StrategicBrief:
@@ -160,6 +167,7 @@ Only set is_complete=true if you have: platform, objective, target_audience, AND
                 
                 # Convert parsed data to StrategicBrief
                 try:
+                    output_format = self._detect_output_format(job_post, previous_answers)
                     clarifications = [
                         ClarificationQuestion(
                             id=q.get("id", str(uuid.uuid4())),
@@ -174,7 +182,10 @@ Only set is_complete=true if you have: platform, objective, target_audience, AND
                         job_post=job_post,
                         is_complete=data.get("is_complete", False),
                         clarifications=clarifications,
-                        context=self._normalize_context(data.get("context", {}))
+                        context=self._normalize_context({
+                            **data.get("context", {}),
+                            **({"output_format": output_format} if output_format else {}),
+                        })
                     )
 
                     logger.info(f"Intake analysis complete: is_complete={brief.is_complete}, questions={len(brief.clarifications)}")
@@ -251,3 +262,10 @@ Only set is_complete=true if you have: platform, objective, target_audience, AND
                 result[key] = str(value)
         return result
 
+    def _detect_output_format(self, job_post: str, previous_answers: Optional[Dict[str, str]] = None) -> Optional[str]:
+        """Heuristic detection of requested output format from user intent."""
+        haystack = job_post or ""
+        if previous_answers:
+            haystack += " " + " ".join(str(v) for v in previous_answers.values())
+
+        return AgentInstructionBuilder.detect_output_format(haystack)
