@@ -10,6 +10,7 @@ from app.orchestration.intake_engine import IntakeEngine
 from app.orchestration.strategy_room import StrategyRoom
 from app.services.team_coordinator import TeamCoordinator
 from app.services.error_recovery import ErrorRecovery
+from app.services.agent_instruction_builder import instruction_builder, OutputFormat
 from app.websocket.manager import manager as ws_manager
 from models.unified import JobStatus, StrategicBrief, ExecutionPlan
 
@@ -590,11 +591,46 @@ class OperationsManager:
 
                 # Call the agent via the injected runner
                 try:
+                    job_context = await self.get_job_context(conn, job_id)
+                    output_format_str = (job_context or {}).get("output_format")
+                    output_format = OutputFormat(output_format_str) if output_format_str else None
+
+                    agent_id = next_agent
+                    if agent_id and not str(agent_id).startswith("agent:"):
+                        agent_id = f"agent:{agent_id}"
+
+                    agent = None
+                    base_prompt = None
+                    if agent_id:
+                        agent = await conn.fetchrow(
+                            "SELECT system_prompt FROM hired_agents WHERE agent_id = $1",
+                            agent_id
+                        )
+                        if agent:
+                            base_prompt = agent["system_prompt"]
+
+                    enhanced_prompt = None
+                    if base_prompt:
+                        enhanced_prompt = instruction_builder.build_prompt(
+                            base_system_prompt=base_prompt,
+                            output_format=output_format,
+                            context={
+                                "platform": (job_context or {}).get("platform"),
+                                "audience": (job_context or {}).get("audience"),
+                            },
+                        )
+
                     async def _call_agent():
+                        payload = {"job_id": job_id, "store_id": store_id, "context": ctx.data}
+                        if enhanced_prompt:
+                            payload["agent_config"] = {
+                                "agent_id": agent_id,
+                                "system_prompt": enhanced_prompt,
+                            }
                         return await maybe_await(
                             self.agent_runner(
                                 next_agent,
-                                {"job_id": job_id, "store_id": store_id, "context": ctx.data}
+                                payload
                             )
                         )
 
@@ -630,6 +666,27 @@ class OperationsManager:
                         await self.update_job_status(conn, job_id, JobStatus.FAILED.value)
                         final_status = JobStatus.FAILED.value
                     break
+
+                if output_format:
+                    agent_output = None
+                    if isinstance(result, dict):
+                        agent_output = (
+                            result.get("content")
+                            or result.get("text")
+                            or result.get("full_output")
+                            or result.get("output")
+                        )
+                    elif isinstance(result, str):
+                        agent_output = result
+
+                    if agent_output:
+                        is_valid, error = instruction_builder.validate_output(
+                            agent_output,
+                            output_format
+                        )
+                        if not is_valid:
+                            logger.warning(f"Output format invalid: {error}")
+                            # Optioneel: retry logic hier
 
                 # --- Handle agent-level errors gracefully ---
                 if isinstance(result, dict) and result.get("error"):
