@@ -12,7 +12,7 @@ import json
 import logging
 import time
 from anthropic import Anthropic, APIError, APITimeoutError, RateLimitError
-from app.services.agent_instruction_builder import AgentInstructionBuilder
+from app.services.agent_instruction_builder import instruction_builder, OutputFormat
 
 logger = logging.getLogger(__name__)
 
@@ -268,4 +268,5 @@ Only set is_complete=true if you have: platform, objective, target_audience, AND
         if previous_answers:
             haystack += " " + " ".join(str(v) for v in previous_answers.values())
 
-        return AgentInstructionBuilder.detect_output_format(haystack)
+        detected: OutputFormat = instruction_builder.detect_output_format(haystack)
+        return detected.value if detected else None
