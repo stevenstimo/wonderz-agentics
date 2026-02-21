@@ -4,7 +4,7 @@ import logging
 from datetime import datetime
 from typing import Optional, List
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel, Field, root_validator
+from pydantic import BaseModel, model_validator, Field, root_validator
 
 import app.db as _db
 from app.services.hr_manager import HRManager
@@ -36,15 +36,14 @@ class ApproveTrainingRequest(BaseModel):
     notes: Optional[str] = Field(default=None, description="Approval notes")
     approved_by: str = Field(default="ceo", description="Approver")
 
-    @root_validator
-    def _validate_payload(cls, values):
-        if values.get("request_id") or values.get("approved") is not None:
-            if values.get("approved") is None:
+    @model_validator(mode='after')
+    def validate_payload(self):
+        if self.request_id or self.approved is not None:
+            if self.approved is None:
                 raise ValueError("approved is required when approving training requests")
-        elif not values.get("point_id"):
+        elif not self.point_id:
             raise ValueError("point_id or request_id is required")
-        return values
-
+        return self
 
 class ResolveRequest(BaseModel):
     resolution: str
