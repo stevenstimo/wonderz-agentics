@@ -1,6 +1,7 @@
 """HR Manager API endpoints."""
 
 import logging
+import json
 from datetime import datetime
 from typing import Optional, List
 from fastapi import APIRouter, HTTPException, Query
@@ -8,6 +9,8 @@ from pydantic import BaseModel, model_validator, Field, root_validator
 
 import app.db as _db
 from app.services.hr_manager import HRManager
+from app.orchestration.manager import OperationsManager
+from models.unified import JobStatus, StrategicBrief
 from app.services.training import train_agent_from_url
 
 logger = logging.getLogger(__name__)
@@ -47,6 +50,11 @@ class ApproveTrainingRequest(BaseModel):
 
 class ResolveRequest(BaseModel):
     resolution: str
+
+
+class ResolveHiringRequest(BaseModel):
+    agent_id: str
+    notes: Optional[str] = None
 
 
 async def _get_hr_manager() -> HRManager:
@@ -172,6 +180,98 @@ async def approve_training(req: ApproveTrainingRequest):
     except Exception as e:
         logger.error("Training approval failed: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/hiring-requests")
+async def get_hiring_requests(status: Optional[str] = None):
+    """Get pending hiring requests."""
+    pool = await _db.init_db_pool()
+    if not pool:
+        raise HTTPException(status_code=503, detail="DB pool not initialised")
+
+    query = "SELECT * FROM hiring_requests"
+    params = []
+    if status:
+        query += " WHERE status = $1"
+        params.append(status)
+    else:
+        query += " WHERE status = 'pending'"
+
+    query += " ORDER BY created_at DESC"
+
+    async with pool.acquire() as conn:
+        requests = await conn.fetch(query, *params)
+
+    return {
+        "hiring_requests": [dict(r) for r in requests],
+        "count": len(requests),
+    }
+
+
+@router.post("/hiring-requests/{request_id}/resolve")
+async def resolve_hiring_request(request_id: str, payload: ResolveHiringRequest):
+    """Resolve a hiring request and resume job planning if possible."""
+    pool = await _db.init_db_pool()
+    if not pool:
+        raise HTTPException(status_code=503, detail="DB pool not initialised")
+
+    async with pool.acquire() as conn:
+        agent = await conn.fetchrow(
+            "SELECT agent_id FROM hired_agents WHERE agent_id = $1",
+            payload.agent_id,
+        )
+        if not agent:
+            raise HTTPException(status_code=400, detail="Agent not found in hired_agents")
+
+        request = await conn.fetchrow(
+            "SELECT * FROM hiring_requests WHERE request_id = $1",
+            request_id,
+        )
+        if not request:
+            raise HTTPException(status_code=404, detail="Request not found")
+
+        await conn.execute(
+            """
+            UPDATE hiring_requests
+            SET status = 'hired',
+                hired_agent_id = $1,
+                resolved_at = NOW(),
+                notes = $2
+            WHERE request_id = $3
+            """,
+            payload.agent_id,
+            payload.notes,
+            request_id,
+        )
+
+        job_id = request.get("job_id")
+        if job_id:
+            job = await conn.fetchrow("SELECT context FROM jobs WHERE id = $1", job_id)
+            ctx = job.get("context") if job else None
+            if isinstance(ctx, str):
+                try:
+                    ctx = json.loads(ctx)
+                except Exception:
+                    ctx = {}
+            ctx = ctx or {}
+
+            brief_data = ctx.get("brief")
+            if brief_data:
+                try:
+                    brief = StrategicBrief.model_validate(brief_data)
+                    def _dummy_runner(agent_name: str, input_data: dict) -> dict:
+                        return {"status": "success", "summary": f"Ran {agent_name}"}
+                    mgr = OperationsManager(agent_runner=_dummy_runner)
+                    await mgr.generate_and_propose_plan(str(job_id), brief)
+                    await conn.execute(
+                        "UPDATE jobs SET status = $1, updated_at = NOW() WHERE id = $2",
+                        JobStatus.PLAN_PROPOSED.value,
+                        job_id,
+                    )
+                except Exception as e:
+                    logger.error("Failed to resume planning for job %s: %s", job_id, e)
+
+    return {"status": "resolved", "request_id": request_id}
 
 
 class TrainingRequestIn(BaseModel):

@@ -13,6 +13,8 @@ import logging
 import time
 from anthropic import Anthropic, APIError, APITimeoutError, RateLimitError
 from app.services.agent_instruction_builder import instruction_builder, OutputFormat
+from app.services.task_type_detector import task_type_detector
+from config import ANTHROPIC_API_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +24,7 @@ class IntakeEngine:
 
     def __init__(self, model: str = "claude-3-5-sonnet-20241022", max_retries: int = 3):
         self.model = model
-        self.client = Anthropic()
+        self.client = Anthropic(api_key=ANTHROPIC_API_KEY)
         self.max_retries = max_retries
 
     def _get_fallback_brief(self, job_post: str, reason: str = "", previous_answers: Optional[Dict[str, str]] = None) -> StrategicBrief:
@@ -30,6 +32,7 @@ class IntakeEngine:
         logger.warning(f"Using fallback brief for intake. Reason: {reason}")
 
         output_format = self._detect_output_format(job_post, previous_answers)
+        task_type, required_role = task_type_detector.detect_with_role(job_post)
         
         # If user already answered questions, treat brief as complete
         if previous_answers and len(previous_answers) > 0:
@@ -43,6 +46,8 @@ class IntakeEngine:
                     "target_audience": next((v for k, v in previous_answers.items() if "audience" in k.lower() or "doelgroep" in k.lower()), "algemeen publiek"),
                     "platform": next((v for k, v in previous_answers.items() if "platform" in k.lower()), "web"),
                     **({"output_format": output_format} if output_format else {}),
+                    "task_type": task_type.value,
+                    "required_role": required_role.value if required_role else None,
                 }
             )
 
@@ -69,6 +74,8 @@ class IntakeEngine:
             context={
                 **({"error": reason} if reason else {}),
                 **({"output_format": output_format} if output_format else {}),
+                "task_type": task_type.value,
+                "required_role": required_role.value if required_role else None,
             }
         )
 
@@ -168,6 +175,7 @@ Only set is_complete=true if you have: platform, objective, target_audience, AND
                 # Convert parsed data to StrategicBrief
                 try:
                     output_format = self._detect_output_format(job_post, previous_answers)
+                    task_type, required_role = task_type_detector.detect_with_role(job_post)
                     clarifications = [
                         ClarificationQuestion(
                             id=q.get("id", str(uuid.uuid4())),
@@ -185,6 +193,8 @@ Only set is_complete=true if you have: platform, objective, target_audience, AND
                         context=self._normalize_context({
                             **data.get("context", {}),
                             **({"output_format": output_format} if output_format else {}),
+                            "task_type": task_type.value,
+                            "required_role": required_role.value if required_role else None,
                         })
                     )
 

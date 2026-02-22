@@ -4,12 +4,14 @@ import PageLayout from './PageLayout'
 import { Sparkles, Play, CheckCircle, XCircle, Loader2, ChevronRight, Circle } from 'lucide-react'
 import { useJobWebSocket } from './hooks/useJobWebSocket'
 import { DragDropJobBuilder } from './components/DragDropJobBuilder'
+import { HiringRequestBanner } from './components/HiringRequestBanner'
 
 
 // Status mapping van backend naar UI fase
 function getPhase(status) {
   if (!status) return 'intake'
   if (status === 'INTAKE_CLARIFICATION') return 'intake'
+  if (status === 'AWAITING_HIRE') return 'intake'
   if (status === 'PLAN_PROPOSED') return 'plan'
   if (status === 'RUNNING') return 'tracker'
   if (status === 'JOB_READY') return 'review'
@@ -357,6 +359,7 @@ export default function JobFlow() {
 
   return (
     <PageLayout size="wide" padded>
+      {jobId && <HiringRequestBanner jobId={jobId} />}
       {/* Stepper */}
       <div className="flex items-center gap-2 mb-8">
         {stepList.map((s, i) => (

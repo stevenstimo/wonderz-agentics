@@ -70,6 +70,8 @@ class OperationsManager:
                 "brief": brief.model_dump(),
                 "previous_answers": {},
                 "output_format": (brief.context or {}).get("output_format"),
+                "task_type": (brief.context or {}).get("task_type"),
+                "required_role": (brief.context or {}).get("required_role"),
             })
 
             if brief.is_complete:
@@ -122,6 +124,8 @@ class OperationsManager:
                 "brief": brief.model_dump(),
                 "previous_answers": previous_answers,
                 "output_format": (brief.context or {}).get("output_format"),
+                "task_type": (brief.context or {}).get("task_type"),
+                "required_role": (brief.context or {}).get("required_role"),
             })
 
             if brief.is_complete:
@@ -155,6 +159,57 @@ class OperationsManager:
         Uses dynamic agent selection: reads hired_agents from DB and picks
         the best available agent per required role.
         """
+        required_role = (brief.context or {}).get("required_role")
+        task_type = (brief.context or {}).get("task_type")
+
+        if required_role:
+            conn = await self._connect()
+            try:
+                agent = await conn.fetchrow(
+                    """
+                    SELECT agent_id, name, status
+                    FROM hired_agents
+                    WHERE role = $1 AND status = 'active' AND is_suspended = false
+                    LIMIT 1
+                    """,
+                    required_role,
+                )
+
+                if not agent:
+                    await self._create_hiring_request(
+                        conn,
+                        job_id=job_id,
+                        required_role=required_role,
+                        task_type=task_type,
+                    )
+
+                    await self.update_job_status(conn, job_id, JobStatus.AWAITING_HIRE.value)
+                    await self.store_job_context(conn, job_id, {
+                        "hiring_request": {
+                            "required_role": required_role,
+                            "task_type": task_type,
+                            "message": (
+                                f"We need to hire a {required_role} to complete this task. "
+                                "HR Manager has been notified."
+                            ),
+                        }
+                    })
+                    await self.write_job_step(
+                        conn,
+                        job_id,
+                        "agent_hiring",
+                        "orchestrator",
+                        "awaiting_user_input",
+                        output={
+                            "required_role": required_role,
+                            "task_type": task_type,
+                            "message": "Awaiting agent hire",
+                        },
+                    )
+                    return
+            finally:
+                await conn.close()
+
         # Try dynamic plan with DB lookup first
         missing_agents = []
         try:
@@ -205,6 +260,35 @@ class OperationsManager:
             )
         finally:
             await conn.close()
+
+    async def _create_hiring_request(
+        self,
+        conn: asyncpg.Connection,
+        job_id: str,
+        required_role: str,
+        task_type: Optional[str],
+    ):
+        request_id = f"HIRE-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}"
+
+        await conn.execute(
+            """
+            INSERT INTO hiring_requests (
+                request_id, job_id, required_role, task_type,
+                status, created_at
+            ) VALUES ($1, $2, $3, $4, 'pending', NOW())
+            """,
+            request_id,
+            job_id,
+            required_role,
+            task_type,
+        )
+
+        logger.info(
+            "Created hiring request %s for role %s (task_type=%s)",
+            request_id,
+            required_role,
+            task_type,
+        )
 
     async def approve_plan(self, job_id: str):
         """User approves the proposed plan; ready to execute."""

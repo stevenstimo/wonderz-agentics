@@ -12,6 +12,7 @@ import logging
 import time
 import asyncpg
 from anthropic import Anthropic, APIError, APITimeoutError, RateLimitError
+from config import ANTHROPIC_API_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,13 @@ class StrategyRoom:
         "developer": "write_code",
         "paid_ads_manager": "manage_ads",
         "data_analyst": "analyze_data",
+        "image-generator": "execute_task",
+        "code-writer": "write_code",
+        "data-analyst": "analyze_data",
+        "video-editor": "execute_task",
+        "audio-producer": "execute_task",
+        "translator": "execute_task",
+        "researcher": "execute_task",
     }
 
     # Role → description templates
@@ -37,11 +45,18 @@ class StrategyRoom:
         "developer": "Implement technical changes",
         "paid_ads_manager": "Create and optimize ad campaigns",
         "data_analyst": "Analyze data and generate insights",
+        "image-generator": "Generate an image based on the brief",
+        "code-writer": "Write code for the requested task",
+        "data-analyst": "Analyze the provided data and summarize insights",
+        "video-editor": "Edit or assemble a video based on the brief",
+        "audio-producer": "Produce audio based on the brief",
+        "translator": "Translate content based on the brief",
+        "researcher": "Research the topic and summarize findings",
     }
 
     def __init__(self, model: str = "claude-3-5-sonnet-20241022", max_retries: int = 3):
         self.model = model
-        self.client = Anthropic()
+        self.client = Anthropic(api_key=ANTHROPIC_API_KEY)
         self.max_retries = max_retries
 
     async def get_available_agents(self, db_pool, role: str = None) -> List[dict]:
@@ -67,6 +82,12 @@ class StrategyRoom:
 
     def _determine_required_roles(self, brief: StrategicBrief) -> List[str]:
         """Determine which agent roles are needed based on the brief."""
+        required_role = (brief.context or {}).get("required_role")
+        if required_role:
+            if required_role == "copywriter":
+                return ["copywriter", "reviewer"]
+            return [required_role]
+
         roles = []
 
         # Always need a writer

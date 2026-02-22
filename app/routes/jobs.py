@@ -652,7 +652,7 @@ async def approve_and_deploy(
 async def restart_job(job_id: str):
     """
     Restart a stuck job: reset to PLAN_PROPOSED and re-run the workflow.
-    Works for AWAITING_APPROVAL, INTAKE_CLARIFICATION, PLAN_PROPOSED, FAILED.
+    Works for AWAITING_APPROVAL, AWAITING_HIRE, INTAKE_CLARIFICATION, PLAN_PROPOSED, FAILED.
     """
     job_id = _validate_job_id(job_id)
     pool = _db._pool
@@ -665,7 +665,7 @@ async def restart_job(job_id: str):
             raise HTTPException(status_code=404, detail="Job not found")
 
         current = job['status']
-        restartable = ['AWAITING_APPROVAL', 'INTAKE_CLARIFICATION', 'PLAN_PROPOSED', 'FAILED', 'JOB_READY', 'COMPLETED']
+        restartable = ['AWAITING_APPROVAL', 'AWAITING_HIRE', 'INTAKE_CLARIFICATION', 'PLAN_PROPOSED', 'FAILED', 'JOB_READY', 'COMPLETED']
         if current not in restartable:
             raise HTTPException(
                 status_code=400,
