@@ -12,9 +12,24 @@ import logging
 import time
 import asyncpg
 from anthropic import Anthropic, APIError, APITimeoutError, RateLimitError
-from config import ANTHROPIC_API_KEY
+import os
+try:
+    import config as _config
+except Exception:
+    _config = None
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_anthropic_api_key() -> Optional[str]:
+    key = os.getenv("ANTHROPIC_API_KEY")
+    if not key and _config is not None:
+        key = getattr(_config, "ANTHROPIC_API_KEY", None)
+    if not key:
+        key = os.getenv("ANTHROPIC_AUTH_TOKEN")
+    if key:
+        key = key.strip()
+    return key or None
 
 
 class StrategyRoom:
@@ -56,8 +71,22 @@ class StrategyRoom:
 
     def __init__(self, model: str = "claude-sonnet-4-20250514", max_retries: int = 3):
         self.model = model
-        self.client = Anthropic(api_key=ANTHROPIC_API_KEY)
+        self.client = None
+        key = _resolve_anthropic_api_key()
+        if key:
+            self.client = Anthropic(api_key=key)
+        else:
+            logger.error("Anthropic API key missing (ANTHROPIC_API_KEY). StrategyRoom will use fallback behavior.")
         self.max_retries = max_retries
+
+    def _get_client(self) -> Optional[Anthropic]:
+        if self.client is not None:
+            return self.client
+        key = _resolve_anthropic_api_key()
+        if not key:
+            return None
+        self.client = Anthropic(api_key=key)
+        return self.client
 
     async def get_available_agents(self, db_pool, role: str = None) -> List[dict]:
         """Fetch hired agents from database, optionally filtered by role."""
@@ -266,7 +295,11 @@ Create a step-by-step plan to achieve the objective.
             try:
                 logger.debug(f"StrategyRoom API call attempt {attempt + 1}/{self.max_retries}")
 
-                response = self.client.messages.create(
+                client = self._get_client()
+                if client is None:
+                    return self._get_fallback_plan(brief, "Missing ANTHROPIC_API_KEY")
+
+                response = client.messages.create(
                     model=self.model,
                     max_tokens=2000,
                     system=system_prompt,

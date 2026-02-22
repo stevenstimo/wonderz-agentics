@@ -14,9 +14,24 @@ import time
 from anthropic import Anthropic, APIError, APITimeoutError, RateLimitError
 from app.services.agent_instruction_builder import instruction_builder, OutputFormat
 from app.services.task_type_detector import task_type_detector
-from config import ANTHROPIC_API_KEY
+import os
+try:
+    import config as _config
+except Exception:
+    _config = None
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_anthropic_api_key() -> Optional[str]:
+    key = os.getenv("ANTHROPIC_API_KEY")
+    if not key and _config is not None:
+        key = getattr(_config, "ANTHROPIC_API_KEY", None)
+    if not key:
+        key = os.getenv("ANTHROPIC_AUTH_TOKEN")
+    if key:
+        key = key.strip()
+    return key or None
 
 
 class IntakeEngine:
@@ -24,8 +39,22 @@ class IntakeEngine:
 
     def __init__(self, model: str = "claude-sonnet-4-20250514", max_retries: int = 3):
         self.model = model
-        self.client = Anthropic(api_key=ANTHROPIC_API_KEY)
+        self.client = None
+        key = _resolve_anthropic_api_key()
+        if key:
+            self.client = Anthropic(api_key=key)
+        else:
+            logger.error("Anthropic API key missing (ANTHROPIC_API_KEY). Intake will use fallback responses.")
         self.max_retries = max_retries
+
+    def _get_client(self) -> Optional[Anthropic]:
+        if self.client is not None:
+            return self.client
+        key = _resolve_anthropic_api_key()
+        if not key:
+            return None
+        self.client = Anthropic(api_key=key)
+        return self.client
 
     def _get_fallback_brief(self, job_post: str, reason: str = "", previous_answers: Optional[Dict[str, str]] = None) -> StrategicBrief:
         """Generate a fallback brief when API call fails."""
@@ -140,8 +169,12 @@ Only set is_complete=true if you have: platform, objective, target_audience, AND
         for attempt in range(self.max_retries):
             try:
                 logger.debug(f"IntakeEngine API call attempt {attempt + 1}/{self.max_retries}")
-                
-                response = self.client.messages.create(
+
+                client = self._get_client()
+                if client is None:
+                    return self._get_fallback_brief(job_post, "Missing ANTHROPIC_API_KEY", previous_answers=previous_answers)
+
+                response = client.messages.create(
                     model=self.model,
                     max_tokens=1500,
                     system=system_prompt,
