@@ -19,6 +19,21 @@
 
 - Make sure your backend loads this `.env.local` file (or set the variable in your shell).
 
+## 2.1 Configure `.pgpass` for passwordless `psql` (recommended)
+
+If you run `psql` without `PGPASSWORD`, create a `~/.pgpass` entry so `psql` can authenticate automatically.
+
+```bash
+cat << 'EOF' >> ~/.pgpass
+localhost:5432:postgres:postgres:postgres
+EOF
+chmod 600 ~/.pgpass
+```
+
+- Format: `host:port:database:username:password`
+- Adjust values if you use a different database/user/password.
+- `psql` will now reuse the password securely without prompting.
+
 ## 3. Run migrations (if needed)
 
 - If your backend uses Alembic or similar, run migrations to set up the schema.
