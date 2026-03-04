@@ -14,11 +14,9 @@ Endpoints:
 import os
 import uuid
 import json
-import time
 import logging
 from datetime import datetime
-from typing import Optional, Dict, Any
-from fastapi import APIRouter, HTTPException, Depends, status
+from fastapi import APIRouter, HTTPException, Depends, status, BackgroundTasks
 from pydantic import ValidationError
 
 from app.database import get_db
@@ -26,25 +24,11 @@ from app.orchestration.manager import OperationsManager
 from app.services.deployment import DeploymentService
 from models.unified import JobStatus
 from tools.unified_bridge import UnifiedToolBridge
-try:
-    from workers.tasks import run_intake, run_intake_answers, run_job
-except Exception as _task_import_error:
-    _task_logger = logging.getLogger(__name__)
-
-    class _NoopTask:
-        def __init__(self, name: str):
-            self._name = name
-
-        def delay(self, *args, **kwargs):
-            _task_logger.warning(
-                "Task '%s' not scheduled because worker dependencies are unavailable: %s",
-                self._name,
-                _task_import_error,
-            )
-
-    run_intake = _NoopTask("run_intake")
-    run_intake_answers = _NoopTask("run_intake_answers")
-    run_job = _NoopTask("run_job")
+from app.services.job_pipeline import (
+    run_intake_inline,
+    run_intake_answers_inline,
+    run_job_inline,
+)
 from app.models.requests import (
     CreateJobRequest,
     SubmitAnswersRequest,
@@ -102,7 +86,7 @@ async def _next_step_index(conn, job_id: str) -> int:
 # ============ Routes ============
 
 @router.post("", response_model=CreateJobResponse, status_code=status.HTTP_201_CREATED)
-async def create_job(req: CreateJobRequest):
+async def create_job(req: CreateJobRequest, background_tasks: BackgroundTasks):
     """
     Create a new job and start the intake flow.
     
@@ -160,7 +144,7 @@ async def create_job(req: CreateJobRequest):
     
     # Queue intake flow (don't wait for result)
     try:
-        run_intake.delay(job_id, req.job_post)
+        background_tasks.add_task(run_intake_inline, job_id, req.job_post)
         logger.info(f"Intake task queued for job {job_id}")
     except Exception as e:
         logger.error(f"Failed to queue intake task for job {job_id}: {e}", exc_info=True)
@@ -176,7 +160,8 @@ async def create_job(req: CreateJobRequest):
 @router.patch("/{job_id}/answer")
 async def submit_intake_answer(
     job_id: str,
-    req: SubmitAnswersRequest
+    req: SubmitAnswersRequest,
+    background_tasks: BackgroundTasks
 ):
     """
     User submits answers to clarification questions.
@@ -226,7 +211,7 @@ async def submit_intake_answer(
                 )
         
         # Queue intake answers processing
-        run_intake_answers.delay(job_id, req.answers)
+        background_tasks.add_task(run_intake_answers_inline, job_id, req.answers)
         logger.info(f"Intake answers task queued for job {job_id}")
         
         # Fetch updated job status
@@ -256,6 +241,7 @@ async def submit_intake_answer(
 @router.post("/{job_id}/approve-plan")
 async def approve_plan(
     job_id: str,
+    background_tasks: BackgroundTasks,
     manager: OperationsManager = Depends(get_operations_manager)
 ):
     """
@@ -288,7 +274,7 @@ async def approve_plan(
         
         # Queue job execution
         context = json.loads(job['context']) if isinstance(job['context'], str) else job['context']
-        run_job.delay(job_id, None, context)
+        background_tasks.add_task(run_job_inline, job_id, context)
         logger.info(f"Job execution task queued for job {job_id}")
 
         return {
@@ -357,7 +343,8 @@ async def request_plan_changes(
 @router.post("/{job_id}/feedback")
 async def submit_feedback(
     job_id: str,
-    req: FeedbackRequest
+    req: FeedbackRequest,
+    background_tasks: BackgroundTasks
 ):
     """
     User submits feedback on completed workflow results.
@@ -394,7 +381,7 @@ async def submit_feedback(
             )
         
         # Queue job retry with feedback
-        run_job.delay(job_id, None, {"feedback": req.feedback})
+        background_tasks.add_task(run_job_inline, job_id, {"feedback": req.feedback})
         logger.info(f"Feedback submitted for job {job_id}, retrying execution")
         
         return {

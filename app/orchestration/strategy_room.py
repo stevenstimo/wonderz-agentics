@@ -25,7 +25,7 @@ class HiredAgent:
 class StrategyRoom:
     """Creates ExecutionPlans from StrategicBriefs."""
 
-    def __init__(self, model: str = "claude-3-5-sonnet-20241022", max_retries: int = 3):
+    def __init__(self, model: str = "claude-sonnet-4-5-20250929", max_retries: int = 3):
         self.model = model
         self.client = Anthropic()
         self.max_retries = max_retries
