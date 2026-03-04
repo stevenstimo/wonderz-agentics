@@ -16,6 +16,7 @@ import uuid
 import json
 import logging
 from datetime import datetime
+from typing import Optional
 from fastapi import APIRouter, HTTPException, Depends, status, BackgroundTasks
 from pydantic import ValidationError
 
@@ -457,6 +458,24 @@ async def approve_and_deploy(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to deploy: {str(e)}"
         )
+
+
+@router.get("")
+async def list_jobs(status: Optional[str] = None, limit: int = 50):
+    """List all jobs, optionally filtered by status."""
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        if status:
+            rows = await conn.fetch(
+                "SELECT id, user_id, job_post, status, source_platform, created_at, updated_at, tokens_used, token_budget FROM jobs WHERE status=$1 ORDER BY created_at DESC LIMIT $2",
+                status, limit
+            )
+        else:
+            rows = await conn.fetch(
+                "SELECT id, user_id, job_post, status, source_platform, created_at, updated_at, tokens_used, token_budget FROM jobs ORDER BY created_at DESC LIMIT $1",
+                limit
+            )
+    return [dict(r) for r in rows]
 
 
 @router.get("/{job_id}")

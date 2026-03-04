@@ -23,6 +23,7 @@ import Status from './Status.jsx'
 import MyAccount from './MyAccount.jsx'
 import CommandCenter from './CommandCenter.jsx'
 import JobFlow from './JobFlow.jsx'
+import JobDetail from './JobDetail.jsx'
 import './index.css'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
@@ -32,6 +33,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
         <Routes>
           <Route path="/" element={<App />} />
           <Route path="/job-center" element={<JobCenter />} />
+          <Route path="/jobs/:jobId" element={<JobDetail />} />
           <Route path="/jobs/new" element={<JobFlow />} />
           <Route path="/crew" element={<CrewManagement />} />
           <Route path="/crew/management" element={<CrewManagement />} />

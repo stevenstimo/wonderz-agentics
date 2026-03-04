@@ -1,136 +1,337 @@
-import { useEffect, useState } from 'react'
-import PageLayout from './PageLayout';
+import { useEffect, useState, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
+import PageLayout from './PageLayout'
+import { apiUrl } from './apiClient'
 
-const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+const STATUS_BADGE = {
+  INTAKE_CLARIFICATION: 'bg-amber-100 text-amber-800',
+  PLAN_PROPOSED: 'bg-blue-100 text-blue-800',
+  RUNNING: 'bg-purple-100 text-purple-800',
+  JOB_READY: 'bg-green-100 text-green-800',
+  AWAITING_APPROVAL: 'bg-slate-100 text-slate-800',
+  COMPLETED: 'bg-green-100 text-green-800',
+  FAILED: 'bg-red-100 text-red-800',
+  CANCELLED: 'bg-gray-100 text-gray-600',
+}
+
+function StatusBadge({ status }) {
+  const cls = STATUS_BADGE[status] || 'bg-gray-100 text-gray-700'
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${cls}`}>
+      {status}
+    </span>
+  )
+}
+
+function relativeTime(dateStr) {
+  const d = new Date(dateStr)
+  const now = new Date()
+  const s = Math.floor((now - d) / 1000)
+  if (s < 60) return 'just now'
+  if (s < 3600) return `${Math.floor(s / 60)} min ago`
+  if (s < 86400) return `${Math.floor(s / 3600)} h ago`
+  if (s < 604800) return `${Math.floor(s / 86400)} d ago`
+  return d.toLocaleDateString()
+}
+
+const IN_PROGRESS_STATUSES = ['INTAKE_CLARIFICATION', 'PLAN_PROPOSED', 'RUNNING', 'JOB_READY', 'AWAITING_APPROVAL']
+const COMPLETED_STATUSES = ['COMPLETED']
+const FAILED_STATUSES = ['FAILED', 'CANCELLED']
 
 export default function JobCenter() {
+  const navigate = useNavigate()
+  const [jobs, setJobs] = useState([])
+  const [filter, setFilter] = useState('all') // all | in_progress | completed | failed
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+  const [showNewJobForm, setShowNewJobForm] = useState(false)
+  const [newJobPost, setNewJobPost] = useState('')
+  const [newJobPlatform, setNewJobPlatform] = useState('custom')
+  const [creating, setCreating] = useState(false)
+  const [createError, setCreateError] = useState(null)
+
   const [crew, setCrew] = useState([])
   const [sections, setSections] = useState([])
   const [meta, setMeta] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
+  const [crewLoading, setCrewLoading] = useState(true)
+  const [crewError, setCrewError] = useState(null)
+
+  const fetchJobs = useCallback(async () => {
+    try {
+      const res = await fetch(apiUrl('/api/jobs'))
+      if (!res.ok) throw new Error('Failed to load jobs')
+      const data = await res.json()
+      setJobs(Array.isArray(data) ? data : [])
+      setError(null)
+    } catch (err) {
+      setError(err.message || 'Failed to load jobs')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchJobs()
+    const interval = setInterval(fetchJobs, 10000)
+    return () => clearInterval(interval)
+  }, [fetchJobs])
 
   useEffect(() => {
     let active = true
-
-    const fetchData = async () => {
-      setLoading(true)
-      setError(null)
+    const fetchCrew = async () => {
+      setCrewLoading(true)
+      setCrewError(null)
       try {
         const [crewRes, explainerRes] = await Promise.all([
-          fetch(`${apiBase}/api/crew`),
-          fetch(`${apiBase}/api/explainer/sections`)
+          fetch(apiUrl('/api/crew')),
+          fetch(apiUrl('/api/explainer/sections'))
         ])
-
-        if (!crewRes.ok) {
-          throw new Error('Failed to load crew status')
-        }
-        if (!explainerRes.ok) {
-          throw new Error('Failed to load updates')
-        }
-
+        if (!crewRes.ok) throw new Error('Failed to load crew status')
+        if (!explainerRes.ok) throw new Error('Failed to load updates')
         const crewData = await crewRes.json()
         const explainerData = await explainerRes.json()
-
-        if (!active) {
-          return
-        }
-
+        if (!active) return
         setCrew(Array.isArray(crewData) ? crewData : [])
         setSections(Array.isArray(explainerData.sections) ? explainerData.sections : [])
         setMeta(explainerData.meta || null)
       } catch (err) {
-        if (!active) {
-          return
-        }
-        setError(err.message || 'Failed to load job center data')
+        if (active) setCrewError(err.message || 'Failed to load job center data')
       } finally {
-        if (active) {
-          setLoading(false)
-        }
+        if (active) setCrewLoading(false)
       }
     }
-
-    fetchData()
-    return () => {
-      active = false
-    }
+    fetchCrew()
+    return () => { active = false }
   }, [])
 
-  const updates = sections.map((section) => ({
-    slug: section.slug,
-    title: section.title,
-    updated_at: section.updated_at
+  const filteredJobs = jobs.filter((j) => {
+    if (filter === 'all') return true
+    if (filter === 'in_progress') return IN_PROGRESS_STATUSES.includes(j.status)
+    if (filter === 'completed') return COMPLETED_STATUSES.includes(j.status)
+    if (filter === 'failed') return FAILED_STATUSES.includes(j.status)
+    return true
+  })
+
+  const statusCounts = jobs.reduce((acc, j) => {
+    acc[j.status] = (acc[j.status] || 0) + 1
+    return acc
+  }, {})
+
+  const handleCreateJob = async (e) => {
+    e.preventDefault()
+    if (!newJobPost.trim() || newJobPost.trim().length < 10) {
+      setCreateError('Job description must be at least 10 characters')
+      return
+    }
+    setCreating(true)
+    setCreateError(null)
+    try {
+      const res = await fetch(apiUrl('/api/jobs'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: '00000000-0000-0000-0000-000000000001',
+          job_post: newJobPost.trim(),
+          source_platform: newJobPlatform || 'custom'
+        })
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.detail || 'Failed to create job')
+      }
+      const data = await res.json()
+      setShowNewJobForm(false)
+      setNewJobPost('')
+      setNewJobPlatform('custom')
+      navigate(`/jobs/${data.job_id}`)
+    } catch (err) {
+      setCreateError(err.message)
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  const updates = sections.map((s) => ({
+    slug: s.slug,
+    title: s.title,
+    updated_at: s.updated_at
   }))
 
   return (
     <PageLayout size="wide" padded className="space-y-6">
-          <div className="panel-card">
-            <h2 className="page-title">Job Center</h2>
-            <p className="page-subtitle">
-              Live status and updates from the backend. Use this page to keep track of what changed.
-            </p>
+      <div className="panel-card">
+        <h2 className="page-title">Job Center</h2>
+        <p className="page-subtitle">
+          Live status and updates from the backend. Create jobs and track the intake → plan → execution flow.
+        </p>
+      </div>
+
+      {/* New Job button + form */}
+      <div className="panel-card">
+        {!showNewJobForm ? (
+          <button
+            type="button"
+            onClick={() => setShowNewJobForm(true)}
+            className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition"
+          >
+            New Job
+          </button>
+        ) : (
+          <form onSubmit={handleCreateJob} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Job description</label>
+              <textarea
+                value={newJobPost}
+                onChange={(e) => setNewJobPost(e.target.value)}
+                placeholder="Describe the job (min 10 characters)..."
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
+                rows={4}
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Source platform (optional)</label>
+              <select
+                value={newJobPlatform}
+                onChange={(e) => setNewJobPlatform(e.target.value)}
+                className="w-full max-w-xs px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="custom">Custom</option>
+                <option value="linkedin">LinkedIn</option>
+                <option value="upwork">Upwork</option>
+                <option value="internal">Internal</option>
+              </select>
+            </div>
+            {createError && <div className="text-sm text-red-600">{createError}</div>}
+            <div className="flex gap-2">
+              <button
+                type="submit"
+                disabled={creating}
+                className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50"
+              >
+                {creating ? 'Creating...' : 'Create Job'}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setShowNewJobForm(false); setCreateError(null); setNewJobPost(''); setNewJobPlatform('custom'); }}
+                className="px-4 py-2 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+
+      {/* Jobs overview */}
+      <div className="panel-card">
+        <div className="flex items-center justify-between gap-4 flex-wrap mb-4">
+          <h3 className="text-lg font-semibold text-slate-900">Jobs</h3>
+          <div className="flex flex-wrap gap-2">
+            <span className="text-sm text-slate-500">Total: {jobs.length}</span>
+            {Object.entries(statusCounts).map(([status, count]) => (
+              <span key={status} className="flex items-center gap-1">
+                <StatusBadge status={status} />
+                <span className="text-xs text-slate-500">{count}</span>
+              </span>
+            ))}
           </div>
+        </div>
 
-          {loading && <div className="panel-card">Loading...</div>}
-          {!loading && error && <div className="panel-card text-red-500">{error}</div>}
+        <div className="flex gap-2 mb-4">
+          {['all', 'in_progress', 'completed', 'failed'].map((f) => (
+            <button
+              key={f}
+              type="button"
+              onClick={() => setFilter(f)}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${
+                filter === f ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+              }`}
+            >
+              {f === 'all' ? 'All' : f === 'in_progress' ? 'In Progress' : f === 'completed' ? 'Completed' : 'Failed'}
+            </button>
+          ))}
+        </div>
 
-          {!loading && !error && (
-            <>
-              <div className="panel-card">
-                <div className="flex items-center justify-between gap-4 flex-wrap">
-                  <div>
-                    <h3 className="text-lg font-semibold text-slate-900">Latest updates</h3>
-                    <p className="text-sm text-slate-500">Explainer sections refreshed from the backend.</p>
+        {loading && <div className="text-slate-500">Loading jobs...</div>}
+        {!loading && error && <div className="text-red-500">{error}</div>}
+        {!loading && !error && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {filteredJobs.map((job) => (
+              <button
+                key={job.id}
+                type="button"
+                onClick={() => navigate(`/jobs/${job.id}`)}
+                className="text-left rounded-lg border border-slate-200 p-4 hover:border-indigo-300 hover:bg-slate-50/50 transition"
+              >
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <StatusBadge status={job.status} />
+                  <span className="text-xs text-slate-400">{job.source_platform || '—'}</span>
+                </div>
+                <p className="text-sm text-slate-800 line-clamp-2">
+                  {(job.job_post || '').length > 100 ? `${job.job_post.slice(0, 100)}…` : (job.job_post || '—')}
+                </p>
+                <div className="mt-2 text-xs text-slate-500">{relativeTime(job.created_at)}</div>
+              </button>
+            ))}
+          </div>
+        )}
+        {!loading && !error && filteredJobs.length === 0 && (
+          <div className="text-slate-500 py-4">No jobs match the filter.</div>
+        )}
+      </div>
+
+      {/* Crew status (existing section) */}
+      <div className="panel-card">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div>
+            <h3 className="text-lg font-semibold text-slate-900">Crew status</h3>
+            <p className="text-sm text-slate-500">Current active crew members.</p>
+          </div>
+          {meta && (
+            <div className="text-xs text-slate-400">
+              <div>Env: {meta.deploy_env}</div>
+              <div>SHA: {meta.build_sha}</div>
+              <div>Data: {new Date(meta.data_refreshed_at).toLocaleString()}</div>
+            </div>
+          )}
+        </div>
+        {crewLoading && <div className="mt-4 text-slate-500">Loading...</div>}
+        {!crewLoading && crewError && <div className="mt-4 text-red-500">{crewError}</div>}
+        {!crewLoading && !crewError && (
+          <>
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+              {updates.map((item) => (
+                <div key={item.slug} className="rounded-lg border border-slate-200 p-4">
+                  <div className="text-sm font-semibold text-slate-800">{item.title}</div>
+                  <div className="text-xs text-slate-500 mt-2">
+                    Updated: {item.updated_at ? new Date(item.updated_at).toLocaleString() : 'Unknown'}
                   </div>
-                  {meta && (
-                    <div className="text-xs text-slate-400">
-                      <div>Env: {meta.deploy_env}</div>
-                      <div>SHA: {meta.build_sha}</div>
-                      <div>Data: {new Date(meta.data_refreshed_at).toLocaleString()}</div>
+                </div>
+              ))}
+            </div>
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+              {crew.map((member) => (
+                <div key={member.id} className="rounded-lg border border-slate-200 p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-sm font-semibold text-slate-800">{member.name}</div>
+                      <div className="text-xs text-slate-500">{member.role}</div>
+                    </div>
+                    <span className="text-xs uppercase tracking-wide text-slate-400">{member.status}</span>
+                  </div>
+                  <div className="mt-3 text-xs text-slate-500">{member.current_task || 'No active task'}</div>
+                  {typeof member.progress === 'number' && (
+                    <div className="mt-2 h-2 rounded-full bg-slate-100">
+                      <div className="h-2 rounded-full bg-indigo-500" style={{ width: `${member.progress}%` }} />
                     </div>
                   )}
                 </div>
-                <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {updates.map((item) => (
-                    <div key={item.slug} className="rounded-lg border border-slate-200 p-4">
-                      <div className="text-sm font-semibold text-slate-800">{item.title}</div>
-                      <div className="text-xs text-slate-500 mt-2">
-                        Updated: {item.updated_at ? new Date(item.updated_at).toLocaleString() : 'Unknown'}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="panel-card">
-                <h3 className="text-lg font-semibold text-slate-900">Crew status</h3>
-                <p className="text-sm text-slate-500">Current active crew members.</p>
-                <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {crew.map((member) => (
-                    <div key={member.id} className="rounded-lg border border-slate-200 p-4">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <div className="text-sm font-semibold text-slate-800">{member.name}</div>
-                          <div className="text-xs text-slate-500">{member.role}</div>
-                        </div>
-                        <span className="text-xs uppercase tracking-wide text-slate-400">{member.status}</span>
-                      </div>
-                      <div className="mt-3 text-xs text-slate-500">{member.current_task || 'No active task'}</div>
-                      {typeof member.progress === 'number' && (
-                        <div className="mt-2 h-2 rounded-full bg-slate-100">
-                          <div
-                            className="h-2 rounded-full bg-indigo-500"
-                            style={{ width: `${member.progress}%` }}
-                          />
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </>
-          )}
-      </PageLayout>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+    </PageLayout>
   )
 }

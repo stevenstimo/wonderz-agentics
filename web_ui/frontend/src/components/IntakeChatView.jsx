@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
-import { supabase } from '../supabase';
+import { apiUrl } from '../apiClient';
 
 /**
  * IntakeChatView: Handles the intake conversation between user and CEO Agent.
  * Displays clarification questions and collects user answers.
+ * Answers are keyed by question_id for PATCH /api/jobs/{job_id}/answer.
  */
 export function IntakeChatView({ jobId, clarifications, onAnswersSubmitted }) {
-  const apiBase = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
   const [answers, setAnswers] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState(null);
@@ -24,21 +24,18 @@ export function IntakeChatView({ jobId, clarifications, onAnswersSubmitted }) {
     setError(null);
 
     try {
-      // Submit answers to backend
-      const response = await fetch(`${apiBase}/api/jobs/${jobId}/answer`, {
+      const response = await fetch(apiUrl(`/api/jobs/${jobId}/answer`), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ answers })
       });
 
       if (!response.ok) {
-        throw new Error('Failed to submit answers');
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.detail || 'Failed to submit answers');
       }
 
-      // Clear form
       setAnswers({});
-      
-      // Notify parent that answers were submitted
       if (onAnswersSubmitted) {
         onAnswersSubmitted();
       }
@@ -66,13 +63,13 @@ export function IntakeChatView({ jobId, clarifications, onAnswersSubmitted }) {
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-6">
         {clarifications.map((q, idx) => (
-          <div key={q.id} className="flex flex-col gap-2">
+          <div key={q.question_id} className="flex flex-col gap-2">
             <label className="font-semibold text-gray-800">
               {idx + 1}. {q.question}
             </label>
             <textarea
-              value={answers[q.id] || ''}
-              onChange={(e) => handleAnswerChange(q.id, e.target.value)}
+              value={answers[q.question_id] || ''}
+              onChange={(e) => handleAnswerChange(q.question_id, e.target.value)}
               placeholder="Your answer..."
               className="p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
               rows={3}
