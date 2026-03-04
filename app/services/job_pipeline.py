@@ -1,10 +1,4 @@
 import json
-
-def _json_default(obj):
-    if hasattr(obj, "isoformat"):
-        return obj.isoformat()
-    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
-
 import logging
 import time
 import uuid
@@ -55,7 +49,7 @@ async def _update_job_context(conn, job_id: str, updates: Dict[str, Any]) -> Dic
     current.update(updates)
     await conn.execute(
         "UPDATE jobs SET context=$1, updated_at=now() WHERE id=$2",
-        json.dumps(current, default=_json_default),
+        json.dumps(current),
         job_id,
     )
     return current
