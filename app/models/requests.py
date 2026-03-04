@@ -13,6 +13,10 @@ class SubmitAnswersRequest(BaseModel):
     answers: Dict[str, str]
 
 
+class ChatMessageRequest(BaseModel):
+    message: str
+
+
 class FeedbackRequest(BaseModel):
     feedback: str
 

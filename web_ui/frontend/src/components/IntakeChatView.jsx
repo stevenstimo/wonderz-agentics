@@ -2,9 +2,9 @@ import React, { useState } from 'react';
 import { apiUrl } from '../apiClient';
 
 /**
- * IntakeChatView: Handles the intake conversation between user and CEO Agent.
- * Displays clarification questions and collects user answers.
- * Answers are keyed by question_id for PATCH /api/jobs/{job_id}/answer.
+ * IntakeChatView: Legacy/fallback form for intake Q&A (PATCH /answer).
+ * JobDetail now uses the chat UI with POST /api/jobs/{id}/chat and chat_history.
+ * Kept for potential rollback or other references.
  */
 export function IntakeChatView({ jobId, clarifications, onAnswersSubmitted }) {
   const [answers, setAnswers] = useState({});

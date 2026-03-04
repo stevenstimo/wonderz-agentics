@@ -151,6 +151,8 @@ async def run_intake_inline(job_id: str, job_post: str):
 
     try:
         brief = intake.analyze_job_post(job_post)
+        ceo_message = (brief.message or "").strip()
+        chat_history = [{"role": "ceo", "content": ceo_message}]
         async with pool.acquire() as conn:
             await _update_job_context(
                 conn,
@@ -158,6 +160,8 @@ async def run_intake_inline(job_id: str, job_post: str):
                 {
                     "brief": brief.model_dump(),
                     "previous_answers": {},
+                    "ceo_message": ceo_message,
+                    "chat_history": chat_history,
                 },
             )
 
@@ -189,12 +193,16 @@ async def run_intake_inline(job_id: str, job_post: str):
         logger.error("run_intake_inline failed for job %s: %s", job_id, exc, exc_info=True)
 
 
-async def run_intake_answers_inline(job_id: str, answers: dict):
+async def run_intake_answers_inline(
+    job_id: str,
+    answers: Optional[dict] = None,
+    user_message: Optional[str] = None,
+):
     """
-    1. Load existing job context from jobs table
-    2. Call IntakeEngine.analyze_job_post(job_post, previous_answers=answers)
-    3. Same logic as above: if complete → StrategyRoom → PLAN_PROPOSED
-       If not complete → store new clarifications → stay INTAKE_CLARIFICATION
+    1. Load job and context (chat_history, previous_answers).
+    2. If user_message: append user turn to chat_history, call IntakeEngine with chat_history.
+       If answers: merge into previous_answers, optionally append one user turn to chat_history, call with previous_answers.
+    3. Append CEO reply to chat_history; persist context. If complete → StrategyRoom → PLAN_PROPOSED; else stay INTAKE_CLARIFICATION.
     """
     pool = await _get_pool()
     if not pool:
@@ -207,19 +215,35 @@ async def run_intake_answers_inline(job_id: str, answers: dict):
         async with pool.acquire() as conn:
             job = await _load_job(conn, job_id)
             context = _coerce_context(job.get("context"))
+            chat_history = list(context.get("chat_history") or [])
             previous_answers = context.get("previous_answers") or {}
-            merged_answers = {**previous_answers, **(answers or {})}
             job_post = job.get("job_post") or context.get("job_post") or ""
 
-            brief = intake.analyze_job_post(job_post, previous_answers=merged_answers)
-            await _update_job_context(
-                conn,
-                job_id,
-                {
-                    "brief": brief.model_dump(),
-                    "previous_answers": merged_answers,
-                },
-            )
+            if user_message is not None:
+                chat_history.append({"role": "user", "content": user_message})
+                brief = intake.analyze_job_post(job_post, chat_history=chat_history)
+            else:
+                merged_answers = {**previous_answers, **(answers or {})}
+                # Optionally append one user turn for consistency (e.g. concatenate answers)
+                if merged_answers != previous_answers:
+                    combined = " ".join(f"{k}: {v}" for k, v in merged_answers.items() if v)
+                    if combined:
+                        chat_history.append({"role": "user", "content": combined})
+                brief = intake.analyze_job_post(job_post, previous_answers=merged_answers)
+                previous_answers = merged_answers
+
+            ceo_message = brief.message or ""
+            chat_history.append({"role": "ceo", "content": ceo_message})
+
+            updates = {
+                "brief": brief.model_dump(),
+                "ceo_message": ceo_message,
+                "chat_history": chat_history,
+            }
+            if user_message is None:
+                updates["previous_answers"] = previous_answers
+
+            await _update_job_context(conn, job_id, updates)
 
             if not brief.is_complete:
                 round_number = await _next_clarification_round(conn, job_id)
@@ -237,9 +261,7 @@ async def run_intake_answers_inline(job_id: str, answers: dict):
             await _update_job_context(
                 conn,
                 job_id,
-                {
-                    "plan": plan.model_dump(),
-                },
+                {"plan": plan.model_dump()},
             )
             await conn.execute(
                 "UPDATE jobs SET status=$1, updated_at=now() WHERE id=$2",

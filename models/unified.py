@@ -30,7 +30,8 @@ class StrategicBrief(BaseModel):
     job_post: str
     is_complete: bool
     clarifications: List[ClarificationQuestion] = []
-    context: Dict[str, str] = Field(default_factory=dict)  # KPI, platform, target_audience, etc.
+    context: Dict[str, Any] = Field(default_factory=dict)  # objective, language, tone, focus, etc.
+    message: Optional[str] = None  # CEO conversational reply for chat UI
 
 
 # ============ Strategy/Planning Models ============

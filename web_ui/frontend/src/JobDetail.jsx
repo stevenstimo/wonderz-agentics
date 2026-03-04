@@ -1,8 +1,7 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import PageLayout from './PageLayout'
 import { apiUrl } from './apiClient'
-import { IntakeChatView } from './components/IntakeChatView'
 
 const STATUS_BADGE = {
   INTAKE_CLARIFICATION: 'bg-amber-100 text-amber-800',
@@ -35,6 +34,9 @@ export default function JobDetail() {
   const [submittingRequest, setSubmittingRequest] = useState(false)
   const [approvingPlan, setApprovingPlan] = useState(false)
   const [approvingDeploy, setApprovingDeploy] = useState(false)
+  const [chatInput, setChatInput] = useState('')
+  const [sendingChat, setSendingChat] = useState(false)
+  const chatEndRef = useRef(null)
 
   const fetchJob = useCallback(async () => {
     if (!jobId) return
@@ -143,7 +145,38 @@ export default function JobDetail() {
   const context = typeof job.context === 'string' ? (() => { try { return JSON.parse(job.context); } catch { return {}; } })() : (job.context || {})
   const plan = context.plan || {}
   const planSteps = plan.steps || []
-  const unansweredClarifications = clarifications.filter((c) => !c.user_answer && c.answered_at == null)
+  const chatHistory = Array.isArray(context.chat_history) ? context.chat_history : []
+
+  const scrollChatToBottom = () => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }
+  useEffect(() => {
+    if (job.status === 'INTAKE_CLARIFICATION' && chatHistory.length) scrollChatToBottom()
+  }, [job.status, chatHistory.length])
+
+  const handleSendChat = async (e) => {
+    e?.preventDefault()
+    const msg = chatInput.trim()
+    if (!msg || sendingChat) return
+    setSendingChat(true)
+    setChatInput('')
+    try {
+      const res = await fetch(apiUrl(`/api/jobs/${jobId}/chat`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: msg })
+      })
+      if (!res.ok) throw new Error('Failed to send message')
+      await fetchJob()
+      [2000, 4500, 7000].forEach((ms, i) => {
+        setTimeout(() => fetchJob(), ms)
+      })
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setSendingChat(false)
+    }
+  }
 
   return (
     <PageLayout size="wide" padded className="space-y-6">
@@ -168,14 +201,55 @@ export default function JobDetail() {
 
       {error && <div className="panel-card text-red-500">{error}</div>}
 
-      {/* INTAKE_CLARIFICATION: unanswered clarifications → IntakeChatView */}
-      {job.status === 'INTAKE_CLARIFICATION' && unansweredClarifications.length > 0 && (
-        <div className="panel-card">
-          <IntakeChatView
-            jobId={jobId}
-            clarifications={unansweredClarifications}
-            onAnswersSubmitted={fetchJob}
-          />
+      {/* INTAKE_CLARIFICATION: chat UI with chat_history */}
+      {job.status === 'INTAKE_CLARIFICATION' && (
+        <div className="panel-card flex flex-col rounded-xl border border-slate-200 overflow-hidden max-h-[32rem]">
+          <h3 className="text-lg font-semibold text-slate-900 mb-3 px-1">Clarify your request</h3>
+          <div className="flex-1 overflow-y-auto space-y-4 min-h-[10rem] px-1 pb-2 transition-all">
+            {chatHistory.length === 0 ? (
+              <p className="text-slate-500 text-sm">CEO is thinking…</p>
+            ) : (
+              chatHistory.map((msg, i) => (
+                <div
+                  key={i}
+                  className={`flex gap-2 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                >
+                  {msg.role === 'ceo' && (
+                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-600 text-xs font-semibold">
+                      W
+                    </div>
+                  )}
+                  <div
+                    className={`max-w-[80%] px-4 py-2.5 rounded-2xl transition-all ${
+                      msg.role === 'ceo'
+                        ? 'bg-slate-100 text-slate-800 rounded-tl-none'
+                        : 'bg-indigo-600 text-white rounded-tr-none'
+                    }`}
+                  >
+                    <p className="text-sm whitespace-pre-wrap">{msg.content || ''}</p>
+                  </div>
+                </div>
+              ))
+            )}
+            <div ref={chatEndRef} />
+          </div>
+          <form onSubmit={handleSendChat} className="sticky bottom-0 flex gap-2 w-full p-3 bg-white border-t border-slate-200">
+            <input
+              type="text"
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              placeholder="Type your message..."
+              className="flex-1 px-4 py-2.5 border border-slate-300 rounded-xl text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              disabled={sendingChat}
+            />
+            <button
+              type="submit"
+              disabled={sendingChat || !chatInput.trim()}
+              className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+            >
+              {sendingChat ? 'Sending…' : 'Send'}
+            </button>
+          </form>
         </div>
       )}
 

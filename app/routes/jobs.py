@@ -33,6 +33,7 @@ from app.services.job_pipeline import (
 from app.models.requests import (
     CreateJobRequest,
     SubmitAnswersRequest,
+    ChatMessageRequest,
     FeedbackRequest,
     ApprovePlanRequest,
     ApproveJobRequest,
@@ -156,6 +157,37 @@ async def create_job(req: CreateJobRequest, background_tasks: BackgroundTasks):
         status=JobStatus.INTAKE_CLARIFICATION.value,
         message="Job created. Intake analysis queued."
     )
+
+
+@router.post("/{job_id}/chat")
+async def send_chat_message(
+    job_id: str,
+    req: ChatMessageRequest,
+    background_tasks: BackgroundTasks,
+):
+    """
+    Send a chat message to the CEO agent for this job.
+    Job must be in INTAKE_CLARIFICATION. Stores message in chat_history and re-runs intake.
+    """
+    job_id = _validate_job_id(job_id)
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        job = await conn.fetchrow("SELECT id, status FROM jobs WHERE id=$1", job_id)
+        if not job:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+        if job["status"] != JobStatus.INTAKE_CLARIFICATION.value:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Job is not in INTAKE_CLARIFICATION status",
+            )
+    background_tasks.add_task(run_intake_answers_inline, job_id, None, req.message.strip())
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT status FROM jobs WHERE id=$1", job_id)
+    return {
+        "job_id": job_id,
+        "status": row["status"] if row else JobStatus.INTAKE_CLARIFICATION.value,
+        "message": "Message sent. Re-analyzing...",
+    }
 
 
 @router.patch("/{job_id}/answer")
