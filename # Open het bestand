@@ -1,0 +1,126 @@
+"""
+Product Owner Agent
+Vertaalt vage gebruikersvragen naar technische requirements
+"""
+
+from anthropic import Anthropic
+from config import AGENT_CONFIG
+
+SYSTEM_PROMPT = """Je bent een ervaren Product Owner die gebruikerswensen vertaalt naar heldere technische requirements.
+
+Je rol:
+- Luister naar vage ideeën en stel verduidelijkende vragen
+- Identificeer de kern van wat de gebruiker wil bereiken
+- Vertaal dit naar concrete, technische specificaties
+- Denk na over edge cases en potentiële problemen
+- Maak duidelijke acceptatiecriteria
+
+Je output moet bevatten:
+1. **Project Overzicht**: Wat wordt er gebouwd en waarom?
+2. **Functionele Requirements**: Wat moet het systeem kunnen?
+3. **Technische Requirements**: Welke technologieën, architectuur?
+4. **Acceptatiecriteria**: Wanneer is het af?
+5. **Out of Scope**: Wat doen we expliciet NIET?
+
+Wees specifiek, concreet en technisch. Denk als een developer die deze specs moet implementeren.
+"""
+
+
+class ProductOwnerAgent:
+    def __init__(self, api_key: str):
+        self.client = Anthropic(api_key=api_key)
+        self.config = AGENT_CONFIG["product_owner"]
+    
+    def analyze(self, user_input: str, context: dict = None) -> dict:
+        """
+        Analyseer user input en genereer requirements
+        
+        Args:
+            user_input: De project beschrijving van de gebruiker
+            context: Optionele extra context
+            
+        Returns:
+            dict met requirements en metadata
+        """
+        messages = [
+            {
+                "role": "user",
+                "content": f"""Analyseer het volgende project idee en maak gedetailleerde requirements:
+
+PROJECT IDEE:
+{user_input}
+
+f"EXTRA CONTEXT:\n{context.get('extra_info', '')}" if context and context.get
+
+extra_info = ""
+        if context and context.get('extra_info'):
+            extra_info = f"\n\nEXTRA CONTEXT:\n{context.get('extra_info', '')}"
+        
+        messages = [
+            {
+                "role": "user",
+                "content": f"""Analyseer het volgende project idee en maak gedetailleerde requirements:
+
+PROJECT IDEE:
+{user_input}
+{extra_info}
+
+Maak een complete technische specificatie die een developer kan gebruiken om dit te bouwen.
+"""
+            }
+       
+Maak een complete technische specificatie die een developer kan gebruiken om dit te bouwen.
+"""
+            }
+        ]
+        
+        response = self.client.messages.create(
+            model=self.config["model"],
+            max_tokens=self.config["max_tokens"],
+            temperature=self.config["temperature"],
+            system=SYSTEM_PROMPT,
+            messages=messages
+        )
+        
+        requirements_text = response.content[0].text
+        
+        return {
+            "agent": "ProductOwner",
+            "requirements": requirements_text,
+            "input_tokens": response.usage.input_tokens,
+            "output_tokens": response.usage.output_tokens,
+        }
+    
+    def refine(self, requirements: str, feedback: str) -> dict:
+        """
+        Verfijn requirements op basis van feedback
+        """
+        messages = [
+            {
+                "role": "user",
+                "content": f"""Hier zijn de huidige requirements:
+
+{requirements}
+
+FEEDBACK:
+{feedback}
+
+Update de requirements op basis van deze feedback.
+"""
+            }
+        ]
+        
+        response = self.client.messages.create(
+            model=self.config["model"],
+            max_tokens=self.config["max_tokens"],
+            temperature=self.config["temperature"],
+            system=SYSTEM_PROMPT,
+            messages=messages
+        )
+        
+        return {
+            "agent": "ProductOwner",
+            "requirements": response.content[0].text,
+            "input_tokens": response.usage.input_tokens,
+            "output_tokens": response.usage.output_tokens,
+        }

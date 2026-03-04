@@ -1,0 +1,82 @@
+# GitHub Actions workflow for fullstack preview (FastAPI + Vite)
+# - Backend: FastAPI (uvicorn) on port 8022
+# - Frontend: Vite (React) on port 3000
+# - Uses GitHub Codespaces or deploys to a preview environment
+
+name: Fullstack Preview
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-preview:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: testdb
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/testdb
+      PYTHONUNBUFFERED: 1
+      PORT: 8022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      - name: Install backend dependencies
+        run: |
+          cd web_ui/backend
+          python -m venv .venv
+          source .venv/bin/activate
+          pip install --upgrade pip
+          pip install -r requirements.txt || pip install fastapi uvicorn asyncpg
+      - name: Install frontend dependencies
+        run: |
+          cd web_ui/frontend
+          npm install
+      - name: Frontend checks
+        run: |
+          cd web_ui/frontend
+          npm run check:layout-shell
+          npm run build
+      - name: Start backend
+        run: |
+          cd web_ui/backend
+          source .venv/bin/activate
+          nohup uvicorn api_main:app --host 0.0.0.0 --port 8022 &
+          sleep 5
+      - name: Start frontend
+        run: |
+          cd web_ui/frontend
+          nohup npm run dev -- --host --port 3000 &
+          sleep 5
+      - name: Healthcheck backend
+        run: |
+          curl -f http://localhost:8022/api/crew
+      - name: Healthcheck frontend
+        run: |
+          curl -f http://localhost:3000
+      # Optionally: upload preview artifact or print URLs
+      - name: Print preview URLs
+        run: |
+          echo "Backend: http://localhost:8022/api/crew"
+          echo "Frontend: http://localhost:3000"

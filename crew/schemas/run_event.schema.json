@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Crew Runtime Run Event",
+  "type": "object",
+  "required": ["run_id", "type", "ts"],
+  "properties": {
+    "run_id": { "type": "string" },
+    "type": { "type": "string" },
+    "ts": { "type": "string", "format": "date-time" },
+    "agent_id": { "type": "string" },
+    "intent": { "type": "string" },
+    "input": { "type": "string" },
+    "decision": { "type": "object" },
+    "evaluation": { "type": "object" },
+    "summary": { "type": "object" },
+    "failure": { "type": "object" },
+    "error": { "type": "string" },
+    "state": { "type": "string" },
+    "retry_count": { "type": "integer", "minimum": 0 }
+  },
+  "additionalProperties": true
+}

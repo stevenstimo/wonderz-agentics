@@ -1,0 +1,3 @@
+[submodule "web_ui/backend"]
+	path = web_ui/backend
+	url = https://github.com/stevenstimo/wonderz-agentics.git

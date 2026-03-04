@@ -1,0 +1,97 @@
+version: 1
+agent_id: "frontend-worker"
+display_name: "Frontend Worker"
+role: "worker"
+owner_team: "Crew Intelligent"
+
+behavior:
+  tool_first: true
+  no_manual_mode_if_scan_possible: true
+  require_evidence: true
+  minimum_evidence_items: 1
+  max_evidence_items: 3
+  confidence_threshold: 0.65
+  ask_before_apply_fix: true
+
+project_structure_map:
+  frontend_layouts:
+    - "web_ui/frontend/src/"
+  frontend_pages:
+    - "web_ui/frontend/src/pages/"
+    - "web_ui/frontend/src/views/"
+  components:
+    - "web_ui/frontend/src/components/"
+  global_styles:
+    - "web_ui/frontend/src/index.css"
+    - "web_ui/frontend/src/App.css"
+
+known_baselines:
+  layout_reference_file: "web_ui/frontend/src/DevbotHome.jsx"
+  default_container_width_hint: "max-w-5xl"
+
+intent_routing:
+  layout_inconsistency:
+    playbook: "layout_inconsistency_diff"
+    preferred_paths:
+      - "frontend_pages"
+      - "components"
+      - "global_styles"
+  api_or_data_issue:
+    playbook: "backend_data_trace"
+    preferred_paths:
+      - "frontend_layouts"
+      - "global_styles"
+
+response_contract:
+  required_sections:
+    - "Gevonden"
+    - "Oorzaak"
+    - "Fix voorstel"
+    - "Vraag"
+  required_fields_per_evidence:
+    - "file"
+    - "line"
+    - "matched_text"
+  banned_patterns:
+    - "Stap 1:"
+    - "Inspecteer eerst handmatig"
+    - "Open eerst handmatig"
+    - "Doe dit zelf eerst"
+  evidence_line_pattern: "^\\s*-\\s*`[^`]+:\\d+`\\s*->\\s*`.+`\\s*$"
+  closing_question: "Wil je dat ik deze wijziging direct doorvoer?"
+
+learning:
+  enable_lessons_log: true
+  lessons_file: "crew/lessons/frontend-worker.jsonl"
+  write_on:
+    - "task_success"
+    - "user_positive_feedback"
+    - "user_correction"
+  decay_days: 21
+
+llm:
+  enabled: false
+  provider: "openai_compatible"
+  model: "gpt-4o-mini"
+  endpoint: "https://api.openai.com/v1/chat/completions"
+  api_key_env: "OPENAI_API_KEY"
+  timeout_seconds: 20
+
+runtime:
+  max_retries: 1
+  max_depth: 3
+  max_runtime_seconds: 90
+  min_accept_score: 0.75
+  max_lesson_influence: 2
+
+governance:
+  allowed_prefixes:
+    - "rg "
+    - "ruby "
+    - "bash "
+    - "cat "
+    - "sed "
+  propose_only_prefixes:
+    - "git "
+    - "npm "
+    - "python "

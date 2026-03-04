@@ -1,0 +1,13 @@
+sqlalchemy>=2.0.0
+uvicorn
+fastapi
+anthropic
+aiohttp
+asyncpg
+pydantic
+python-dotenv
+psycopg2-binary
+gunicorn
+
+requests
+alembic>=1.13.0

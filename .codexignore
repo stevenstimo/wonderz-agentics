@@ -1,0 +1,24 @@
+# Ignore almost everything — Codex gets context via the prompt
+*
+
+# Only allow core source files Codex typically needs to edit
+!app/
+!app/**/*.py
+!agents/
+!agents/**/*.py
+!workers/
+!workers/**/*.py
+!codex-web/server.py
+!web_ui/frontend/src/
+!web_ui/frontend/src/**/*.jsx
+!web_ui/frontend/src/**/*.js
+!web_ui/frontend/src/**/*.css
+!requirements.txt
+!.codexignore
+
+# Still exclude heavy stuff inside allowed dirs
+__pycache__/
+*.pyc
+node_modules/
+.git
+.git
