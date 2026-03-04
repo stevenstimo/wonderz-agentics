@@ -68,7 +68,7 @@ export function IntakeChatView({ jobId, clarifications, onAnswersSubmitted }) {
               {idx + 1}. {q.question}
             </label>
             <textarea
-              value={answers[q.question_id] || ''}
+              value={answers[q.question_id] || "Not specified" || ''}
               onChange={(e) => handleAnswerChange(q.question_id, e.target.value)}
               placeholder="Your answer..."
               className="p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
