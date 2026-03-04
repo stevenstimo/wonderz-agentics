@@ -14,7 +14,7 @@
 ```bash
 # Visit: https://vercel.com/new
 # Select GitHub repository: stevenstimo/wonderz-agentics
-# Root directory: web-ui/frontend
+# Root directory: web_ui/frontend
 # Build command: npm run build
 # Output directory: dist
 ```
@@ -43,7 +43,7 @@ npm install -g vercel
 vercel --prod
 
 # Deploy frontend only
-cd web-ui/frontend
+cd web_ui/frontend
 vercel --prod
 ```
 
