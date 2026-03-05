@@ -29,6 +29,7 @@ from app.services.job_pipeline import (
     run_intake_inline,
     run_intake_answers_inline,
     run_job_inline,
+    _update_job_context,
 )
 from app.models.requests import (
     CreateJobRequest,
@@ -608,16 +609,14 @@ async def approve_and_deploy(
             logger.info(f"Deploying artifacts for job {job_id}")
             deploy_result = await deployment_service.deploy_job(conn, job_id)
             
-            # Update job status to COMPLETED
+            # Update job status to COMPLETED (status only; context may be text, so avoid jsonb_set)
             await conn.execute(
-                """
-                UPDATE jobs SET status=$1, context=jsonb_set(context, '{deployment}', to_jsonb($2::jsonb)), updated_at=now()
-                WHERE id=$3
-                """,
+                "UPDATE jobs SET status=$1, updated_at=now() WHERE id=$2",
                 JobStatus.COMPLETED.value,
-                json.dumps(deploy_result),
-                job_id
+                job_id,
             )
+            # Store deployment result in context via helper (handles context as dict/string and json serialization)
+            await _update_job_context(conn, job_id, {"deployment": deploy_result})
         
         logger.info(f"Job {job_id} approved and deployed successfully")
         
