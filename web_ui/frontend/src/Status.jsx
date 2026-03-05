@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useCallback } from 'react'
 import { Activity, CheckCircle2, AlertTriangle, Bot, Settings as SettingsIcon, RefreshCw } from 'lucide-react'
-import PageLayout from './PageLayout';
+import PageLayout from './PageLayout'
+import { apiUrl } from './apiClient'
 
 function StatusRow({ label, ok, detail }) {
   return (
@@ -34,12 +35,12 @@ export default function Status() {
   const [loadError, setLoadError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true)
     setLoadError('')
     try {
       const summaryStart = performance.now()
-      const summaryRes = await fetch('/api/status/summary')
+      const summaryRes = await fetch(apiUrl('/api/status/summary'))
       const summaryElapsed = Math.round(performance.now() - summaryStart)
       setHealthLatencyMs(summaryElapsed)
 
@@ -85,15 +86,13 @@ export default function Status() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
   useEffect(() => {
     load()
-    const timer = setInterval(() => {
-      load()
-    }, 30_000)
+    const timer = setInterval(load, 30_000)
     return () => clearInterval(timer)
-  }, [])
+  }, [load])
 
   return (
     <PageLayout size="medium" padded className="space-y-6">

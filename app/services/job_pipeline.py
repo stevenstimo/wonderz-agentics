@@ -1,8 +1,9 @@
 import json
 import logging
+import os
 import time
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from app.db import init_db_pool
 from app.orchestration.intake_engine import IntakeEngine
@@ -10,6 +11,9 @@ from app.orchestration.strategy_room import StrategyRoom
 from models.unified import JobStatus, ExecutionPlan
 
 logger = logging.getLogger(__name__)
+
+# Model for pipeline agent calls (copywriter, reviewer)
+CLAUDE_MODEL = "claude-sonnet-4-5-20250929"
 
 
 def _json_default(obj: Any) -> Any:
@@ -96,6 +100,129 @@ async def _fetch_available_agents(conn) -> List[str]:
     except Exception as exc:
         logger.warning("Failed to load available agents: %s", exc)
         return []
+
+
+def _brief_ctx(context: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract objective, language, tone, focus, word_count from job context.brief."""
+    brief = context.get("brief") if isinstance(context.get("brief"), dict) else {}
+    ctx = brief.get("context") if isinstance(brief.get("context"), dict) else {}
+    return {
+        "objective": ctx.get("objective") or brief.get("objective") or context.get("objective") or "",
+        "language": ctx.get("language") or brief.get("language") or context.get("language") or "English",
+        "tone": ctx.get("tone") or brief.get("tone") or context.get("tone") or "informative",
+        "focus": ctx.get("focus") or brief.get("focus") or context.get("focus") or "general",
+        "word_count": ctx.get("word_count") or brief.get("word_count") or context.get("word_count") or 400,
+    }
+
+
+def _run_step_agent(
+    agent_role: str,
+    step_name: str,
+    context: Dict[str, Any],
+    previous_content: Optional[str],
+) -> Tuple[Dict[str, Any], int]:
+    """
+    Run one pipeline step: copywriter (Claude), reviewer (Claude), image_generator (placeholder), or generic Claude.
+    Returns (output_dict, tokens_used).
+    """
+    role_lower = (agent_role or "").lower()
+    step_desc = step_name or agent_role or "step"
+    api_key = (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
+    if not api_key:
+        logger.warning("ANTHROPIC_API_KEY not set; using placeholder for step %s", step_desc)
+        return (
+            {"status": "placeholder", "content": f"[Placeholder – {step_desc}. No API key.]", "agent_role": agent_role},
+            0,
+        )
+
+    try:
+        from anthropic import Anthropic
+        client = Anthropic()
+    except Exception as e:
+        logger.warning("Anthropic client init failed: %s; using placeholder", e)
+        return (
+            {"status": "placeholder", "content": f"[Placeholder – {step_desc}. {e}]", "agent_role": agent_role},
+            0,
+        )
+
+    brief_ctx = _brief_ctx(context)
+    objective = brief_ctx.get("objective") or "content"
+    language = str(brief_ctx.get("language") or "English")
+    tone = str(brief_ctx.get("tone") or "informative")
+    focus = str(brief_ctx.get("focus") or "general")
+    word_count = brief_ctx.get("word_count")
+    if word_count is None:
+        word_count = 400
+    try:
+        word_count = int(word_count)
+    except (TypeError, ValueError):
+        word_count = 400
+
+    # Copywriter: write main content
+    if role_lower in ("copywriter", "copy writer"):
+        system = f"You are a professional copywriter. Write in {language}. Tone: {tone}. Focus: {focus}. Output only the requested content, no meta-commentary."
+        user = f"Write a {word_count}-word article about: {objective}"
+        try:
+            response = client.messages.create(
+                model=CLAUDE_MODEL,
+                max_tokens=4000,
+                system=system,
+                messages=[{"role": "user", "content": user}],
+            )
+            text = (response.content[0].text if response.content else "").strip()
+            tokens = (response.usage.input_tokens or 0) + (response.usage.output_tokens or 0)
+            return ({"status": "completed", "content": text, "agent_role": agent_role, "step_name": step_desc}, tokens)
+        except Exception as e:
+            logger.exception("Copywriter step failed: %s", e)
+            return ({"status": "failed", "content": "", "error": str(e), "agent_role": agent_role}, 0)
+
+    # Reviewer: review previous content
+    if role_lower in ("reviewer", "review"):
+        if not previous_content:
+            return ({"status": "skipped", "review": "No content to review.", "approved": True, "agent_role": agent_role}, 0)
+        system = "You are a content reviewer. Check quality, grammar, and tone consistency. Reply in the same language as the content. Keep the reply concise. End with APPROVED or CHANGES NEEDED."
+        user = f"Review this content:\n\n{previous_content[:12000]}"
+        try:
+            response = client.messages.create(
+                model=CLAUDE_MODEL,
+                max_tokens=2000,
+                system=system,
+                messages=[{"role": "user", "content": user}],
+            )
+            review_text = (response.content[0].text if response.content else "").strip()
+            approved = "approved" in review_text.lower() or "changes needed" not in review_text.lower()
+            tokens = (response.usage.input_tokens or 0) + (response.usage.output_tokens or 0)
+            return (
+                {"status": "completed", "review": review_text, "approved": approved, "agent_role": agent_role, "content": previous_content},
+                tokens,
+            )
+        except Exception as e:
+            logger.exception("Reviewer step failed: %s", e)
+            return ({"status": "failed", "review": str(e), "approved": False, "agent_role": agent_role}, 0)
+
+    # Image generator: placeholder
+    if role_lower in ("image_generator", "image generator", "imagegenerator"):
+        return (
+            {"image_status": "placeholder", "note": "Image generation coming soon", "agent_role": agent_role},
+            0,
+        )
+
+    # Generic: one Claude call
+    system = f"You are a helpful assistant. Write in {language}. Tone: {tone}."
+    user = f"Task: {step_desc}. Context: {objective}. Produce the requested output (no meta-commentary)."
+    try:
+        response = client.messages.create(
+            model=CLAUDE_MODEL,
+            max_tokens=4000,
+            system=system,
+            messages=[{"role": "user", "content": user}],
+        )
+        text = (response.content[0].text if response.content else "").strip()
+        tokens = (response.usage.input_tokens or 0) + (response.usage.output_tokens or 0)
+        return ({"status": "completed", "content": text, "agent_role": agent_role, "step_name": step_desc}, tokens)
+    except Exception as e:
+        logger.exception("Generic step failed: %s", e)
+        return ({"status": "failed", "content": f"[Error: {e}]", "agent_role": agent_role}, 0)
 
 
 async def _insert_plan_steps(conn, job_id: str, plan: ExecutionPlan):
@@ -267,14 +394,19 @@ async def run_job_inline(job_id: str, context: dict):
     if not pool:
         return
 
+    steps_completed = False
     try:
         async with pool.acquire() as conn:
             steps = await conn.fetch(
                 "SELECT id, step_index, step_name, agent_role, unified_tool FROM job_steps WHERE job_id=$1 ORDER BY step_index",
                 job_id,
             )
+            num_steps = len(steps)
+            logger.info("run_job_inline: job %s with %s steps", job_id, num_steps)
 
-            for step in steps:
+            last_content: Optional[str] = None
+            previous_content: Optional[str] = None
+            for idx, step in enumerate(steps):
                 step_id = step["id"]
                 await conn.execute(
                     "UPDATE job_steps SET status='running', started_at=now() WHERE id=$1",
@@ -288,15 +420,26 @@ async def run_job_inline(job_id: str, context: dict):
                     job_id,
                     step.get("agent_role"),
                 )
-                output = {
-                    "status": "placeholder",
-                    "step_name": step.get("step_name"),
-                    "agent_role": step.get("agent_role"),
-                    "unified_tool": step.get("unified_tool"),
-                    "context": context or {},
-                }
+                step_name = step.get("step_name") or step.get("agent_role") or "step"
+                agent_role = step.get("agent_role") or ""
+
+                output, tokens_used = _run_step_agent(
+                    agent_role=agent_role,
+                    step_name=step_name,
+                    context=context or {},
+                    previous_content=previous_content,
+                )
+                output["step_name"] = step.get("step_name")
+                output["agent_role"] = step.get("agent_role")
+                output["unified_tool"] = step.get("unified_tool")
+
+                if output.get("content"):
+                    last_content = output["content"]
+                    previous_content = output["content"]
+                elif output.get("review") and previous_content:
+                    last_content = previous_content
+
                 timing_ms = int((time.monotonic() - started) * 1000)
-                tokens_used = 0
 
                 await conn.execute(
                     """
@@ -315,11 +458,45 @@ async def run_job_inline(job_id: str, context: dict):
                     tokens_used,
                     job_id,
                 )
+                logger.info("run_job_inline: job %s step %s of %s done", job_id, idx + 1, num_steps)
 
+            steps_completed = True
+            # Persist final_content first, then transition to JOB_READY
+            if last_content:
+                await _update_job_context(conn, job_id, {"final_content": last_content})
+                logger.info("Job %s final_content persisted", job_id)
+            logger.info("Setting job %s to JOB_READY", job_id)
             await conn.execute(
                 "UPDATE jobs SET status=$1, updated_at=now() WHERE id=$2",
                 JobStatus.JOB_READY.value,
                 job_id,
             )
+            logger.info("Job %s set to JOB_READY", job_id)
+
+        # Explicit second update in a fresh connection so status transition is committed even if the block above had issues
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE jobs SET status=$1, updated_at=now() WHERE id=$2",
+                "JOB_READY",
+                job_id,
+            )
+        logger.info("Job %s status confirmed JOB_READY (second update)", job_id)
     except Exception as exc:
-        logger.error("run_job_inline failed for job %s: %s", job_id, exc, exc_info=True)
+        logger.error(
+            "run_job_inline failed for job %s: %s: %s",
+            job_id,
+            type(exc).__name__,
+            exc,
+            exc_info=True,
+        )
+        if steps_completed:
+            try:
+                async with pool.acquire() as conn_recovery:
+                    await conn_recovery.execute(
+                        "UPDATE jobs SET status=$1, updated_at=now() WHERE id=$2",
+                        JobStatus.JOB_READY.value,
+                        job_id,
+                    )
+                logger.info("Job %s set to JOB_READY in recovery", job_id)
+            except Exception as final_exc:
+                logger.warning("Failed to set JOB_READY in recovery for job %s: %s", job_id, final_exc)

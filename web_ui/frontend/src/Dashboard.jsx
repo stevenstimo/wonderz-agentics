@@ -563,9 +563,17 @@ export default function Dashboard() {
                       className="font-medium truncate"
                       style={{ color: 'var(--color-text-primary)', fontSize: 'var(--text-sm)' }}
                     >
-                      {job.context?.brief?.project_description ||
-                       job.context?.brief?.raw_idea ||
-                       job.job_type || 'Untitled'}
+                      {(() => {
+                        try {
+                          let raw = job.context;
+                          if (raw == null) return job.job_type || 'Untitled';
+                          const parsed = typeof raw === 'object' ? raw : JSON.parse(String(raw));
+                          const c = typeof parsed === 'string' ? (() => { try { return JSON.parse(parsed); } catch { return {}; } })() : (parsed || {});
+                          return c.brief?.project_description || c.brief?.raw_idea || job.job_type || 'Untitled';
+                        } catch {
+                          return job.job_type || 'Untitled';
+                        }
+                      })()}
                     </p>
                     <p style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-placeholder)' }}>
                       {new Date(job.created_at).toLocaleDateString('nl-NL', {

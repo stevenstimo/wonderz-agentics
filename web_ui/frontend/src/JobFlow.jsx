@@ -1,3 +1,7 @@
+/**
+ * Replaced by JobSplitView + NewJob. Route /jobs/new now renders NewJob (split view).
+ * This file is kept for reference; do not delete yet.
+ */
 import { useState, useRef, useEffect } from 'react'
 import { supabase } from './supabase'
 import PageLayout from './PageLayout'
@@ -187,7 +191,10 @@ export default function JobFlow() {
   const approvePlan = async () => {
     setLoading(true)
     try {
-      const r = await fetch(API + '/api/jobs/' + jobId + '/approve-plan', { method: 'POST' })
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 180000)
+      const r = await fetch(API + '/api/jobs/' + jobId + '/approve-plan', { method: 'POST', signal: controller.signal })
+      clearTimeout(timeoutId)
       if (!r.ok) throw new Error('Plan goedkeuren mislukt')
       setPhase('tracker')
       startPolling(jobId)

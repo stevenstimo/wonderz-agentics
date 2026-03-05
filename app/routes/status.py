@@ -1,5 +1,6 @@
 """Status/health summary endpoint for the Dashboard."""
 import os
+import hashlib
 import subprocess
 import asyncio
 import httpx
@@ -121,15 +122,83 @@ async def status_summary():
     }
 
     all_ok = all(c.get('ok') for c in health['checks'].values())
+    backend_ok = health['checks']['backend'].get('ok', False)
+    db_ok = health['checks']['database'].get('ok', False)
+    health_status = "ok" if (backend_ok and db_ok) else ("degraded" if db_ok else "error")
+    health["status"] = health_status
+
+    active_providers = [p for p in (['Anthropic'] if os.getenv('ANTHROPIC_API_KEY', '').strip() else []) + (['OpenAI'] if os.getenv('OPENAI_API_KEY', '').strip() else [])]
+    settings_ok = len(active_providers) > 0
+
+    dave_ok = backend_ok
+    dave_dev = {
+        "ok": dave_ok,
+        "status": "active" if dave_ok else "unknown",
+        "specialization": "Full-stack Technical Consultant & Agentic Architecture Specialist" if dave_ok else "Geen data ontvangen",
+    }
+
+    recent_commits = []
+    working_tree_top = []
+    try:
+        r = subprocess.run(
+            ["git", "log", "-5", "--oneline"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            cwd=os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+        )
+        if r.returncode == 0 and r.stdout:
+            recent_commits = [line.strip() for line in r.stdout.strip().split("\n") if line.strip()]
+    except Exception:
+        pass
+    try:
+        r = subprocess.run(
+            ["git", "status", "--short"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            cwd=os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+        )
+        if r.returncode == 0 and r.stdout:
+            working_tree_top = [line.strip() for line in r.stdout.strip().split("\n")[:8] if line.strip()]
+    except Exception:
+        pass
 
     return {
         "health": health,
         "systemd": systemd,
         "settings": {
-            "active_providers": [p for p in (['Anthropic'] if os.getenv('ANTHROPIC_API_KEY', '').strip() else []) + (['OpenAI'] if os.getenv('OPENAI_API_KEY', '').strip() else [])]
+            "ok": settings_ok,
+            "active_providers": active_providers,
+        },
+        "dave_dev": dave_dev,
+        "recent": {
+            "recent_commits": recent_commits,
+            "working_tree_top": working_tree_top,
         },
         "all_ok": all_ok,
     }
+
+@router.get("/keys")
+async def status_keys():
+    """Zichtbaar op live URL: of API-keys geladen zijn (zonder de key te tonen). Fingerprint = eerste 8 tekens van sha256 om te verifiëren dat de juiste key geladen is."""
+    anthropic_key = os.getenv('ANTHROPIC_API_KEY', '').strip()
+    openai_key = os.getenv('OPENAI_API_KEY', '').strip()
+    def _hash8(k):
+        return hashlib.sha256(k.encode()).hexdigest()[:8] if k else ""
+    return {
+        "anthropic": {
+            "loaded": bool(anthropic_key),
+            "length": len(anthropic_key) if anthropic_key else 0,
+            "fingerprint": _hash8(anthropic_key),
+        },
+        "openai": {
+            "loaded": bool(openai_key),
+            "length": len(openai_key) if openai_key else 0,
+            "fingerprint": _hash8(openai_key),
+        },
+    }
+
 
 @router.get("/api/health")
 async def health_check():

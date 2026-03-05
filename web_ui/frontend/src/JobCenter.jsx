@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import PageLayout from './PageLayout'
 import { apiUrl } from './apiClient'
@@ -48,8 +48,19 @@ const STATUS_LABEL = {
   AWAITING_APPROVAL: 'Awaiting approval',
 }
 
+function parseJobContext(context) {
+  if (context == null) return {}
+  if (typeof context === 'object') return context
+  try {
+    const parsed = JSON.parse(String(context))
+    return typeof parsed === 'string' ? (() => { try { return JSON.parse(parsed); } catch { return {}; } })() : (parsed || {})
+  } catch {
+    return {}
+  }
+}
+
 function getCeoPreview(job) {
-  const ctx = typeof job?.context === 'string' ? (() => { try { return JSON.parse(job.context || '{}'); } catch { return {}; } })() : (job?.context || {})
+  const ctx = parseJobContext(job?.context)
   const msg = (typeof ctx.ceo_message === 'string' ? ctx.ceo_message : '') || ''
   const s = msg.slice(0, 60).trim()
   return s + (msg.length > 60 ? '…' : '')
@@ -66,13 +77,6 @@ export default function JobCenter() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [searchQuery, setSearchQuery] = useState('')
-  const [showNewJobForm, setShowNewJobForm] = useState(false)
-  const [newJobPost, setNewJobPost] = useState('')
-  const [newJobPlatform, setNewJobPlatform] = useState('custom')
-  const [creating, setCreating] = useState(false)
-  const [createError, setCreateError] = useState(null)
-  const newJobTextareaRef = useRef(null)
-
   const [crew, setCrew] = useState([])
   const [sections, setSections] = useState([])
   const [meta, setMeta] = useState(null)
@@ -98,12 +102,6 @@ export default function JobCenter() {
     const interval = setInterval(fetchJobs, 10000)
     return () => clearInterval(interval)
   }, [fetchJobs])
-
-  useEffect(() => {
-    if (showNewJobForm && newJobTextareaRef.current) {
-      newJobTextareaRef.current.focus()
-    }
-  }, [showNewJobForm])
 
   useEffect(() => {
     let active = true
@@ -148,65 +146,6 @@ export default function JobCenter() {
     return acc
   }, {})
 
-  const handleCreateJob = async (e) => {
-    e.preventDefault()
-    if (!newJobPost.trim() || newJobPost.trim().length < 10) {
-      setCreateError('Job description must be at least 10 characters')
-      return
-    }
-    setCreating(true)
-    setCreateError(null)
-    try {
-      const res = await fetch(apiUrl('/api/jobs'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          user_id: '00000000-0000-0000-0000-000000000001',
-          job_post: newJobPost.trim(),
-          source_platform: newJobPlatform || 'custom'
-        })
-      })
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
-        throw new Error(data.detail || 'Failed to create job')
-      }
-      const data = await res.json()
-      setShowNewJobForm(false)
-      setNewJobPost('')
-      setNewJobPlatform('custom')
-      navigate(`/jobs/${data.job_id}`)
-    } catch (err) {
-      setCreateError(err.message)
-    } finally {
-      setCreating(false)
-    }
-  }
-
-  useEffect(() => {
-    if (!showNewJobForm) return
-    const onKey = (e) => {
-      if (e.key === 'Escape') {
-        setShowNewJobForm(false)
-        setCreateError(null)
-        setNewJobPost('')
-        setNewJobPlatform('custom')
-      }
-      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-        e.preventDefault()
-        if (newJobPost.trim().length >= 10) handleCreateJob(e)
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [showNewJobForm, newJobPost])
-
-  const closeModal = () => {
-    setShowNewJobForm(false)
-    setCreateError(null)
-    setNewJobPost('')
-    setNewJobPlatform('custom')
-  }
-
   const updates = sections.map((s) => ({
     slug: s.slug,
     title: s.title,
@@ -226,65 +165,12 @@ export default function JobCenter() {
       <div className="panel-card">
         <button
           type="button"
-          onClick={() => setShowNewJobForm(true)}
+          onClick={() => navigate('/jobs/new')}
           className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition"
         >
           New Job
         </button>
       </div>
-
-      {/* New Job modal */}
-      {showNewJobForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/50 overflow-y-auto" onClick={closeModal}>
-          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-4 sm:p-6 space-y-4 my-auto" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold text-slate-900">New Job</h3>
-            <form onSubmit={handleCreateJob} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Job description</label>
-                <textarea
-                  ref={newJobTextareaRef}
-                  value={newJobPost}
-                  onChange={(e) => setNewJobPost(e.target.value)}
-                  placeholder="Beschrijf je opdracht... bijv: 'Schrijf een blog van 500 woorden over duurzaam wonen'"
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none text-slate-800"
-                  rows={4}
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Source platform (optional)</label>
-                <select
-                  value={newJobPlatform}
-                  onChange={(e) => setNewJobPlatform(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-slate-800"
-                >
-                  <option value="custom">Custom</option>
-                  <option value="linkedin">LinkedIn</option>
-                  <option value="upwork">Upwork</option>
-                  <option value="internal">Internal</option>
-                </select>
-              </div>
-              {createError && <div className="text-sm text-red-600">{createError}</div>}
-              <div className="flex gap-2 justify-end">
-                <button
-                  type="button"
-                  onClick={closeModal}
-                  className="px-4 py-2 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={creating || (newJobPost.trim().length < 10)}
-                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50"
-                >
-                  {creating ? 'Creating...' : 'Submit'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
 
       {/* Jobs overview */}
       <div className="panel-card">
@@ -356,7 +242,7 @@ export default function JobCenter() {
             <p className="text-slate-600 mb-4">No jobs match the filter. Create one to get started.</p>
             <button
               type="button"
-              onClick={() => setShowNewJobForm(true)}
+              onClick={() => navigate('/jobs/new')}
               className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition"
             >
               New Job

@@ -1,3 +1,7 @@
+/**
+ * Replaced by JobSplitView (Claude-style split: chat left, output right).
+ * Route /jobs/:jobId now renders JobSplitView. This file is kept for reference.
+ */
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import PageLayout from './PageLayout'
@@ -92,15 +96,32 @@ export default function JobDetail() {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(apiUrl(`/api/jobs/${jobId}`))
+      const url = apiUrl(`/api/jobs/${jobId}`)
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 15000)
+      const res = await fetch(url, { signal: controller.signal })
+      clearTimeout(timeoutId)
       if (!res.ok) {
         if (res.status === 404) throw new Error('Job not found')
-        throw new Error('Failed to load job')
+        const text = await res.text()
+        let detail = `Failed to load job (${res.status})`
+        try {
+          const j = JSON.parse(text)
+          if (j.detail) detail = typeof j.detail === 'string' ? j.detail : detail
+        } catch (_) {}
+        throw new Error(detail)
       }
-      const json = await res.json()
+      const contentType = (res.headers.get('content-type') || '').toLowerCase()
+      const text = await res.text()
+      if (!contentType.includes('application/json')) {
+        setError('Server returned non-JSON; check if /api is proxied to the backend.')
+        return
+      }
+      const json = JSON.parse(text)
       setData(json)
     } catch (err) {
-      setError(err.message)
+      if (err.name === 'AbortError') setError('Request timed out. Check your connection.')
+      else setError(err.message || 'Failed to load job')
     } finally {
       setLoading(false)
     }
@@ -127,7 +148,10 @@ export default function JobDetail() {
   const handleApprovePlan = async () => {
     setApprovingPlan(true)
     try {
-      const res = await fetch(apiUrl(`/api/jobs/${jobId}/approve-plan`), { method: 'POST' })
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 180000)
+      const res = await fetch(apiUrl(`/api/jobs/${jobId}/approve-plan`), { method: 'POST', signal: controller.signal })
+      clearTimeout(timeoutId)
       if (!res.ok) throw new Error('Failed to approve plan')
       await fetchJob()
     } catch (err) {
@@ -191,6 +215,22 @@ export default function JobDetail() {
     return (
       <PageLayout size="wide" padded>
         <div className="panel-card text-red-500">{error}</div>
+        <div className="mt-4 flex gap-2 flex-wrap">
+          <button type="button" onClick={() => { setError(null); fetchJob(); }} className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">
+            Opnieuw proberen
+          </button>
+          <button type="button" onClick={() => navigate('/job-center')} className="px-4 py-2 border border-slate-300 rounded-lg">
+            Back to Job Center
+          </button>
+        </div>
+      </PageLayout>
+    )
+  }
+
+  if (data && !data.job) {
+    return (
+      <PageLayout size="wide" padded>
+        <div className="panel-card text-amber-700">Job not found or invalid response.</div>
         <button type="button" onClick={() => navigate('/job-center')} className="mt-4 px-4 py-2 border border-slate-300 rounded-lg">
           Back to Job Center
         </button>
@@ -198,8 +238,21 @@ export default function JobDetail() {
     )
   }
 
-  const { job, clarifications = [], steps = [], artifacts = [] } = data
-  const context = typeof job.context === 'string' ? (() => { try { return JSON.parse(job.context); } catch { return {}; } })() : (job.context || {})
+  const job = data?.job
+  const clarifications = data?.clarifications ?? []
+  const steps = data?.steps ?? []
+  const artifacts = data?.artifacts ?? []
+  const context = (() => {
+    let raw = job?.context
+    if (raw == null) return {}
+    if (typeof raw === 'object') return raw
+    try {
+      const parsed = JSON.parse(String(raw))
+      return typeof parsed === 'string' ? (() => { try { return JSON.parse(parsed); } catch { return {}; } })() : (parsed || {})
+    } catch {
+      return {}
+    }
+  })()
   const plan = context.plan || {}
   const planSteps = plan.steps || []
   const chatHistory = Array.isArray(context.chat_history) ? context.chat_history : []
@@ -208,8 +261,8 @@ export default function JobDetail() {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }
   useEffect(() => {
-    if (job.status === 'INTAKE_CLARIFICATION' && chatHistory.length) scrollChatToBottom()
-  }, [job.status, chatHistory.length])
+    if (job?.status === 'INTAKE_CLARIFICATION' && chatHistory.length) scrollChatToBottom()
+  }, [job?.status, chatHistory.length])
 
   const handleSendChat = async (e) => {
     e?.preventDefault()
@@ -255,21 +308,21 @@ export default function JobDetail() {
             </button>
             <h2 className="page-title">Job</h2>
             <div className="flex items-center gap-2 mt-2">
-              <StatusBadge status={job.status} />
-              <span className="text-sm text-slate-500">{job.source_platform || '—'}</span>
+              <StatusBadge status={job?.status} />
+              <span className="text-sm text-slate-500">{job?.source_platform || '—'}</span>
             </div>
           </div>
         </div>
         <div className="mt-4">
           <p className="text-sm font-medium text-slate-600">Description</p>
-          <p className="mt-1 text-slate-800 whitespace-pre-wrap">{job.job_post || '—'}</p>
+          <p className="mt-1 text-slate-800 whitespace-pre-wrap">{job?.job_post || '—'}</p>
         </div>
       </div>
 
       {error && <div className="panel-card text-red-500">{error}</div>}
 
       {/* INTAKE_CLARIFICATION: chat UI with chat_history */}
-      {job.status === 'INTAKE_CLARIFICATION' && (
+      {job?.status === 'INTAKE_CLARIFICATION' && (
         <div className="panel-card flex flex-col rounded-xl border border-slate-200 overflow-hidden max-h-[32rem] w-full min-w-0">
           <h3 className="text-lg font-semibold text-slate-900 mb-3 px-1">Clarify your request</h3>
           <div className="flex-1 overflow-y-auto space-y-4 min-h-[10rem] px-1 pb-2 transition-all">
@@ -333,7 +386,7 @@ export default function JobDetail() {
       )}
 
       {/* PLAN_PROPOSED: chat read-only, Execution Plan card, Start Execution / Request Changes */}
-      {job.status === 'PLAN_PROPOSED' && (
+      {job?.status === 'PLAN_PROPOSED' && (
         <>
           <ChatHistoryReadOnly chatHistory={chatHistory} />
           <div className="panel-card space-y-4">
@@ -398,7 +451,7 @@ export default function JobDetail() {
       )}
 
       {/* RUNNING: chat read-only, progress bar, step cards with View Output, 5s refresh */}
-      {job.status === 'RUNNING' && (
+      {job?.status === 'RUNNING' && (
         <>
           <ChatHistoryReadOnly chatHistory={chatHistory} />
           <div className="panel-card">
@@ -434,14 +487,14 @@ export default function JobDetail() {
       )}
 
       {/* JOB_READY: chat read-only, Content Ready! banner, final_content, Approve & Request Revisions */}
-      {job.status === 'JOB_READY' && (
+      {job?.status === 'JOB_READY' && (
         <>
           <ChatHistoryReadOnly chatHistory={chatHistory} />
           <div className="panel-card space-y-4">
             <div className="rounded-lg bg-green-100 text-green-800 px-4 py-3 font-medium">Content Ready!</div>
             <div className="rounded-lg border border-slate-200 p-4 bg-white">
               <h3 className="text-sm font-medium text-slate-500 mb-2">Final content</h3>
-              <div className="text-slate-800 whitespace-pre-wrap">{context.final_content || 'No content yet.'}</div>
+              <div className="text-slate-800 whitespace-pre-wrap">{typeof context.final_content === 'string' ? context.final_content : (context.final_content != null ? JSON.stringify(context.final_content) : 'No content yet.')}</div>
             </div>
             {artifacts?.length > 0 && (
               <ul className="space-y-2">
@@ -449,7 +502,10 @@ export default function JobDetail() {
                   <li key={a.id} className="p-3 rounded-lg border border-slate-200">
                     <span className="text-sm font-medium text-slate-700">{a.artifact_type || a.name || 'Artifact'}</span>
                     <pre className="mt-2 text-xs text-slate-600 overflow-auto max-h-32 whitespace-pre-wrap">
-                      {a.proposed_data?.content ?? a.content ?? (typeof a.proposed_data === 'object' ? JSON.stringify(a.proposed_data, null, 2) : '')}
+                      {(() => {
+                        const c = a.proposed_data?.content ?? a.content
+                        return typeof c === 'string' ? c : (c != null ? JSON.stringify(c, null, 2) : (typeof a.proposed_data === 'object' ? JSON.stringify(a.proposed_data, null, 2) : ''))
+                      })()}
                     </pre>
                   </li>
                 ))}
@@ -492,14 +548,14 @@ export default function JobDetail() {
       )}
 
       {/* COMPLETED: Job Completed banner, final content, deployment info */}
-      {job.status === 'COMPLETED' && (
+      {job?.status === 'COMPLETED' && (
         <>
           <ChatHistoryReadOnly chatHistory={chatHistory} />
           <div className="panel-card space-y-4">
             <div className="rounded-lg bg-green-100 text-green-800 px-4 py-3 font-medium">Job Completed</div>
             <div className="rounded-lg border border-slate-200 p-4 bg-white">
               <h3 className="text-sm font-medium text-slate-500 mb-2">Final content</h3>
-              <div className="text-slate-800 whitespace-pre-wrap">{context.final_content || ''}</div>
+              <div className="text-slate-800 whitespace-pre-wrap">{typeof context.final_content === 'string' ? context.final_content : (context.final_content != null ? JSON.stringify(context.final_content) : '')}</div>
             </div>
             {context.deployment && (
               <div className="rounded-lg border border-slate-200 p-4 bg-slate-50">
@@ -512,11 +568,11 @@ export default function JobDetail() {
       )}
 
       {/* FAILED: error, Retry button */}
-      {job.status === 'FAILED' && (
+      {job?.status === 'FAILED' && (
         <div className="panel-card space-y-4">
           <h3 className="text-lg font-semibold text-red-800">Job failed</h3>
           <pre className="text-sm text-slate-700 bg-slate-50 p-4 rounded overflow-auto max-h-48">
-            {context.error || context.message || JSON.stringify(context, null, 2)}
+            {(typeof context.error === 'string' && context.error) || (typeof context.message === 'string' && context.message) || JSON.stringify(context, null, 2)}
           </pre>
           <button
             type="button"
@@ -527,8 +583,8 @@ export default function JobDetail() {
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({
                     user_id: '00000000-0000-0000-0000-000000000001',
-                    job_post: job.job_post || '',
-                    source_platform: job.source_platform || 'custom',
+                    job_post: job?.job_post || '',
+                    source_platform: job?.source_platform || 'custom',
                   }),
                 })
                 if (!res.ok) throw new Error('Failed to create job')
@@ -542,6 +598,13 @@ export default function JobDetail() {
           >
             Retry (new job)
           </button>
+        </div>
+      )}
+
+      {/* Fallback: onbekende status */}
+      {job?.status && !['INTAKE_CLARIFICATION', 'PLAN_PROPOSED', 'RUNNING', 'JOB_READY', 'COMPLETED', 'FAILED'].includes(job.status) && (
+        <div className="panel-card text-slate-600">
+          Status: <strong>{job.status}</strong>. Geen specifieke weergave voor deze status.
         </div>
       )}
     </PageLayout>

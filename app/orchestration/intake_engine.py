@@ -7,6 +7,8 @@ The CEO Agent uses this to determine if there's enough information to create a p
 from typing import List, Dict, Optional, Any
 from models.unified import StrategicBrief, ClarificationQuestion, JobStatus
 from datetime import datetime
+import hashlib
+import os
 import uuid
 import json
 import logging
@@ -21,12 +23,22 @@ class IntakeEngine:
 
     def __init__(self, model: str = "claude-sonnet-4-5-20250929", max_retries: int = 3):
         self.model = model
+        # #region agent log
+        try:
+            from app.debug_log import log_anthropic_key
+            log_anthropic_key("intake_engine.py:IntakeEngine.__init__", "env key before Anthropic()", "H5", "run1")
+        except Exception:
+            pass
+        # #endregion
         self.client = Anthropic()
         self.max_retries = max_retries
 
-    def _get_fallback_brief(self, job_post: str, reason: str = "") -> StrategicBrief:
-        """Generate a fallback brief when API call fails."""
+    def _get_fallback_brief(self, job_post: str, reason: str = "", key_fingerprint: Optional[str] = None) -> StrategicBrief:
+        """Generate a fallback brief when API call fails. key_fingerprint (first 8 of sha256) is included so the UI can verify which key was used."""
         logger.warning(f"Using fallback brief for intake. Reason: {reason}")
+        ctx = {"error": reason} if reason else {}
+        if key_fingerprint is not None:
+            ctx["key_fingerprint"] = key_fingerprint
         return StrategicBrief(
             job_post=job_post,
             is_complete=False,
@@ -37,7 +49,7 @@ class IntakeEngine:
                     created_at=datetime.utcnow()
                 )
             ],
-            context={"error": reason} if reason else {},
+            context=ctx,
             message="Something went wrong on my side. Could you tell me the language and angle you have in mind?",
         )
 
@@ -62,7 +74,9 @@ class IntakeEngine:
         - JSON parsing failures with fallback questions
         - Invalid responses with sensible defaults
         """
-        
+        key = (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
+        key_fp = hashlib.sha256(key.encode()).hexdigest()[:8] if key else ""
+
         system_prompt = """You are the CEO of an AI content bureau. You have a quick, friendly chat with the user to understand their request.
 
 RULES:
@@ -151,19 +165,19 @@ RULES:
                     
                     if json_start == -1 or json_end <= json_start:
                         logger.error("No JSON found in Claude response")
-                        return self._get_fallback_brief(job_post, "Invalid Claude response format")
+                        return self._get_fallback_brief(job_post, "Invalid Claude response format", key_fingerprint=key_fp)
                     
                     json_str = response_text[json_start:json_end]
                     data = json.loads(json_str)
                     
                 except (json.JSONDecodeError, ValueError) as e:
                     logger.error(f"JSON parsing error in intake response: {e}")
-                    return self._get_fallback_brief(job_post, f"JSON parsing error: {str(e)}")
+                    return self._get_fallback_brief(job_post, f"JSON parsing error: {str(e)}", key_fingerprint=key_fp)
 
                 # Validate parsed data structure
                 if not isinstance(data, dict):
                     logger.error("Claude response is not a dict")
-                    return self._get_fallback_brief(job_post, "Invalid response structure")
+                    return self._get_fallback_brief(job_post, "Invalid response structure", key_fingerprint=key_fp)
                 
                 # Convert parsed data to StrategicBrief
                 try:
@@ -190,7 +204,7 @@ RULES:
                     
                 except Exception as e:
                     logger.error(f"Error converting parsed data to StrategicBrief: {e}")
-                    return self._get_fallback_brief(job_post, f"Conversion error: {str(e)}")
+                    return self._get_fallback_brief(job_post, f"Conversion error: {str(e)}", key_fingerprint=key_fp)
 
             except (APITimeoutError, TimeoutError) as e:
                 last_error = e
@@ -204,7 +218,7 @@ RULES:
                     continue
                 else:
                     logger.error(f"Max retries exceeded for timeout: {e}")
-                    return self._get_fallback_brief(job_post, f"API timeout: {str(e)}")
+                    return self._get_fallback_brief(job_post, f"API timeout: {str(e)}", key_fingerprint=key_fp)
 
             except RateLimitError as e:
                 last_error = e
@@ -218,7 +232,7 @@ RULES:
                     continue
                 else:
                     logger.error(f"Max retries exceeded for rate limit: {e}")
-                    return self._get_fallback_brief(job_post, f"Rate limited: {str(e)}")
+                    return self._get_fallback_brief(job_post, f"Rate limited: {str(e)}", key_fingerprint=key_fp)
 
             except APIError as e:
                 last_error = e
@@ -227,7 +241,7 @@ RULES:
                 # Don't retry on auth or validation errors
                 if "401" in str(e) or "403" in str(e):
                     logger.error("Authentication error - not retrying")
-                    return self._get_fallback_brief(job_post, f"Auth error: {str(e)}")
+                    return self._get_fallback_brief(job_post, f"Auth error: {str(e)}", key_fingerprint=key_fp)
                 
                 if attempt < self.max_retries - 1:
                     wait_time = 2 ** attempt
@@ -236,16 +250,16 @@ RULES:
                     continue
                 else:
                     logger.error(f"Max retries exceeded: {e}")
-                    return self._get_fallback_brief(job_post, f"API error: {str(e)}")
+                    return self._get_fallback_brief(job_post, f"API error: {str(e)}", key_fingerprint=key_fp)
 
             except Exception as e:
                 last_error = e
                 logger.error(f"Unexpected error in intake: {e}", exc_info=True)
-                return self._get_fallback_brief(job_post, f"Unexpected error: {str(e)}")
+                return self._get_fallback_brief(job_post, f"Unexpected error: {str(e)}", key_fingerprint=key_fp)
 
         # Should not reach here, but fallback just in case
         logger.error(f"Intake failed after all retries. Last error: {last_error}")
-        return self._get_fallback_brief(job_post, f"Failed after {self.max_retries} retries")
+        return self._get_fallback_brief(job_post, f"Failed after {self.max_retries} retries", key_fingerprint=key_fp)
 
     def _normalize_context(self, context: Dict) -> Dict[str, Any]:
         """Convert context dict; keep types that are JSON-serializable."""

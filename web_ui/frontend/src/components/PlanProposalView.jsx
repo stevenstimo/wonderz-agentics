@@ -13,10 +13,14 @@ export function PlanProposalView({ jobId, plan, onApprove, onRequestChanges }) {
   const handleApprove = async () => {
     setIsApproving(true);
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 180000);
       const response = await fetch(`${apiBase}/api/jobs/${jobId}/approve-plan`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal
       });
+      clearTimeout(timeoutId);
 
       if (!response.ok) {
         throw new Error('Failed to approve plan');

@@ -45,6 +45,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
 
+def _json_default(obj):
+    if hasattr(obj, "isoformat"):
+        return obj.isoformat()
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
+
 # ============ Dependency: Get OperationsManager ============
 
 def get_operations_manager():
@@ -102,7 +108,14 @@ async def create_job(req: CreateJobRequest, background_tasks: BackgroundTasks):
     - source_platform is optional (defaults to 'custom' if omitted)
     """
     pool = await get_db()
-    
+    # #region agent log
+    try:
+        from app.debug_log import log_anthropic_key
+        log_anthropic_key("jobs.py:create_job", "request handler env key", "H1", "run1")
+    except Exception:
+        pass
+    # #endregion
+
     job_id = str(uuid.uuid4())
     source_platform = req.source_platform or "custom"
     try:
@@ -159,6 +172,54 @@ async def create_job(req: CreateJobRequest, background_tasks: BackgroundTasks):
     )
 
 
+@router.post("/{job_id}/run-intake")
+async def trigger_run_intake(job_id: str):
+    """
+    Run intake synchronously in this request.
+    Use when background tasks are not run (e.g. serverless or separate workers).
+    Only allowed when job status is INTAKE_CLARIFICATION.
+    """
+    job_id = _validate_job_id(job_id)
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        job = await conn.fetchrow("SELECT id, status, job_post, context FROM jobs WHERE id=$1", job_id)
+        if not job:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+        if job["status"] != JobStatus.INTAKE_CLARIFICATION.value:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Run intake only when status is INTAKE_CLARIFICATION (current: {job['status']})",
+            )
+        job_post = job.get("job_post") or ""
+        ctx = job.get("context")
+        if ctx and isinstance(ctx, dict) and ctx.get("job_post"):
+            job_post = ctx["job_post"] or job_post
+        elif ctx and isinstance(ctx, str):
+            try:
+                parsed = json.loads(ctx)
+                if isinstance(parsed, dict) and parsed.get("job_post"):
+                    job_post = parsed["job_post"] or job_post
+            except json.JSONDecodeError:
+                pass
+    await run_intake_inline(job_id, job_post)
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT status FROM jobs WHERE id=$1", job_id)
+    return {"job_id": job_id, "status": row["status"], "message": "Intake completed."}
+
+
+def _coerce_context(raw) -> dict:
+    if raw is None:
+        return {}
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str):
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            return {}
+    return {}
+
+
 @router.post("/{job_id}/chat")
 async def send_chat_message(
     job_id: str,
@@ -166,8 +227,10 @@ async def send_chat_message(
     background_tasks: BackgroundTasks,
 ):
     """
-    Send a chat message to the CEO agent for this job.
-    Job must be in INTAKE_CLARIFICATION. Stores message in chat_history and re-runs intake.
+    Send a chat message for this job.
+    - INTAKE_CLARIFICATION: appends message, re-runs intake (CEO may reply).
+    - RUNNING: appends message to chat_history only (no re-run); user can still type and messages are stored.
+    - Other statuses: 400.
     """
     job_id = _validate_job_id(job_id)
     msg = (req.message or "").strip()
@@ -175,22 +238,59 @@ async def send_chat_message(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Message cannot be empty")
     pool = await get_db()
     async with pool.acquire() as conn:
-        job = await conn.fetchrow("SELECT id, status FROM jobs WHERE id=$1", job_id)
+        job = await conn.fetchrow("SELECT id, status, context FROM jobs WHERE id=$1", job_id)
         if not job:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
-        if job["status"] != JobStatus.INTAKE_CLARIFICATION.value:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Job is not in INTAKE_CLARIFICATION status",
+        status_val = job["status"]
+        # #region agent log
+        try:
+            from app.debug_log import log_anthropic_key
+            log_anthropic_key("jobs.py:send_chat_message", "before intake/ceo task dispatch", "H1", "run1")
+        except Exception:
+            pass
+        # #endregion
+        if status_val == JobStatus.INTAKE_CLARIFICATION.value:
+            background_tasks.add_task(run_intake_answers_inline, job_id, None, msg)
+            row = await conn.fetchrow("SELECT status FROM jobs WHERE id=$1", job_id)
+            return {
+                "job_id": job_id,
+                "status": row["status"] if row else JobStatus.INTAKE_CLARIFICATION.value,
+                "message": "Message sent. Re-analyzing...",
+            }
+        if status_val == JobStatus.RUNNING.value:
+            from app.services.job_pipeline import ceo_reply_during_run
+            ctx = _coerce_context(job["context"])
+            chat_history = list(ctx.get("chat_history") or [])
+            chat_history.append({"role": "user", "content": msg})
+            try:
+                ceo_reply, instruction = await ceo_reply_during_run(conn, job_id, ctx, msg)
+            except Exception as e:
+                logger.warning("ceo_reply_during_run failed for job %s: %s", job_id, e)
+                ceo_reply = "Ik heb je bericht ontvangen en geef het door aan het team."
+                instruction = msg[:200]
+            chat_history.append({"role": "ceo", "content": ceo_reply})
+            feedback_list = list(ctx.get("feedback_during_run") or [])
+            feedback_list.append({"user": msg, "ceo_instruction": instruction or msg[:200]})
+            new_ctx = {
+                **ctx,
+                "chat_history": chat_history,
+                "feedback_during_run": feedback_list,
+                "ceo_instruction_for_run": instruction or (feedback_list[-1]["ceo_instruction"] if feedback_list else ""),
+            }
+            await conn.execute(
+                "UPDATE jobs SET context=$1::jsonb, updated_at=now() WHERE id=$2",
+                json.dumps(new_ctx, default=_json_default),
+                job_id,
             )
-    background_tasks.add_task(run_intake_answers_inline, job_id, None, msg)
-    async with pool.acquire() as conn:
-        row = await conn.fetchrow("SELECT status FROM jobs WHERE id=$1", job_id)
-    return {
-        "job_id": job_id,
-        "status": row["status"] if row else JobStatus.INTAKE_CLARIFICATION.value,
-        "message": "Message sent. Re-analyzing...",
-    }
+            return {
+                "job_id": job_id,
+                "status": status_val,
+                "message": "Message sent. CEO replied.",
+            }
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Chat only available during intake or execution (current: {status_val})",
+        )
 
 
 @router.patch("/{job_id}/answer")
@@ -295,30 +395,69 @@ async def approve_plan(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Job not found"
             )
-        
-        if job['status'] != JobStatus.PLAN_PROPOSED.value:
+        current_status = job["status"]
+
+        # Already finished: idempotent success
+        if current_status in (JobStatus.JOB_READY.value, JobStatus.COMPLETED.value):
+            return {
+                "job_id": job_id,
+                "status": current_status,
+                "message": "Job already in final state."
+            }
+
+        # Already RUNNING: recover if all steps completed (e.g. client timed out on first approve)
+        if current_status == JobStatus.RUNNING.value:
+            steps = await conn.fetch(
+                "SELECT id, status, output FROM job_steps WHERE job_id=$1 ORDER BY step_index",
+                job_id,
+            )
+            all_done = len(steps) > 0 and all(s.get("status") == "completed" for s in steps)
+            if all_done:
+                await conn.execute(
+                    "UPDATE jobs SET status=$1, updated_at=now() WHERE id=$2",
+                    JobStatus.JOB_READY.value,
+                    job_id,
+                )
+                logger.info(f"approve-plan: recovered job {job_id} to JOB_READY (all steps done)")
+                return {
+                    "job_id": job_id,
+                    "status": JobStatus.JOB_READY.value,
+                    "message": "Recovered: all steps were done, job set to JOB_READY."
+                }
+            return {
+                "job_id": job_id,
+                "status": JobStatus.RUNNING.value,
+                "message": "Job is already running. Status updates every 5 seconds."
+            }
+
+        if current_status != JobStatus.PLAN_PROPOSED.value:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Job is not in PLAN_PROPOSED state"
+                detail=f"Job is not in PLAN_PROPOSED state (current: {current_status})"
             )
     
     try:
         logger.info(f"Approving plan for job {job_id}")
-        await manager.approve_plan(job_id)
+        # Set RUNNING and start pipeline first so execution always starts even if manager fails
         async with pool.acquire() as conn:
             await conn.execute(
                 "UPDATE jobs SET status=$1, updated_at=now() WHERE id=$2",
                 JobStatus.RUNNING.value,
                 job_id,
             )
-        context = json.loads(job['context']) if isinstance(job['context'], str) else job['context']
-        background_tasks.add_task(run_job_inline, job_id, context)
-        logger.info(f"Job execution task queued for job {job_id}")
-
+        context = _coerce_context(job["context"])
+        await run_job_inline(job_id, context)
+        logger.info(f"Job execution completed for job {job_id}")
+        try:
+            await manager.approve_plan(job_id)
+        except Exception as mgr_err:
+            logger.warning("manager.approve_plan failed (pipeline already started): %s", mgr_err)
+        async with pool.acquire() as conn:
+            updated = await conn.fetchrow("SELECT status FROM jobs WHERE id=$1", job_id)
         return {
             "job_id": job_id,
-            "status": JobStatus.RUNNING.value,
-            "message": "Plan approved. Workflow execution started."
+            "status": updated["status"],
+            "message": "Plan approved. Workflow execution completed."
         }
     
     except Exception as e:

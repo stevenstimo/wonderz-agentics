@@ -180,8 +180,18 @@ export function JobLifecycleView({ jobId }) {
     return <div className="p-6 text-gray-500">Job not found</div>;
   }
 
-  // Extract plan from job context
-  const extractedPlan = job.context?.plan;
+  const parseJobContext = (raw) => {
+    if (raw == null) return {};
+    if (typeof raw === 'object') return raw;
+    try {
+      const parsed = JSON.parse(String(raw));
+      return typeof parsed === 'string' ? (() => { try { return JSON.parse(parsed); } catch { return {}; } })() : (parsed || {});
+    } catch {
+      return {};
+    }
+  };
+  const jobContext = parseJobContext(job.context);
+  const extractedPlan = jobContext.plan;
 
   return (
     <div className="flex flex-col gap-6">
@@ -228,7 +238,7 @@ export function JobLifecycleView({ jobId }) {
             const hasProposed = art.proposed_data && Object.keys(art.proposed_data).length > 0;
             return (hasOriginal || hasProposed) && art.artifact_type !== 'context';
           })}
-          ceoSummary={job.context?.ceo_summary}
+          ceoSummary={jobContext.ceo_summary}
           onApprove={() => {
             // Job completed
           }}
@@ -239,11 +249,11 @@ export function JobLifecycleView({ jobId }) {
       )}
 
       {job.status === 'COMPLETED' && (
-        <CompletionView jobContext={job.context} />
+        <CompletionView jobContext={jobContext} />
       )}
 
       {job.status === 'FAILED' && (
-        <FailureView errorMessage={job.context?.error} />
+        <FailureView errorMessage={jobContext.error} />
       )}
     </div>
   );
