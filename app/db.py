@@ -1,3 +1,4 @@
+import json
 import os
 import asyncpg
 import logging
@@ -39,6 +40,16 @@ async def run_migrations():
         # Non-fatal - proceed without migrations
 
 
+async def _init_connection_codecs(conn: asyncpg.Connection) -> None:
+    """Register jsonb codec so Python dicts/list are serialized automatically."""
+    await conn.set_type_codec(
+        "jsonb",
+        encoder=json.dumps,
+        decoder=json.loads,
+        schema="pg_catalog",
+    )
+
+
 async def init_db_pool():
     global _pool
     if _pool is None:
@@ -52,7 +63,7 @@ async def init_db_pool():
                 await run_migrations()
             
             db_url = _normalized_database_url(DATABASE_URL)
-            _pool = await asyncpg.create_pool(db_url)
+            _pool = await asyncpg.create_pool(db_url, init=_init_connection_codecs)
             logger.info("✓ Database connection pool created")
         except Exception as e:
             logger.warning(f"Failed to initialize database pool: {e}")
