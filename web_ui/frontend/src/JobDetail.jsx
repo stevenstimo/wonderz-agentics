@@ -23,6 +23,53 @@ function StatusBadge({ status }) {
   )
 }
 
+function ChatHistoryReadOnly({ chatHistory, className = '' }) {
+  if (!chatHistory?.length) return null
+  return (
+    <div className={`rounded-xl border border-slate-200 bg-slate-50/50 p-4 ${className}`}>
+      <h3 className="text-sm font-medium text-slate-500 mb-3">Conversation</h3>
+      <div className="space-y-3 max-h-48 overflow-y-auto">
+        {chatHistory.map((msg, i) => (
+          <div key={i} className={`flex gap-2 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            {msg.role === 'ceo' && (
+              <div className="flex-shrink-0 w-6 h-6 rounded-full bg-slate-200 flex items-center justify-center text-slate-500 text-xs">W</div>
+            )}
+            <div
+              className={`max-w-[85%] px-3 py-2 rounded-xl text-sm ${
+                msg.role === 'ceo' ? 'bg-slate-200/80 text-slate-700' : 'bg-indigo-100 text-indigo-900'
+              }`}
+            >
+              <p className="whitespace-pre-wrap">{msg.content || ''}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function StepOutputExpand({ output }) {
+  const [open, setOpen] = useState(false)
+  if (!output || typeof output !== 'object') return null
+  const text = output.content || output.review || output.optimized_content || JSON.stringify(output, null, 2)
+  return (
+    <div className="mt-2">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="text-xs font-medium text-indigo-600 hover:text-indigo-800"
+      >
+        {open ? 'Hide output' : 'View output'}
+      </button>
+      {open && (
+        <pre className="mt-1 p-3 bg-slate-50 rounded text-xs overflow-auto max-h-48 whitespace-pre-wrap">
+          {typeof text === 'string' ? text : JSON.stringify(text, null, 2)}
+        </pre>
+      )}
+    </div>
+  )
+}
+
 export default function JobDetail() {
   const { jobId } = useParams()
   const navigate = useNavigate()
@@ -36,7 +83,9 @@ export default function JobDetail() {
   const [approvingDeploy, setApprovingDeploy] = useState(false)
   const [chatInput, setChatInput] = useState('')
   const [sendingChat, setSendingChat] = useState(false)
+  const [ceoTyping, setCeoTyping] = useState(false)
   const chatEndRef = useRef(null)
+  const chatHistoryLengthRef = useRef(0)
 
   const fetchJob = useCallback(async () => {
     if (!jobId) return
@@ -66,6 +115,14 @@ export default function JobDetail() {
     const interval = setInterval(fetchJob, 5000)
     return () => clearInterval(interval)
   }, [data?.job?.status, fetchJob])
+
+  useEffect(() => {
+    if (!sendingChat && ceoTyping) {
+      const t = setTimeout(() => setCeoTyping(false), 8000)
+      return () => clearTimeout(t)
+    }
+  }, [sendingChat, ceoTyping])
+
 
   const handleApprovePlan = async () => {
     setApprovingPlan(true)
@@ -158,6 +215,7 @@ export default function JobDetail() {
     e?.preventDefault()
     const msg = chatInput.trim()
     if (!msg || sendingChat) return
+    setCeoTyping(true)
     setSendingChat(true)
     setChatInput('')
     try {
@@ -168,15 +226,24 @@ export default function JobDetail() {
       })
       if (!res.ok) throw new Error('Failed to send message')
       await fetchJob()
-      [2000, 4500, 7000].forEach((ms, i) => {
-        setTimeout(() => fetchJob(), ms)
-      })
+      ;[2000, 4500, 7000].forEach((ms) => setTimeout(fetchJob, ms))
     } catch (err) {
       setError(err.message)
     } finally {
       setSendingChat(false)
     }
   }
+  useEffect(() => {
+    if (chatHistory.length > chatHistoryLengthRef.current && ceoTyping) setCeoTyping(false)
+    chatHistoryLengthRef.current = chatHistory.length
+  }, [chatHistory.length, ceoTyping])
+
+  useEffect(() => {
+    if (!sendingChat && ceoTyping) {
+      const t = setTimeout(() => setCeoTyping(false), 1500)
+      return () => clearTimeout(t)
+    }
+  }, [sendingChat, ceoTyping])
 
   return (
     <PageLayout size="wide" padded className="space-y-6">
@@ -203,37 +270,49 @@ export default function JobDetail() {
 
       {/* INTAKE_CLARIFICATION: chat UI with chat_history */}
       {job.status === 'INTAKE_CLARIFICATION' && (
-        <div className="panel-card flex flex-col rounded-xl border border-slate-200 overflow-hidden max-h-[32rem]">
+        <div className="panel-card flex flex-col rounded-xl border border-slate-200 overflow-hidden max-h-[32rem] w-full min-w-0">
           <h3 className="text-lg font-semibold text-slate-900 mb-3 px-1">Clarify your request</h3>
           <div className="flex-1 overflow-y-auto space-y-4 min-h-[10rem] px-1 pb-2 transition-all">
-            {chatHistory.length === 0 ? (
+            {chatHistory.length === 0 && !ceoTyping && (
               <p className="text-slate-500 text-sm">CEO is thinking…</p>
-            ) : (
-              chatHistory.map((msg, i) => (
-                <div
-                  key={i}
-                  className={`flex gap-2 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                >
-                  {msg.role === 'ceo' && (
-                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-600 text-xs font-semibold">
-                      W
-                    </div>
-                  )}
-                  <div
-                    className={`max-w-[80%] px-4 py-2.5 rounded-2xl transition-all ${
-                      msg.role === 'ceo'
-                        ? 'bg-slate-100 text-slate-800 rounded-tl-none'
-                        : 'bg-indigo-600 text-white rounded-tr-none'
-                    }`}
-                  >
-                    <p className="text-sm whitespace-pre-wrap">{msg.content || ''}</p>
+            )}
+            {chatHistory.map((msg, i) => (
+              <div
+                key={i}
+                className={`flex gap-2 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+              >
+                {msg.role === 'ceo' && (
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-600 text-xs font-semibold">
+                    W
                   </div>
+                )}
+                <div
+                  className={`max-w-[80%] px-4 py-2.5 rounded-2xl transition-all ${
+                    msg.role === 'ceo'
+                      ? 'bg-slate-100 text-slate-800 rounded-tl-none'
+                      : 'bg-indigo-600 text-white rounded-tr-none'
+                  }`}
+                >
+                  <p className="text-sm whitespace-pre-wrap">{msg.content || ''}</p>
                 </div>
-              ))
+              </div>
+            ))}
+            {ceoTyping && (
+              <div className="flex gap-2 justify-start items-center text-slate-500 text-sm">
+                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-600 text-xs font-semibold">W</div>
+                <div className="px-4 py-2.5 rounded-2xl rounded-tl-none bg-slate-100 text-slate-600 flex items-center gap-1">
+                  CEO is typing
+                  <span className="inline-flex gap-0.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-pulse" style={{ animationDelay: '0ms' }} />
+                    <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-pulse" style={{ animationDelay: '150ms' }} />
+                    <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-pulse" style={{ animationDelay: '300ms' }} />
+                  </span>
+                </div>
+              </div>
             )}
             <div ref={chatEndRef} />
           </div>
-          <form onSubmit={handleSendChat} className="sticky bottom-0 flex gap-2 w-full p-3 bg-white border-t border-slate-200">
+          <form onSubmit={handleSendChat} className="sticky bottom-0 flex flex-col sm:flex-row gap-2 w-full min-w-0 p-3 bg-white border-t border-slate-200">
             <input
               type="text"
               value={chatInput}
@@ -253,117 +332,216 @@ export default function JobDetail() {
         </div>
       )}
 
-      {/* PLAN_PROPOSED: show plan, Approve Plan, Request Changes */}
+      {/* PLAN_PROPOSED: chat read-only, Execution Plan card, Start Execution / Request Changes */}
       {job.status === 'PLAN_PROPOSED' && (
-        <div className="panel-card space-y-4">
-          <h3 className="text-lg font-semibold text-slate-900">Proposed plan</h3>
-          {planSteps.length > 0 ? (
-            <ul className="list-decimal list-inside space-y-2 text-slate-700">
-              {planSteps.map((step, i) => (
-                <li key={i}>
-                  {step.step_name || step.name || step.agent_role || 'Step'} {step.agent_role && `(${step.agent_role})`}
+        <>
+          <ChatHistoryReadOnly chatHistory={chatHistory} />
+          <div className="panel-card space-y-4">
+            <h3 className="text-lg font-semibold text-slate-900">Execution Plan</h3>
+            {planSteps.length > 0 ? (
+              <ul className="space-y-3">
+                {planSteps.map((step, i) => (
+                  <li key={i} className="flex items-center gap-3 p-3 rounded-lg border border-slate-200">
+                    <span className="text-slate-500 font-mono text-sm">{step.step_index}</span>
+                    <span className="font-medium text-slate-800">{step.agent_role || 'step'}</span>
+                    <span className="text-sm text-slate-600 flex-1">{step.description || step.step_name || ''}</span>
+                    {step.requires_approval && (
+                      <span className="text-xs px-2 py-0.5 rounded bg-amber-100 text-amber-800">Approval</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <pre className="text-sm text-slate-600 bg-slate-50 p-4 rounded overflow-auto max-h-48">
+                {JSON.stringify(plan, null, 2)}
+              </pre>
+            )}
+            <div className="flex flex-col sm:flex-row gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={handleApprovePlan}
+                disabled={approvingPlan}
+                className="px-4 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 disabled:opacity-50"
+              >
+                {approvingPlan ? 'Starting…' : 'Start Execution'}
+              </button>
+              {!requestChangesOpen ? (
+                <button
+                  type="button"
+                  onClick={() => setRequestChangesOpen(true)}
+                  className="px-4 py-2 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50"
+                >
+                  Request Changes
+                </button>
+              ) : (
+                <form onSubmit={handleRequestChanges} className="flex flex-col gap-2">
+                  <textarea
+                    value={requestChangesText}
+                    onChange={(e) => setRequestChangesText(e.target.value)}
+                    placeholder="Describe requested changes..."
+                    className="w-full max-w-md px-3 py-2 border border-slate-300 rounded-lg resize-none"
+                    rows={3}
+                  />
+                  <div className="flex gap-2">
+                    <button type="submit" disabled={submittingRequest || !requestChangesText.trim()} className="px-4 py-2 bg-amber-600 text-white rounded-lg disabled:opacity-50">
+                      {submittingRequest ? 'Sending...' : 'Submit'}
+                    </button>
+                    <button type="button" onClick={() => { setRequestChangesOpen(false); setRequestChangesText(''); }} className="px-4 py-2 border border-slate-300 rounded-lg">
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* RUNNING: chat read-only, progress bar, step cards with View Output, 5s refresh */}
+      {job.status === 'RUNNING' && (
+        <>
+          <ChatHistoryReadOnly chatHistory={chatHistory} />
+          <div className="panel-card">
+            <h3 className="text-lg font-semibold text-slate-900 mb-2">Execution in Progress</h3>
+            <div className="w-full bg-slate-200 rounded-full h-2 mb-4">
+              <div
+                className="bg-indigo-600 h-2 rounded-full transition-all"
+                style={{ width: `${steps?.length ? (steps.filter((s) => s.status === 'completed').length / steps.length) * 100 : 0}%` }}
+              />
+            </div>
+            <ul className="space-y-3">
+              {(steps || []).map((s) => (
+                <li key={s.id} className="p-3 rounded-lg border border-slate-200">
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <span className="text-sm font-medium text-slate-700">{s.step_name || s.agent_role || s.step_index}</span>
+                    <span
+                      className={`text-xs px-2 py-0.5 rounded ${
+                        s.status === 'completed' ? 'bg-green-100 text-green-800' :
+                        s.status === 'running' ? 'bg-amber-100 text-amber-800 animate-pulse' :
+                        s.status === 'failed' ? 'bg-red-100 text-red-800' : 'bg-slate-100 text-slate-600'
+                      }`}
+                    >
+                      {s.status || 'pending'}
+                    </span>
+                  </div>
+                  {s.status === 'completed' && s.output && <StepOutputExpand output={s.output} />}
                 </li>
               ))}
             </ul>
-          ) : (
-            <pre className="text-sm text-slate-600 bg-slate-50 p-4 rounded overflow-auto max-h-48">
-              {JSON.stringify(plan, null, 2)}
-            </pre>
-          )}
-          <div className="flex gap-2 flex-wrap">
-            <button
-              type="button"
-              onClick={handleApprovePlan}
-              disabled={approvingPlan}
-              className="px-4 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 disabled:opacity-50"
-            >
-              {approvingPlan ? 'Approving...' : 'Approve Plan'}
-            </button>
-            {!requestChangesOpen ? (
+            <p className="mt-2 text-xs text-slate-500">Refreshing every 5 seconds.</p>
+          </div>
+        </>
+      )}
+
+      {/* JOB_READY: chat read-only, Content Ready! banner, final_content, Approve & Request Revisions */}
+      {job.status === 'JOB_READY' && (
+        <>
+          <ChatHistoryReadOnly chatHistory={chatHistory} />
+          <div className="panel-card space-y-4">
+            <div className="rounded-lg bg-green-100 text-green-800 px-4 py-3 font-medium">Content Ready!</div>
+            <div className="rounded-lg border border-slate-200 p-4 bg-white">
+              <h3 className="text-sm font-medium text-slate-500 mb-2">Final content</h3>
+              <div className="text-slate-800 whitespace-pre-wrap">{context.final_content || 'No content yet.'}</div>
+            </div>
+            {artifacts?.length > 0 && (
+              <ul className="space-y-2">
+                {artifacts.map((a) => (
+                  <li key={a.id} className="p-3 rounded-lg border border-slate-200">
+                    <span className="text-sm font-medium text-slate-700">{a.artifact_type || a.name || 'Artifact'}</span>
+                    <pre className="mt-2 text-xs text-slate-600 overflow-auto max-h-32 whitespace-pre-wrap">
+                      {a.proposed_data?.content ?? a.content ?? (typeof a.proposed_data === 'object' ? JSON.stringify(a.proposed_data, null, 2) : '')}
+                    </pre>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="flex gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={handleApproveDeploy}
+                disabled={approvingDeploy}
+                className="px-4 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 disabled:opacity-50"
+              >
+                {approvingDeploy ? 'Deploying…' : 'Approve & Publish'}
+              </button>
               <button
                 type="button"
                 onClick={() => setRequestChangesOpen(true)}
                 className="px-4 py-2 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50"
               >
-                Request Changes
+                Request Revisions
               </button>
-            ) : (
+            </div>
+            {requestChangesOpen && (
               <form onSubmit={handleRequestChanges} className="flex flex-col gap-2">
                 <textarea
                   value={requestChangesText}
                   onChange={(e) => setRequestChangesText(e.target.value)}
-                  placeholder="Describe requested changes..."
+                  placeholder="Describe revisions..."
                   className="w-full max-w-md px-3 py-2 border border-slate-300 rounded-lg resize-none"
                   rows={3}
                 />
                 <div className="flex gap-2">
-                  <button type="submit" disabled={submittingRequest || !requestChangesText.trim()} className="px-4 py-2 bg-amber-600 text-white rounded-lg disabled:opacity-50">
-                    {submittingRequest ? 'Sending...' : 'Submit'}
-                  </button>
-                  <button type="button" onClick={() => { setRequestChangesOpen(false); setRequestChangesText(''); }} className="px-4 py-2 border border-slate-300 rounded-lg">
-                    Cancel
-                  </button>
+                  <button type="submit" disabled={submittingRequest || !requestChangesText.trim()} className="px-4 py-2 bg-amber-600 text-white rounded-lg disabled:opacity-50">Submit</button>
+                  <button type="button" onClick={() => { setRequestChangesOpen(false); setRequestChangesText(''); }} className="px-4 py-2 border border-slate-300 rounded-lg">Cancel</button>
                 </div>
               </form>
             )}
           </div>
-        </div>
+        </>
       )}
 
-      {/* RUNNING: job_steps with status, auto-refresh */}
-      {job.status === 'RUNNING' && (
-        <div className="panel-card">
-          <h3 className="text-lg font-semibold text-slate-900 mb-4">Steps</h3>
-          <ul className="space-y-2">
-            {(steps || []).map((s) => (
-              <li key={s.id} className="flex items-center gap-3 p-3 rounded-lg border border-slate-200">
-                <span className="text-sm font-medium text-slate-700">{s.step_name || s.step_index}</span>
-                <span className={`text-xs px-2 py-0.5 rounded ${s.status === 'completed' ? 'bg-green-100 text-green-800' : s.status === 'running' ? 'bg-purple-100 text-purple-800' : 'bg-slate-100 text-slate-600'}`}>
-                  {s.status || 'pending'}
-                </span>
-              </li>
-            ))}
-          </ul>
-          <p className="mt-2 text-xs text-slate-500">Refreshing every 5 seconds.</p>
-        </div>
+      {/* COMPLETED: Job Completed banner, final content, deployment info */}
+      {job.status === 'COMPLETED' && (
+        <>
+          <ChatHistoryReadOnly chatHistory={chatHistory} />
+          <div className="panel-card space-y-4">
+            <div className="rounded-lg bg-green-100 text-green-800 px-4 py-3 font-medium">Job Completed</div>
+            <div className="rounded-lg border border-slate-200 p-4 bg-white">
+              <h3 className="text-sm font-medium text-slate-500 mb-2">Final content</h3>
+              <div className="text-slate-800 whitespace-pre-wrap">{context.final_content || ''}</div>
+            </div>
+            {context.deployment && (
+              <div className="rounded-lg border border-slate-200 p-4 bg-slate-50">
+                <h3 className="text-sm font-medium text-slate-600 mb-2">Deployment</h3>
+                <pre className="text-xs text-slate-700 overflow-auto">{JSON.stringify(context.deployment, null, 2)}</pre>
+              </div>
+            )}
+          </div>
+        </>
       )}
 
-      {/* JOB_READY / COMPLETED: results/artifacts; JOB_READY: Approve & Deploy */}
-      {(job.status === 'JOB_READY' || job.status === 'COMPLETED') && (
-        <div className="panel-card space-y-4">
-          <h3 className="text-lg font-semibold text-slate-900">Results</h3>
-          {artifacts && artifacts.length > 0 ? (
-            <ul className="space-y-2">
-              {artifacts.map((a) => (
-                <li key={a.id} className="p-3 rounded-lg border border-slate-200">
-                  <span className="text-sm font-medium text-slate-700">{a.artifact_type || a.name || 'Artifact'}</span>
-                  {a.content && <pre className="mt-2 text-xs text-slate-600 overflow-auto max-h-32">{typeof a.content === 'string' ? a.content : JSON.stringify(a.content)}</pre>}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-slate-500">No artifacts yet.</p>
-          )}
-          {job.status === 'JOB_READY' && (
-            <button
-              type="button"
-              onClick={handleApproveDeploy}
-              disabled={approvingDeploy}
-              className="px-4 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 disabled:opacity-50"
-            >
-              {approvingDeploy ? 'Deploying...' : 'Approve & Deploy'}
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* FAILED: error from context */}
+      {/* FAILED: error, Retry button */}
       {job.status === 'FAILED' && (
-        <div className="panel-card">
-          <h3 className="text-lg font-semibold text-red-800 mb-2">Job failed</h3>
+        <div className="panel-card space-y-4">
+          <h3 className="text-lg font-semibold text-red-800">Job failed</h3>
           <pre className="text-sm text-slate-700 bg-slate-50 p-4 rounded overflow-auto max-h-48">
             {context.error || context.message || JSON.stringify(context, null, 2)}
           </pre>
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                const res = await fetch(apiUrl('/api/jobs'), {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    user_id: '00000000-0000-0000-0000-000000000001',
+                    job_post: job.job_post || '',
+                    source_platform: job.source_platform || 'custom',
+                  }),
+                })
+                if (!res.ok) throw new Error('Failed to create job')
+                const d = await res.json()
+                navigate(`/jobs/${d.job_id}`)
+              } catch (e) {
+                setError(e.message)
+              }
+            }}
+            className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700"
+          >
+            Retry (new job)
+          </button>
         </div>
       )}
     </PageLayout>

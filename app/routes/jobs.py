@@ -170,6 +170,9 @@ async def send_chat_message(
     Job must be in INTAKE_CLARIFICATION. Stores message in chat_history and re-runs intake.
     """
     job_id = _validate_job_id(job_id)
+    msg = (req.message or "").strip()
+    if not msg:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Message cannot be empty")
     pool = await get_db()
     async with pool.acquire() as conn:
         job = await conn.fetchrow("SELECT id, status FROM jobs WHERE id=$1", job_id)
@@ -180,7 +183,7 @@ async def send_chat_message(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Job is not in INTAKE_CLARIFICATION status",
             )
-    background_tasks.add_task(run_intake_answers_inline, job_id, None, req.message.strip())
+    background_tasks.add_task(run_intake_answers_inline, job_id, None, msg)
     async with pool.acquire() as conn:
         row = await conn.fetchrow("SELECT status FROM jobs WHERE id=$1", job_id)
     return {
@@ -301,11 +304,13 @@ async def approve_plan(
     
     try:
         logger.info(f"Approving plan for job {job_id}")
-        
-        # Approve the plan (transitions to RUNNING)
         await manager.approve_plan(job_id)
-        
-        # Queue job execution
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE jobs SET status=$1, updated_at=now() WHERE id=$2",
+                JobStatus.RUNNING.value,
+                job_id,
+            )
         context = json.loads(job['context']) if isinstance(job['context'], str) else job['context']
         background_tasks.add_task(run_job_inline, job_id, context)
         logger.info(f"Job execution task queued for job {job_id}")
@@ -499,12 +504,12 @@ async def list_jobs(status: Optional[str] = None, limit: int = 50):
     async with pool.acquire() as conn:
         if status:
             rows = await conn.fetch(
-                "SELECT id, user_id, job_post, status, source_platform, created_at, updated_at, tokens_used, token_budget FROM jobs WHERE status=$1 ORDER BY created_at DESC LIMIT $2",
+                "SELECT id, user_id, job_post, status, source_platform, created_at, updated_at, tokens_used, token_budget, context FROM jobs WHERE status=$1 ORDER BY created_at DESC LIMIT $2",
                 status, limit
             )
         else:
             rows = await conn.fetch(
-                "SELECT id, user_id, job_post, status, source_platform, created_at, updated_at, tokens_used, token_budget FROM jobs ORDER BY created_at DESC LIMIT $1",
+                "SELECT id, user_id, job_post, status, source_platform, created_at, updated_at, tokens_used, token_budget, context FROM jobs ORDER BY created_at DESC LIMIT $1",
                 limit
             )
     return [dict(r) for r in rows]

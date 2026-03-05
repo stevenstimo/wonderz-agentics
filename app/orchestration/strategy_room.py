@@ -31,39 +31,59 @@ class StrategyRoom:
         self.max_retries = max_retries
 
     def _get_fallback_plan(self, brief: StrategicBrief, reason: str = "") -> ExecutionPlan:
-        """Generate a safe fallback plan when API call fails."""
+        """Generate a safe fallback plan: copywriter → reviewer, optionally seo and image."""
         logger.warning(f"Using fallback plan. Reason: {reason}")
-        
-        # Basic copywriter → reviewer sequence
+        ctx = getattr(brief, "context", {}) or {}
+        if not isinstance(ctx, dict):
+            ctx = {}
+        includes_image = ctx.get("includes_image") is True
+        job_lower = (brief.job_post or "").lower()
+        obj_lower = (ctx.get("objective") or "").lower()
+        include_seo = "seo" in job_lower or "search" in job_lower or "seo" in obj_lower or "search" in obj_lower
         steps = [
             JobStep(
                 step_index=1,
                 agent_role="copywriter",
-                unified_tool="read_product",
+                unified_tool="write_content",
                 requires_approval=False,
-                description="Read and analyze current product data"
+                description="Write the main content based on the brief",
             ),
             JobStep(
                 step_index=2,
-                agent_role="copywriter",
-                unified_tool="write_description",
-                requires_approval=True,
-                description="Create improved product description"
-            ),
-            JobStep(
-                step_index=3,
                 agent_role="reviewer",
-                unified_tool="analyze_seo",
+                unified_tool="review_content",
                 requires_approval=False,
-                description="Review copy for SEO and brand alignment"
-            )
+                description="Review the content for quality and tone",
+            ),
         ]
-
+        idx = 3
+        if include_seo:
+            steps.append(
+                JobStep(
+                    step_index=idx,
+                    agent_role="seo",
+                    unified_tool="optimize_seo",
+                    requires_approval=False,
+                    description="Optimize content for search",
+                )
+            )
+            idx += 1
+        if includes_image:
+            steps.append(
+                JobStep(
+                    step_index=idx,
+                    agent_role="image_generator",
+                    unified_tool="generate_image",
+                    requires_approval=False,
+                    description="Generate image placeholder",
+                )
+            )
+        hires = ["copywriter", "reviewer"] + (["seo"] if include_seo else []) + (["image_generator"] if includes_image else [])
         return ExecutionPlan(
             brief=brief,
             steps=steps,
-            hired_agents=["copywriter", "reviewer"],
-            estimated_duration_seconds=600
+            hired_agents=hires,
+            estimated_duration_seconds=600,
         )
 
     def generate_execution_plan(
@@ -93,46 +113,39 @@ class StrategyRoom:
 
         available_agents = available_agents or []
         
-        system_prompt = """You are a project manager planning an AI bureau workflow.
+        system_prompt = """You are a project manager for a content bureau. Create a simple, practical execution plan.
 
-Given a strategic brief, create a detailed step-by-step execution plan.
+For typical content jobs, the plan must be:
+- Step 1: copywriter — write the content (unified_tool: write_content, description: "Write the main content based on the brief")
+- Step 2: reviewer — review the content (unified_tool: review_content, description: "Review the content for quality and tone")
+- Step 3: seo — only include if the brief or objective mentions SEO, search, or keywords (unified_tool: optimize_seo, description: "Optimize content for search"). If no SEO mentioned, do NOT include this step.
+- Step 4: image_generator — only include if the brief says image, afbeelding, or includes_image is true (unified_tool: generate_image, description: "Generate image placeholder"). Otherwise omit.
 
-For the objective in the brief, determine:
-1. What sequence of agents should work on it
-2. What tools each agent will use
-3. Whether each step requires approval
+Use only these agent_role values: copywriter, reviewer, seo, image_generator. Keep 2-4 steps. No approval required.
 
-Available agent roles: copywriter, developer, seo_specialist, reviewer, paid_ads_manager, data_analyst
-
-Respond with JSON:
+Respond with JSON only:
 {
     "steps": [
-        {
-            "step_index": 1,
-            "agent_role": "copywriter",
-            "unified_tool": "read_product",
-            "requires_approval": false,
-            "description": "Fetch the current product data"
-        }
+        {"step_index": 1, "agent_role": "copywriter", "unified_tool": "write_content", "requires_approval": false, "description": "Write the main content based on the brief"},
+        {"step_index": 2, "agent_role": "reviewer", "unified_tool": "review_content", "requires_approval": false, "description": "Review the content for quality and tone"}
     ],
-    "required_hires": ["copywriter"],
+    "required_hires": ["copywriter", "reviewer"],
     "estimated_duration_seconds": 300
 }
-
-The 'unified_tool' should be one of: read_product, read_ad, write_description, write_ad, analyze_seo, deploy_changes, etc.
 """
 
-        context_str = json.dumps(brief.context, indent=2)
-        user_message = f"""
-Strategic Brief:
-- Objective: {brief.context.get('objective', 'Unknown')}
-- Platform: {brief.context.get('platform', 'Unknown')}
-- Target Audience: {brief.context.get('target_audience', 'Not specified')}
-- KPI: {brief.context.get('kpi', 'Not specified')}
+        ctx = brief.context if isinstance(brief.context, dict) else {}
+        job_lower = (brief.job_post or "").lower()
+        user_message = f"""Strategic Brief:
+- Objective: {ctx.get('objective', 'Unknown')}
+- Language: {ctx.get('language', 'English')}
+- Tone: {ctx.get('tone', 'informative')}
+- Focus: {ctx.get('focus', 'general')}
+- Word count: {ctx.get('word_count', 'not specified')}
+- Includes image: {ctx.get('includes_image', False)}
+- Job post (excerpt): {(brief.job_post or '')[:300]}
 
-Available agents: {', '.join(available_agents) or 'None specified'}
-
-Create a step-by-step plan to achieve the objective.
+Create a simple plan: copywriter then reviewer. Add seo step only if SEO/search is mentioned. Add image_generator step only if image/afbeelding is requested.
 """
 
         # Retry logic with exponential backoff
@@ -191,6 +204,20 @@ Create a step-by-step plan to achieve the objective.
                     if not steps:
                         logger.error("No valid steps parsed from response")
                         return self._get_fallback_plan(brief, "No valid steps in response")
+
+                    ctx = brief.context if isinstance(brief.context, dict) else {}
+                    if ctx.get("includes_image") and not any(
+                        (s.agent_role or "").lower() in ("image", "image_generator") for s in steps
+                    ):
+                        steps.append(
+                            JobStep(
+                                step_index=len(steps) + 1,
+                                agent_role="image_generator",
+                                unified_tool="generate_image",
+                                requires_approval=False,
+                                description="Generate image placeholder",
+                            )
+                        )
 
                     plan = ExecutionPlan(
                         brief=brief,

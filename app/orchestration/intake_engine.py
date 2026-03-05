@@ -95,12 +95,26 @@ Respond with JSON:
 EXAMPLES of good behavior:
 - Input: "maak een tekst over Alkmaar, 400 woorden, met image"
   → is_complete: true, message: "Duidelijk! Ik maak een Nederlandse tekst van 400 woorden over Alkmaar met een passende afbeelding. Ik zet het team aan het werk."
+  Reason: objective clear, language Dutch, word count and image specified.
+
+- Input: "schrijf iets over honden"
+  → is_complete: false, message: ask for length and angle (e.g. "Hoeveel woorden wil je ongeveer, en welke invalshoek? (verzorging, gedrag, rassen...)")
+  Reason: too vague.
+
+- Input: "I need a product description for my Shopify store"
+  → is_complete: false, message: ask which product and length.
+  Reason: no product specified.
 
 - Input: "write content for my website"
   → is_complete: false, message: "Sure! What topic should the content cover, and roughly how many words are you looking for?"
 
 - Input: "blog post about Amsterdam"
   → is_complete: false, message: "Nice topic! Two quick questions: should this be in Dutch or English, and any particular angle? (history, tourism, food, nightlife...)"
+
+RULES:
+- If user gives topic + word count → is_complete should be TRUE.
+- Default language from input: Dutch text → Dutch, English text → English.
+- Default tone: informative. Default focus: general overview.
 """
 
         user_message = f"Job Post:\n{job_post}"

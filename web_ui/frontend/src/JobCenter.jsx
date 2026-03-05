@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import PageLayout from './PageLayout'
 import { apiUrl } from './apiClient'
@@ -16,9 +16,10 @@ const STATUS_BADGE = {
 
 function StatusBadge({ status }) {
   const cls = STATUS_BADGE[status] || 'bg-gray-100 text-gray-700'
+  const label = STATUS_LABEL[status] ?? status
   return (
     <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${cls}`}>
-      {status}
+      {label}
     </span>
   )
 }
@@ -30,8 +31,28 @@ function relativeTime(dateStr) {
   if (s < 60) return 'just now'
   if (s < 3600) return `${Math.floor(s / 60)} min ago`
   if (s < 86400) return `${Math.floor(s / 3600)} h ago`
-  if (s < 604800) return `${Math.floor(s / 86400)} d ago`
+  const days = Math.floor(s / 86400)
+  if (days === 1) return 'yesterday'
+  if (s < 604800) return `${days} d ago`
   return d.toLocaleDateString()
+}
+
+const STATUS_LABEL = {
+  INTAKE_CLARIFICATION: 'Intake',
+  PLAN_PROPOSED: 'Planning',
+  RUNNING: 'Running',
+  JOB_READY: 'Ready',
+  COMPLETED: 'Done',
+  FAILED: 'Failed',
+  CANCELLED: 'Cancelled',
+  AWAITING_APPROVAL: 'Awaiting approval',
+}
+
+function getCeoPreview(job) {
+  const ctx = typeof job?.context === 'string' ? (() => { try { return JSON.parse(job.context || '{}'); } catch { return {}; } })() : (job?.context || {})
+  const msg = (typeof ctx.ceo_message === 'string' ? ctx.ceo_message : '') || ''
+  const s = msg.slice(0, 60).trim()
+  return s + (msg.length > 60 ? '…' : '')
 }
 
 const IN_PROGRESS_STATUSES = ['INTAKE_CLARIFICATION', 'PLAN_PROPOSED', 'RUNNING', 'JOB_READY', 'AWAITING_APPROVAL']
@@ -44,11 +65,13 @@ export default function JobCenter() {
   const [filter, setFilter] = useState('all') // all | in_progress | completed | failed
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [searchQuery, setSearchQuery] = useState('')
   const [showNewJobForm, setShowNewJobForm] = useState(false)
   const [newJobPost, setNewJobPost] = useState('')
   const [newJobPlatform, setNewJobPlatform] = useState('custom')
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState(null)
+  const newJobTextareaRef = useRef(null)
 
   const [crew, setCrew] = useState([])
   const [sections, setSections] = useState([])
@@ -75,6 +98,12 @@ export default function JobCenter() {
     const interval = setInterval(fetchJobs, 10000)
     return () => clearInterval(interval)
   }, [fetchJobs])
+
+  useEffect(() => {
+    if (showNewJobForm && newJobTextareaRef.current) {
+      newJobTextareaRef.current.focus()
+    }
+  }, [showNewJobForm])
 
   useEffect(() => {
     let active = true
@@ -105,10 +134,12 @@ export default function JobCenter() {
   }, [])
 
   const filteredJobs = jobs.filter((j) => {
-    if (filter === 'all') return true
-    if (filter === 'in_progress') return IN_PROGRESS_STATUSES.includes(j.status)
-    if (filter === 'completed') return COMPLETED_STATUSES.includes(j.status)
-    if (filter === 'failed') return FAILED_STATUSES.includes(j.status)
+    if (filter === 'all') {}
+    else if (filter === 'in_progress') { if (!IN_PROGRESS_STATUSES.includes(j.status)) return false }
+    else if (filter === 'completed') { if (!COMPLETED_STATUSES.includes(j.status)) return false }
+    else if (filter === 'failed') { if (!FAILED_STATUSES.includes(j.status)) return false }
+    const q = (searchQuery || '').trim().toLowerCase()
+    if (q && !(j.job_post || '').toLowerCase().includes(q)) return false
     return true
   })
 
@@ -151,6 +182,31 @@ export default function JobCenter() {
     }
   }
 
+  useEffect(() => {
+    if (!showNewJobForm) return
+    const onKey = (e) => {
+      if (e.key === 'Escape') {
+        setShowNewJobForm(false)
+        setCreateError(null)
+        setNewJobPost('')
+        setNewJobPlatform('custom')
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        e.preventDefault()
+        if (newJobPost.trim().length >= 10) handleCreateJob(e)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [showNewJobForm, newJobPost])
+
+  const closeModal = () => {
+    setShowNewJobForm(false)
+    setCreateError(null)
+    setNewJobPost('')
+    setNewJobPlatform('custom')
+  }
+
   const updates = sections.map((s) => ({
     slug: s.slug,
     title: s.title,
@@ -166,62 +222,69 @@ export default function JobCenter() {
         </p>
       </div>
 
-      {/* New Job button + form */}
+      {/* New Job button */}
       <div className="panel-card">
-        {!showNewJobForm ? (
-          <button
-            type="button"
-            onClick={() => setShowNewJobForm(true)}
-            className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition"
-          >
-            New Job
-          </button>
-        ) : (
-          <form onSubmit={handleCreateJob} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Job description</label>
-              <textarea
-                value={newJobPost}
-                onChange={(e) => setNewJobPost(e.target.value)}
-                placeholder="Describe the job (min 10 characters)..."
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
-                rows={4}
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Source platform (optional)</label>
-              <select
-                value={newJobPlatform}
-                onChange={(e) => setNewJobPlatform(e.target.value)}
-                className="w-full max-w-xs px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-              >
-                <option value="custom">Custom</option>
-                <option value="linkedin">LinkedIn</option>
-                <option value="upwork">Upwork</option>
-                <option value="internal">Internal</option>
-              </select>
-            </div>
-            {createError && <div className="text-sm text-red-600">{createError}</div>}
-            <div className="flex gap-2">
-              <button
-                type="submit"
-                disabled={creating}
-                className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50"
-              >
-                {creating ? 'Creating...' : 'Create Job'}
-              </button>
-              <button
-                type="button"
-                onClick={() => { setShowNewJobForm(false); setCreateError(null); setNewJobPost(''); setNewJobPlatform('custom'); }}
-                className="px-4 py-2 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50"
-              >
-                Cancel
-              </button>
-            </div>
-          </form>
-        )}
+        <button
+          type="button"
+          onClick={() => setShowNewJobForm(true)}
+          className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition"
+        >
+          New Job
+        </button>
       </div>
+
+      {/* New Job modal */}
+      {showNewJobForm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/50 overflow-y-auto" onClick={closeModal}>
+          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-4 sm:p-6 space-y-4 my-auto" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-slate-900">New Job</h3>
+            <form onSubmit={handleCreateJob} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Job description</label>
+                <textarea
+                  ref={newJobTextareaRef}
+                  value={newJobPost}
+                  onChange={(e) => setNewJobPost(e.target.value)}
+                  placeholder="Beschrijf je opdracht... bijv: 'Schrijf een blog van 500 woorden over duurzaam wonen'"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none text-slate-800"
+                  rows={4}
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Source platform (optional)</label>
+                <select
+                  value={newJobPlatform}
+                  onChange={(e) => setNewJobPlatform(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-slate-800"
+                >
+                  <option value="custom">Custom</option>
+                  <option value="linkedin">LinkedIn</option>
+                  <option value="upwork">Upwork</option>
+                  <option value="internal">Internal</option>
+                </select>
+              </div>
+              {createError && <div className="text-sm text-red-600">{createError}</div>}
+              <div className="flex gap-2 justify-end">
+                <button
+                  type="button"
+                  onClick={closeModal}
+                  className="px-4 py-2 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={creating || (newJobPost.trim().length < 10)}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50"
+                >
+                  {creating ? 'Creating...' : 'Submit'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Jobs overview */}
       <div className="panel-card">
@@ -238,7 +301,15 @@ export default function JobCenter() {
           </div>
         </div>
 
-        <div className="flex gap-2 mb-4">
+        <div className="flex flex-col sm:flex-row gap-2 mb-4">
+          <input
+            type="search"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search jobs..."
+            className="w-full sm:max-w-xs px-3 py-2 border border-slate-300 rounded-lg text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+          />
+          <div className="flex gap-2 flex-wrap">
           {['all', 'in_progress', 'completed', 'failed'].map((f) => (
             <button
               key={f}
@@ -251,12 +322,13 @@ export default function JobCenter() {
               {f === 'all' ? 'All' : f === 'in_progress' ? 'In Progress' : f === 'completed' ? 'Completed' : 'Failed'}
             </button>
           ))}
+          </div>
         </div>
 
         {loading && <div className="text-slate-500">Loading jobs...</div>}
         {!loading && error && <div className="text-red-500">{error}</div>}
         {!loading && !error && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-1 md:grid-cols-2 gap-4 w-full">
             {filteredJobs.map((job) => (
               <button
                 key={job.id}
@@ -271,13 +343,25 @@ export default function JobCenter() {
                 <p className="text-sm text-slate-800 line-clamp-2">
                   {(job.job_post || '').length > 100 ? `${job.job_post.slice(0, 100)}…` : (job.job_post || '—')}
                 </p>
+                {getCeoPreview(job) && (
+                  <p className="mt-1 text-xs text-slate-500 line-clamp-1">{getCeoPreview(job)}</p>
+                )}
                 <div className="mt-2 text-xs text-slate-500">{relativeTime(job.created_at)}</div>
               </button>
             ))}
           </div>
         )}
         {!loading && !error && filteredJobs.length === 0 && (
-          <div className="text-slate-500 py-4">No jobs match the filter.</div>
+          <div className="py-8 text-center">
+            <p className="text-slate-600 mb-4">No jobs match the filter. Create one to get started.</p>
+            <button
+              type="button"
+              onClick={() => setShowNewJobForm(true)}
+              className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition"
+            >
+              New Job
+            </button>
+          </div>
         )}
       </div>
 
