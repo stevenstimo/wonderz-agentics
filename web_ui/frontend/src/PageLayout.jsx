@@ -2,9 +2,9 @@ import Sidebar from './Sidebar'
 
 const SIZE_CLASS = {
   none: '',
-  narrow: 'w-full max-w-[1000px] mx-auto',
-  medium: 'w-full max-w-[1000px] mx-auto',
-  wide: 'w-full max-w-[1000px] mx-auto',
+  narrow: 'w-full max-w-7xl mx-auto',
+  medium: 'w-full max-w-7xl mx-auto',
+  wide: 'w-full max-w-7xl mx-auto',
 }
 
 export default function PageLayout({

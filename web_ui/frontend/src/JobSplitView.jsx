@@ -326,7 +326,7 @@ export default function JobSplitView() {
 
   if (jobId && error && !data) {
     return (
-      <PageLayout size="wide" padded>
+      <PageLayout size="wide" padded className="!max-w-none">
         <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm text-red-500">{error}</div>
         <div className="mt-4 flex gap-2 flex-wrap">
           <button type="button" onClick={() => { setError(null); fetchJob(); }} className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700">Retry</button>
@@ -338,7 +338,7 @@ export default function JobSplitView() {
 
   if (jobId && data && !data.job) {
     return (
-      <PageLayout size="wide" padded>
+      <PageLayout size="wide" padded className="!max-w-none">
         <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm text-amber-700">Job not found.</div>
         <button type="button" onClick={() => navigate('/job-center')} className="mt-4 px-4 py-2 border border-slate-300 rounded-lg font-medium">Back to Job Center</button>
       </PageLayout>

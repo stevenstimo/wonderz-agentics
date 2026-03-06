@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ChevronUp, Plus, Pencil } from 'lucide-react'
+import { Plus } from 'lucide-react'
 import PageLayout from './PageLayout'
 import { buildAuthHeaders, getCurrentUserRole, isSuperAdmin } from './authz'
 
@@ -146,7 +146,7 @@ export default function TalentOverview() {
   }
 
   const avatarSrc = (talent) =>
-    talent.avatar_url || `https://api.dicebear.com/7.x/personas/svg?seed=${encodeURIComponent(talent.name)}`
+    talent.avatar_url || `https://api.dicebear.com/7.x/personas/svg?seed=${encodeURIComponent(talent.name || talent.id)}`
 
   return (
     <PageLayout>
@@ -182,11 +182,7 @@ export default function TalentOverview() {
               >
                 <div className="flex items-start gap-3">
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full overflow-hidden bg-indigo-100 text-indigo-700 font-semibold text-sm">
-                    {talent.avatar_url ? (
-                      <img src={talent.avatar_url} alt="" className="w-full h-full object-cover" />
-                    ) : (
-                      initials(talent.name)
-                    )}
+                    <img src={avatarSrc(talent)} alt="" className="w-full h-full object-cover" />
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center justify-between gap-2">

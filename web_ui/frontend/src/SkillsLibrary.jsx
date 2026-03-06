@@ -163,7 +163,7 @@ export default function SkillsLibrary() {
   const domains = [...new Set(skills.map((s) => s.domain).filter(Boolean))].sort()
 
   return (
-    <PageLayout size="wide" padded className="space-y-4">
+    <PageLayout size="wide" padded className="space-y-4 !max-w-none">
       <div className="grid grid-cols-1 md:grid-cols-[55%_45%] gap-4 min-h-[calc(100vh-8rem)]">
         {/* Left: Judson Chat */}
         <div className="flex flex-col rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden min-h-0">

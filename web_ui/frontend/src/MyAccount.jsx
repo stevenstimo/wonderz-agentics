@@ -1,10 +1,23 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import PageLayout from './PageLayout'
 import { supabase } from './supabase'
 import { getCurrentUserRole } from './authz'
+import { useAvatarUpload } from './hooks/useAvatarUpload'
+import { useToast } from './Toast'
+import { ToastContainer } from './Toast'
+import { Loader2 } from 'lucide-react'
 
 function fallbackName(user) {
   return user?.user_metadata?.full_name || user?.user_metadata?.name || user?.email || 'Unknown user'
+}
+
+function getInitials(user) {
+  const source =
+    user?.user_metadata?.full_name ||
+    user?.user_metadata?.name ||
+    user?.email ||
+    'U'
+  return source.trim().charAt(0).toUpperCase()
 }
 
 export default function MyAccount() {
@@ -15,6 +28,10 @@ export default function MyAccount() {
   const [message, setMessage] = useState('')
   const [fullName, setFullName] = useState('')
   const [newPassword, setNewPassword] = useState('')
+  const [displayAvatarUrl, setDisplayAvatarUrl] = useState(null)
+  const fileInputRef = useRef(null)
+  const toast = useToast()
+  const { uploadAvatar, isUploading } = useAvatarUpload()
 
   useEffect(() => {
     let mounted = true
@@ -25,6 +42,7 @@ export default function MyAccount() {
       if (!mounted) return
       setUser(currentUser)
       setFullName(fallbackName(currentUser))
+      setDisplayAvatarUrl(currentUser?.user_metadata?.avatar_url ?? null)
 
       try {
         const ctx = await getCurrentUserRole()
@@ -40,6 +58,7 @@ export default function MyAccount() {
       const currentUser = session?.user || null
       setUser(currentUser)
       setFullName(fallbackName(currentUser))
+      setDisplayAvatarUrl(currentUser?.user_metadata?.avatar_url ?? null)
       try {
         const ctx = await getCurrentUserRole()
         setRole(ctx.role || 'member')
@@ -104,6 +123,24 @@ export default function MyAccount() {
     setBusy(false)
   }
 
+  const handleAvatarClick = () => {
+    if (isUploading) return
+    fileInputRef.current?.click()
+  }
+
+  const handleAvatarFileChange = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file || !user?.id) return
+    e.target.value = ''
+    try {
+      const publicUrl = await uploadAvatar(file, user.id)
+      setDisplayAvatarUrl(publicUrl)
+      toast.success('Avatar bijgewerkt.')
+    } catch (err) {
+      toast.error(err?.message || 'Avatar upload mislukt.')
+    }
+  }
+
   if (!user) {
     return (
       <PageLayout size="narrow" padded>
@@ -121,6 +158,37 @@ export default function MyAccount() {
         <div>
           <h1 className="page-title">Mijn account</h1>
           <p className="page-subtitle">Bekijk en beheer je profielgegevens.</p>
+        </div>
+
+        <div className="flex items-center gap-4">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handleAvatarFileChange}
+          />
+          <button
+            type="button"
+            onClick={handleAvatarClick}
+            disabled={isUploading}
+            className="relative w-20 h-20 rounded-full overflow-hidden flex-shrink-0 border-2 border-gray-200 hover:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-70 disabled:pointer-events-none"
+            title="Avatar wijzigen"
+          >
+            {displayAvatarUrl ? (
+              <img src={displayAvatarUrl} alt="" className="w-full h-full object-cover" />
+            ) : (
+              <div className="w-full h-full bg-gray-200 flex items-center justify-center text-2xl font-semibold text-gray-600">
+                {getInitials(user)}
+              </div>
+            )}
+            {isUploading && (
+              <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                <Loader2 className="w-8 h-8 text-white animate-spin" />
+              </div>
+            )}
+          </button>
+          <p className="text-sm text-gray-500">Klik op de avatar om een nieuwe foto te uploaden (max. 2 MB).</p>
         </div>
 
         <div className="space-y-3 text-sm text-gray-700">
@@ -178,6 +246,7 @@ export default function MyAccount() {
 
         {error && <div className="text-sm text-red-600">{error}</div>}
         {message && <div className="text-sm text-emerald-700">{message}</div>}
+        <ToastContainer toasts={toast.toasts} onRemove={toast.removeToast} />
       </div>
     </PageLayout>
   )
