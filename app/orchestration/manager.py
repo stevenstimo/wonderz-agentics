@@ -218,7 +218,10 @@ class OperationsManager:
         """Store or update job context data (brief, plan, answers, etc.)."""
         existing = await self.get_job_context(conn, job_id)
         if existing:
+            original_job_number = existing.get("job_number")
             existing.update(data)
+            if original_job_number is not None:
+                existing["job_number"] = original_job_number
         else:
             existing = data
 
