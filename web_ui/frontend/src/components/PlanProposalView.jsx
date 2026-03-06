@@ -139,10 +139,10 @@ export function PlanProposalView({ jobId, plan, onApprove, onRequestChanges }) {
         </div>
       </div>
 
-      {/* CEO Commentary */}
+      {/* Mr. Klein Commentary */}
       <div className="p-4 bg-blue-50 border border-blue-200 rounded">
         <p className="text-sm text-gray-700">
-          <strong>CEO Notes:</strong> This plan has been carefully designed to achieve your objectives efficiently.
+          <strong>Mr. Klein Notes:</strong> This plan has been carefully designed to achieve your objectives efficiently.
           Each step has been prioritized based on impact and dependencies.
         </p>
       </div>

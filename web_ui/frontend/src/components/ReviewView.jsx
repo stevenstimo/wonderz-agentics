@@ -76,10 +76,10 @@ export function ReviewView({ jobId, artifacts, ceoSummary, onApprove, onRequestC
         </p>
       </div>
 
-      {/* CEO Commentary */}
+      {/* Mr. Klein Commentary */}
       {ceoSummary && (
         <div className="p-4 bg-blue-50 border border-blue-200 rounded">
-          <p className="text-sm font-semibold text-blue-900 mb-2">CEO Summary</p>
+          <p className="text-sm font-semibold text-blue-900 mb-2">Mr. Klein Summary</p>
           <p className="text-sm text-gray-700">{ceoSummary}</p>
         </div>
       )}

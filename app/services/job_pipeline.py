@@ -188,7 +188,19 @@ def _run_step_agent(
 
     # Copywriter: write main content
     if role_lower in ("copywriter", "copy writer"):
-        system = f"You are a professional copywriter. Write in {language}. Tone: {tone}. Focus: {focus}. Output only the requested content, no meta-commentary. You MUST respect the required word count: the final text must be approximately {word_count} words (strict requirement)."
+        system = (
+            f"You are a professional copywriter. Write the ACTUAL article text, NOT a plan or outline. Write the full, complete article ready for publication.\n\n"
+            f"Rules:\n"
+            f"- Write in {language}\n"
+            f"- Tone: {tone}\n"
+            f"- Focus: {focus}\n"
+            f"- Write approximately {word_count} words\n"
+            f"- Do NOT write a plan, outline, structure, or project overview\n"
+            f"- Do NOT use checkmarks, status labels, or meta-commentary about the text\n"
+            f"- Write the actual content as if it will be published directly on a blog\n"
+            f"- Use proper headings (# and ##) to structure the article\n"
+            f"- Write engaging, informative prose"
+        )
         user = f"Write an article of approximately {word_count} words about: {objective}"
         user_feedback = context.get("user_feedback") or context.get("feedback") or ""
         if user_feedback and isinstance(user_feedback, str):

@@ -140,7 +140,7 @@ export default function TrainingManagement() {
         throw new Error(errorData.detail || errorData.error || 'Failed to request training')
       }
       
-      toast.success(`Training request submitted for ${formData.agent_name}. Awaiting CEO approval.`)
+      toast.success(`Training request submitted for ${formData.agent_name}. Awaiting Mr. Klein approval.`)
       setFormData({
         crew_id: '',
         agent_name: '',
@@ -481,7 +481,7 @@ export default function TrainingManagement() {
                           <div className="text-sm text-gray-600">{session.training_title || session.training_url}</div>
                           {session.metadata?.approval_id && approvalsById[session.metadata.approval_id]?.details?.decision_note && (
                             <div className="text-xs text-gray-500 mt-1">
-                              CEO note: {approvalsById[session.metadata.approval_id].details.decision_note}
+                              Mr. Klein note: {approvalsById[session.metadata.approval_id].details.decision_note}
                             </div>
                           )}
                         </div>
@@ -510,7 +510,7 @@ export default function TrainingManagement() {
                       )}
                       {session.metadata?.approval_id && approvalsById[session.metadata.approval_id]?.details?.decision_note && (
                         <div className="text-xs text-gray-600">
-                          CEO note: {approvalsById[session.metadata.approval_id].details.decision_note}
+                          Mr. Klein note: {approvalsById[session.metadata.approval_id].details.decision_note}
                         </div>
                       )}
                       {session.approval_status === 'pending' && session.metadata?.approval_id && (
@@ -600,7 +600,7 @@ export default function TrainingManagement() {
                       )}
                       {session.approval_status === 'rejected' && (
                         <div className="text-xs text-red-600">
-                          Training request rejected by CEO.
+                          Training request rejected by Mr. Klein.
                         </div>
                       )}
                     </div>

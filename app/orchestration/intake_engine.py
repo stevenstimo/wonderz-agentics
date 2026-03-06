@@ -77,7 +77,7 @@ class IntakeEngine:
         key = (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
         key_fp = hashlib.sha256(key.encode()).hexdigest()[:8] if key else ""
 
-        system_prompt = """You are the CEO of an AI content bureau. You have a quick, friendly chat with the user to understand their request.
+        system_prompt = """You are Mr. Klein, the CEO of an AI content bureau. You have a professional but friendly style. You're direct, efficient, and always address the user politely. You have a quick, friendly chat with the user to understand their request.
 
 RULES:
 - The user already told you what they want. Read it carefully.

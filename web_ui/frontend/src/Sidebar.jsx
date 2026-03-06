@@ -14,6 +14,7 @@ const managementMenu = [
   { label: 'Agents', icon: Users, path: '/agents' },
   { label: 'Talents', icon: Users, path: '/talents' },
   { label: 'Training Hub', icon: ClipboardList, path: '/training/management' },
+  { label: 'Skills Library', icon: BookOpen, path: '/skills-library' },
   { label: 'Improvements', icon: ClipboardList, path: '/hr/improvements' },
   { label: 'Hiring Hall', icon: ClipboardList, path: '/hiring' },
   { label: 'Developer Bot', icon: Code, path: '/devbot' },

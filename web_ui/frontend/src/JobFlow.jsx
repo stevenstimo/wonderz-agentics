@@ -152,7 +152,7 @@ export default function JobFlow() {
         const d = await r.json()
         const newId = d.job_id
         setJobId(newId)
-        setMessages(p => [...p, { from: 'ceo', text: 'Job aangemaakt. CEO analyseert...' }])
+        setMessages(p => [...p, { from: 'ceo', text: 'Job aangemaakt. Mr. Klein analyseert...' }])
         startPolling(newId)
 
         // Laad direct jobdata; loadJob toont eventuele clarification vraag.
@@ -408,7 +408,7 @@ export default function JobFlow() {
         {phase === 'plan' && (
           <div className="max-w-2xl mx-auto">
             <h2 className="text-2xl font-bold text-gray-900 mb-2">Uitvoeringsplan</h2>
-            <p className="text-gray-500 text-sm mb-6">De CEO heeft het team samengesteld. Keur goed om te starten.</p>
+            <p className="text-gray-500 text-sm mb-6">Mr. Klein heeft het team samengesteld. Keur goed om te starten.</p>
             <div className="space-y-3 mb-6 bg-gray-50 rounded-xl p-4">
               {plan.length === 0 ? (
                 <p className="text-gray-400 text-sm text-center py-2">Plan wordt geladen...</p>

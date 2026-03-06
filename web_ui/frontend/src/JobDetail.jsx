@@ -327,7 +327,7 @@ export default function JobDetail() {
           <h3 className="text-lg font-semibold text-slate-900 mb-3 px-1">Clarify your request</h3>
           <div className="flex-1 overflow-y-auto space-y-4 min-h-[10rem] px-1 pb-2 transition-all">
             {chatHistory.length === 0 && !ceoTyping && (
-              <p className="text-slate-500 text-sm">CEO is thinking…</p>
+              <p className="text-slate-500 text-sm">Mr. Klein is thinking…</p>
             )}
             {chatHistory.map((msg, i) => (
               <div
@@ -336,7 +336,7 @@ export default function JobDetail() {
               >
                 {msg.role === 'ceo' && (
                   <div className="flex-shrink-0 w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-600 text-xs font-semibold">
-                    W
+                    MK
                   </div>
                 )}
                 <div
@@ -352,9 +352,9 @@ export default function JobDetail() {
             ))}
             {ceoTyping && (
               <div className="flex gap-2 justify-start items-center text-slate-500 text-sm">
-                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-600 text-xs font-semibold">W</div>
+                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-600 text-xs font-semibold">MK</div>
                 <div className="px-4 py-2.5 rounded-2xl rounded-tl-none bg-slate-100 text-slate-600 flex items-center gap-1">
-                  CEO is typing
+                  Mr. Klein is typing
                   <span className="inline-flex gap-0.5">
                     <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-pulse" style={{ animationDelay: '0ms' }} />
                     <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-pulse" style={{ animationDelay: '150ms' }} />

@@ -40,6 +40,17 @@ def _row_to_dict(row: Any) -> dict:
     return dict(row)
 
 
+def _debug_log(data: dict) -> None:
+    import os
+    log_path = os.environ.get("DEBUG_LOG_PATH", "/home/exedev/wonderz-agentics/.cursor/debug-43707b.log")
+    try:
+        import json as _j
+        with open(log_path, "a") as f:
+            f.write(_j.dumps({"sessionId": "43707b", "timestamp": __import__("time").time() * 1000, "location": "debug_chat.py:_gather_context", "message": "debug", "data": data}) + "\n")
+    except Exception:
+        pass
+
+
 async def _gather_context(conn, message: str) -> tuple[dict, dict]:
     """
     Parse user message and run relevant DB queries.
@@ -49,11 +60,16 @@ async def _gather_context(conn, message: str) -> tuple[dict, dict]:
     context_parts = []
     query_results = {}
 
-    # UUID: single job by id
+    # #region agent log
     uuid_match = re.search(
         r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
         message,
     )
+    hash_num_pre = re.search(r"#(\d{4})", message)
+    _debug_log({"hypothesisId": "H1_H5", "message_pre": message[:200], "uuid_match": uuid_match is not None, "hash_num_match": hash_num_pre is not None, "hash_num_capture": hash_num_pre.group(1) if hash_num_pre else None})
+    # #endregion
+
+    # UUID: single job by id
     if uuid_match:
         job_id = uuid_match.group(0)
         job = await conn.fetchrow("SELECT * FROM jobs WHERE id=$1", job_id)
@@ -95,6 +111,15 @@ async def _gather_context(conn, message: str) -> tuple[dict, dict]:
             "SELECT * FROM jobs WHERE context->>'job_number'=$1 ORDER BY created_at DESC LIMIT 1",
             num,
         )
+        # #region agent log
+        if job:
+            _debug_log({"hypothesisId": "H2", "branch": "hash_num", "num": num, "job_found": True})
+        else:
+            sample = await conn.fetch(
+                "SELECT id, context->>'job_number' AS jn FROM jobs ORDER BY created_at DESC LIMIT 5"
+            )
+            _debug_log({"hypothesisId": "H2_H4", "branch": "hash_num", "num": num, "job_found": False, "sample_job_numbers": [_row_to_dict(r) for r in sample]})
+        # #endregion
         if job:
             job_id = str(job["id"])
             job_d = _row_to_dict(job)

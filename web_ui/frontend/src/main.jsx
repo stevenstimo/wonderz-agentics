@@ -25,6 +25,7 @@ import LoginPage from './LoginPage.jsx'
 import CommandCenter from './CommandCenter.jsx'
 import JobSplitView from './JobSplitView.jsx'
 import NewJob from './NewJob.jsx'
+import SkillsLibrary from './SkillsLibrary.jsx'
 import './index.css'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
@@ -41,6 +42,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <Route path="/agents" element={<AgentsOverview />} />
           <Route path="/agents/new" element={<NewCrewMember />} />
           <Route path="/training/management" element={<TrainingManagement />} />
+          <Route path="/skills-library" element={<SkillsLibrary />} />
           <Route path="/approvals" element={<ApprovalDashboard />} />
           <Route path="/hr/improvements" element={<HRImprovements />} />
           <Route path="/explainer/how-it-works" element={<ExplainerHowItWorks />} />
