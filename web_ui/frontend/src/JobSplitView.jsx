@@ -15,6 +15,18 @@ function parseContext(ctx) {
   }
 }
 
+function renderMarkdown(text) {
+  if (!text) return ''
+  return text
+    .split('\n\n')
+    .map(block => {
+      if (block.startsWith('## ')) return `<h2 class="text-xl font-bold mt-4 mb-2">${block.slice(3)}</h2>`
+      if (block.startsWith('# ')) return `<h1 class="text-2xl font-bold mt-4 mb-3">${block.slice(2)}</h1>`
+      return `<p class="mb-3 leading-relaxed">${block}</p>`
+    })
+    .join('')
+}
+
 const STATUS_BADGE = {
   INTAKE_CLARIFICATION: 'bg-amber-100 text-amber-800',
   PLAN_PROPOSED: 'bg-blue-100 text-blue-800',
@@ -196,12 +208,18 @@ export default function JobSplitView() {
     if (!requestChangesText.trim()) return
     setSubmittingRequest(true)
     try {
-      const res = await fetch(apiUrl(`/api/jobs/${jobId}/request-changes`), {
+      const status = job?.status
+      const isContentFeedback = status === 'JOB_READY' || status === 'AWAITING_APPROVAL'
+      const endpoint = isContentFeedback ? `/api/jobs/${jobId}/feedback` : `/api/jobs/${jobId}/request-changes`
+      const res = await fetch(apiUrl(endpoint), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ feedback: requestChangesText.trim() })
       })
-      if (!res.ok) throw new Error('Failed to submit feedback')
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.detail || 'Failed to submit feedback')
+      }
       setRequestChangesOpen(false)
       setRequestChangesText('')
       await fetchJob()
@@ -408,7 +426,7 @@ export default function JobSplitView() {
         {/* Right: Output */}
         <div className="flex flex-col rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden min-h-0">
           <div className="flex-shrink-0 px-4 py-3 border-b border-slate-200">
-            <h3 className="text-lg font-semibold text-slate-900">Output</h3>
+            <h3 className="text-lg font-semibold text-slate-900">{context.job_number ? `Output — #${context.job_number}` : 'Output'}</h3>
           </div>
           <div className="flex-1 overflow-y-auto p-4">
             {!job && (
@@ -537,6 +555,11 @@ export default function JobSplitView() {
                           </div>
                           {isDone && s.output && (
                             <div className="border-t border-slate-100 px-3 pb-2 pt-1">
+                              {s.output.image_url && (
+                                <div className="mb-2">
+                                  <img src={s.output.image_url} alt="Step image" className="w-full max-h-32 object-cover rounded-lg shadow-sm" loading="lazy" />
+                                </div>
+                              )}
                               <StepOutputExpand output={s.output} />
                             </div>
                           )}
@@ -565,6 +588,14 @@ export default function JobSplitView() {
             {job?.status === 'JOB_READY' && (
               <div className="space-y-4">
                 <div className="rounded-lg bg-green-100 text-green-800 px-4 py-3 font-medium">Content Ready!</div>
+                {context.image_url && (
+                  <div className="rounded-xl border border-slate-200 overflow-hidden bg-white">
+                    <img src={context.image_url} alt="Generated image" className="w-full rounded-xl mb-4 shadow-sm" loading="lazy" />
+                    <div className="px-4 pb-3">
+                      <a href={context.image_url} download className="text-indigo-600 text-sm hover:underline">Download image</a>
+                    </div>
+                  </div>
+                )}
                 <div className="rounded-xl border border-slate-200 p-4 bg-white">
                   <div className="flex items-center justify-between gap-2 mb-2">
                     <h3 className="text-sm font-medium text-slate-500">Final content</h3>
@@ -579,7 +610,9 @@ export default function JobSplitView() {
                       Copy
                     </button>
                   </div>
-                  <div className="text-slate-800 whitespace-pre-wrap max-h-64 overflow-y-auto">{typeof context.final_content === 'string' ? context.final_content : (context.final_content != null ? JSON.stringify(context.final_content) : 'No content yet.')}</div>
+                  <div className="text-slate-800 max-h-96 overflow-y-auto prose prose-slate">
+                    <div dangerouslySetInnerHTML={{ __html: renderMarkdown(typeof context.final_content === 'string' ? context.final_content : (context.final_content != null ? String(context.final_content) : '')) || '<p class="text-slate-500">No content yet.</p>' }} />
+                  </div>
                 </div>
                 {artifacts?.length > 0 && (
                   <ul className="space-y-2">
@@ -612,9 +645,19 @@ export default function JobSplitView() {
             {job?.status === 'COMPLETED' && (
               <div className="space-y-4">
                 <div className="rounded-lg bg-green-100 text-green-800 px-4 py-3 font-medium">Job Completed</div>
+                {context.image_url && (
+                  <div className="rounded-xl border border-slate-200 overflow-hidden bg-white">
+                    <img src={context.image_url} alt="Generated image" className="w-full rounded-xl mb-4 shadow-sm" loading="lazy" />
+                    <div className="px-4 pb-3">
+                      <a href={context.image_url} download className="text-indigo-600 text-sm hover:underline">Download image</a>
+                    </div>
+                  </div>
+                )}
                 <div className="rounded-xl border border-slate-200 p-4 bg-white">
                   <h3 className="text-sm font-medium text-slate-500 mb-2">Final content</h3>
-                  <div className="text-slate-800 whitespace-pre-wrap max-h-64 overflow-y-auto">{typeof context.final_content === 'string' ? context.final_content : (context.final_content != null ? JSON.stringify(context.final_content) : '')}</div>
+                  <div className="text-slate-800 max-h-96 overflow-y-auto prose prose-slate">
+                    <div dangerouslySetInnerHTML={{ __html: renderMarkdown(typeof context.final_content === 'string' ? context.final_content : (context.final_content != null ? String(context.final_content) : '')) || '<p class="text-slate-500">No content.</p>' }} />
+                  </div>
                 </div>
                 {context.deployment && (
                   <div className="rounded-xl border border-slate-200 p-4 bg-slate-50">

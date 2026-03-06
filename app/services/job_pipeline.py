@@ -3,6 +3,7 @@ import logging
 import os
 import time
 import uuid
+from urllib.parse import quote
 from typing import Any, Dict, List, Optional, Tuple
 
 from app.db import init_db_pool
@@ -116,6 +117,22 @@ def _brief_ctx(context: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _build_image_prompt(context: Dict[str, Any]) -> str:
+    """Build a descriptive English image prompt from job context for Pollinations.ai."""
+    objective = context.get("objective", "") or ""
+    brief_ctx = _brief_ctx(context)
+    objective = brief_ctx.get("objective") or objective
+    focus = brief_ctx.get("focus") or "general"
+    tone = brief_ctx.get("tone") or "informative"
+    prompt = f"Professional blog illustration for article about {objective or 'content'}"
+    if focus and focus != "general":
+        prompt += f", focusing on {focus}"
+    if tone:
+        prompt += f", {tone} style"
+    prompt += ", high quality, editorial photography style, vibrant colors"
+    return prompt
+
+
 def _run_step_agent(
     agent_role: str,
     step_name: str,
@@ -161,8 +178,11 @@ def _run_step_agent(
 
     # Copywriter: write main content
     if role_lower in ("copywriter", "copy writer"):
-        system = f"You are a professional copywriter. Write in {language}. Tone: {tone}. Focus: {focus}. Output only the requested content, no meta-commentary."
-        user = f"Write a {word_count}-word article about: {objective}"
+        system = f"You are a professional copywriter. Write in {language}. Tone: {tone}. Focus: {focus}. Output only the requested content, no meta-commentary. You MUST respect the required word count: the final text must be approximately {word_count} words (strict requirement)."
+        user = f"Write an article of approximately {word_count} words about: {objective}"
+        user_feedback = context.get("user_feedback") or context.get("feedback") or ""
+        if user_feedback and isinstance(user_feedback, str):
+            user += f"\n\nUser feedback (apply this): {user_feedback}"
         try:
             response = client.messages.create(
                 model=CLAUDE_MODEL,
@@ -201,10 +221,18 @@ def _run_step_agent(
             logger.exception("Reviewer step failed: %s", e)
             return ({"status": "failed", "review": str(e), "approved": False, "agent_role": agent_role}, 0)
 
-    # Image generator: placeholder
+    # Image generator: Pollinations.ai (no API key)
     if role_lower in ("image_generator", "image generator", "imagegenerator"):
+        prompt = _build_image_prompt(context)
+        encoded = quote(prompt, safe="")
+        image_url = f"https://image.pollinations.ai/prompt/{encoded}?width=1024&height=768&nologo=true"
         return (
-            {"image_status": "placeholder", "note": "Image generation coming soon", "agent_role": agent_role},
+            {
+                "image_url": image_url,
+                "image_status": "generated",
+                "prompt": prompt,
+                "agent_role": agent_role,
+            },
             0,
         )
 
@@ -321,10 +349,10 @@ async def run_intake_inline(job_id: str, job_post: str):
 
 async def run_intake_answers_inline(job_id: str, answers: dict):
     """
-    1. Load existing job context from jobs table
-    2. Call IntakeEngine.analyze_job_post(job_post, previous_answers=answers)
-    3. Same logic as above: if complete → StrategyRoom → PLAN_PROPOSED
-       If not complete → store new clarifications → stay INTAKE_CLARIFICATION
+    1. Load existing job context; pass chat_history into IntakeEngine.
+    2. If not complete → store clarifications, stay INTAKE_CLARIFICATION.
+    3. If complete and context has final_content (revision) → set RUNNING, run_job_inline (skip StrategyRoom).
+    4. Else (first-time complete) → StrategyRoom → PLAN_PROPOSED.
     """
     pool = await _get_pool()
     if not pool:
@@ -332,6 +360,7 @@ async def run_intake_answers_inline(job_id: str, answers: dict):
 
     intake = IntakeEngine()
     strategy = StrategyRoom()
+    run_revision = False
 
     try:
         async with pool.acquire() as conn:
@@ -340,14 +369,22 @@ async def run_intake_answers_inline(job_id: str, answers: dict):
             previous_answers = context.get("previous_answers") or {}
             merged_answers = {**previous_answers, **(answers or {})}
             job_post = job.get("job_post") or context.get("job_post") or ""
+            chat_history = list(context.get("chat_history") or [])
 
-            brief = intake.analyze_job_post(job_post, previous_answers=merged_answers)
+            brief = intake.analyze_job_post(
+                job_post,
+                previous_answers=merged_answers,
+                chat_history=chat_history if chat_history else None,
+            )
+            chat_history = list(chat_history)
+            chat_history.append({"role": "ceo", "content": brief.message or ""})
             await _update_job_context(
                 conn,
                 job_id,
                 {
                     "brief": brief.model_dump(),
                     "previous_answers": merged_answers,
+                    "chat_history": chat_history,
                 },
             )
 
@@ -361,35 +398,40 @@ async def run_intake_answers_inline(job_id: str, answers: dict):
                 )
                 return
 
-            available_agents = await _fetch_available_agents(conn)
-            plan = strategy.generate_execution_plan(brief, available_agents)
-            await _insert_plan_steps(conn, job_id, plan)
-            await _update_job_context(
-                conn,
-                job_id,
-                {
-                    "plan": plan.model_dump(),
-                },
-            )
-            await conn.execute(
-                "UPDATE jobs SET status=$1, updated_at=now() WHERE id=$2",
-                JobStatus.PLAN_PROPOSED.value,
-                job_id,
-            )
+            if context.get("final_content"):
+                await conn.execute(
+                    "UPDATE jobs SET status=$1, updated_at=now() WHERE id=$2",
+                    JobStatus.RUNNING.value,
+                    job_id,
+                )
+                run_revision = True
+            else:
+                available_agents = await _fetch_available_agents(conn)
+                plan = strategy.generate_execution_plan(brief, available_agents)
+                await _insert_plan_steps(conn, job_id, plan)
+                await _update_job_context(
+                    conn,
+                    job_id,
+                    {
+                        "plan": plan.model_dump(),
+                    },
+                )
+                await conn.execute(
+                    "UPDATE jobs SET status=$1, updated_at=now() WHERE id=$2",
+                    JobStatus.PLAN_PROPOSED.value,
+                    job_id,
+                )
+        if run_revision:
+            await run_job_inline(job_id, None)
     except Exception as exc:
         logger.error("run_intake_answers_inline failed for job %s: %s", job_id, exc, exc_info=True)
 
 
-async def run_job_inline(job_id: str, context: dict):
+async def run_job_inline(job_id: str, context_extra: Optional[dict] = None):
     """
-    1. Load job_steps for this job_id
-    2. For each step in order:
-       - Update step status to 'running', set started_at
-       - Execute the step (for now, just log it and create a placeholder output)
-       - Update step status to 'completed', set completed_at, store output
-       - Update jobs.tokens_used
-    3. After all steps complete:
-       - Update job status to JOB_READY
+    1. Load job and job_steps; merge context from DB with context_extra (e.g. user feedback).
+    2. For each step: run agent, store output, update tokens.
+    3. After all steps complete: set status to JOB_READY.
     """
     pool = await _get_pool()
     if not pool:
@@ -398,6 +440,11 @@ async def run_job_inline(job_id: str, context: dict):
     steps_completed = False
     try:
         async with pool.acquire() as conn:
+            job = await _load_job(conn, job_id)
+            context = _coerce_context(job.get("context"))
+            if context_extra:
+                context = {**context, **context_extra}
+
             steps = await conn.fetch(
                 "SELECT id, step_index, step_name, agent_role, unified_tool FROM job_steps WHERE job_id=$1 ORDER BY step_index",
                 job_id,
@@ -459,6 +506,8 @@ async def run_job_inline(job_id: str, context: dict):
                     tokens_used,
                     job_id,
                 )
+                if output.get("image_url"):
+                    await _update_job_context(conn, job_id, {"image_url": output["image_url"]})
                 logger.info("run_job_inline: job %s step %s of %s done", job_id, idx + 1, num_steps)
 
             steps_completed = True

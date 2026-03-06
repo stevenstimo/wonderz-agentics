@@ -465,3 +465,614 @@ INFO:     Application startup complete.
 ERROR:    [Errno 98] error while attempting to bind on address ('0.0.0.0', 8090): address already in use
 INFO:     Waiting for application shutdown.
 INFO:     Application shutdown complete.
+INFO:     Started server process [1931490]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8090 (Press CTRL+C to quit)
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     127.0.0.1:37670 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     127.0.0.1:46276 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/ad76e6a2-17b6-4a6e-b772-b2fa73856619 HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "POST /api/jobs/ad76e6a2-17b6-4a6e-b772-b2fa73856619/feedback HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/explainer/sections HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/ad76e6a2-17b6-4a6e-b772-b2fa73856619 HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/crew HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/explainer/sections HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/crew HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "POST /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b/run-intake HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     127.0.0.1:40482 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     127.0.0.1:55498 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "POST /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b/chat HTTP/1.0" 200 OK
+ERROR:    Exception in ASGI application
+Traceback (most recent call last):
+  File "/home/exedev/wonderz-agentics/.venv/lib/python3.12/site-packages/uvicorn/protocols/http/h11_impl.py", line 410, in run_asgi
+    result = await app(  # type: ignore[func-returns-value]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/exedev/wonderz-agentics/.venv/lib/python3.12/site-packages/uvicorn/middleware/proxy_headers.py", line 60, in __call__
+    return await self.app(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/exedev/wonderz-agentics/.venv/lib/python3.12/site-packages/fastapi/applications.py", line 1134, in __call__
+    await super().__call__(scope, receive, send)
+  File "/home/exedev/wonderz-agentics/.venv/lib/python3.12/site-packages/starlette/applications.py", line 107, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "/home/exedev/wonderz-agentics/.venv/lib/python3.12/site-packages/starlette/middleware/errors.py", line 186, in __call__
+    raise exc
+  File "/home/exedev/wonderz-agentics/.venv/lib/python3.12/site-packages/starlette/middleware/errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "/home/exedev/wonderz-agentics/.venv/lib/python3.12/site-packages/starlette/middleware/exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "/home/exedev/wonderz-agentics/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/home/exedev/wonderz-agentics/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/home/exedev/wonderz-agentics/.venv/lib/python3.12/site-packages/fastapi/middleware/asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "/home/exedev/wonderz-agentics/.venv/lib/python3.12/site-packages/starlette/routing.py", line 716, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "/home/exedev/wonderz-agentics/.venv/lib/python3.12/site-packages/starlette/routing.py", line 736, in app
+    await route.handle(scope, receive, send)
+  File "/home/exedev/wonderz-agentics/.venv/lib/python3.12/site-packages/starlette/routing.py", line 290, in handle
+    await self.app(scope, receive, send)
+  File "/home/exedev/wonderz-agentics/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 119, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "/home/exedev/wonderz-agentics/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/home/exedev/wonderz-agentics/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/home/exedev/wonderz-agentics/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 106, in app
+    await response(scope, receive, send)
+  File "/home/exedev/wonderz-agentics/.venv/lib/python3.12/site-packages/starlette/responses.py", line 167, in __call__
+    await self.background()
+  File "/home/exedev/wonderz-agentics/.venv/lib/python3.12/site-packages/starlette/background.py", line 36, in __call__
+    await task()
+  File "/home/exedev/wonderz-agentics/.venv/lib/python3.12/site-packages/starlette/background.py", line 21, in __call__
+    await self.func(*self.args, **self.kwargs)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: run_intake_answers_inline() takes 2 positional arguments but 3 were given
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "POST /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b/chat HTTP/1.0" 200 OK
+ERROR:    Exception in ASGI application
+Traceback (most recent call last):
+  File "/home/exedev/wonderz-agentics/.venv/lib/python3.12/site-packages/uvicorn/protocols/http/h11_impl.py", line 410, in run_asgi
+    result = await app(  # type: ignore[func-returns-value]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/exedev/wonderz-agentics/.venv/lib/python3.12/site-packages/uvicorn/middleware/proxy_headers.py", line 60, in __call__
+    return await self.app(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/exedev/wonderz-agentics/.venv/lib/python3.12/site-packages/fastapi/applications.py", line 1134, in __call__
+    await super().__call__(scope, receive, send)
+  File "/home/exedev/wonderz-agentics/.venv/lib/python3.12/site-packages/starlette/applications.py", line 107, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "/home/exedev/wonderz-agentics/.venv/lib/python3.12/site-packages/starlette/middleware/errors.py", line 186, in __call__
+    raise exc
+  File "/home/exedev/wonderz-agentics/.venv/lib/python3.12/site-packages/starlette/middleware/errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "/home/exedev/wonderz-agentics/.venv/lib/python3.12/site-packages/starlette/middleware/exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "/home/exedev/wonderz-agentics/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/home/exedev/wonderz-agentics/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/home/exedev/wonderz-agentics/.venv/lib/python3.12/site-packages/fastapi/middleware/asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "/home/exedev/wonderz-agentics/.venv/lib/python3.12/site-packages/starlette/routing.py", line 716, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "/home/exedev/wonderz-agentics/.venv/lib/python3.12/site-packages/starlette/routing.py", line 736, in app
+    await route.handle(scope, receive, send)
+  File "/home/exedev/wonderz-agentics/.venv/lib/python3.12/site-packages/starlette/routing.py", line 290, in handle
+    await self.app(scope, receive, send)
+  File "/home/exedev/wonderz-agentics/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 119, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "/home/exedev/wonderz-agentics/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/home/exedev/wonderz-agentics/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/home/exedev/wonderz-agentics/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 106, in app
+    await response(scope, receive, send)
+  File "/home/exedev/wonderz-agentics/.venv/lib/python3.12/site-packages/starlette/responses.py", line 167, in __call__
+    await self.background()
+  File "/home/exedev/wonderz-agentics/.venv/lib/python3.12/site-packages/starlette/background.py", line 36, in __call__
+    await task()
+  File "/home/exedev/wonderz-agentics/.venv/lib/python3.12/site-packages/starlette/background.py", line 21, in __call__
+    await self.func(*self.args, **self.kwargs)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: run_intake_answers_inline() takes 2 positional arguments but 3 were given
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/explainer/sections HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/crew HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/ad76e6a2-17b6-4a6e-b772-b2fa73856619 HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "POST /api/jobs/ad76e6a2-17b6-4a6e-b772-b2fa73856619/feedback HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/explainer/sections HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/ad76e6a2-17b6-4a6e-b772-b2fa73856619 HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/crew HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/ad76e6a2-17b6-4a6e-b772-b2fa73856619 HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/ad76e6a2-17b6-4a6e-b772-b2fa73856619 HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     127.0.0.1:44290 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "POST /api/jobs/ad76e6a2-17b6-4a6e-b772-b2fa73856619/feedback HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/ad76e6a2-17b6-4a6e-b772-b2fa73856619 HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/explainer/sections HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/crew HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     127.0.0.1:35730 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     127.0.0.1:59880 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     127.0.0.1:42674 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     127.0.0.1:58664 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     127.0.0.1:58144 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     127.0.0.1:57654 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     127.0.0.1:37542 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     127.0.0.1:39004 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/ad76e6a2-17b6-4a6e-b772-b2fa73856619 HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     127.0.0.1:49116 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/agents HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/ad76e6a2-17b6-4a6e-b772-b2fa73856619 HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/agents HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     127.0.0.1:34844 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     127.0.0.1:37536 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/explainer/sections HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/crew HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     127.0.0.1:53010 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "POST /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b/run-intake HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/explainer/sections HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/crew HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/8e95331b-e1ed-4a56-bdf4-6198f9baab4b HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/ad76e6a2-17b6-4a6e-b772-b2fa73856619 HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     127.0.0.1:39992 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/ad76e6a2-17b6-4a6e-b772-b2fa73856619 HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/explainer/sections HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/crew HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "POST /api/jobs HTTP/1.0" 201 Created
+INFO:     46.231.21.123:0 - "GET /api/jobs/4990c454-a358-49cf-af64-75bd9acef15a HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/4990c454-a358-49cf-af64-75bd9acef15a HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "POST /api/jobs/4990c454-a358-49cf-af64-75bd9acef15a/run-intake HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/4990c454-a358-49cf-af64-75bd9acef15a HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/4990c454-a358-49cf-af64-75bd9acef15a HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/4990c454-a358-49cf-af64-75bd9acef15a HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/4990c454-a358-49cf-af64-75bd9acef15a HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/4990c454-a358-49cf-af64-75bd9acef15a HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/4990c454-a358-49cf-af64-75bd9acef15a HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/4990c454-a358-49cf-af64-75bd9acef15a HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/4990c454-a358-49cf-af64-75bd9acef15a HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/4990c454-a358-49cf-af64-75bd9acef15a HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/4990c454-a358-49cf-af64-75bd9acef15a HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/4990c454-a358-49cf-af64-75bd9acef15a HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/4990c454-a358-49cf-af64-75bd9acef15a HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/4990c454-a358-49cf-af64-75bd9acef15a HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/4990c454-a358-49cf-af64-75bd9acef15a HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/4990c454-a358-49cf-af64-75bd9acef15a HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/4990c454-a358-49cf-af64-75bd9acef15a HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/4990c454-a358-49cf-af64-75bd9acef15a HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/4990c454-a358-49cf-af64-75bd9acef15a HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/4990c454-a358-49cf-af64-75bd9acef15a HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/4990c454-a358-49cf-af64-75bd9acef15a HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/4990c454-a358-49cf-af64-75bd9acef15a HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/4990c454-a358-49cf-af64-75bd9acef15a HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/4990c454-a358-49cf-af64-75bd9acef15a HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/4990c454-a358-49cf-af64-75bd9acef15a HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/4990c454-a358-49cf-af64-75bd9acef15a HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/4990c454-a358-49cf-af64-75bd9acef15a HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/4990c454-a358-49cf-af64-75bd9acef15a HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/4990c454-a358-49cf-af64-75bd9acef15a HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/4990c454-a358-49cf-af64-75bd9acef15a HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/4990c454-a358-49cf-af64-75bd9acef15a HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/4990c454-a358-49cf-af64-75bd9acef15a HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/4990c454-a358-49cf-af64-75bd9acef15a HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/4990c454-a358-49cf-af64-75bd9acef15a HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/4990c454-a358-49cf-af64-75bd9acef15a HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/4990c454-a358-49cf-af64-75bd9acef15a HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/4990c454-a358-49cf-af64-75bd9acef15a HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/4990c454-a358-49cf-af64-75bd9acef15a HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/4990c454-a358-49cf-af64-75bd9acef15a HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/4990c454-a358-49cf-af64-75bd9acef15a HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/4990c454-a358-49cf-af64-75bd9acef15a HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/4990c454-a358-49cf-af64-75bd9acef15a HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/4990c454-a358-49cf-af64-75bd9acef15a HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/4990c454-a358-49cf-af64-75bd9acef15a HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/4990c454-a358-49cf-af64-75bd9acef15a HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/4990c454-a358-49cf-af64-75bd9acef15a HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/4990c454-a358-49cf-af64-75bd9acef15a HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/crew HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/explainer/sections HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/4990c454-a358-49cf-af64-75bd9acef15a HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/explainer/sections HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "POST /api/jobs/4990c454-a358-49cf-af64-75bd9acef15a/run-intake HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/crew HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs/4990c454-a358-49cf-af64-75bd9acef15a HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     127.0.0.1:38684 - "GET /api/jobs HTTP/1.1" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/health HTTP/1.0" 200 OK
+INFO:     46.231.21.123:0 - "GET /api/jobs HTTP/1.0" 200 OK
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [1931490]

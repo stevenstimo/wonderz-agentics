@@ -127,6 +127,7 @@ EXAMPLES of good behavior:
 
 RULES:
 - If user gives topic + word count → is_complete should be TRUE.
+- If the user gives feedback on completed content (e.g. "make it longer", "change the tone", "graag 400 woorden"), acknowledge it briefly and set is_complete=true so the team can revise.
 - Default language from input: Dutch text → Dutch, English text → English.
 - Default tone: informative. Default focus: general overview.
 """

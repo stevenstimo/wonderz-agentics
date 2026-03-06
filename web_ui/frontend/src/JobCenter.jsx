@@ -222,8 +222,11 @@ export default function JobCenter() {
                 onClick={() => navigate(`/jobs/${job.id}`)}
                 className="text-left rounded-lg border border-slate-200 p-4 hover:border-indigo-300 hover:bg-slate-50/50 transition"
               >
-                <div className="flex items-center justify-between gap-2 mb-2">
-                  <StatusBadge status={job.status} />
+                <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <StatusBadge status={job.status} />
+                    <span className="text-xs font-medium text-slate-600">#{parseJobContext(job.context).job_number || '—'}</span>
+                  </div>
                   <span className="text-xs text-slate-400">{job.source_platform || '—'}</span>
                 </div>
                 <p className="text-sm text-slate-800 line-clamp-2">

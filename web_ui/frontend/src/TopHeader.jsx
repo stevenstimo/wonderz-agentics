@@ -80,8 +80,8 @@ export default function TopHeader() {
           <button
             type="button"
             className="top-header-account-link"
-            title="Open account instellingen"
-            onClick={() => navigate('/settings')}
+            title={user ? 'Open account' : 'Inloggen'}
+            onClick={() => navigate(user ? '/my-account' : '/login')}
           >
             {!user ? (
               <span className="top-header-signin">Sign in</span>

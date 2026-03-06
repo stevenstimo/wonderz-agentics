@@ -126,16 +126,17 @@ async def create_job(req: CreateJobRequest, background_tasks: BackgroundTasks):
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid user_id format (must be UUID)"
         )
-    context = {
-        "job_post": req.job_post,
-        "source_platform": source_platform,
-    }
-    
     try:
         logger.info(f"Creating job {job_id} for user {req.user_id}")
         
         async with pool.acquire() as conn:
-            # Create job record
+            count = await conn.fetchval("SELECT COUNT(*) FROM jobs")
+            job_number = str((count or 0) + 1).zfill(4)
+            context = {
+                "job_post": req.job_post,
+                "source_platform": source_platform,
+                "job_number": job_number,
+            }
             await conn.execute(
                 """
                 INSERT INTO jobs (id, user_id, job_post, status, source_platform, context, created_at, updated_at)
@@ -146,7 +147,7 @@ async def create_job(req: CreateJobRequest, background_tasks: BackgroundTasks):
                 req.job_post,
                 JobStatus.INTAKE_CLARIFICATION.value,
                 source_platform,
-                json.dumps(context),
+                json.dumps(context, default=_json_default),
             )
         
         logger.info(f"Job {job_id} created successfully")
@@ -251,7 +252,19 @@ async def send_chat_message(
             pass
         # #endregion
         if status_val == JobStatus.INTAKE_CLARIFICATION.value:
-            background_tasks.add_task(run_intake_answers_inline, job_id, None, msg)
+            ctx = _coerce_context(job["context"])
+            chat_history = list(ctx.get("chat_history") or [])
+            chat_history.append({"role": "user", "content": msg})
+            patch = json.dumps({"chat_history": chat_history}, default=_json_default)
+            await conn.execute(
+                """
+                UPDATE jobs SET context = COALESCE(context, '{}'::jsonb) || $1::jsonb, updated_at=now()
+                WHERE id=$2
+                """,
+                patch,
+                job_id,
+            )
+            background_tasks.add_task(run_intake_answers_inline, job_id, None)
             row = await conn.fetchrow("SELECT status FROM jobs WHERE id=$1", job_id)
             return {
                 "job_id": job_id,
@@ -491,15 +504,15 @@ async def request_plan_changes(
                     detail="Job not found"
                 )
             
-            # Update job status and store feedback
+            # Update job status and store feedback (avoid jsonb_set: context may be null/text)
+            row = await conn.fetchrow("SELECT context FROM jobs WHERE id=$1", job_id)
+            ctx = _coerce_context(row.get("context") if row else None)
+            ctx["feedback"] = req.feedback
             await conn.execute(
-                """
-                UPDATE jobs SET status=$1, context=jsonb_set(context, '{feedback}', to_jsonb($2::text)), updated_at=now()
-                WHERE id=$3
-                """,
+                "UPDATE jobs SET status=$1, context=$2::jsonb, updated_at=now() WHERE id=$3",
                 JobStatus.INTAKE_CLARIFICATION.value,
-                req.feedback,
-                job_id
+                json.dumps(ctx, default=_json_default),
+                job_id,
             )
         
         logger.info(f"Plan changes requested for job {job_id}")
@@ -526,15 +539,15 @@ async def submit_feedback(
 ):
     """
     User submits feedback on completed workflow results.
-    
-    Job must be in JOB_READY or AWAITING_APPROVAL state.
+    Sets status to INTAKE_CLARIFICATION, adds feedback as user message in chat_history,
+    and triggers run_intake_answers_inline so the CEO responds and can trigger revision.
     """
     job_id = _validate_job_id(job_id)
     pool = await get_db()
     
     try:
         async with pool.acquire() as conn:
-            job = await conn.fetchrow("SELECT id, status FROM jobs WHERE id=$1", job_id)
+            job = await conn.fetchrow("SELECT id, status, context FROM jobs WHERE id=$1", job_id)
             if not job:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
@@ -547,27 +560,33 @@ async def submit_feedback(
                     detail=f"Job is not ready for feedback (status: {job['status']})"
                 )
             
-            # Store feedback and transition back to RUNNING for revision
+            ctx = _coerce_context(job.get("context"))
+            chat_history = list(ctx.get("chat_history") or [])
+            chat_history.append({"role": "user", "content": req.feedback})
+            patch = json.dumps({"chat_history": chat_history}, default=_json_default)
             await conn.execute(
                 """
-                UPDATE jobs SET status=$1, context=jsonb_set(context, '{user_feedback}', to_jsonb($2::text)), updated_at=now()
+                UPDATE jobs SET status=$1,
+                  context = COALESCE(context, '{}'::jsonb) || $2::jsonb,
+                  updated_at=now()
                 WHERE id=$3
                 """,
-                JobStatus.RUNNING.value,
-                req.feedback,
-                job_id
+                JobStatus.INTAKE_CLARIFICATION.value,
+                patch,
+                job_id,
             )
         
-        # Queue job retry with feedback
-        background_tasks.add_task(run_job_inline, job_id, {"feedback": req.feedback})
-        logger.info(f"Feedback submitted for job {job_id}, retrying execution")
+        background_tasks.add_task(run_intake_answers_inline, job_id, None)
+        logger.info(f"Feedback submitted for job {job_id}, intake re-running")
         
         return {
             "job_id": job_id,
-            "status": JobStatus.RUNNING.value,
-            "message": "Feedback recorded. Retrying with revisions."
+            "status": JobStatus.INTAKE_CLARIFICATION.value,
+            "message": "Feedback recorded. CEO will respond in the chat."
         }
     
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to submit feedback for job {job_id}: {e}", exc_info=True)
         raise HTTPException(
