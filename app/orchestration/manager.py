@@ -12,6 +12,14 @@ from models.unified import JobStatus, StrategicBrief, ExecutionPlan
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 
+def _json_default(obj: Any) -> Any:
+    """For json.dumps: handle non-JSON-serializable values (e.g. datetime)."""
+    from datetime import date, datetime
+    if isinstance(obj, (date, datetime)):
+        return obj.isoformat()
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
+
 @dataclass
 class SharedContext:
     job_id: str
@@ -215,8 +223,8 @@ class OperationsManager:
             existing = data
 
         await conn.execute(
-            "UPDATE jobs SET context=$1, updated_at=now() WHERE id=$2",
-            json.dumps(existing),
+            "UPDATE jobs SET context=$1::jsonb, updated_at=now() WHERE id=$2",
+            json.dumps(existing, default=_json_default),
             job_id
         )
 
@@ -264,7 +272,7 @@ class OperationsManager:
                 requires_approval,
                 started_at
             )
-            VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,now())
+            VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb,$9,$10,$11,now())
             """,
             job_id,
             step_index,
@@ -272,8 +280,8 @@ class OperationsManager:
             agent_role,
             unified_tool,
             status,
-            input_payload or {},
-            output or {},
+            json.dumps(input_payload or {}, default=_json_default),
+            json.dumps(output or {}, default=_json_default),
             tokens_used,
             timing_ms,
             requires_approval
@@ -311,14 +319,14 @@ class OperationsManager:
                 storage_path,
                 created_at
             )
-            VALUES($1,$2,$3,$4,$5,$6,$7,$8,now())
+            VALUES($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7,$8,now())
             """,
             job_id,
             step_id,
             artifact_type,
             name,
-            original_data or {},
-            proposed_data or {},
+            json.dumps(original_data or {}, default=_json_default),
+            json.dumps(proposed_data or {}, default=_json_default),
             review_feedback,
             storage_path
         )

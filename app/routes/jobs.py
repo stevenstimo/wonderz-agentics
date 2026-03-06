@@ -412,7 +412,7 @@ async def approve_plan(
                 "SELECT id, status, output FROM job_steps WHERE job_id=$1 ORDER BY step_index",
                 job_id,
             )
-            all_done = len(steps) > 0 and all(s.get("status") == "completed" for s in steps)
+            all_done = len(steps) > 0 and all(s.get("status") in ("completed", "success") for s in steps)
             if all_done:
                 await conn.execute(
                     "UPDATE jobs SET status=$1, updated_at=now() WHERE id=$2",
@@ -682,6 +682,16 @@ async def get_job(job_id: str):
                 "SELECT * FROM job_steps WHERE job_id=$1 ORDER BY step_index",
                 job_id
             )
+            steps_list = list(steps)
+            # Auto-recover: if status is RUNNING but all steps are completed, set to JOB_READY
+            if job["status"] == "RUNNING" and len(steps_list) > 0:
+                all_done = all(s.get("status") in ("completed", "success") for s in steps_list)
+                if all_done:
+                    await conn.execute(
+                        "UPDATE jobs SET status='JOB_READY', updated_at=now() WHERE id=$1",
+                        job_id,
+                    )
+                    job = await conn.fetchrow("SELECT * FROM jobs WHERE id=$1", job_id)
             
             # Fetch artifacts
             artifacts = await conn.fetch(

@@ -6,6 +6,7 @@ import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
 from app.db import init_db_pool
+from app.database import get_db
 from app.orchestration.intake_engine import IntakeEngine
 from app.orchestration.strategy_room import StrategyRoom
 from models.unified import JobStatus, ExecutionPlan
@@ -461,26 +462,22 @@ async def run_job_inline(job_id: str, context: dict):
                 logger.info("run_job_inline: job %s step %s of %s done", job_id, idx + 1, num_steps)
 
             steps_completed = True
-            # Persist final_content first, then transition to JOB_READY
-            if last_content:
-                await _update_job_context(conn, job_id, {"final_content": last_content})
-                logger.info("Job %s final_content persisted", job_id)
-            logger.info("Setting job %s to JOB_READY", job_id)
-            await conn.execute(
-                "UPDATE jobs SET status=$1, updated_at=now() WHERE id=$2",
-                JobStatus.JOB_READY.value,
-                job_id,
-            )
-            logger.info("Job %s set to JOB_READY", job_id)
-
-        # Explicit second update in a fresh connection so status transition is committed even if the block above had issues
-        async with pool.acquire() as conn:
-            await conn.execute(
-                "UPDATE jobs SET status=$1, updated_at=now() WHERE id=$2",
-                "JOB_READY",
-                job_id,
-            )
-        logger.info("Job %s status confirmed JOB_READY (second update)", job_id)
+            job_id_str = str(job_id)
+            logger.info("All steps done for job %s. Setting JOB_READY...", job_id_str)
+            try:
+                pool_ready = await get_db()
+                async with pool_ready.acquire() as conn:
+                    logger.info("Storing final_content for job %s", job_id_str)
+                    await _update_job_context(conn, job_id_str, {"final_content": last_content or "No content produced"})
+                    logger.info("Updating status to JOB_READY for job %s", job_id_str)
+                    result = await conn.execute(
+                        "UPDATE jobs SET status='JOB_READY', updated_at=now() WHERE id=$1",
+                        job_id_str,
+                    )
+                    logger.info("JOB_READY update result for job %s: %s", job_id_str, result)
+            except Exception as e:
+                logger.error("CRITICAL: Failed to set JOB_READY for job %s: %s", job_id_str, e, exc_info=True)
+                raise
     except Exception as exc:
         logger.error(
             "run_job_inline failed for job %s: %s: %s",
