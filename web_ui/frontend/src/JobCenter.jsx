@@ -48,15 +48,14 @@ const STATUS_LABEL = {
   AWAITING_APPROVAL: 'Awaiting approval',
 }
 
-function parseJobContext(context) {
-  if (context == null) return {}
-  if (typeof context === 'object') return context
+function parseJobContext(ctx) {
+  if (!ctx) return {}
+  if (typeof ctx === 'object') return ctx
   try {
-    const parsed = JSON.parse(String(context))
-    return typeof parsed === 'string' ? (() => { try { return JSON.parse(parsed); } catch { return {}; } })() : (parsed || {})
-  } catch {
-    return {}
-  }
+    const parsed = JSON.parse(ctx)
+    if (typeof parsed === 'string') return JSON.parse(parsed)
+    return parsed
+  } catch { return {} }
 }
 
 function getCeoPreview(job) {
@@ -225,7 +224,7 @@ export default function JobCenter() {
                 <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
                   <div className="flex items-center gap-2">
                     <StatusBadge status={job.status} />
-                    <span className="text-xs font-medium text-slate-600">#{parseJobContext(job.context).job_number || '—'}</span>
+                    <span className="text-xs font-medium text-slate-600">#{parseJobContext(job.context)?.job_number ?? '—'}</span>
                   </div>
                   <span className="text-xs text-slate-400">{job.source_platform || '—'}</span>
                 </div>
