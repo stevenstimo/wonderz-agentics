@@ -215,7 +215,7 @@ export default function SkillsLibrary() {
     <PageLayout size="wide" padded className="!max-w-none !p-0">
       <div className="flex flex-col lg:flex-row min-h-[calc(100vh-var(--top-header-height,56px)-4rem)]">
         {/* Left: Judson Chat */}
-        <div className="flex flex-col min-w-0 lg:min-w-[400px] flex-shrink-0 w-full lg:max-w-[55%] rounded-t-xl lg:rounded-t-none lg:rounded-l-xl border border-b-0 lg:border-b border-slate-200 bg-white shadow-sm overflow-hidden lg:border-r-0">
+        <div className="flex flex-col flex-shrink-0 w-full lg:w-[400px] rounded-t-xl lg:rounded-t-none lg:rounded-l-xl border border-b-0 lg:border-b border-slate-200 bg-white shadow-sm overflow-hidden lg:border-r-0">
           <div className="flex-shrink-0 p-6 border-b border-slate-200 bg-slate-50/50">
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 rounded-full bg-slate-700 flex items-center justify-center text-white text-lg font-semibold flex-shrink-0">
@@ -370,11 +370,11 @@ export default function SkillsLibrary() {
         </div>
 
         {/* Right: Skills Library */}
-        <div className="flex flex-col flex-1 min-w-0 rounded-b-xl lg:rounded-b-none lg:rounded-r-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+        <div className="flex flex-col flex-1 min-w-0 overflow-x-hidden overflow-hidden rounded-b-xl lg:rounded-b-none lg:rounded-r-xl border border-slate-200 bg-white shadow-sm">
           <div className="flex-shrink-0 p-6 border-b border-slate-200 flex items-center justify-between gap-2">
             <h3 className="text-lg font-semibold text-slate-900">Skills Library ({skills.length})</h3>
           </div>
-          <div className="flex-shrink-0 px-6 py-3 border-b border-slate-100 overflow-x-auto">
+          <div className="flex-shrink-0 px-6 py-3 border-b border-slate-100 overflow-x-auto overflow-y-hidden">
             <div className="flex gap-2 min-w-max pb-1">
               <button
                 type="button"
@@ -399,21 +399,21 @@ export default function SkillsLibrary() {
               ))}
             </div>
           </div>
-          <div className="flex-1 overflow-y-auto p-6 min-h-0">
+          <div className="flex-1 overflow-y-auto overflow-x-hidden p-6 min-h-0 min-w-0">
             {loading && <p className="text-slate-500 text-sm">Loading…</p>}
             {!loading && skills.length === 0 && (
               <p className="text-slate-500 text-sm">No skills yet. Upload a document or ask Judson.</p>
             )}
             {!loading && skills.length > 0 && (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 overflow-hidden min-w-0">
                 {skills.map((skill) => (
                   <div
                     key={skill.skill_id}
                     onClick={() => setSelectedSkill(selectedSkill?.skill_id === skill.skill_id ? null : skill)}
-                    className="rounded-xl border border-slate-200 p-4 bg-white hover:shadow-md hover:border-slate-300 transition cursor-pointer text-left"
+                    className="rounded-xl border border-slate-200 p-4 bg-white hover:shadow-md hover:border-slate-300 transition cursor-pointer text-left min-w-0 break-words"
                   >
-                    <div className="flex items-start justify-between gap-2">
-                      <h4 className="font-medium text-slate-900 line-clamp-2 flex-1 min-w-0">{skill.name}</h4>
+                    <div className="flex items-start justify-between gap-2 min-w-0">
+                      <h4 className="font-medium text-slate-900 line-clamp-2 flex-1 min-w-0 break-words">{skill.name}</h4>
                       <span
                         className={`flex-shrink-0 text-xs px-2 py-0.5 rounded ${
                           (skill.status || 'active') === 'active'
