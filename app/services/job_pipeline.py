@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 import time
 import uuid
 from urllib.parse import quote
@@ -111,13 +112,19 @@ def _brief_ctx(context: Dict[str, Any]) -> Dict[str, Any]:
     """Extract objective, language, tone, focus, word_count from job context.brief."""
     brief = context.get("brief") if isinstance(context.get("brief"), dict) else {}
     ctx = brief.get("context") if isinstance(brief.get("context"), dict) else {}
-    return {
+    result = {
         "objective": ctx.get("objective") or brief.get("objective") or context.get("objective") or "",
         "language": ctx.get("language") or brief.get("language") or context.get("language") or "English",
         "tone": ctx.get("tone") or brief.get("tone") or context.get("tone") or "informative",
         "focus": ctx.get("focus") or brief.get("focus") or context.get("focus") or "general",
         "word_count": ctx.get("word_count") or brief.get("word_count") or context.get("word_count") or 400,
     }
+    feedback_text = (context.get("user_feedback") or context.get("feedback")) or ""
+    if isinstance(feedback_text, str) and feedback_text.strip():
+        m = re.search(r"(\d+)\s*(?:woorden|words)", feedback_text.strip(), re.IGNORECASE)
+        if m:
+            result["word_count"] = int(m.group(1))
+    return result
 
 
 def _build_image_prompt(context: Dict[str, Any]) -> str:

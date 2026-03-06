@@ -561,18 +561,17 @@ async def submit_feedback(
                 )
             
             ctx = _coerce_context(job.get("context"))
+            original_job_number = ctx.get("job_number")
             chat_history = list(ctx.get("chat_history") or [])
             chat_history.append({"role": "user", "content": req.feedback})
-            patch = json.dumps({"chat_history": chat_history}, default=_json_default)
+            ctx["chat_history"] = chat_history
+            ctx["user_feedback"] = req.feedback
+            if original_job_number is not None:
+                ctx["job_number"] = original_job_number
             await conn.execute(
-                """
-                UPDATE jobs SET status=$1,
-                  context = COALESCE(context, '{}'::jsonb) || $2::jsonb,
-                  updated_at=now()
-                WHERE id=$3
-                """,
+                "UPDATE jobs SET status=$1, context=$2::jsonb, updated_at=now() WHERE id=$3",
                 JobStatus.INTAKE_CLARIFICATION.value,
-                patch,
+                json.dumps(ctx, default=_json_default),
                 job_id,
             )
         
