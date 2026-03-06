@@ -554,7 +554,7 @@ async def submit_feedback(
                     detail="Job not found"
                 )
             
-            if job['status'] not in [JobStatus.JOB_READY.value, JobStatus.AWAITING_APPROVAL.value]:
+            if job['status'] not in [JobStatus.JOB_READY.value, JobStatus.AWAITING_APPROVAL.value, JobStatus.COMPLETED.value]:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"Job is not ready for feedback (status: {job['status']})"

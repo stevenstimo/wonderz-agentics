@@ -75,9 +75,7 @@ export default function JobSplitView() {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(!!jobId)
   const [error, setError] = useState(null)
-  const [requestChangesOpen, setRequestChangesOpen] = useState(false)
-  const [requestChangesText, setRequestChangesText] = useState('')
-  const [submittingRequest, setSubmittingRequest] = useState(false)
+  const [optimisticMessages, setOptimisticMessages] = useState([])
   const [approvingPlan, setApprovingPlan] = useState(false)
   const [approvingDeploy, setApprovingDeploy] = useState(false)
   const [chatInput, setChatInput] = useState('')
@@ -163,12 +161,8 @@ export default function JobSplitView() {
   const statusStr = job?.status != null ? String(job.status) : ''
   const statusUpper = statusStr.toUpperCase()
   const isIntake = statusUpper === 'INTAKE_CLARIFICATION'
-  const canChatWhileRunning = statusUpper === 'RUNNING'
-  const chatEditable = !job || statusUpper === 'INTAKE_CLARIFICATION' || canChatWhileRunning
-  const chatReadOnly = job && !chatEditable
-  // Explicit: allow typing when no job yet, or during intake, or while running (single source of truth for disabled state)
-  const allowChatInput = !jobId || statusUpper === 'INTAKE_CLARIFICATION' || statusUpper === 'RUNNING'
-  const inputDisabled = sendingChat || !allowChatInput
+  const displayChatHistory = [...chatHistory, ...optimisticMessages]
+  const inputDisabled = sendingChat
   useEffect(() => {
     if (isIntake && chatHistory.length) {
       chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -200,33 +194,6 @@ export default function JobSplitView() {
       setError(err.message)
     } finally {
       setApprovingPlan(false)
-    }
-  }
-
-  const handleRequestChanges = async (e) => {
-    e.preventDefault()
-    if (!requestChangesText.trim()) return
-    setSubmittingRequest(true)
-    try {
-      const status = job?.status
-      const isContentFeedback = status === 'JOB_READY' || status === 'AWAITING_APPROVAL'
-      const endpoint = isContentFeedback ? `/api/jobs/${jobId}/feedback` : `/api/jobs/${jobId}/request-changes`
-      const res = await fetch(apiUrl(endpoint), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ feedback: requestChangesText.trim() })
-      })
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
-        throw new Error(data.detail || 'Failed to submit feedback')
-      }
-      setRequestChangesOpen(false)
-      setRequestChangesText('')
-      await fetchJob()
-    } catch (err) {
-      setError(err.message)
-    } finally {
-      setSubmittingRequest(false)
     }
   }
 
@@ -275,20 +242,50 @@ export default function JobSplitView() {
       return
     }
 
-    setCeoTyping(true)
-    setSendingChat(true)
+    setOptimisticMessages((prev) => [...prev, { role: 'user', content: msg }])
     setChatInput('')
+    setSendingChat(true)
+    if (statusUpper === 'INTAKE_CLARIFICATION' || statusUpper === 'RUNNING') {
+      setCeoTyping(true)
+    }
+    const status = job?.status
     try {
-      const res = await fetch(apiUrl(`/api/jobs/${jobId}/chat`), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: msg })
-      })
-      if (!res.ok) throw new Error('Failed to send message')
+      let res
+      if (status === 'INTAKE_CLARIFICATION' || status === 'RUNNING') {
+        res = await fetch(apiUrl(`/api/jobs/${jobId}/chat`), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: msg })
+        })
+      } else if (status === 'PLAN_PROPOSED') {
+        res = await fetch(apiUrl(`/api/jobs/${jobId}/request-changes`), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ feedback: msg })
+        })
+      } else if (status === 'JOB_READY' || status === 'AWAITING_APPROVAL' || status === 'COMPLETED') {
+        res = await fetch(apiUrl(`/api/jobs/${jobId}/feedback`), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ feedback: msg })
+        })
+      } else {
+        setError('Chat not available for this status. Refresh the page.')
+        setOptimisticMessages((prev) => prev.filter((m) => m.content !== msg))
+        return
+      }
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.detail || 'Failed to send message')
+      }
       await fetchJob()
-      ;[2000, 4500, 7000].forEach((ms) => setTimeout(fetchJob, ms))
+      setOptimisticMessages([])
+      if (status === 'INTAKE_CLARIFICATION' || status === 'RUNNING') {
+        ;[2000, 4500, 7000].forEach((ms) => setTimeout(fetchJob, ms))
+      }
     } catch (err) {
       setError(err.message)
+      setOptimisticMessages((prev) => prev.filter((m) => m.content !== msg))
       setCeoTyping(false)
     } finally {
       setSendingChat(false)
@@ -348,7 +345,7 @@ export default function JobSplitView() {
     )
   }
 
-  if (job) chatHistoryLengthRef.current = chatHistory.length
+  if (job) chatHistoryLengthRef.current = displayChatHistory.length
 
   const title = job ? (typeof job.job_post === 'string' ? job.job_post.slice(0, 60).trim() + (job.job_post.length > 60 ? '…' : '') : 'Job') : 'New Job'
 
@@ -368,13 +365,16 @@ export default function JobSplitView() {
             {job && <StatusBadge status={job.status} />}
           </div>
           <div className="flex-1 overflow-y-auto space-y-4 p-4 min-h-[10rem]">
-            {chatHistory.length === 0 && !ceoTyping && !jobId && (
+            {displayChatHistory.length === 0 && !ceoTyping && !jobId && (
               <p className="text-slate-500 text-sm">Describe your task below. The CEO will create a plan for you.</p>
             )}
-            {chatHistory.length === 0 && !ceoTyping && jobId && isIntake && (
+            {displayChatHistory.length === 0 && !ceoTyping && jobId && isIntake && (
               <p className="text-slate-500 text-sm">CEO is thinking…</p>
             )}
-            {chatHistory.map((msg, i) => (
+            {statusUpper === 'RUNNING' && (
+              <p className="text-slate-600 text-sm bg-slate-100 px-3 py-2 rounded-lg">Job is running; your message will be applied after completion.</p>
+            )}
+            {displayChatHistory.map((msg, i) => (
               <div key={i} className={`flex gap-2 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                 {msg.role === 'ceo' && (
                   <div className="flex-shrink-0 w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-600 text-xs font-semibold">W</div>
@@ -481,19 +481,6 @@ export default function JobSplitView() {
                   <button type="button" onClick={handleApprovePlan} disabled={approvingPlan} className="px-4 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 disabled:opacity-50">
                     {approvingPlan ? 'Starting…' : 'Start Execution'}
                   </button>
-                  {!requestChangesOpen ? (
-                    <button type="button" onClick={() => setRequestChangesOpen(true)} className="px-4 py-2 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50 font-medium">
-                      Request Changes
-                    </button>
-                  ) : (
-                    <form onSubmit={handleRequestChanges} className="flex flex-col gap-2 w-full">
-                      <textarea value={requestChangesText} onChange={(e) => setRequestChangesText(e.target.value)} placeholder="Describe requested changes..." className="w-full px-3 py-2 border border-slate-300 rounded-lg resize-none" rows={3} />
-                      <div className="flex gap-2">
-                        <button type="submit" disabled={submittingRequest || !requestChangesText.trim()} className="px-4 py-2 bg-amber-600 text-white rounded-lg font-medium disabled:opacity-50">Submit</button>
-                        <button type="button" onClick={() => { setRequestChangesOpen(false); setRequestChangesText(''); }} className="px-4 py-2 border border-slate-300 rounded-lg font-medium">Cancel</button>
-                      </div>
-                    </form>
-                  )}
                 </div>
               </div>
             )}
@@ -628,17 +615,7 @@ export default function JobSplitView() {
                   <button type="button" onClick={handleApproveDeploy} disabled={approvingDeploy} className="px-4 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 disabled:opacity-50">
                     {approvingDeploy ? 'Deploying…' : 'Approve & Publish'}
                   </button>
-                  <button type="button" onClick={() => setRequestChangesOpen(true)} className="px-4 py-2 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50 font-medium">Request Revisions</button>
                 </div>
-                {requestChangesOpen && (
-                  <form onSubmit={handleRequestChanges} className="flex flex-col gap-2">
-                    <textarea value={requestChangesText} onChange={(e) => setRequestChangesText(e.target.value)} placeholder="Describe revisions..." className="w-full px-3 py-2 border border-slate-300 rounded-lg resize-none" rows={3} />
-                    <div className="flex gap-2">
-                      <button type="submit" disabled={submittingRequest || !requestChangesText.trim()} className="px-4 py-2 bg-amber-600 text-white rounded-lg font-medium disabled:opacity-50">Submit</button>
-                      <button type="button" onClick={() => { setRequestChangesOpen(false); setRequestChangesText(''); }} className="px-4 py-2 border border-slate-300 rounded-lg font-medium">Cancel</button>
-                    </div>
-                  </form>
-                )}
               </div>
             )}
 
