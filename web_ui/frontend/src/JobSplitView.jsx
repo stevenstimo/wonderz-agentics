@@ -18,13 +18,13 @@ function parseContext(ctx) {
 function renderMarkdown(text) {
   if (!text) return ''
   return text
-    .split('\n\n')
-    .map(block => {
-      if (block.startsWith('## ')) return `<h2 class="text-xl font-bold mt-4 mb-2">${block.slice(3)}</h2>`
-      if (block.startsWith('# ')) return `<h1 class="text-2xl font-bold mt-4 mb-3">${block.slice(2)}</h1>`
-      return `<p class="mb-3 leading-relaxed">${block}</p>`
-    })
-    .join('')
+    .replace(/^### (.+)$/gm, '<h3 class="text-lg font-semibold mt-4 mb-2">$1</h3>')
+    .replace(/^## (.+)$/gm, '<h2 class="text-xl font-bold mt-5 mb-2">$1</h2>')
+    .replace(/^# (.+)$/gm, '<h1 class="text-2xl font-bold mt-5 mb-3">$1</h1>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\n\n/g, '</p><p class="mb-3 leading-relaxed">')
+    .replace(/^/, '<p class="mb-3 leading-relaxed">')
+    + '</p>'
 }
 
 const STATUS_BADGE = {
@@ -582,10 +582,17 @@ export default function JobSplitView() {
               <div className="space-y-4">
                 <div className="rounded-lg bg-green-100 text-green-800 px-4 py-3 font-medium">Content Ready!</div>
                 {context.image_url && (
-                  <div className="rounded-xl border border-slate-200 overflow-hidden bg-white">
-                    <img src={context.image_url} alt="Generated image" className="w-full rounded-xl mb-4 shadow-sm" loading="lazy" />
-                    <div className="px-4 pb-3">
-                      <a href={context.image_url} download className="text-indigo-600 text-sm hover:underline">Download image</a>
+                  <div className="mb-4">
+                    <img
+                      src={context.image_url}
+                      alt="Generated illustration"
+                      className="w-full rounded-xl shadow-sm"
+                      loading="lazy"
+                    />
+                    <div className="flex gap-2 mt-2">
+                      <a href={context.image_url} target="_blank" rel="noopener noreferrer" className="text-sm text-indigo-600 hover:text-indigo-800">
+                        Open full size
+                      </a>
                     </div>
                   </div>
                 )}
@@ -603,7 +610,7 @@ export default function JobSplitView() {
                       Copy
                     </button>
                   </div>
-                  <div className="text-slate-800 max-h-96 overflow-y-auto prose prose-slate">
+                  <div className="prose prose-slate max-w-none text-slate-800 max-h-96 overflow-y-auto">
                     <div dangerouslySetInnerHTML={{ __html: renderMarkdown(typeof context.final_content === 'string' ? context.final_content : (context.final_content != null ? String(context.final_content) : '')) || '<p class="text-slate-500">No content yet.</p>' }} />
                   </div>
                 </div>
@@ -629,16 +636,23 @@ export default function JobSplitView() {
               <div className="space-y-4">
                 <div className="rounded-lg bg-green-100 text-green-800 px-4 py-3 font-medium">Job Completed</div>
                 {context.image_url && (
-                  <div className="rounded-xl border border-slate-200 overflow-hidden bg-white">
-                    <img src={context.image_url} alt="Generated image" className="w-full rounded-xl mb-4 shadow-sm" loading="lazy" />
-                    <div className="px-4 pb-3">
-                      <a href={context.image_url} download className="text-indigo-600 text-sm hover:underline">Download image</a>
+                  <div className="mb-4">
+                    <img
+                      src={context.image_url}
+                      alt="Generated illustration"
+                      className="w-full rounded-xl shadow-sm"
+                      loading="lazy"
+                    />
+                    <div className="flex gap-2 mt-2">
+                      <a href={context.image_url} target="_blank" rel="noopener noreferrer" className="text-sm text-indigo-600 hover:text-indigo-800">
+                        Open full size
+                      </a>
                     </div>
                   </div>
                 )}
                 <div className="rounded-xl border border-slate-200 p-4 bg-white">
                   <h3 className="text-sm font-medium text-slate-500 mb-2">Final content</h3>
-                  <div className="text-slate-800 max-h-96 overflow-y-auto prose prose-slate">
+                  <div className="prose prose-slate max-w-none text-slate-800 max-h-96 overflow-y-auto">
                     <div dangerouslySetInnerHTML={{ __html: renderMarkdown(typeof context.final_content === 'string' ? context.final_content : (context.final_content != null ? String(context.final_content) : '')) || '<p class="text-slate-500">No content.</p>' }} />
                   </div>
                 </div>

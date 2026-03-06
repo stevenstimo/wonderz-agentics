@@ -1,41 +1,41 @@
 import { useEffect, useState } from 'react'
-import { Link, NavLink } from 'react-router-dom'
-import { Home, Users, Layers, ClipboardList, Settings, PlusCircle, BookOpen, Shield, Code, Activity } from 'lucide-react'
+import { Link, NavLink, useLocation } from 'react-router-dom'
+import {
+  LayoutDashboard,
+  Briefcase,
+  Users,
+  UsersRound,
+  BookOpen,
+  GraduationCap,
+  FileText,
+  Activity,
+  Settings,
+  Zap,
+  Menu,
+  X,
+} from 'lucide-react'
 import { supabase } from './supabase'
 import { getCurrentUserRole, isSuperAdmin } from './authz'
 
-const primaryMenu = [
-  { label: 'Mission Control', icon: Layers, path: '/' },
-  { label: 'Job Center', icon: ClipboardList, path: '/job-center' },
+const WORKSPACE = [
+  { label: 'Dashboard', icon: LayoutDashboard, path: '/' },
+  { label: 'Job Center', icon: Briefcase, path: '/job-center' },
 ]
 
-const managementMenu = [
-  { label: 'Crew', icon: Users, path: '/crew' },
+const MANAGEMENT = [
   { label: 'Agents', icon: Users, path: '/agents' },
-  { label: 'Talents', icon: Users, path: '/talents' },
-  { label: 'Training Hub', icon: ClipboardList, path: '/training/management' },
+  { label: 'Crew', icon: UsersRound, path: '/crew' },
   { label: 'Skills Library', icon: BookOpen, path: '/skills-library' },
-  { label: 'Improvements', icon: ClipboardList, path: '/hr/improvements' },
-  { label: 'Hiring Hall', icon: ClipboardList, path: '/hiring' },
-  { label: 'Developer Bot', icon: Code, path: '/devbot' },
-  { label: 'HR Feedback', icon: ClipboardList },
-  { label: 'Safety Gate', icon: Shield, path: '/approvals' },
+  { label: 'Training Hub', icon: GraduationCap, path: '/training/management' },
 ]
 
-const secondaryMenu = [
-  {
-    label: 'Explainer',
-    icon: BookOpen,
-    children: [
-      { label: 'How it works', path: '/explainer/how-it-works' },
-      { label: 'Persona', path: '/explainer/persona' },
-      { label: 'Crew', path: '/explainer/crew' },
-    ],
-  },
-  { label: 'Personal Projects', icon: Home },
-  { label: 'Work Team Org', icon: Users },
-  { label: 'Study', icon: ClipboardList },
-  { label: 'Product Management', icon: ClipboardList },
+const KNOWLEDGE = [
+  { label: 'Explainer', icon: FileText, path: '/explainer/how-it-works' },
+]
+
+const SYSTEM = [
+  { label: 'Status', icon: Activity, path: '/status' },
+  { label: 'Settings', icon: Settings, path: '/settings' },
 ]
 
 function displayName(user) {
@@ -48,22 +48,45 @@ function displayName(user) {
 }
 
 function initials(user) {
-  return displayName(user).trim().charAt(0).toUpperCase()
+  const name = displayName(user).trim()
+  if (!name) return '?'
+  const parts = name.split(/\s+/).filter(Boolean)
+  if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+  return name.charAt(0).toUpperCase()
+}
+
+function NavItem({ item }) {
+  const Icon = item.icon
+  return (
+    <NavLink
+      to={item.path}
+      className={({ isActive }) =>
+        `flex items-center gap-3 px-3 py-2 rounded-lg text-slate-300 transition-colors ${
+          isActive
+            ? 'bg-slate-800 text-white border-l-2 border-indigo-500 pl-[10px]'
+            : 'hover:bg-slate-800 hover:text-white'
+        }`
+      }
+    >
+      <Icon className="w-[18px] h-[18px] flex-shrink-0" />
+      <span className="text-sm font-medium">{item.label}</span>
+    </NavLink>
+  )
 }
 
 export default function Sidebar() {
   const [user, setUser] = useState(null)
   const [role, setRole] = useState('member')
+  const [mobileOpen, setMobileOpen] = useState(false)
+  const location = useLocation()
 
   useEffect(() => {
     let active = true
-
     const sync = async () => {
       const { data } = await supabase.auth.getSession()
       const sessionUser = data?.session?.user || null
       if (!active) return
       setUser(sessionUser)
-
       try {
         const ctx = await getCurrentUserRole()
         if (active) setRole(ctx.role || 'member')
@@ -71,9 +94,7 @@ export default function Sidebar() {
         if (active) setRole('member')
       }
     }
-
     sync()
-
     const { data: listener } = supabase.auth.onAuthStateChange(async (_event, session) => {
       setUser(session?.user || null)
       try {
@@ -83,7 +104,6 @@ export default function Sidebar() {
         setRole('member')
       }
     })
-
     return () => {
       active = false
       listener.subscription.unsubscribe()
@@ -93,132 +113,74 @@ export default function Sidebar() {
   const canManageSettings = isSuperAdmin(role)
 
   return (
-    <aside className="sidebar">
-      <div>
-        <div className="flex items-center gap-3 mb-8">
-          <div className="brand-mark">W</div>
-          <div>
-            <div className="text-lg font-semibold text-gray-900">Wonderz</div>
-            <div className="text-xs text-gray-400">Unified Crew</div>
+    <>
+      {/* Mobile toggle */}
+      <button
+        type="button"
+        onClick={() => setMobileOpen((o) => !o)}
+        className="lg:hidden fixed top-[60px] left-3 z-40 p-2 rounded-lg bg-slate-800 text-white border border-slate-700"
+        aria-label="Toggle menu"
+      >
+        {mobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+      </button>
+
+      <aside
+        className={`fixed top-[var(--top-header-height,56px)] left-0 z-30 w-56 h-[calc(100vh-var(--top-header-height,56px))] bg-slate-900 flex flex-col overflow-y-auto overflow-x-hidden border-r border-slate-800 transition-transform duration-200 lg:translate-x-0 ${
+          mobileOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
+        <div className="flex flex-col flex-1 min-h-0 p-3">
+          {/* Logo */}
+          <div className="flex items-center gap-2 mb-6 px-2 pt-2">
+            <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center flex-shrink-0">
+              <Zap className="w-4 h-4 text-white" />
+            </div>
+            <div>
+              <div className="text-white font-semibold text-base">Wonderz</div>
+              <div className="text-xs text-slate-400">AI Content Bureau</div>
+            </div>
+          </div>
+
+          <nav className="space-y-1 flex-1">
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 px-3 mb-2">Workspace</div>
+            {WORKSPACE.map((item) => (
+              <NavItem key={item.label} item={item} isActive={isActive(item.path)} />
+            ))}
+
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 px-3 mt-4 mb-2">Management</div>
+            {MANAGEMENT.map((item) => (
+              <NavItem key={item.label} item={item} isActive={isActive(item.path)} />
+            ))}
+
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 px-3 mt-4 mb-2">Knowledge</div>
+            {KNOWLEDGE.map((item) => (
+              <NavItem key={item.label} item={item} isActive={isActive(item.path)} />
+            ))}
+
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 px-3 mt-4 mb-2">System</div>
+            <NavItem item={SYSTEM[0]} isActive={isActive(SYSTEM[0].path)} />
+            {canManageSettings && <NavItem item={SYSTEM[1]} isActive={isActive(SYSTEM[1].path)} />}
+          </nav>
+
+          {/* User profile at bottom */}
+          <div className="mt-auto pt-4 border-t border-slate-800">
+            <Link
+              to="/my-account"
+              onClick={() => setMobileOpen(false)}
+              className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-slate-800 transition-colors"
+            >
+              <div className="w-9 h-9 rounded-full bg-indigo-600 text-white flex items-center justify-center text-sm font-semibold flex-shrink-0">
+                {initials(user)}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-medium text-white truncate">{displayName(user)}</div>
+                <div className="text-xs text-slate-400 truncate">{user?.email || 'Not signed in'}</div>
+                <div className="text-[10px] text-slate-500 uppercase tracking-wide">{role}</div>
+              </div>
+            </Link>
           </div>
         </div>
-
-        <nav className="space-y-2">
-          {primaryMenu.map((item) => (
-            <NavLink
-              key={item.label}
-              to={item.path}
-              className={({ isActive }) => `nav-item ${isActive ? 'nav-item-active' : ''}`}
-            >
-              <item.icon className="w-5 h-5" />
-              <span>{item.label}</span>
-            </NavLink>
-          ))}
-        </nav>
-
-        <div className="nav-section-title">Management</div>
-        <nav className="space-y-2">
-          {managementMenu.map((item) => (
-            item.path ? (
-              <NavLink
-                key={item.label}
-                to={item.path}
-                className={({ isActive }) => `nav-item ${isActive ? 'nav-item-active' : ''}`}
-              >
-                <item.icon className="w-5 h-5" />
-                <span>{item.label}</span>
-              </NavLink>
-            ) : (
-              <div key={item.label} className="nav-item">
-                <item.icon className="w-5 h-5" />
-                <span>{item.label}</span>
-              </div>
-            )
-          ))}
-        </nav>
-
-        <div className="nav-section-title">Knowledge</div>
-        <nav className="space-y-2">
-          {secondaryMenu.map((item) => (
-            item.children ? (
-              <div key={item.label} className="space-y-1">
-                <div className="nav-item">
-                  <item.icon className="w-5 h-5" />
-                  <span>{item.label}</span>
-                </div>
-                <div className="space-y-1 pl-4">
-                  {item.children.map((child) => (
-                    <NavLink
-                      key={child.label}
-                      to={child.path}
-                      className={({ isActive }) => `nav-item text-sm ${isActive ? 'nav-item-active' : ''}`}
-                    >
-                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-300" />
-                      <span>{child.label}</span>
-                    </NavLink>
-                  ))}
-                </div>
-              </div>
-            ) : item.path ? (
-              <NavLink
-                key={item.label}
-                to={item.path}
-                className={({ isActive }) => `nav-item ${isActive ? 'nav-item-active' : ''}`}
-              >
-                <item.icon className="w-5 h-5" />
-                <span>{item.label}</span>
-              </NavLink>
-            ) : (
-              <div key={item.label} className="nav-item">
-                <item.icon className="w-5 h-5" />
-                <span>{item.label}</span>
-              </div>
-            )
-          ))}
-        </nav>
-      </div>
-
-      <div className="mt-auto space-y-3">
-        <Link to="/my-account" className="block rounded-lg border border-gray-200 bg-white p-3 hover:bg-gray-50 transition">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-sm font-semibold">
-              {initials(user)}
-            </div>
-            <div className="min-w-0">
-              <div className="text-sm font-medium text-gray-900 truncate">{displayName(user)}</div>
-              <div className="text-xs text-gray-500 truncate">{user?.email || 'Not signed in'} - {role}</div>
-            </div>
-          </div>
-        </Link>
-
-        <NavLink
-          to="/status"
-          className={({ isActive }) => `nav-item ${isActive ? 'nav-item-active' : ''}`}
-        >
-          <Activity className="w-5 h-5" />
-          <span>Status</span>
-        </NavLink>
-
-        <NavLink to="/jobs/new" className="btn-manage w-full gap-2 flex items-center justify-center">
-          <PlusCircle className="w-5 h-5" />
-          New Mission
-        </NavLink>
-
-        <NavLink to="/agents/new" className="btn-manage w-full gap-2 flex items-center justify-center">
-          <PlusCircle className="w-5 h-5" />
-          Nieuwe Agent
-        </NavLink>
-
-        {canManageSettings && (
-          <NavLink
-            to="/settings"
-            className={({ isActive }) => `nav-item ${isActive ? 'nav-item-active' : ''}`}
-          >
-            <Settings className="w-4 h-4" />
-            <span>Settings</span>
-          </NavLink>
-        )}
-      </div>
-    </aside>
+      </aside>
+    </>
   )
 }

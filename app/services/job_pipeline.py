@@ -129,17 +129,13 @@ def _brief_ctx(context: Dict[str, Any]) -> Dict[str, Any]:
 
 def _build_image_prompt(context: Dict[str, Any]) -> str:
     """Build a descriptive English image prompt from job context for Pollinations.ai."""
-    objective = context.get("objective", "") or ""
     brief_ctx = _brief_ctx(context)
-    objective = brief_ctx.get("objective") or objective
+    objective = brief_ctx.get("objective") or context.get("objective", "") or "content"
     focus = brief_ctx.get("focus") or "general"
-    tone = brief_ctx.get("tone") or "informative"
-    prompt = f"Professional blog illustration for article about {objective or 'content'}"
+    prompt = f"Professional editorial photograph for blog article about {objective}"
     if focus and focus != "general":
         prompt += f", focusing on {focus}"
-    if tone:
-        prompt += f", {tone} style"
-    prompt += ", high quality, editorial photography style, vibrant colors"
+    prompt += ", high quality, editorial style, vibrant colors, no text overlay"
     return prompt
 
 
@@ -189,22 +185,35 @@ def _run_step_agent(
     # Copywriter: write main content
     if role_lower in ("copywriter", "copy writer"):
         system = (
-            f"You are a professional copywriter. Write the ACTUAL article text, NOT a plan or outline. Write the full, complete article ready for publication.\n\n"
-            f"Rules:\n"
+            "You are a professional copywriter for a content bureau. Your ONLY job is to write the actual article text.\n\n"
+            "CRITICAL RULES:\n"
+            "- Write the COMPLETE, FINAL article text ready for publication\n"
+            "- Do NOT write a plan, outline, structure overview, or project description\n"
+            "- Do NOT include meta-commentary like \"Projectoverzicht\", \"Leveringscriteria\", \"Status: GOEDGEKEURD\"\n"
+            "- Do NOT include checkmarks ✓, status labels, or section descriptions\n"
+            "- Do NOT describe what you're going to write — just WRITE IT\n"
+            f"- Use ## for section headings (not ###, not bold text like **Heading**)\n"
             f"- Write in {language}\n"
             f"- Tone: {tone}\n"
-            f"- Focus: {focus}\n"
             f"- Write approximately {word_count} words\n"
-            f"- Do NOT write a plan, outline, structure, or project overview\n"
-            f"- Do NOT use checkmarks, status labels, or meta-commentary about the text\n"
-            f"- Write the actual content as if it will be published directly on a blog\n"
-            f"- Use proper headings (# and ##) to structure the article\n"
-            f"- Write engaging, informative prose"
+            "- Start directly with the article title as a # heading, then the content\n\n"
+            "EXAMPLE of what you should produce:\n"
+            "# De Geschiedenis van Haarlem\n\n"
+            "Haarlem is een van de oudste steden van Nederland...\n\n"
+            "## De Middeleeuwen\n\n"
+            "In de dertiende eeuw...\n\n"
+            "EXAMPLE of what you should NEVER produce:\n"
+            "# Goedgekeurd Plan: Tekst over Haarlem\n"
+            "## Projectoverzicht\n"
+            "**Taak:** Het schrijven van...\n"
+            "**Lengte:** 400 woorden\n"
+            "✓ Correcte spelling\n"
+            "**Status:** GOEDGEKEURD"
         )
-        user = f"Write an article of approximately {word_count} words about: {objective}"
+        user = f"Write an article of approximately {word_count} words about: {objective}. Focus: {focus}."
         user_feedback = context.get("user_feedback") or context.get("feedback") or ""
         if user_feedback and isinstance(user_feedback, str):
-            user += f"\n\nUser feedback (apply this): {user_feedback}"
+            user += f"\n\nCRITICAL USER FEEDBACK (you MUST apply this):\n{user_feedback}"
         try:
             response = client.messages.create(
                 model=CLAUDE_MODEL,
@@ -223,7 +232,10 @@ def _run_step_agent(
     if role_lower in ("reviewer", "review"):
         if not previous_content:
             return ({"status": "skipped", "review": "No content to review.", "approved": True, "agent_role": agent_role}, 0)
-        system = "You are a content reviewer. Check quality, grammar, and tone consistency. Reply in the same language as the content. Keep the reply concise. End with APPROVED or CHANGES NEEDED."
+        system = (
+            "You are a content reviewer. Check quality, grammar, and tone consistency. Reply in the same language as the content. Keep the reply concise. End with APPROVED or CHANGES NEEDED. "
+            "If the content looks like a plan or outline instead of actual article text, mark it as NOT APPROVED and explain that actual content is needed, not a plan."
+        )
         user = f"Review this content:\n\n{previous_content[:12000]}"
         try:
             response = client.messages.create(
@@ -245,18 +257,16 @@ def _run_step_agent(
 
     # Image generator: Pollinations.ai (no API key)
     if role_lower in ("image_generator", "image generator", "imagegenerator"):
-        prompt = _build_image_prompt(context)
-        encoded = quote(prompt, safe="")
-        image_url = f"https://image.pollinations.ai/prompt/{encoded}?width=1024&height=768&nologo=true"
-        return (
-            {
-                "image_url": image_url,
-                "image_status": "generated",
-                "prompt": prompt,
-                "agent_role": agent_role,
-            },
-            0,
-        )
+        image_prompt = _build_image_prompt(context)
+        encoded_prompt = quote(image_prompt, safe="")
+        image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=768&nologo=true"
+        output = {
+            "image_url": image_url,
+            "image_prompt": image_prompt,
+            "image_status": "generated",
+            "agent_role": agent_role,
+        }
+        return (output, 0)
 
     # Generic: one Claude call
     system = f"You are a helpful assistant. Write in {language}. Tone: {tone}."
@@ -472,6 +482,19 @@ async def run_job_inline(job_id: str, context_extra: Optional[dict] = None):
                 job_id,
             )
             num_steps = len(steps)
+
+            # Revision: reset all steps so they run again with feedback
+            is_revision = bool(context.get("user_feedback") or context.get("feedback") or context.get("final_content"))
+            if is_revision and num_steps > 0:
+                await conn.execute(
+                    """
+                    UPDATE job_steps SET status='pending', started_at=NULL, completed_at=NULL, output='{}'::jsonb, tokens_used=0
+                    WHERE job_id=$1
+                    """,
+                    job_id,
+                )
+                logger.info("run_job_inline: job %s revision — reset %s steps", job_id, num_steps)
+
             logger.info("run_job_inline: job %s with %s steps", job_id, num_steps)
 
             last_content: Optional[str] = None
@@ -531,6 +554,24 @@ async def run_job_inline(job_id: str, context_extra: Optional[dict] = None):
                 if output.get("image_url"):
                     await _update_job_context(conn, job_id, {"image_url": output["image_url"]})
                 logger.info("run_job_inline: job %s step %s of %s done", job_id, idx + 1, num_steps)
+
+            # Ensure image_url is in job context for frontend (from any step that produced one)
+            completed_steps = await conn.fetch(
+                "SELECT output FROM job_steps WHERE job_id=$1 AND status='completed' ORDER BY step_index",
+                job_id,
+            )
+            for step in completed_steps:
+                step_output = step.get("output")
+                if not step_output:
+                    continue
+                if isinstance(step_output, str):
+                    try:
+                        step_output = json.loads(step_output)
+                    except json.JSONDecodeError:
+                        continue
+                if step_output.get("image_url"):
+                    await _update_job_context(conn, job_id, {"image_url": step_output["image_url"]})
+                    break
 
             steps_completed = True
             job_id_str = str(job_id)

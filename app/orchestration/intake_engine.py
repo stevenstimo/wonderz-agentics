@@ -130,6 +130,8 @@ RULES:
 - If the user gives feedback on completed content (e.g. "make it longer", "change the tone", "graag 400 woorden"), acknowledge it briefly and set is_complete=true so the team can revise.
 - Default language from input: Dutch text → Dutch, English text → English.
 - Default tone: informative. Default focus: general overview.
+
+IMPORTANT: You can only acknowledge feedback and confirm the team will work on it. Do NOT claim to update rules, change settings, or modify agent behavior directly. You are the coordinator, not the executor. Say things like "I'll make sure the team applies your feedback" not "I've updated the guidelines".
 """
 
         user_message = f"Job Post:\n{job_post}"
