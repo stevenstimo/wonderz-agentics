@@ -15,6 +15,18 @@ from anthropic import Anthropic
 
 logger = logging.getLogger(__name__)
 
+DEBUG_LOG_PATH = "/home/exedev/wonderz-agentics/.cursor/debug-43707b.log"
+
+
+def _debug_log(data: dict) -> None:
+    try:
+        import time
+        line = json.dumps({"sessionId": "43707b", "timestamp": int(time.time() * 1000), "location": "skills_judson.py", "message": "approve_debug", "data": data}) + "\n"
+        with open(DEBUG_LOG_PATH, "a") as f:
+            f.write(line)
+    except Exception:
+        pass
+
 router = APIRouter(prefix="/api/skills/judson", tags=["judson"])
 _judson_init_done = False
 
@@ -85,6 +97,28 @@ def _slug(s: str) -> str:
     s = (s or "").strip().lower()
     s = re.sub(r"[^a-z0-9]+", "-", s)
     return s.strip("-") or "skill"
+
+
+ALLOWED_SKILL_TYPES = ("technique", "checklist", "voice", "anti-patterns")
+
+
+def _normalize_applicable_to(applicable_to: Any) -> List[str]:
+    """Return a list of strings for agent_skills.applicable_to (TEXT[])."""
+    if isinstance(applicable_to, list):
+        return [str(x).strip() for x in applicable_to if x is not None and str(x).strip()]
+    if isinstance(applicable_to, str):
+        try:
+            parsed = json.loads(applicable_to)
+            return _normalize_applicable_to(parsed) if isinstance(parsed, list) else []
+        except json.JSONDecodeError:
+            return []
+    return []
+
+
+def _normalize_skill_type(skill_type: Any) -> str:
+    """Map to DB-allowed skill_type."""
+    s = (skill_type or "technique").strip().lower()
+    return s if s in ALLOWED_SKILL_TYPES else "technique"
 
 
 # --- Request/Response models ---
@@ -190,13 +224,14 @@ async def analyze_upload(req: AnalyzeRequest):
 
 Also compare with these existing skills: {json.dumps(existing_list, default=_json_default)}
 
-Respond in JSON only: {{ "message": "Your deadpan Judson commentary", "skills": [...] }}"""
+Respond with raw JSON only. No markdown, no code fences, no explanation outside the JSON. Keep your message brief but include ALL skills.
+JSON format: {{ "message": "Your deadpan Judson commentary", "skills": [...] }}"""
 
         client = Anthropic()
         try:
             response = client.messages.create(
                 model="claude-haiku-4-5-20251001",
-                max_tokens=4096,
+                max_tokens=4000,
                 system=JUDSON_SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": f"Document content:\n\n{content_text[:50000]}\n\n---\n\n{analysis_prompt}"}],
             )
@@ -204,6 +239,13 @@ Respond in JSON only: {{ "message": "Your deadpan Judson commentary", "skills": 
         except Exception as e:
             logger.exception("Claude analyze failed: %s", e)
             raise HTTPException(status_code=500, detail="Analysis failed")
+
+        # Strip markdown code fences if present
+        text = text.strip()
+        if text.startswith("```"):
+            text = text.split("\n", 1)[1] if "\n" in text else text[7:]
+        if text.endswith("```"):
+            text = text[:-3].strip()
 
         try:
             start = text.find("{")
@@ -216,17 +258,20 @@ Respond in JSON only: {{ "message": "Your deadpan Judson commentary", "skills": 
             data = {"message": text[:500], "skills": []}
 
         message = data.get("message", "")
+        if not isinstance(message, str):
+            message = str(message) if message else ""
         skills = data.get("skills") or []
         if not isinstance(skills, list):
             skills = []
 
         if upload_id:
+            analysis_obj = {"message": message}
             await conn.execute(
                 """
                 UPDATE skill_uploads SET analysis = $1::jsonb, proposed_skills = $2::jsonb, status = 'analyzed'
                 WHERE id = $3
                 """,
-                json.dumps({"message": message}, default=_json_default),
+                json.dumps(analysis_obj, default=_json_default),
                 json.dumps(skills, default=_json_default),
                 upload_id,
             )
@@ -244,6 +289,45 @@ Respond in JSON only: {{ "message": "Your deadpan Judson commentary", "skills": 
         }
 
 
+@router.get("/debug")
+async def judson_debug():
+    """DB check: skill_uploads count/latest, agent_skills count, proposed_skills type. No psql required."""
+    out = {"skill_uploads_count": 0, "skill_uploads_latest": None, "agent_skills_count": 0, "errors": []}
+    pool = await get_db()
+    try:
+        async with pool.acquire() as conn:
+            await _ensure_judson_schema(conn)
+            try:
+                cnt = await conn.fetchval("SELECT count(*) FROM skill_uploads")
+                out["skill_uploads_count"] = cnt or 0
+            except Exception as e:
+                out["errors"].append(f"skill_uploads count: {e!s}")
+            try:
+                row = await conn.fetchrow(
+                    "SELECT id, status, proposed_skills, created_at FROM skill_uploads ORDER BY created_at DESC NULLS LAST LIMIT 1"
+                )
+                if row:
+                    ps = row.get("proposed_skills")
+                    out["skill_uploads_latest"] = {
+                        "id": str(row["id"]),
+                        "status": row.get("status"),
+                        "proposed_skills_type": type(ps).__name__,
+                        "proposed_skills_len": len(ps) if isinstance(ps, (list, dict)) else None,
+                        "proposed_skills_repr": str(ps)[:300] if ps is not None else None,
+                        "created_at": str(row["created_at"]) if row.get("created_at") else None,
+                    }
+            except Exception as e:
+                out["errors"].append(f"skill_uploads latest: {e!s}")
+            try:
+                cnt = await conn.fetchval("SELECT count(*) FROM agent_skills")
+                out["agent_skills_count"] = cnt or 0
+            except Exception as e:
+                out["errors"].append(f"agent_skills count: {e!s}")
+    except Exception as e:
+        out["errors"].append(f"pool/schema: {e!s}")
+    return out
+
+
 @router.post("/approve")
 async def approve_skills(req: ApproveRequest):
     """Approve selected proposed skills; insert or update agent_skills."""
@@ -251,73 +335,124 @@ async def approve_skills(req: ApproveRequest):
     async with pool.acquire() as conn:
         await _ensure_judson_schema(conn)
         row = await conn.fetchrow(
-            "SELECT proposed_skills FROM skill_uploads WHERE id = $1",
+            "SELECT proposed_skills, status FROM skill_uploads WHERE id = $1",
             req.upload_id,
         )
         if not row:
             raise HTTPException(status_code=404, detail="Upload not found")
-        proposed = row["proposed_skills"]
+        raw = row["proposed_skills"]
+        upload_status = row.get("status")
+        logger.info(
+            "proposed_skills type: %s, value: %s",
+            type(raw).__name__,
+            str(raw)[:200] if raw is not None else None,
+        )
+        # #region agent log
+        _debug_log({"hypothesisId": "H1_H2_H4_H5", "upload_id": req.upload_id, "proposed_type": type(raw).__name__, "proposed_repr": str(raw)[:200] if raw is not None else None, "upload_status": upload_status, "indices": req.approved_skill_indices})
+        # #endregion
+        # Normalize to list of dicts (handle double-encoding and asyncpg/DB quirks)
+        proposed = raw
+        if isinstance(proposed, str):
+            try:
+                proposed = json.loads(proposed)
+            except json.JSONDecodeError:
+                proposed = []
         if not isinstance(proposed, list):
             proposed = []
+        normalized = []
+        for item in proposed:
+            if isinstance(item, dict):
+                normalized.append(item)
+            elif isinstance(item, str):
+                try:
+                    decoded = json.loads(item)
+                    if isinstance(decoded, dict):
+                        normalized.append(decoded)
+                except json.JSONDecodeError:
+                    pass
+        proposed = normalized
+        # #region agent log
+        _debug_log({"hypothesisId": "H1_H5", "after_parse": True, "proposed_len": len(proposed)})
+        # #endregion
 
         approved_count = 0
         for i in req.approved_skill_indices:
             if i < 0 or i >= len(proposed):
+                # #region agent log
+                _debug_log({"hypothesisId": "H5", "skip": "index_out_of_range", "i": i, "len_proposed": len(proposed)})
+                # #endregion
                 continue
             s = proposed[i]
+            if isinstance(s, str):
+                try:
+                    s = json.loads(s)
+                except json.JSONDecodeError:
+                    s = None
             if not isinstance(s, dict):
+                # #region agent log
+                _debug_log({"hypothesisId": "H2", "skip": "not_dict", "i": i, "s_type": type(proposed[i]).__name__, "s_repr": str(proposed[i])[:100]})
+                # #endregion
                 continue
             name = (s.get("name") or "").strip()
             if not name:
                 continue
             skill_id = _slug(name)
             domain = s.get("domain") or "general"
-            skill_type = s.get("skill_type") or "technique"
-            applicable_to = s.get("applicable_to")
-            if isinstance(applicable_to, list):
-                applicable_to = json.dumps(applicable_to, default=_json_default)
-            else:
-                applicable_to = json.dumps([], default=_json_default)
+            skill_type = _normalize_skill_type(s.get("skill_type"))
+            applicable_to = _normalize_applicable_to(s.get("applicable_to"))
             content = s.get("content") or ""
             is_update = s.get("is_update") is True
             source_doc = s.get("source_document") or ""
 
-            if is_update:
-                await conn.execute(
-                    """
-                    UPDATE agent_skills SET name = $1, domain = $2, skill_type = $3, applicable_to = $4, content = $5,
-                    source_document = $6, created_by = 'judson', status = 'active'
-                    WHERE skill_id = $7
-                    """,
-                    name,
-                    domain,
-                    skill_type,
-                    applicable_to,
-                    content,
-                    source_doc,
-                    skill_id,
-                )
-            else:
-                await conn.execute(
-                    """
-                    INSERT INTO agent_skills (skill_id, name, domain, skill_type, applicable_to, content, source_document, created_by, status)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, 'judson', 'active')
-                    ON CONFLICT (skill_id) DO UPDATE SET name = $2, domain = $3, skill_type = $4, applicable_to = $5, content = $6, source_document = $7, created_by = 'judson', status = 'active'
-                    """,
-                    skill_id,
-                    name,
-                    domain,
-                    skill_type,
-                    applicable_to,
-                    content,
-                    source_doc,
-                )
-            approved_count += 1
+            try:
+                if is_update:
+                    await conn.execute(
+                        """
+                        UPDATE agent_skills SET name = $1, domain = $2, skill_type = $3, applicable_to = $4, content = $5,
+                        source_document = $6, created_by = 'judson', status = 'active'
+                        WHERE skill_id = $7
+                        """,
+                        name,
+                        domain,
+                        skill_type,
+                        applicable_to,
+                        content,
+                        source_doc,
+                        skill_id,
+                    )
+                else:
+                    await conn.execute(
+                        """
+                        INSERT INTO agent_skills (skill_id, name, domain, skill_type, applicable_to, content, source_document, created_by, status)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, 'judson', 'active')
+                        ON CONFLICT (skill_id) DO UPDATE SET name = $2, domain = $3, skill_type = $4, applicable_to = $5, content = $6, source_document = $7, created_by = 'judson', status = 'active'
+                        """,
+                        skill_id,
+                        name,
+                        domain,
+                        skill_type,
+                        applicable_to,
+                        content,
+                        source_doc,
+                    )
+                approved_count += 1
+            except Exception as e:
+                # #region agent log
+                _debug_log({"hypothesisId": "H3", "insert_error": str(e), "skill_id": skill_id, "is_update": is_update})
+                # #endregion
+                logger.exception("approve skill insert/update failed for %s: %s", skill_id, e)
 
-        await conn.execute(
-            "UPDATE skill_uploads SET status = 'completed' WHERE id = $1",
-            req.upload_id,
+        # Only mark upload as completed when all proposed skills were approved in this request
+        all_approved_this_time = (
+            len(proposed) > 0
+            and set(req.approved_skill_indices) >= set(range(len(proposed)))
+            and approved_count > 0
         )
+        if all_approved_this_time:
+            await conn.execute(
+                "UPDATE skill_uploads SET status = 'completed' WHERE id = $1",
+                req.upload_id,
+            )
 
     return {
         "approved": approved_count,

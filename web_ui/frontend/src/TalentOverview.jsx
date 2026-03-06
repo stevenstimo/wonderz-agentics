@@ -6,6 +6,13 @@ import { buildAuthHeaders, getCurrentUserRole, isSuperAdmin } from './authz'
 const apiBase = (import.meta.env.VITE_API_URL || 'http://localhost:8090').replace(/\/$/, '')
 const crewRoles = ['Developer', 'Product Owner', 'Reviewer', 'DevOps', 'AI', 'HR', 'Training', 'CIO']
 
+function initials(name) {
+  if (!name || typeof name !== 'string') return '?'
+  const parts = name.trim().split(/\s+/)
+  if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+  return (name[0] || '?').toUpperCase()
+}
+
 export default function TalentOverview() {
   const [talents, setTalents] = useState([])
   const [loading, setLoading] = useState(true)
@@ -31,11 +38,11 @@ export default function TalentOverview() {
     setError('')
     try {
       const res = await fetch(`${apiBase}/api/talents`)
-      if (!res.ok) throw new Error(`Failed to fetch talents (${res.status})`)
+      if (!res.ok) throw new Error(`Talents ophalen mislukt (${res.status})`)
       const data = await res.json()
       setTalents(Array.isArray(data) ? data : [])
     } catch (err) {
-      setError(err.message || 'Failed to fetch talents')
+      setError(err.message || 'Talents ophalen mislukt')
     } finally {
       setLoading(false)
     }
@@ -75,11 +82,11 @@ export default function TalentOverview() {
         body: JSON.stringify(promoteForm),
       })
 
-      if (!res.ok) throw new Error('Promotion failed')
+      if (!res.ok) throw new Error('Promotie mislukt')
       setSelectedTalent(null)
       await fetchTalents()
     } catch (err) {
-      setError(err.message || 'Error promoting talent')
+      setError(err.message || 'Promotie mislukt')
     } finally {
       setPromoting(false)
     }
@@ -97,18 +104,22 @@ export default function TalentOverview() {
         headers: await buildAuthHeaders(),
         body: JSON.stringify({ ...addForm, skills: [] }),
       })
-      if (!res.ok) throw new Error(`Failed to add talent (${res.status})`)
+      if (!res.ok) throw new Error(`Talent toevoegen mislukt (${res.status})`)
       setShowAdd(false)
       setAddForm({ name: '', persona: '', quality: '', growth: '', avatar_url: '' })
       await fetchTalents()
     } catch (err) {
-      setError(err.message || 'Failed to add talent')
+      setError(err.message || 'Talent toevoegen mislukt')
     } finally {
       setAdding(false)
     }
   }
 
-  const openAvatarModal = (talent) => {
+  const openAvatarModal = (talent, e) => {
+    if (e) {
+      e.preventDefault()
+      e.stopPropagation()
+    }
     setAvatarTalent(talent)
     setAvatarValue(talent.avatar_url || '')
   }
@@ -123,137 +134,172 @@ export default function TalentOverview() {
         headers: await buildAuthHeaders(),
         body: JSON.stringify({ avatar_url: avatarValue }),
       })
-      if (!res.ok) throw new Error(`Failed to update avatar (${res.status})`)
+      if (!res.ok) throw new Error(`Avatar bijwerken mislukt (${res.status})`)
       setAvatarTalent(null)
       setAvatarValue('')
       await fetchTalents()
     } catch (err) {
-      setError(err.message || 'Failed to update avatar')
+      setError(err.message || 'Avatar bijwerken mislukt')
     } finally {
       setSavingAvatar(false)
     }
   }
 
+  const avatarSrc = (talent) =>
+    talent.avatar_url || `https://api.dicebear.com/7.x/personas/svg?seed=${encodeURIComponent(talent.name)}`
+
   return (
-    <PageLayout size="wide" padded>
-      <div className="flex items-center justify-between mb-6 gap-4">
-        <h1 className="text-2xl font-bold">Talents</h1>
-        {canEdit && (
-          <button type="button" className="btn-manage gap-2" onClick={() => setShowAdd(true)}>
-            <Plus className="w-4 h-4" />
-            Add Talent
-          </button>
+    <PageLayout>
+      <div className="panel-card">
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 className="page-title mb-1">Talent Pool</h1>
+            <p className="page-subtitle">Kandidaten die je kunt promoveren naar de crew.</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button className="btn-icon-only" type="button" onClick={fetchTalents} aria-label="Vernieuwen">
+              ↻
+            </button>
+            {canEdit && (
+              <button type="button" className="btn-manage gap-2" onClick={() => setShowAdd(true)}>
+                <Plus className="w-4 h-4" />
+                Nieuwe Talent
+              </button>
+            )}
+          </div>
+        </div>
+
+        {error && <div className="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
+
+        {loading ? (
+          <div className="text-sm text-gray-500">Laden...</div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-1 md:grid-cols-2 gap-4 w-full">
+            {talents.map((talent) => (
+              <div
+                key={talent.id}
+                className="block rounded-lg border border-slate-200 p-4 hover:border-indigo-300 hover:bg-slate-50/50 transition"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full overflow-hidden bg-indigo-100 text-indigo-700 font-semibold text-sm">
+                    {talent.avatar_url ? (
+                      <img src={talent.avatar_url} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      initials(talent.name)
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-sm font-semibold text-slate-800">{talent.name || '—'}</span>
+                    </div>
+                    <div className="text-xs text-slate-600 mt-0.5">{talent.persona || '—'}</div>
+                    {talent.quality && (
+                      <div className="text-xs text-slate-500 mt-1 line-clamp-2">{talent.quality}</div>
+                    )}
+                    <div className="mt-3 flex items-center gap-3">
+                      {canEdit && (
+                        <>
+                          <button
+                            type="button"
+                            className="text-slate-600 hover:underline text-sm"
+                            onClick={(e) => openAvatarModal(talent, e)}
+                          >
+                            Avatar aanpassen
+                          </button>
+                          <button
+                            type="button"
+                            className="text-blue-600 hover:underline text-sm font-medium"
+                            onClick={() => handlePromote(talent)}
+                          >
+                            Promoveren naar crew
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+            {!talents.length && (
+              <div className="col-span-full py-8 text-center text-sm text-slate-500">
+                Geen talents gevonden.
+              </div>
+            )}
+          </div>
         )}
       </div>
 
-      {error && <div className="mb-4 p-3 bg-red-50 text-red-700 rounded-lg text-sm">{error}</div>}
-      {loading && <div className="text-sm text-gray-500">Loading talents...</div>}
-
-      {!loading && talents.length === 0 && (
-        <div className="text-center text-gray-500 py-12">No talents yet.</div>
-      )}
-
-      {!loading && talents.length > 0 && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-          {talents.map((talent) => (
-            <div key={talent.id} className="bg-white rounded-lg shadow p-4 flex flex-col">
-              <img
-                src={talent.avatar_url || `https://api.dicebear.com/7.x/personas/svg?seed=${encodeURIComponent(talent.name)}`}
-                alt={talent.name}
-                className="w-20 h-20 rounded-full mb-3 mx-auto object-cover border"
-              />
-              <div className="flex-1">
-                <div className="font-semibold text-lg text-center">{talent.name}</div>
-                <div className="text-gray-600 text-xs text-center mb-2">{talent.persona}</div>
-                <div className="text-gray-700 text-xs mb-3">
-                  <div className="font-semibold mb-1">Quality:</div>
-                  <div className="line-clamp-2">{talent.quality}</div>
-                </div>
-              </div>
-
-              {canEdit && (
-                <>
-                  <button type="button" onClick={() => openAvatarModal(talent)} className="w-full px-3 py-2 mb-2 border rounded-lg text-sm hover:bg-gray-50 flex items-center justify-center gap-2">
-                    <Pencil className="w-4 h-4" />
-                    Update avatar
-                  </button>
-                  <button type="button" onClick={() => handlePromote(talent)} className="btn-manage w-full gap-2 mt-auto">
-                    <ChevronUp className="w-4 h-4" />
-                    Promote to Crew
-                  </button>
-                </>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-
+      {/* Modal: New Talent */}
       {showAdd && (
         <div className="modal-overlay">
           <div className="modal-card space-y-3">
-            <h2 className="text-xl font-bold">New Talent</h2>
-            <input className="w-full px-3 py-2 border rounded-lg" placeholder="Name" value={addForm.name} onChange={(e) => setAddForm({ ...addForm, name: e.target.value })} />
-            <input className="w-full px-3 py-2 border rounded-lg" placeholder="Persona" value={addForm.persona} onChange={(e) => setAddForm({ ...addForm, persona: e.target.value })} />
-            <textarea className="w-full px-3 py-2 border rounded-lg" placeholder="Quality" value={addForm.quality} onChange={(e) => setAddForm({ ...addForm, quality: e.target.value })} />
-            <textarea className="w-full px-3 py-2 border rounded-lg" placeholder="Growth" value={addForm.growth} onChange={(e) => setAddForm({ ...addForm, growth: e.target.value })} />
-            <input className="w-full px-3 py-2 border rounded-lg" placeholder="Avatar URL" value={addForm.avatar_url} onChange={(e) => setAddForm({ ...addForm, avatar_url: e.target.value })} />
+            <h2 className="text-xl font-bold">Nieuwe Talent</h2>
+            <input className="w-full px-3 py-2 border border-slate-300 rounded-lg" placeholder="Naam" value={addForm.name} onChange={(e) => setAddForm({ ...addForm, name: e.target.value })} />
+            <input className="w-full px-3 py-2 border border-slate-300 rounded-lg" placeholder="Persona" value={addForm.persona} onChange={(e) => setAddForm({ ...addForm, persona: e.target.value })} />
+            <textarea className="w-full px-3 py-2 border border-slate-300 rounded-lg" placeholder="Quality" value={addForm.quality} onChange={(e) => setAddForm({ ...addForm, quality: e.target.value })} />
+            <textarea className="w-full px-3 py-2 border border-slate-300 rounded-lg" placeholder="Growth" value={addForm.growth} onChange={(e) => setAddForm({ ...addForm, growth: e.target.value })} />
+            <input className="w-full px-3 py-2 border border-slate-300 rounded-lg" placeholder="Avatar URL" value={addForm.avatar_url} onChange={(e) => setAddForm({ ...addForm, avatar_url: e.target.value })} />
             <div className="flex gap-2">
-              <button type="button" onClick={() => setShowAdd(false)} className="flex-1 px-4 py-2 border rounded-lg">Cancel</button>
-              <button type="button" onClick={submitAdd} disabled={adding} className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg disabled:opacity-50">{adding ? 'Saving...' : 'Create'}</button>
+              <button type="button" onClick={() => setShowAdd(false)} className="flex-1 px-4 py-2 border border-slate-300 rounded-lg hover:bg-slate-50">Annuleren</button>
+              <button type="button" onClick={submitAdd} disabled={adding} className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg disabled:opacity-50">{adding ? 'Opslaan...' : 'Aanmaken'}</button>
             </div>
           </div>
         </div>
       )}
 
+      {/* Modal: Promote */}
       {selectedTalent && (
         <div className="modal-overlay">
           <div className="modal-card">
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-bold">Promote {selectedTalent.name}</h2>
-              <button type="button" onClick={() => setSelectedTalent(null)} className="text-gray-400 hover:text-gray-600">x</button>
+              <h2 className="text-xl font-bold">Promoveren: {selectedTalent.name}</h2>
+              <button type="button" onClick={() => setSelectedTalent(null)} className="text-slate-400 hover:text-slate-600">×</button>
             </div>
 
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-semibold mb-1">Role</label>
-                <select value={promoteForm.role} onChange={(e) => setPromoteForm({ ...promoteForm, role: e.target.value })} className="w-full px-3 py-2 border rounded-lg">
+                <label className="block text-sm font-semibold mb-1">Rol</label>
+                <select value={promoteForm.role} onChange={(e) => setPromoteForm({ ...promoteForm, role: e.target.value })} className="w-full px-3 py-2 border border-slate-300 rounded-lg">
                   {crewRoles.map((role) => <option key={role}>{role}</option>)}
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-semibold mb-1">Specialization</label>
-                <input type="text" value={promoteForm.specialization} onChange={(e) => setPromoteForm({ ...promoteForm, specialization: e.target.value })} className="w-full px-3 py-2 border rounded-lg" />
+                <label className="block text-sm font-semibold mb-1">Specialisatie</label>
+                <input type="text" value={promoteForm.specialization} onChange={(e) => setPromoteForm({ ...promoteForm, specialization: e.target.value })} className="w-full px-3 py-2 border border-slate-300 rounded-lg" />
               </div>
               <div>
                 <label className="block text-sm font-semibold mb-1">System Instructions</label>
-                <textarea value={promoteForm.system_instructions} onChange={(e) => setPromoteForm({ ...promoteForm, system_instructions: e.target.value })} className="w-full px-3 py-2 border rounded-lg h-24" />
+                <textarea value={promoteForm.system_instructions} onChange={(e) => setPromoteForm({ ...promoteForm, system_instructions: e.target.value })} className="w-full px-3 py-2 border border-slate-300 rounded-lg h-24" />
               </div>
               <div>
                 <label className="block text-sm font-semibold mb-1">Hiring Logic</label>
-                <textarea value={promoteForm.hiring_logic} onChange={(e) => setPromoteForm({ ...promoteForm, hiring_logic: e.target.value })} className="w-full px-3 py-2 border rounded-lg h-24" />
+                <textarea value={promoteForm.hiring_logic} onChange={(e) => setPromoteForm({ ...promoteForm, hiring_logic: e.target.value })} className="w-full px-3 py-2 border border-slate-300 rounded-lg h-24" />
               </div>
               <div className="flex gap-3 mt-6">
-                <button type="button" onClick={() => setSelectedTalent(null)} className="flex-1 px-4 py-2 border rounded-lg" disabled={promoting}>Cancel</button>
-                <button type="button" onClick={submitPromotion} disabled={promoting} className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg disabled:opacity-50">{promoting ? 'Promoting...' : 'Promote Now'}</button>
+                <button type="button" onClick={() => setSelectedTalent(null)} className="flex-1 px-4 py-2 border border-slate-300 rounded-lg hover:bg-slate-50" disabled={promoting}>Annuleren</button>
+                <button type="button" onClick={submitPromotion} disabled={promoting} className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg disabled:opacity-50">{promoting ? 'Bezig...' : 'Promoveren'}</button>
               </div>
             </div>
           </div>
         </div>
       )}
 
+      {/* Modal: Avatar */}
       {avatarTalent && (
         <div className="modal-overlay">
           <div className="modal-card space-y-3">
-            <h2 className="text-xl font-bold">Update avatar for {avatarTalent.name}</h2>
-            <input className="w-full px-3 py-2 border rounded-lg" placeholder="Avatar URL" value={avatarValue} onChange={(e) => setAvatarValue(e.target.value)} />
-            <img
-              src={avatarValue || `https://api.dicebear.com/7.x/personas/svg?seed=${encodeURIComponent(avatarTalent.name)}`}
-              alt="Avatar preview"
-              className="w-20 h-20 rounded-full border object-cover"
-            />
+            <h2 className="text-xl font-bold">Avatar voor {avatarTalent.name}</h2>
+            <input className="w-full px-3 py-2 border border-slate-300 rounded-lg" placeholder="Avatar URL" value={avatarValue} onChange={(e) => setAvatarValue(e.target.value)} />
+            <div className="flex justify-center">
+              <img
+                src={avatarValue || `https://api.dicebear.com/7.x/personas/svg?seed=${encodeURIComponent(avatarTalent.name)}`}
+                alt="Avatar preview"
+                className="w-20 h-20 rounded-full border border-slate-200 object-cover"
+              />
+            </div>
             <div className="flex gap-2">
-              <button type="button" onClick={() => setAvatarTalent(null)} className="flex-1 px-4 py-2 border rounded-lg">Cancel</button>
-              <button type="button" onClick={saveAvatar} disabled={savingAvatar} className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg disabled:opacity-50">{savingAvatar ? 'Saving...' : 'Save avatar'}</button>
+              <button type="button" onClick={() => setAvatarTalent(null)} className="flex-1 px-4 py-2 border border-slate-300 rounded-lg hover:bg-slate-50">Annuleren</button>
+              <button type="button" onClick={saveAvatar} disabled={savingAvatar} className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg disabled:opacity-50">{savingAvatar ? 'Opslaan...' : 'Avatar opslaan'}</button>
             </div>
           </div>
         </div>

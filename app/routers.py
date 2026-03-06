@@ -26,6 +26,7 @@ def register_routers(app):
     app.include_router(monitoring_router)
     app.include_router(status_router)
     app.include_router(talents_router)
+    app.include_router(judson_router)
     app.include_router(skills_router)
     app.include_router(settings_router)
     app.include_router(ceo_router)
@@ -33,4 +34,3 @@ def register_routers(app):
     app.include_router(intelligence_router)
     app.include_router(alex_dev_router)
     app.include_router(debug_chat_router)
-    app.include_router(judson_router)

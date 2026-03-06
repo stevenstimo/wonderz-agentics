@@ -15,6 +15,7 @@ export default function SkillsLibrary() {
   const [analyzing, setAnalyzing] = useState(false)
   const [lastUploadId, setLastUploadId] = useState(null)
   const [proposedSkills, setProposedSkills] = useState([])
+  const [handledState, setHandledState] = useState({}) // index -> 'approved' | 'skipped'
   const fileInputRef = useRef(null)
   const chatEndRef = useRef(null)
 
@@ -105,6 +106,7 @@ export default function SkillsLibrary() {
       setAnalyzing(false)
       if (!analyzeRes.ok) throw new Error(analyzeData.detail || 'Analysis failed')
       setProposedSkills(analyzeData.proposed_skills || [])
+      setHandledState({})
       setChatMessages((prev) => prev.slice(0, -1).concat([
         { role: 'assistant', content: (analyzeData.message || '') + (analyzeData.proposed_skills?.length ? `\n\nFound ${analyzeData.proposed_skills.length} proposed skill(s) below. Approve or skip each.` : '') },
       ]))
@@ -116,11 +118,7 @@ export default function SkillsLibrary() {
   }
 
   async function handleApproveSkills(approvedIndices) {
-    if (!lastUploadId || approvedIndices.length === 0) {
-      setProposedSkills([])
-      setLastUploadId(null)
-      return
-    }
+    if (!lastUploadId || approvedIndices.length === 0) return
     try {
       const res = await fetch(apiUrl('/api/skills/judson/approve'), {
         method: 'POST',
@@ -130,12 +128,36 @@ export default function SkillsLibrary() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail || 'Approve failed')
       setChatMessages((prev) => [...prev, { role: 'assistant', content: data.message || 'Approved.' }])
-      setProposedSkills([])
-      setLastUploadId(null)
+      setHandledState((prev) => {
+        const next = { ...prev }
+        approvedIndices.forEach((i) => { next[i] = 'approved' })
+        const allHandled = proposedSkills.length > 0 && proposedSkills.every((_, i) => next[i] != null)
+        if (allHandled) {
+          setProposedSkills([])
+          setLastUploadId(null)
+          setHandledState({})
+          loadSkills()
+        }
+        return next
+      })
       loadSkills()
     } catch (err) {
       setChatMessages((prev) => [...prev, { role: 'assistant', content: `Error: ${err.message}` }])
     }
+  }
+
+  function handleSkipSkill(idx) {
+    setHandledState((prev) => {
+      const next = { ...prev, [idx]: 'skipped' }
+      const allHandled = proposedSkills.length > 0 && proposedSkills.every((_, i) => next[i] != null)
+      if (allHandled) {
+        setProposedSkills([])
+        setLastUploadId(null)
+        setHandledState({})
+        loadSkills()
+      }
+      return next
+    })
   }
 
   const domains = [...new Set(skills.map((s) => s.domain).filter(Boolean))].sort()
@@ -184,38 +206,53 @@ export default function SkillsLibrary() {
             )}
             {proposedSkills.length > 0 && (
               <div className="space-y-2 mt-4">
-                <p className="text-xs font-medium text-slate-600">Proposed skills — approve or skip</p>
-                {proposedSkills.map((skill, idx) => (
-                  <div key={idx} className="rounded-lg border border-slate-200 p-3 bg-slate-50">
-                    <div className="flex items-center justify-between gap-2 flex-wrap">
-                      <span className="font-medium text-slate-800">{skill.name}</span>
-                      <div className="flex gap-1">
-                        <button
-                          type="button"
-                          onClick={() => handleApproveSkills([idx])}
-                          className="px-2 py-1 text-xs font-medium rounded bg-green-600 text-white hover:bg-green-700"
-                        >
-                          Approve
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setProposedSkills((p) => p.filter((_, i) => i !== idx))}
-                          className="px-2 py-1 text-xs font-medium rounded bg-slate-200 text-slate-700 hover:bg-slate-300"
-                        >
-                          Skip
-                        </button>
+                <p className="text-xs font-medium text-slate-600">Proposed skills — approve or skip (cards stay until all are handled)</p>
+                {proposedSkills.map((skill, idx) => {
+                  const status = handledState[idx]
+                  return (
+                    <div key={idx} className="rounded-lg border border-slate-200 p-3 bg-slate-50">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <span className="font-medium text-slate-800">{skill.name}</span>
+                        <div className="flex gap-1 items-center">
+                          {status === 'approved' && (
+                            <span className="px-2 py-1 text-xs font-medium rounded bg-green-100 text-green-800">Approved</span>
+                          )}
+                          {status === 'skipped' && (
+                            <span className="px-2 py-1 text-xs font-medium rounded bg-slate-200 text-slate-600">Skipped</span>
+                          )}
+                          {!status && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => handleApproveSkills([idx])}
+                                className="px-2 py-1 text-xs font-medium rounded bg-green-600 text-white hover:bg-green-700"
+                              >
+                                Approve
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleSkipSkill(idx)}
+                                className="px-2 py-1 text-xs font-medium rounded bg-slate-200 text-slate-700 hover:bg-slate-300"
+                              >
+                                Skip
+                              </button>
+                            </>
+                          )}
+                        </div>
                       </div>
+                      <p className="text-xs text-slate-500 mt-1">{skill.domain} · {skill.skill_type}</p>
                     </div>
-                    <p className="text-xs text-slate-500 mt-1">{skill.domain} · {skill.skill_type}</p>
-                  </div>
-                ))}
-                <button
-                  type="button"
-                  onClick={() => handleApproveSkills(proposedSkills.map((_, i) => i))}
-                  className="text-sm font-medium text-indigo-600 hover:text-indigo-800"
-                >
-                  Approve all
-                </button>
+                  )
+                })}
+                {!proposedSkills.every((_, i) => handledState[i] != null) && (
+                  <button
+                    type="button"
+                    onClick={() => handleApproveSkills(proposedSkills.map((_, i) => i).filter((i) => !handledState[i]))}
+                    className="text-sm font-medium text-indigo-600 hover:text-indigo-800"
+                  >
+                    Approve all remaining
+                  </button>
+                )}
               </div>
             )}
             <div ref={chatEndRef} />

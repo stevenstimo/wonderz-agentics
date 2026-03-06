@@ -2,13 +2,20 @@
 
 import json
 import logging
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Body
 from pydantic import BaseModel
 
 from app.database import get_db
+
+
+def _json_default(obj: Any) -> Any:
+    """For json.dumps: handle non-JSON-serializable values (e.g. datetime)."""
+    if isinstance(obj, (date, datetime)):
+        return obj.isoformat()
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/agents", tags=["agents"])
@@ -132,6 +139,77 @@ async def list_agents() -> List[Dict[str, Any]]:
     for row in rows:
         result.append(_serialize_agent_row(row))
     return result
+
+
+@router.get("/{agent_id}/detail")
+async def get_agent_detail(agent_id: str) -> Dict[str, Any]:
+    """Get agent plus related data: recent work, development points, applicable skills."""
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT * FROM hired_agents WHERE agent_id = $1", agent_id
+        )
+        if not row:
+            raise HTTPException(status_code=404, detail="Agent not found")
+        agent = _serialize_agent_row(row)
+        role = agent.get("role") or ""
+        specialization = agent.get("specialization") or ""
+
+        steps = await conn.fetch(
+            """SELECT js.*, j.job_post FROM job_steps js
+               LEFT JOIN jobs j ON js.job_id = j.id
+               WHERE js.agent_role = $1
+               ORDER BY js.created_at DESC NULLS LAST
+               LIMIT 20""",
+            role,
+        )
+        dev_points = await conn.fetch(
+            """SELECT * FROM development_points
+               WHERE agent_id = $1 OR agent_role = $2
+               ORDER BY created_at DESC NULLS LAST
+               LIMIT 20""",
+            agent_id,
+            role,
+        )
+        skills = await conn.fetch(
+            """SELECT * FROM agent_skills
+               WHERE $1 = ANY(applicable_to) OR $2 = ANY(applicable_to)""",
+            role,
+            specialization,
+        )
+
+    def row_to_dict(r) -> Dict[str, Any]:
+        d = dict(r)
+        for key in list(d.keys()):
+            if hasattr(d[key], "isoformat"):
+                d[key] = d[key].isoformat()
+        return d
+
+    return {
+        "agent": agent,
+        "recent_work": [row_to_dict(s) for s in steps],
+        "development_points": [row_to_dict(d) for d in dev_points],
+        "skills": [row_to_dict(s) for s in skills],
+    }
+
+
+@router.patch("/{agent_id}/avatar")
+async def update_agent_avatar(agent_id: str, req: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+    """Store avatar config in permissions.avatar."""
+    pool = await get_db()
+    merge = {"avatar": req}
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            """UPDATE hired_agents
+               SET permissions = COALESCE(permissions, '{}'::jsonb) || $1::jsonb,
+                   updated_at = now()
+               WHERE agent_id = $2""",
+            json.dumps(merge, default=_json_default),
+            agent_id,
+        )
+    if result == "UPDATE 0":
+        raise HTTPException(status_code=404, detail="Agent not found")
+    return {"status": "updated"}
 
 
 @router.get("/{agent_id}", response_model=AgentResponse)
