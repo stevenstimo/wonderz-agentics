@@ -1,7 +1,24 @@
 import { useState, useEffect, useRef } from 'react'
-import { BookOpen, Paperclip, Send, Loader2 } from 'lucide-react'
+import { Send, Loader2, Upload } from 'lucide-react'
 import { apiUrl } from './apiClient'
 import PageLayout from './PageLayout'
+
+const DOMAIN_BADGE = {
+  seo: 'bg-blue-100 text-blue-800',
+  copywriting: 'bg-purple-100 text-purple-800',
+  quality: 'bg-red-100 text-red-800',
+  management: 'bg-indigo-100 text-indigo-800',
+  structure: 'bg-amber-100 text-amber-800',
+  voice: 'bg-emerald-100 text-emerald-800',
+}
+
+function domainBadgeClass(domain) {
+  if (!domain) return 'bg-slate-100 text-slate-600'
+  const key = String(domain).toLowerCase().replace(/\s+/g, '_')
+  return DOMAIN_BADGE[key] || 'bg-slate-100 text-slate-600'
+}
+
+const WELCOME_MESSAGE = 'Ask me about skills, upload a document, or check for gaps in the library.'
 
 export default function SkillsLibrary() {
   const [skills, setSkills] = useState([])
@@ -15,7 +32,8 @@ export default function SkillsLibrary() {
   const [analyzing, setAnalyzing] = useState(false)
   const [lastUploadId, setLastUploadId] = useState(null)
   const [proposedSkills, setProposedSkills] = useState([])
-  const [handledState, setHandledState] = useState({}) // index -> 'approved' | 'skipped'
+  const [handledState, setHandledState] = useState({})
+  const [dragOver, setDragOver] = useState(false)
   const fileInputRef = useRef(null)
   const chatEndRef = useRef(null)
 
@@ -78,43 +96,75 @@ export default function SkillsLibrary() {
     }
   }
 
-  async function handleFileSelect(e) {
-    const file = e.target?.files?.[0]
+  function handleFile(files) {
+    const file = files?.[0]
     if (!file) return
-    e.target.value = ''
+    if (fileInputRef.current) fileInputRef.current.value = ''
     setUploading(true)
     setChatMessages((prev) => [...prev, { role: 'assistant', content: 'Uploading…' }])
-    try {
-      const form = new FormData()
-      form.append('file', file)
-      const res = await fetch(apiUrl('/api/skills/judson/upload'), {
-        method: 'POST',
-        body: form,
+    const form = new FormData()
+    form.append('file', file)
+    fetch(apiUrl('/api/skills/judson/upload'), { method: 'POST', body: form })
+      .then(async (res) => {
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.detail || 'Upload failed')
+        return data
       })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.detail || 'Upload failed')
-      setLastUploadId(data.upload_id)
-      setChatMessages((prev) => prev.slice(0, -1).concat([{ role: 'assistant', content: `"${data.filename}" received. Analyzing…` }]))
-      setUploading(false)
-      setAnalyzing(true)
-      const analyzeRes = await fetch(apiUrl('/api/skills/judson/analyze'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ upload_id: data.upload_id }),
+      .then((data) => {
+        setLastUploadId(data.upload_id)
+        setChatMessages((prev) => prev.slice(0, -1).concat([{ role: 'assistant', content: `"${data.filename}" received. Analyzing…` }]))
+        setUploading(false)
+        setAnalyzing(true)
+        return fetch(apiUrl('/api/skills/judson/analyze'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ upload_id: data.upload_id }),
+        })
       })
-      const analyzeData = await analyzeRes.json()
-      setAnalyzing(false)
-      if (!analyzeRes.ok) throw new Error(analyzeData.detail || 'Analysis failed')
-      setProposedSkills(analyzeData.proposed_skills || [])
-      setHandledState({})
-      setChatMessages((prev) => prev.slice(0, -1).concat([
-        { role: 'assistant', content: (analyzeData.message || '') + (analyzeData.proposed_skills?.length ? `\n\nFound ${analyzeData.proposed_skills.length} proposed skill(s) below. Approve or skip each.` : '') },
-      ]))
-    } catch (err) {
-      setUploading(false)
-      setAnalyzing(false)
-      setChatMessages((prev) => prev.slice(0, -1).concat([{ role: 'assistant', content: `Error: ${err.message}` }]))
-    }
+      .then(async (res) => {
+        const analyzeData = await res.json()
+        if (!res.ok) throw new Error(analyzeData.detail || 'Analysis failed')
+        return analyzeData
+      })
+      .then((analyzeData) => {
+        setAnalyzing(false)
+        setProposedSkills(analyzeData.proposed_skills || [])
+        setHandledState({})
+        setChatMessages((prev) =>
+          prev.slice(0, -1).concat([
+            {
+              role: 'assistant',
+              content:
+                (analyzeData.message || '') +
+                (analyzeData.proposed_skills?.length ? `\n\nFound ${analyzeData.proposed_skills.length} proposed skill(s) below. Approve or skip each.` : ''),
+            },
+          ])
+        )
+      })
+      .catch((err) => {
+        setUploading(false)
+        setAnalyzing(false)
+        setChatMessages((prev) => prev.slice(0, -1).concat([{ role: 'assistant', content: `Error: ${err.message}` }]))
+      })
+  }
+
+  async function handleFileSelect(e) {
+    handleFile(e.target?.files)
+  }
+
+  function handleDrop(e) {
+    e.preventDefault()
+    setDragOver(false)
+    handleFile(e.dataTransfer?.files)
+  }
+
+  function handleDragOver(e) {
+    e.preventDefault()
+    setDragOver(true)
+  }
+
+  function handleDragLeave() {
+    setDragOver(false)
   }
 
   async function handleApproveSkills(approvedIndices) {
@@ -135,7 +185,6 @@ export default function SkillsLibrary() {
         if (allHandled) {
           setProposedSkills([])
           setLastUploadId(null)
-          setHandledState({})
           loadSkills()
         }
         return next
@@ -153,7 +202,6 @@ export default function SkillsLibrary() {
       if (allHandled) {
         setProposedSkills([])
         setLastUploadId(null)
-        setHandledState({})
         loadSkills()
       }
       return next
@@ -161,33 +209,51 @@ export default function SkillsLibrary() {
   }
 
   const domains = [...new Set(skills.map((s) => s.domain).filter(Boolean))].sort()
+  const showWelcome = chatMessages.length === 0 && !sendingChat && !uploading && !analyzing
 
   return (
-    <PageLayout size="wide" padded className="space-y-4 !max-w-none">
-      <div className="grid grid-cols-1 md:grid-cols-[55%_45%] gap-4 min-h-[calc(100vh-8rem)]">
+    <PageLayout size="wide" padded className="!max-w-none !p-0">
+      <div className="flex flex-col lg:flex-row min-h-[calc(100vh-var(--top-header-height,56px)-4rem)]">
         {/* Left: Judson Chat */}
-        <div className="flex flex-col rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden min-h-0">
-          <div className="flex-shrink-0 px-4 py-3 border-b border-slate-200 flex items-center gap-2">
-            <BookOpen className="w-5 h-5 text-slate-600" />
-            <div>
-              <h2 className="text-lg font-semibold text-slate-900">Judson</h2>
-              <p className="text-xs text-slate-500">Library Owner</p>
+        <div className="flex flex-col min-w-0 lg:min-w-[400px] flex-shrink-0 w-full lg:max-w-[55%] rounded-t-xl lg:rounded-t-none lg:rounded-l-xl border border-b-0 lg:border-b border-slate-200 bg-white shadow-sm overflow-hidden lg:border-r-0">
+          <div className="flex-shrink-0 p-6 border-b border-slate-200 bg-slate-50/50">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-full bg-slate-700 flex items-center justify-center text-white text-lg font-semibold flex-shrink-0">
+                J
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900">Judson</h2>
+                <p className="text-sm text-slate-500">Library Owner</p>
+              </div>
             </div>
           </div>
-          <div className="flex-1 overflow-y-auto space-y-4 p-4 min-h-[10rem]">
-            {chatMessages.length === 0 && !sendingChat && !uploading && !analyzing && (
-              <p className="text-slate-500 text-sm">Ask Judson about skills, upload a document to extract skills, or check gaps.</p>
+
+          <div className="flex-1 overflow-y-auto p-6 space-y-4 min-h-0">
+            {showWelcome && (
+              <div className="flex gap-2 justify-start">
+                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-white text-xs font-semibold">
+                  J
+                </div>
+                <div className="flex flex-col gap-0.5 max-w-[85%]">
+                  <span className="text-xs text-slate-500">Judson</span>
+                  <div className="px-4 py-2.5 rounded-xl rounded-tl-none bg-slate-700 text-white">
+                    <p className="text-sm">{WELCOME_MESSAGE}</p>
+                  </div>
+                </div>
+              </div>
             )}
             {chatMessages.map((msg, i) => (
               <div key={i} className={`flex gap-2 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                 {msg.role === 'assistant' && (
-                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-slate-100 text-xs font-semibold">J</div>
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-white text-xs font-semibold">
+                    J
+                  </div>
                 )}
-                <div className={`flex flex-col gap-0.5 max-w-[80%] ${msg.role === 'user' ? 'items-end' : ''}`}>
+                <div className={`flex flex-col gap-0.5 max-w-[85%] ${msg.role === 'user' ? 'items-end' : ''}`}>
                   {msg.role === 'assistant' && <span className="text-xs text-slate-500">Judson</span>}
                   <div
                     className={`px-4 py-2.5 rounded-xl whitespace-pre-wrap ${
-                      msg.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-slate-700 text-slate-100 rounded-tl-none'
+                      msg.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-slate-700 text-white rounded-tl-none'
                     }`}
                   >
                     <p className="text-sm">{msg.content || ''}</p>
@@ -197,7 +263,9 @@ export default function SkillsLibrary() {
             ))}
             {(uploading || analyzing || sendingChat) && (
               <div className="flex gap-2 justify-start items-center text-slate-500 text-sm">
-                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-slate-100 text-xs font-semibold">J</div>
+                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-white text-xs font-semibold">
+                  J
+                </div>
                 <div className="px-4 py-2.5 rounded-xl rounded-tl-none bg-slate-100 text-slate-600 flex items-center gap-1">
                   {uploading ? 'Uploading…' : analyzing ? 'Analyzing…' : 'Judson is thinking…'}
                   <Loader2 className="w-4 h-4 animate-spin" />
@@ -206,7 +274,7 @@ export default function SkillsLibrary() {
             )}
             {proposedSkills.length > 0 && (
               <div className="space-y-2 mt-4">
-                <p className="text-xs font-medium text-slate-600">Proposed skills — approve or skip (cards stay until all are handled)</p>
+                <p className="text-xs font-medium text-slate-600">Proposed skills — approve or skip</p>
                 {proposedSkills.map((skill, idx) => {
                   const status = handledState[idx]
                   return (
@@ -257,34 +325,44 @@ export default function SkillsLibrary() {
             )}
             <div ref={chatEndRef} />
           </div>
-          <form onSubmit={handleSendChat} className="flex-shrink-0 flex gap-2 p-3 border-t border-slate-200 bg-white">
-            <input
-              type="file"
-              ref={fileInputRef}
-              onChange={handleFileSelect}
-              accept=".pdf,.txt,.md,.doc"
-              className="hidden"
-            />
-            <button
-              type="button"
+
+          {/* Upload zone */}
+          <div className="flex-shrink-0 px-6 pb-3">
+            <div
+              onDrop={handleDrop}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
               onClick={() => fileInputRef.current?.click()}
-              disabled={uploading || analyzing}
-              className="p-2.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50 disabled:opacity-50"
-              aria-label="Upload file"
+              className={`border-2 border-dashed rounded-xl p-4 flex items-center justify-center gap-2 cursor-pointer transition ${
+                dragOver ? 'border-indigo-400 bg-indigo-50/50' : 'border-slate-300 bg-slate-50/50 hover:border-slate-400 hover:bg-slate-100/50'
+              } ${uploading || analyzing ? 'pointer-events-none opacity-60' : ''}`}
             >
-              <Paperclip className="w-5 h-5" />
-            </button>
-            <input
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileSelect}
+                accept=".pdf,.txt,.md,.doc"
+                className="hidden"
+              />
+              <Upload className="w-5 h-5 text-slate-500" />
+              <span className="text-sm text-slate-600">Drop a PDF or click to upload</span>
+            </div>
+          </div>
+
+          {/* Chat input - match JobSplitView */}
+          <form onSubmit={handleSendChat} className="flex-shrink-0 flex gap-2 p-6 pt-0 border-t-0">
+            <textarea
               value={chatInput}
               onChange={(e) => setChatInput(e.target.value)}
               placeholder="Ask Judson or describe a skill..."
-              className="flex-1 px-4 py-2.5 border border-slate-300 rounded-xl text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="flex-1 px-4 py-2.5 border border-slate-300 rounded-xl text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none min-h-[44px] max-h-32"
               disabled={sendingChat || uploading || analyzing}
+              rows={1}
             />
             <button
               type="submit"
               disabled={sendingChat || !chatInput.trim() || uploading || analyzing}
-              className="px-5 py-2.5 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+              className="px-5 py-2.5 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition self-end"
             >
               <Send className="w-5 h-5" />
             </button>
@@ -292,59 +370,79 @@ export default function SkillsLibrary() {
         </div>
 
         {/* Right: Skills Library */}
-        <div className="flex flex-col rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden min-h-0">
-          <div className="flex-shrink-0 px-4 py-3 border-b border-slate-200 flex items-center justify-between gap-2 flex-wrap">
-            <h3 className="text-lg font-semibold text-slate-900">Skills Library</h3>
-            <span className="text-sm text-slate-500">{skills.length} skills</span>
+        <div className="flex flex-col flex-1 min-w-0 rounded-b-xl lg:rounded-b-none lg:rounded-r-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+          <div className="flex-shrink-0 p-6 border-b border-slate-200 flex items-center justify-between gap-2">
+            <h3 className="text-lg font-semibold text-slate-900">Skills Library ({skills.length})</h3>
           </div>
-          <div className="flex-shrink-0 px-4 py-2 border-b border-slate-100 flex gap-2 flex-wrap">
-            <button
-              type="button"
-              onClick={() => setDomainFilter('')}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium ${!domainFilter ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
-            >
-              All
-            </button>
-            {domains.map((d) => (
+          <div className="flex-shrink-0 px-6 py-3 border-b border-slate-100 overflow-x-auto">
+            <div className="flex gap-2 min-w-max pb-1">
               <button
-                key={d}
                 type="button"
-                onClick={() => setDomainFilter(d)}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium ${domainFilter === d ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
+                onClick={() => setDomainFilter('')}
+                className={`flex-shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium transition ${
+                  !domainFilter ? 'bg-indigo-600 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+                }`}
               >
-                {d}
+                All
               </button>
-            ))}
+              {domains.map((d) => (
+                <button
+                  key={d}
+                  type="button"
+                  onClick={() => setDomainFilter(d)}
+                  className={`flex-shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium transition ${
+                    domainFilter === d ? 'bg-indigo-600 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  {d}
+                </button>
+              ))}
+            </div>
           </div>
-          <div className="flex-1 overflow-y-auto p-4">
+          <div className="flex-1 overflow-y-auto p-6 min-h-0">
             {loading && <p className="text-slate-500 text-sm">Loading…</p>}
-            {!loading && skills.length === 0 && <p className="text-slate-500 text-sm">No skills yet. Upload a document or ask Judson.</p>}
+            {!loading && skills.length === 0 && (
+              <p className="text-slate-500 text-sm">No skills yet. Upload a document or ask Judson.</p>
+            )}
             {!loading && skills.length > 0 && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                 {skills.map((skill) => (
                   <div
                     key={skill.skill_id}
                     onClick={() => setSelectedSkill(selectedSkill?.skill_id === skill.skill_id ? null : skill)}
-                    className="rounded-lg border border-slate-200 p-4 hover:border-indigo-300 hover:bg-slate-50/50 transition cursor-pointer"
+                    className="rounded-xl border border-slate-200 p-4 bg-white hover:shadow-md hover:border-slate-300 transition cursor-pointer text-left"
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <h4 className="font-medium text-slate-900 truncate">{skill.name}</h4>
-                      <span className={`flex-shrink-0 text-xs px-2 py-0.5 rounded ${(skill.status || 'active') === 'active' ? 'bg-green-100 text-green-800' : (skill.status || '') === 'draft' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-600'}`}>
+                      <h4 className="font-medium text-slate-900 line-clamp-2 flex-1 min-w-0">{skill.name}</h4>
+                      <span
+                        className={`flex-shrink-0 text-xs px-2 py-0.5 rounded ${
+                          (skill.status || 'active') === 'active'
+                            ? 'bg-green-100 text-green-800'
+                            : (skill.status || '') === 'draft'
+                              ? 'bg-amber-100 text-amber-800'
+                              : 'bg-slate-100 text-slate-600'
+                        }`}
+                      >
                         {skill.status || 'active'}
                       </span>
                     </div>
-                    <div className="flex flex-wrap gap-1 mt-2">
-                      <span className="text-xs px-2 py-0.5 rounded bg-slate-100 text-slate-700">{skill.domain}</span>
-                      <span className="text-xs px-2 py-0.5 rounded bg-slate-100 text-slate-600">{skill.skill_type}</span>
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      <span className={`text-xs px-2 py-0.5 rounded font-medium ${domainBadgeClass(skill.domain)}`}>
+                        {skill.domain || '—'}
+                      </span>
+                      <span className="text-xs px-2 py-0.5 rounded bg-slate-100 text-slate-600">
+                        {skill.skill_type || '—'}
+                      </span>
                     </div>
-                    <div className="mt-2 text-xs text-slate-500">
+                    <div className="mt-2 text-[11px] text-slate-400">
                       {skill.success_rate != null ? `${(skill.success_rate * 100).toFixed(0)}% success` : ''}
-                      {(skill.success_rate != null && (skill.usage_count || 0) > 0) ? ' · ' : ''}
+                      {skill.success_rate != null && (skill.usage_count || 0) > 0 ? ' · ' : ''}
                       {skill.usage_count || 0} uses
                     </div>
                     {selectedSkill?.skill_id === skill.skill_id && (
-                      <div className="mt-3 pt-3 border-t border-slate-200 text-sm text-slate-700 whitespace-pre-wrap">
-                        {(skill.content || '').slice(0, 500)}{(skill.content || '').length > 500 ? '…' : ''}
+                      <div className="mt-3 pt-3 border-t border-slate-200 text-sm text-slate-700 whitespace-pre-wrap break-words">
+                        {(skill.content || '').slice(0, 500)}
+                        {(skill.content || '').length > 500 ? '…' : ''}
                       </div>
                     )}
                   </div>

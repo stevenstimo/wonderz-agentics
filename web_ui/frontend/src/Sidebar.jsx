@@ -1,13 +1,24 @@
 import { useEffect, useState } from 'react'
-import { Link, NavLink, useLocation } from 'react-router-dom'
+import { Link, NavLink } from 'react-router-dom'
 import {
   LayoutDashboard,
   Briefcase,
+  Compass,
   Users,
   UsersRound,
-  BookOpen,
+  Star,
   GraduationCap,
+  BookOpen,
+  TrendingUp,
+  UserPlus,
+  Code,
+  MessageSquare,
+  Shield,
   FileText,
+  Home,
+  Building,
+  BookMarked,
+  ClipboardList,
   Activity,
   Settings,
   Zap,
@@ -20,17 +31,40 @@ import { getCurrentUserRole, isSuperAdmin } from './authz'
 const WORKSPACE = [
   { label: 'Dashboard', icon: LayoutDashboard, path: '/' },
   { label: 'Job Center', icon: Briefcase, path: '/job-center' },
+  { label: 'Mission Control', icon: Compass, path: '/' },
 ]
 
 const MANAGEMENT = [
-  { label: 'Agents', icon: Users, path: '/agents' },
   { label: 'Crew', icon: UsersRound, path: '/crew' },
-  { label: 'Skills Library', icon: BookOpen, path: '/skills-library' },
+  { label: 'Agents', icon: Users, path: '/agents' },
+  { label: 'Talents', icon: Star, path: '/talents' },
   { label: 'Training Hub', icon: GraduationCap, path: '/training/management' },
+  { label: 'Skills Library', icon: BookOpen, path: '/skills-library' },
+  { label: 'Improvements', icon: TrendingUp, path: '/hr/improvements' },
+  { label: 'Hiring Hall', icon: UserPlus, path: '/hiring' },
 ]
 
-const KNOWLEDGE = [
-  { label: 'Explainer', icon: FileText, path: '/explainer/how-it-works' },
+const OPERATIONS = [
+  { label: 'Developer Bot', icon: Code, path: '/devbot' },
+  { label: 'HR Feedback', icon: MessageSquare, path: '#' },
+  { label: 'Safety Gate', icon: Shield, path: '/approvals' },
+]
+
+const KNOWLEDGE_EXPLAINER = {
+  label: 'Explainer',
+  icon: FileText,
+  children: [
+    { label: 'How it works', path: '/explainer/how-it-works' },
+    { label: 'Persona', path: '/explainer/persona' },
+    { label: 'Crew', path: '/explainer/crew' },
+  ],
+}
+
+const KNOWLEDGE_ITEMS = [
+  { label: 'Personal Projects', icon: Home, path: '#' },
+  { label: 'Work Team Org', icon: Building, path: '#' },
+  { label: 'Study', icon: BookMarked, path: '#' },
+  { label: 'Product Management', icon: ClipboardList, path: '#' },
 ]
 
 const SYSTEM = [
@@ -57,6 +91,14 @@ function initials(user) {
 
 function NavItem({ item }) {
   const Icon = item.icon
+  if (!item.path || item.path === '#') {
+    return (
+      <div className="flex items-center gap-3 px-3 py-2 rounded-lg text-slate-300 cursor-default">
+        <Icon className="w-[18px] h-[18px] flex-shrink-0" />
+        <span className="text-sm font-medium">{item.label}</span>
+      </div>
+    )
+  }
   return (
     <NavLink
       to={item.path}
@@ -74,11 +116,40 @@ function NavItem({ item }) {
   )
 }
 
+function NavItemWithChildren({ item }) {
+  const Icon = item.icon
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center gap-3 px-3 py-2 rounded-lg text-slate-300 cursor-default">
+        <Icon className="w-[18px] h-[18px] flex-shrink-0" />
+        <span className="text-sm font-medium">{item.label}</span>
+      </div>
+      <div className="space-y-0.5 pl-4 border-l border-slate-700 ml-2">
+        {item.children.map((child) => (
+          <NavLink
+            key={child.path}
+            to={child.path}
+            className={({ isActive }) =>
+              `flex items-center gap-2 py-1.5 px-2 rounded-md text-slate-400 text-sm transition-colors ${
+                isActive
+                  ? 'bg-slate-800 text-white border-l-2 border-indigo-500 -ml-px pl-[10px]'
+                  : 'hover:bg-slate-800 hover:text-white'
+              }`
+            }
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-slate-500 flex-shrink-0" />
+            <span>{child.label}</span>
+          </NavLink>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export default function Sidebar() {
   const [user, setUser] = useState(null)
   const [role, setRole] = useState('member')
   const [mobileOpen, setMobileOpen] = useState(false)
-  const location = useLocation()
 
   useEffect(() => {
     let active = true
@@ -118,7 +189,7 @@ export default function Sidebar() {
       <button
         type="button"
         onClick={() => setMobileOpen((o) => !o)}
-        className="lg:hidden fixed top-[60px] left-3 z-40 p-2 rounded-lg bg-slate-800 text-white border border-slate-700"
+        className="lg:hidden fixed top-14 left-3 z-40 p-2 rounded-lg bg-slate-800 text-white border border-slate-700"
         aria-label="Toggle menu"
       >
         {mobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
@@ -144,22 +215,28 @@ export default function Sidebar() {
           <nav className="space-y-1 flex-1">
             <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 px-3 mb-2">Workspace</div>
             {WORKSPACE.map((item) => (
-              <NavItem key={item.label} item={item} isActive={isActive(item.path)} />
+              <NavItem key={item.label} item={item} />
             ))}
 
             <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 px-3 mt-4 mb-2">Management</div>
             {MANAGEMENT.map((item) => (
-              <NavItem key={item.label} item={item} isActive={isActive(item.path)} />
+              <NavItem key={item.label} item={item} />
+            ))}
+
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 px-3 mt-4 mb-2">Operations</div>
+            {OPERATIONS.map((item) => (
+              <NavItem key={item.label} item={item} />
             ))}
 
             <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 px-3 mt-4 mb-2">Knowledge</div>
-            {KNOWLEDGE.map((item) => (
-              <NavItem key={item.label} item={item} isActive={isActive(item.path)} />
+            <NavItemWithChildren item={KNOWLEDGE_EXPLAINER} />
+            {KNOWLEDGE_ITEMS.map((item) => (
+              <NavItem key={item.label} item={item} />
             ))}
 
             <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 px-3 mt-4 mb-2">System</div>
-            <NavItem item={SYSTEM[0]} isActive={isActive(SYSTEM[0].path)} />
-            {canManageSettings && <NavItem item={SYSTEM[1]} isActive={isActive(SYSTEM[1].path)} />}
+            <NavItem item={SYSTEM[0]} />
+            {canManageSettings && <NavItem item={SYSTEM[1]} />}
           </nav>
 
           {/* User profile at bottom */}

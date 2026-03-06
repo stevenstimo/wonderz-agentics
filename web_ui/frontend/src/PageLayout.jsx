@@ -2,9 +2,9 @@ import Sidebar from './Sidebar'
 
 const SIZE_CLASS = {
   none: '',
-  narrow: 'w-full max-w-7xl mx-auto',
-  medium: 'w-full max-w-7xl mx-auto',
-  wide: 'w-full max-w-7xl mx-auto',
+  narrow: 'max-w-4xl mx-auto',
+  medium: 'max-w-5xl mx-auto',
+  wide: 'max-w-7xl mx-auto',
 }
 
 export default function PageLayout({
@@ -14,32 +14,20 @@ export default function PageLayout({
   padded = true,
   className = '',
 }) {
-  const classes = []
-
-  if (variant === 'inner') {
-    classes.push('main-content', 'inner-container')
-  }
-
-  if (size in SIZE_CLASS && SIZE_CLASS[size]) {
-    classes.push(SIZE_CLASS[size])
-  }
-
-  if (padded) {
-    classes.push('px-4', 'py-8')
-  }
-
-  if (className) {
-    classes.push(className)
-  }
-
-  const wrapperClassName = classes.join(' ').trim()
+  const sizeClass = size in SIZE_CLASS ? SIZE_CLASS[size] : SIZE_CLASS.wide
+  const paddingClass = padded ? 'p-8' : ''
+  const wrapperClass = [sizeClass, paddingClass, className].filter(Boolean).join(' ')
 
   return (
-    <div className="dashboard-container">
+    <>
       <Sidebar />
-      <main className="content-area">
-        {wrapperClassName ? <div className={wrapperClassName}>{children}</div> : children}
+      <main className="min-h-screen bg-slate-50 w-full ml-0 lg:ml-56">
+        {wrapperClass ? (
+          <div className={wrapperClass}>{children}</div>
+        ) : (
+          children
+        )}
       </main>
-    </div>
+    </>
   )
 }
