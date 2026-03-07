@@ -18,6 +18,7 @@ function parseContext(ctx) {
 function renderMarkdown(text) {
   if (!text) return ''
   return text
+    .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" class="w-full rounded-xl my-4 shadow-sm" loading="lazy" />')
     .replace(/^### (.+)$/gm, '<h3 class="text-lg font-semibold mt-4 mb-2">$1</h3>')
     .replace(/^## (.+)$/gm, '<h2 class="text-xl font-bold mt-5 mb-2">$1</h2>')
     .replace(/^# (.+)$/gm, '<h1 class="text-2xl font-bold mt-5 mb-3">$1</h1>')
@@ -581,12 +582,12 @@ export default function JobSplitView() {
             {job?.status === 'JOB_READY' && (
               <div className="space-y-4">
                 <div className="rounded-lg bg-green-100 text-green-800 px-4 py-3 font-medium">Content Ready!</div>
-                {context.image_url && (
+                {context.image_url && context.image_url.includes('pollinations') && (
                   <div className="mb-4">
                     <img
                       src={context.image_url}
                       alt="Generated illustration"
-                      className="w-full rounded-xl shadow-sm"
+                      className="w-full rounded-xl mb-4 shadow-sm"
                       loading="lazy"
                     />
                     <div className="flex gap-2 mt-2">
@@ -635,12 +636,12 @@ export default function JobSplitView() {
             {job?.status === 'COMPLETED' && (
               <div className="space-y-4">
                 <div className="rounded-lg bg-green-100 text-green-800 px-4 py-3 font-medium">Job Completed</div>
-                {context.image_url && (
+                {context.image_url && context.image_url.includes('pollinations') && (
                   <div className="mb-4">
                     <img
                       src={context.image_url}
                       alt="Generated illustration"
-                      className="w-full rounded-xl shadow-sm"
+                      className="w-full rounded-xl mb-4 shadow-sm"
                       loading="lazy"
                     />
                     <div className="flex gap-2 mt-2">

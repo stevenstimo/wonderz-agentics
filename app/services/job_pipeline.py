@@ -146,11 +146,25 @@ def _run_step_agent(
     previous_content: Optional[str],
 ) -> Tuple[Dict[str, Any], int]:
     """
-    Run one pipeline step: copywriter (Claude), reviewer (Claude), image_generator (placeholder), or generic Claude.
+    Run one pipeline step: copywriter (Claude), reviewer (Claude), image_generator (Pollinations.ai), or generic Claude.
     Returns (output_dict, tokens_used).
     """
     role_lower = (agent_role or "").lower()
     step_desc = step_name or agent_role or "step"
+
+    # Image generator: Pollinations.ai (no API key required) — run BEFORE Anthropic check
+    if role_lower in ("image_generator", "image generator", "imagegenerator", "image_generation"):
+        image_prompt = _build_image_prompt(context)
+        encoded_prompt = quote(image_prompt, safe="")
+        image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=768&nologo=true"
+        output = {
+            "image_url": image_url,
+            "image_prompt": image_prompt,
+            "image_status": "generated",
+            "agent_role": agent_role,
+        }
+        return (output, 0)
+
     api_key = (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
     if not api_key:
         logger.warning("ANTHROPIC_API_KEY not set; using placeholder for step %s", step_desc)
@@ -182,7 +196,7 @@ def _run_step_agent(
     except (TypeError, ValueError):
         word_count = 400
 
-    # Copywriter: write main content
+    # Copywriter: write main content (never pass previous/final_content — write fresh)
     if role_lower in ("copywriter", "copy writer"):
         system = (
             "You are a professional copywriter for a content bureau. Your ONLY job is to write the actual article text.\n\n"
@@ -192,11 +206,12 @@ def _run_step_agent(
             "- Do NOT include meta-commentary like \"Projectoverzicht\", \"Leveringscriteria\", \"Status: GOEDGEKEURD\"\n"
             "- Do NOT include checkmarks ✓, status labels, or section descriptions\n"
             "- Do NOT describe what you're going to write — just WRITE IT\n"
+            "- Start directly with the article title as a # heading, then the content\n"
+            "- When you receive CRITICAL USER FEEDBACK, write a completely new version from scratch. Do not request, expect, or paste any previous draft text.\n"
             f"- Use ## for section headings (not ###, not bold text like **Heading**)\n"
             f"- Write in {language}\n"
             f"- Tone: {tone}\n"
-            f"- Write approximately {word_count} words\n"
-            "- Start directly with the article title as a # heading, then the content\n\n"
+            f"- Write approximately {word_count} words\n\n"
             "EXAMPLE of what you should produce:\n"
             "# De Geschiedenis van Haarlem\n\n"
             "Haarlem is een van de oudste steden van Nederland...\n\n"
@@ -210,10 +225,11 @@ def _run_step_agent(
             "✓ Correcte spelling\n"
             "**Status:** GOEDGEKEURD"
         )
+        # For revision: only objective, word_count, focus, and user_feedback — NEVER previous/final_content
         user = f"Write an article of approximately {word_count} words about: {objective}. Focus: {focus}."
         user_feedback = context.get("user_feedback") or context.get("feedback") or ""
         if user_feedback and isinstance(user_feedback, str):
-            user += f"\n\nCRITICAL USER FEEDBACK (you MUST apply this):\n{user_feedback}"
+            user += f"\n\nCRITICAL USER FEEDBACK (you MUST apply this — write a completely new version, do not reference any previous draft):\n{user_feedback}"
         try:
             response = client.messages.create(
                 model=CLAUDE_MODEL,
@@ -254,19 +270,6 @@ def _run_step_agent(
         except Exception as e:
             logger.exception("Reviewer step failed: %s", e)
             return ({"status": "failed", "review": str(e), "approved": False, "agent_role": agent_role}, 0)
-
-    # Image generator: Pollinations.ai (no API key)
-    if role_lower in ("image_generator", "image generator", "imagegenerator"):
-        image_prompt = _build_image_prompt(context)
-        encoded_prompt = quote(image_prompt, safe="")
-        image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=768&nologo=true"
-        output = {
-            "image_url": image_url,
-            "image_prompt": image_prompt,
-            "image_status": "generated",
-            "agent_role": agent_role,
-        }
-        return (output, 0)
 
     # Generic: one Claude call
     system = f"You are a helpful assistant. Write in {language}. Tone: {tone}."
@@ -551,7 +554,7 @@ async def run_job_inline(job_id: str, context_extra: Optional[dict] = None):
                     tokens_used,
                     job_id,
                 )
-                if output.get("image_url"):
+                if output.get("image_url") and "pollinations" in output["image_url"]:
                     await _update_job_context(conn, job_id, {"image_url": output["image_url"]})
                 logger.info("run_job_inline: job %s step %s of %s done", job_id, idx + 1, num_steps)
 
@@ -569,7 +572,7 @@ async def run_job_inline(job_id: str, context_extra: Optional[dict] = None):
                         step_output = json.loads(step_output)
                     except json.JSONDecodeError:
                         continue
-                if step_output.get("image_url"):
+                if step_output.get("image_url") and "pollinations" in step_output["image_url"]:
                     await _update_job_context(conn, job_id, {"image_url": step_output["image_url"]})
                     break
 
