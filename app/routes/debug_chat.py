@@ -40,6 +40,66 @@ def _row_to_dict(row: Any) -> dict:
     return dict(row)
 
 
+def _parse_context(ctx: Any) -> dict:
+    if ctx is None:
+        return {}
+    if isinstance(ctx, dict):
+        return ctx
+    if isinstance(ctx, str):
+        try:
+            return json.loads(ctx)
+        except json.JSONDecodeError:
+            return {}
+    return {}
+
+
+def _format_job_context(job: dict, steps: list, clarifications: list) -> str:
+    """Build a clear db_context string for Claude from job, steps, clarifications."""
+    ctx = _parse_context(job.get("context"))
+    job_number = ctx.get("job_number", "?")
+    step_details = ""
+    for s in steps:
+        output = s.get("output")
+        if isinstance(output, str):
+            try:
+                output = json.loads(output)
+            except json.JSONDecodeError:
+                output = {}
+        output = output or {}
+        step_details += f"  Step {s.get('step_index', '?')} ({s.get('agent_role', '?')}): {s.get('status', '?')}"
+        step_details += f" | tokens: {s.get('tokens_used', 0)} | timing: {s.get('timing_ms') or 0}ms\n"
+        if output.get("error"):
+            step_details += f"    ERROR: {output['error']}\n"
+        if output.get("image_url"):
+            step_details += f"    image_url: {output['image_url']}\n"
+        if output.get("content"):
+            content_preview = str(output["content"])[:100]
+            step_details += f"    content: {content_preview}...\n"
+    clarification_details = "\n".join(
+        f"  - {_row_to_dict(c).get('question', '')[:80]}..." for c in clarifications
+    ) if clarifications else "  (none)"
+    return f"""
+JOB #{job_number} (UUID: {job.get('id')})
+Status: {job.get('status')}
+Job post: {job.get('job_post', '')[:200]}...
+Created: {job.get('created_at')}
+Tokens used: {job.get('tokens_used', 0)}
+
+Context highlights:
+- image_url: {ctx.get('image_url', 'none')}
+- final_content length: {len(str(ctx.get('final_content', '')))} chars
+- chat_history: {len(ctx.get('chat_history', []))} messages
+- user_feedback: {ctx.get('user_feedback', 'none')}
+- execution_error: {ctx.get('execution_error', 'none')}
+
+Steps ({len(steps)} total):
+{step_details}
+
+Clarifications ({len(clarifications)} total):
+{clarification_details}
+"""
+
+
 def _debug_log(data: dict) -> None:
     import os
     log_path = os.environ.get("DEBUG_LOG_PATH", "/home/exedev/wonderz-agentics/.cursor/debug-43707b.log")
@@ -60,14 +120,10 @@ async def _gather_context(conn, message: str) -> tuple[dict, dict]:
     context_parts = []
     query_results = {}
 
-    # #region agent log
     uuid_match = re.search(
         r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
         message,
     )
-    hash_num_pre = re.search(r"#(\d{4})", message)
-    _debug_log({"hypothesisId": "H1_H5", "message_pre": message[:200], "uuid_match": uuid_match is not None, "hash_num_match": hash_num_pre is not None, "hash_num_capture": hash_num_pre.group(1) if hash_num_pre else None})
-    # #endregion
 
     # UUID: single job by id
     if uuid_match:
@@ -82,44 +138,20 @@ async def _gather_context(conn, message: str) -> tuple[dict, dict]:
                 "SELECT * FROM clarifications WHERE job_id=$1 ORDER BY asked_at DESC NULLS LAST",
                 job_id,
             )
-            context_parts.append(
-                "=== Job (by UUID) ===\n"
-                + json.dumps(job_d, default=_json_default, indent=2)
-            )
-            context_parts.append(
-                "=== Job steps ===\n"
-                + json.dumps([_row_to_dict(s) for s in steps], default=_json_default, indent=2)
-            )
-            context_parts.append(
-                "=== Clarifications ===\n"
-                + json.dumps(
-                    [_row_to_dict(c) for c in clarifications],
-                    default=_json_default,
-                    indent=2,
-                )
-            )
+            db_context = _format_job_context(job_d, [_row_to_dict(s) for s in steps], clarifications)
             query_results["job_id"] = job_id
             query_results["steps_count"] = len(steps)
             query_results["clarifications_count"] = len(clarifications)
-            return "\n\n".join(context_parts), query_results
+            return db_context, query_results
 
-    # #NNNN: job by job_number in context
-    hash_num = re.search(r"#(\d{4})", message)
-    if hash_num:
-        num = hash_num.group(1)
+    # #NNNN: job by job_number in context (supports #126, #0126, etc.)
+    number_match = re.search(r"#(\d{1,6})", message)
+    if number_match:
+        job_number = number_match.group(1).zfill(4)
         job = await conn.fetchrow(
-            "SELECT * FROM jobs WHERE context->>'job_number'=$1 ORDER BY created_at DESC LIMIT 1",
-            num,
+            "SELECT * FROM jobs WHERE context::jsonb->>'job_number'=$1 ORDER BY created_at DESC LIMIT 1",
+            job_number,
         )
-        # #region agent log
-        if job:
-            _debug_log({"hypothesisId": "H2", "branch": "hash_num", "num": num, "job_found": True})
-        else:
-            sample = await conn.fetch(
-                "SELECT id, context->>'job_number' AS jn FROM jobs ORDER BY created_at DESC LIMIT 5"
-            )
-            _debug_log({"hypothesisId": "H2_H4", "branch": "hash_num", "num": num, "job_found": False, "sample_job_numbers": [_row_to_dict(r) for r in sample]})
-        # #endregion
         if job:
             job_id = str(job["id"])
             job_d = _row_to_dict(job)
@@ -130,28 +162,11 @@ async def _gather_context(conn, message: str) -> tuple[dict, dict]:
                 "SELECT * FROM clarifications WHERE job_id=$1 ORDER BY asked_at DESC NULLS LAST",
                 job_id,
             )
-            context_parts.append(
-                "=== Job (by #"
-                + num
-                + ") ===\n"
-                + json.dumps(job_d, default=_json_default, indent=2)
-            )
-            context_parts.append(
-                "=== Job steps ===\n"
-                + json.dumps([_row_to_dict(s) for s in steps], default=_json_default, indent=2)
-            )
-            context_parts.append(
-                "=== Clarifications ===\n"
-                + json.dumps(
-                    [_row_to_dict(c) for c in clarifications],
-                    default=_json_default,
-                    indent=2,
-                )
-            )
-            query_results["job_number"] = num
+            db_context = _format_job_context(job_d, [_row_to_dict(s) for s in steps], clarifications)
+            query_results["job_number"] = job_number
             query_results["steps_count"] = len(steps)
             query_results["clarifications_count"] = len(clarifications)
-            return "\n\n".join(context_parts), query_results
+            return db_context, query_results
 
     # "last job" / "latest" / "recent"
     if any(kw in msg_lower for kw in ("last job", "latest", "recent", "laatste")):
@@ -168,25 +183,11 @@ async def _gather_context(conn, message: str) -> tuple[dict, dict]:
                 "SELECT * FROM clarifications WHERE job_id=$1 ORDER BY asked_at DESC NULLS LAST",
                 job_id,
             )
-            context_parts.append(
-                "=== Last job ===\n" + json.dumps(job_d, default=_json_default, indent=2)
-            )
-            context_parts.append(
-                "=== Job steps ===\n"
-                + json.dumps([_row_to_dict(s) for s in steps], default=_json_default, indent=2)
-            )
-            context_parts.append(
-                "=== Clarifications ===\n"
-                + json.dumps(
-                    [_row_to_dict(c) for c in clarifications],
-                    default=_json_default,
-                    indent=2,
-                )
-            )
+            db_context = _format_job_context(job_d, [_row_to_dict(s) for s in steps], clarifications)
             query_results["last_job"] = True
             query_results["steps_count"] = len(steps)
             query_results["clarifications_count"] = len(clarifications)
-            return "\n\n".join(context_parts), query_results
+            return db_context, query_results
 
     # "failed jobs"
     if "failed" in msg_lower and ("job" in msg_lower or "jobs" in msg_lower):
@@ -214,7 +215,24 @@ async def _gather_context(conn, message: str) -> tuple[dict, dict]:
         query_results["running_jobs_count"] = len(rows)
         return "\n\n".join(context_parts), query_results
 
-    # agents / hired
+    # agent X / agents by name or role
+    agent_match = re.search(r"agent\s+(?:named\s+)?([a-zA-Z0-9_-]+)", msg_lower)
+    if agent_match:
+        search_term = agent_match.group(1)
+        rows = await conn.fetch(
+            "SELECT id, agent_id, name, role, specialization, status, performance_score FROM hired_agents WHERE name ILIKE $1 OR role ILIKE $1 ORDER BY hired_at DESC NULLS LAST LIMIT 20",
+            f"%{search_term}%",
+        )
+        context_parts.append(
+            "=== Hired agents (matching "
+            + search_term
+            + ") ===\n"
+            + json.dumps([_row_to_dict(r) for r in rows], default=_json_default, indent=2)
+        )
+        query_results["hired_agents_count"] = len(rows)
+        return "\n\n".join(context_parts), query_results
+
+    # agents / hired (generic)
     if any(kw in msg_lower for kw in ("agent", "agents", "hired")):
         rows = await conn.fetch(
             "SELECT id, agent_id, name, role, specialization, status, performance_score FROM hired_agents ORDER BY hired_at DESC NULLS LAST LIMIT 20"
@@ -224,6 +242,23 @@ async def _gather_context(conn, message: str) -> tuple[dict, dict]:
             + json.dumps([_row_to_dict(r) for r in rows], default=_json_default, indent=2)
         )
         query_results["hired_agents_count"] = len(rows)
+        return "\n\n".join(context_parts), query_results
+
+    # skills
+    if "skill" in msg_lower or "skills" in msg_lower:
+        try:
+            rows = await conn.fetch(
+                "SELECT skill_id, name, domain, usage_count FROM agent_skills ORDER BY usage_count DESC NULLS LAST LIMIT 50"
+            )
+        except Exception:
+            rows = await conn.fetch(
+                "SELECT skill_id, name, domain FROM agent_skills ORDER BY name LIMIT 50"
+            )
+        context_parts.append(
+            "=== Skills (up to 50) ===\n"
+            + json.dumps([_row_to_dict(r) for r in rows], default=_json_default, indent=2)
+        )
+        query_results["skills_count"] = len(rows)
         return "\n\n".join(context_parts), query_results
 
     # system status / health
@@ -273,8 +308,9 @@ async def debug_chat(req: DebugChatRequest):
 
     system_prompt = (
         "You are a technical debug assistant for the Wonderz AI content bureau platform. "
-        "You have access to database query results. Give concrete technical diagnoses, not surface-level summaries. "
-        "When analyzing jobs, check: status transitions, step outputs, error messages in context, token usage, timing. "
+        "You have DIRECT access to the Wonderz database. When the user asks about a job, agent, or system status, "
+        "you receive the actual database records. Analyze them technically — check status transitions, step outputs, "
+        "errors, token usage, timing. Give concrete answers, not generic troubleshooting steps. "
         "Respond in the same language as the user."
     )
 

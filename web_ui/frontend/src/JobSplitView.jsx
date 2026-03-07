@@ -156,6 +156,7 @@ export default function JobSplitView() {
   const steps = data?.steps ?? []
   const artifacts = data?.artifacts ?? []
   const context = job ? parseContext(job.context) : {}
+  const imageUrl = context.image_url
   const plan = context.plan || {}
   const planSteps = Array.isArray(plan.steps) ? plan.steps : []
   const chatHistory = Array.isArray(context.chat_history) ? context.chat_history : []
@@ -582,19 +583,10 @@ export default function JobSplitView() {
             {job?.status === 'JOB_READY' && (
               <div className="space-y-4">
                 <div className="rounded-lg bg-green-100 text-green-800 px-4 py-3 font-medium">Content Ready!</div>
-                {context.image_url && context.image_url.includes('pollinations') && (
+                {imageUrl && (
                   <div className="mb-4">
-                    <img
-                      src={context.image_url}
-                      alt="Generated illustration"
-                      className="w-full rounded-xl mb-4 shadow-sm"
-                      loading="lazy"
-                    />
-                    <div className="flex gap-2 mt-2">
-                      <a href={context.image_url} target="_blank" rel="noopener noreferrer" className="text-sm text-indigo-600 hover:text-indigo-800">
-                        Open full size
-                      </a>
-                    </div>
+                    <img src={imageUrl} alt="Generated illustration" className="w-full rounded-xl shadow-sm" loading="lazy" />
+                    <a href={imageUrl} target="_blank" rel="noopener noreferrer" className="text-sm text-indigo-600 hover:text-indigo-800 mt-1 inline-block">Open full size</a>
                   </div>
                 )}
                 <div className="rounded-xl border border-slate-200 p-4 bg-white">
@@ -636,19 +628,10 @@ export default function JobSplitView() {
             {job?.status === 'COMPLETED' && (
               <div className="space-y-4">
                 <div className="rounded-lg bg-green-100 text-green-800 px-4 py-3 font-medium">Job Completed</div>
-                {context.image_url && context.image_url.includes('pollinations') && (
+                {imageUrl && (
                   <div className="mb-4">
-                    <img
-                      src={context.image_url}
-                      alt="Generated illustration"
-                      className="w-full rounded-xl mb-4 shadow-sm"
-                      loading="lazy"
-                    />
-                    <div className="flex gap-2 mt-2">
-                      <a href={context.image_url} target="_blank" rel="noopener noreferrer" className="text-sm text-indigo-600 hover:text-indigo-800">
-                        Open full size
-                      </a>
-                    </div>
+                    <img src={imageUrl} alt="Generated illustration" className="w-full rounded-xl shadow-sm" loading="lazy" />
+                    <a href={imageUrl} target="_blank" rel="noopener noreferrer" className="text-sm text-indigo-600 hover:text-indigo-800 mt-1 inline-block">Open full size</a>
                   </div>
                 )}
                 <div className="rounded-xl border border-slate-200 p-4 bg-white">
