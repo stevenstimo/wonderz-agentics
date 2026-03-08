@@ -705,6 +705,17 @@ async def get_job(job_id: str):
             if job["status"] == "RUNNING" and len(steps_list) > 0:
                 all_done = all(s.get("status") in ("completed", "success") for s in steps_list)
                 if all_done:
+                    # Scan steps for image_url and store in context before status update
+                    for s in steps_list:
+                        out = s.get("output")
+                        if isinstance(out, str):
+                            try:
+                                out = json.loads(out)
+                            except json.JSONDecodeError:
+                                continue
+                        if isinstance(out, dict) and out.get("image_url"):
+                            await _update_job_context(conn, job_id, {"image_url": out["image_url"]})
+                            break
                     await conn.execute(
                         "UPDATE jobs SET status='JOB_READY', updated_at=now() WHERE id=$1",
                         job_id,

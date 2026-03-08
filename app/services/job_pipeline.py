@@ -61,10 +61,11 @@ async def _load_job(conn, job_id: str):
 async def _update_job_context(conn, job_id: str, updates: Dict[str, Any]) -> Dict[str, Any]:
     row = await conn.fetchrow("SELECT context FROM jobs WHERE id=$1", job_id)
     current = _coerce_context(row.get("context") if row else None)
-    original_job_number = current.get("job_number")
+    saved_number = current.get("job_number")
     current.update(updates)
-    if original_job_number is not None:
-        current["job_number"] = original_job_number
+    if saved_number and not current.get("job_number"):
+        current["job_number"] = saved_number
+    logger.info("_update_job_context for %s: job_number=%s", job_id, current.get("job_number"))
     await conn.execute(
         "UPDATE jobs SET context=$1::jsonb, updated_at=now() WHERE id=$2",
         json.dumps(current, default=_json_default),
@@ -607,8 +608,23 @@ async def run_job_inline(job_id: str, context_extra: Optional[dict] = None):
                     await _update_job_context(conn, job_id, {"image_url": step_output["image_url"]})
                     break
 
-            steps_completed = True
+            # Extra safety: copy image_url from steps before JOB_READY (in case above missed it)
             job_id_str = str(job_id)
+            pool_img = await get_db()
+            async with pool_img.acquire() as conn_img:
+                steps_rows = await conn_img.fetch("SELECT output FROM job_steps WHERE job_id=$1", job_id_str)
+                for row in steps_rows:
+                    step_output = row.get("output")
+                    if isinstance(step_output, str):
+                        try:
+                            step_output = json.loads(step_output)
+                        except Exception:
+                            continue
+                    if isinstance(step_output, dict) and step_output.get("image_url"):
+                        await _update_job_context(conn_img, job_id_str, {"image_url": step_output["image_url"]})
+                        break
+
+            steps_completed = True
             logger.info("All steps done for job %s. Setting JOB_READY...", job_id_str)
             try:
                 pool_ready = await get_db()
