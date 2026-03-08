@@ -31,14 +31,14 @@ import { getCurrentUserRole, isSuperAdmin } from './authz'
 const WORKSPACE = [
   { label: 'Dashboard', icon: LayoutDashboard, path: '/' },
   { label: 'Job Center', icon: Briefcase, path: '/job-center' },
-  { label: 'Mission Control', icon: Compass, path: '/' },
+  { label: 'Mission Control', icon: Compass, path: '/mission-control' },
 ]
 
 const MANAGEMENT = [
   { label: 'Crew', icon: UsersRound, path: '/crew' },
   { label: 'Agents', icon: Users, path: '/agents' },
   { label: 'Talents', icon: Star, path: '/talents' },
-  { label: 'Training Hub', icon: GraduationCap, path: '/training/management' },
+  { label: 'Training Hub', icon: GraduationCap, path: '/training' },
   { label: 'Skills Library', icon: BookOpen, path: '/skills-library' },
   { label: 'Improvements', icon: TrendingUp, path: '/hr/improvements' },
   { label: 'Hiring Hall', icon: UserPlus, path: '/hiring' },
@@ -46,7 +46,7 @@ const MANAGEMENT = [
 
 const OPERATIONS = [
   { label: 'Developer Bot', icon: Code, path: '/devbot' },
-  { label: 'HR Feedback', icon: MessageSquare, path: '#' },
+  { label: 'HR Feedback', icon: MessageSquare, path: '/hr-feedback' },
   { label: 'Safety Gate', icon: Shield, path: '/approvals' },
 ]
 
@@ -61,10 +61,10 @@ const KNOWLEDGE_EXPLAINER = {
 }
 
 const KNOWLEDGE_ITEMS = [
-  { label: 'Personal Projects', icon: Home, path: '#' },
-  { label: 'Work Team Org', icon: Building, path: '#' },
-  { label: 'Study', icon: BookMarked, path: '#' },
-  { label: 'Product Management', icon: ClipboardList, path: '#' },
+  { label: 'Personal Projects', icon: Home, path: '/personal-projects' },
+  { label: 'Work Team Org', icon: Building, path: '/work-team' },
+  { label: 'Study', icon: BookMarked, path: '/study' },
+  { label: 'Product Management', icon: ClipboardList, path: '/product-management' },
 ]
 
 const SYSTEM = [

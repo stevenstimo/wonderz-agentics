@@ -132,10 +132,30 @@ def _build_image_prompt(context: Dict[str, Any]) -> str:
     brief_ctx = _brief_ctx(context)
     objective = brief_ctx.get("objective") or context.get("objective", "") or "content"
     focus = brief_ctx.get("focus") or "general"
-    prompt = f"Professional editorial photograph for blog article about {objective}"
+    topic = objective
+    for prefix in [
+        "Schrijf een tekst over ",
+        "Write a text about ",
+        "Write an article about ",
+        "Maak een tekst over ",
+        "schrijf een ",
+        "write a ",
+        "maak een ",
+        "tekst over ",
+        "artikel over ",
+        "blog over ",
+        "een tekst over ",
+        "een artikel over ",
+        "korte tekst over ",
+        "short text about ",
+    ]:
+        if topic.lower().startswith(prefix.lower()):
+            topic = topic[len(prefix) :].strip()
+            break
+    prompt = f"Beautiful professional photograph of {topic}"
     if focus and focus != "general":
-        prompt += f", focusing on {focus}"
-    prompt += ", high quality, editorial style, vibrant colors, no text overlay"
+        prompt += f", {focus} theme"
+    prompt += ", high quality editorial photography, vibrant colors, no text overlay, magazine style"
     return prompt
 
 
@@ -230,6 +250,7 @@ def _run_step_agent(
         user_feedback = context.get("user_feedback") or context.get("feedback") or ""
         if user_feedback and isinstance(user_feedback, str):
             user += f"\n\nCRITICAL USER FEEDBACK (you MUST apply this — write a completely new version, do not reference any previous draft):\n{user_feedback}"
+        plan_indicators = ["Projectoverzicht", "Leveringscriteria", "GOEDGEKEURD", "Uitvoeringsplan", "Volgende Stap", "Status:"]
         try:
             response = client.messages.create(
                 model=CLAUDE_MODEL,
@@ -239,6 +260,16 @@ def _run_step_agent(
             )
             text = (response.content[0].text if response.content else "").strip()
             tokens = (response.usage.input_tokens or 0) + (response.usage.output_tokens or 0)
+            if any(indicator in text for indicator in plan_indicators):
+                retry_system = system + "\n\nWARNING: Your previous attempt produced a plan/outline instead of an article. Write the ACTUAL ARTICLE TEXT. No plans, no outlines, no project descriptions."
+                response = client.messages.create(
+                    model=CLAUDE_MODEL,
+                    max_tokens=4000,
+                    system=retry_system,
+                    messages=[{"role": "user", "content": user}],
+                )
+                text = (response.content[0].text if response.content else "").strip()
+                tokens += (response.usage.input_tokens or 0) + (response.usage.output_tokens or 0)
             return ({"status": "completed", "content": text, "agent_role": agent_role, "step_name": step_desc}, tokens)
         except Exception as e:
             logger.exception("Copywriter step failed: %s", e)

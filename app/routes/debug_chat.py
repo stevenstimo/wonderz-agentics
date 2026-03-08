@@ -149,7 +149,7 @@ async def _gather_context(conn, message: str) -> tuple[dict, dict]:
     if number_match:
         job_number = number_match.group(1).zfill(4)
         job = await conn.fetchrow(
-            "SELECT * FROM jobs WHERE context::jsonb->>'job_number'=$1 ORDER BY created_at DESC LIMIT 1",
+            "SELECT * FROM jobs WHERE context::jsonb->>'job_number' = $1 ORDER BY created_at DESC LIMIT 1",
             job_number,
         )
         if job:

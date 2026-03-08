@@ -2,7 +2,7 @@ import HiringHall from './HiringHall.jsx';
 import DaveDevConsole from './DaveDevConsole.jsx';
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 
 import App from './App.jsx'
 import HRImprovements from './HRImprovements.jsx'
@@ -27,6 +27,12 @@ import CommandCenter from './CommandCenter.jsx'
 import JobSplitView from './JobSplitView.jsx'
 import NewJob from './NewJob.jsx'
 import SkillsLibrary from './SkillsLibrary.jsx'
+import MissionControl from './MissionControl.jsx'
+import HRFeedback from './HRFeedback.jsx'
+import PersonalProjects from './PersonalProjects.jsx'
+import WorkTeamOrg from './WorkTeamOrg.jsx'
+import Study from './Study.jsx'
+import ProductManagement from './ProductManagement.jsx'
 import './index.css'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
@@ -35,7 +41,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
       <CommandCenter>
         <Routes>
           <Route path="/" element={<App />} />
+          <Route path="/dashboard" element={<App />} />
           <Route path="/job-center" element={<JobCenter />} />
+          <Route path="/mission-control" element={<MissionControl />} />
           <Route path="/jobs/new" element={<NewJob />} />
           <Route path="/jobs/:jobId" element={<JobSplitView />} />
           <Route path="/crew" element={<CrewManagement />} />
@@ -44,13 +52,20 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <Route path="/agents/new" element={<NewCrewMember />} />
           <Route path="/agents/:agentId" element={<AgentDetail />} />
           <Route path="/agents/:agentId/edit" element={<AgentDetail />} />
+          <Route path="/training" element={<TrainingManagement />} />
           <Route path="/training/management" element={<TrainingManagement />} />
           <Route path="/skills-library" element={<SkillsLibrary />} />
           <Route path="/approvals" element={<ApprovalDashboard />} />
+          <Route path="/hr-feedback" element={<HRFeedback />} />
           <Route path="/hr/improvements" element={<HRImprovements />} />
+          <Route path="/explainer" element={<Navigate to="/explainer/how-it-works" replace />} />
           <Route path="/explainer/how-it-works" element={<ExplainerHowItWorks />} />
           <Route path="/explainer/persona" element={<ExplainerPersona />} />
           <Route path="/explainer/crew" element={<ExplainerCrew />} />
+          <Route path="/personal-projects" element={<PersonalProjects />} />
+          <Route path="/work-team" element={<WorkTeamOrg />} />
+          <Route path="/study" element={<Study />} />
+          <Route path="/product-management" element={<ProductManagement />} />
           <Route path="/devbot" element={<DevbotHome />} />
           <Route path="/hiring" element={<HiringHall onHire={() => {}} />} />
           <Route path="/talents" element={<TalentOverview />} />

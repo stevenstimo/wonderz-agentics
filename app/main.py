@@ -30,9 +30,38 @@ register_routers(app)
 app.include_router(jobs_router)
 
 
+async def _backfill_job_numbers():
+    """One-time backfill: assign job_number to jobs missing it (by created_at order)."""
+    try:
+        from app.db import _pool
+        if not _pool:
+            return
+        async with _pool.acquire() as conn:
+            await conn.execute("""
+                WITH ranked AS (
+                    SELECT id, ROW_NUMBER() OVER (ORDER BY created_at) AS rn
+                    FROM jobs
+                ),
+                to_update AS (
+                    SELECT id, rn FROM ranked
+                    WHERE id IN (
+                        SELECT id FROM jobs
+                        WHERE context::jsonb->>'job_number' IS NULL OR context::jsonb->>'job_number' = ''
+                    )
+                )
+                UPDATE jobs j
+                SET context = COALESCE(j.context, '{}'::jsonb) || jsonb_build_object('job_number', LPAD(t.rn::text, 4, '0'))
+                FROM to_update t WHERE j.id = t.id
+            """)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("Backfill job_numbers failed: %s", e)
+
+
 @app.on_event("startup")
 async def on_startup():
     await init_db_pool()
+    await _backfill_job_numbers()
 
 
 @app.on_event("shutdown")

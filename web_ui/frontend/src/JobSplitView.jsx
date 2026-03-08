@@ -18,7 +18,7 @@ function parseContext(ctx) {
 function renderMarkdown(text) {
   if (!text) return ''
   return text
-    .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" class="w-full rounded-xl my-4 shadow-sm" loading="lazy" />')
+    .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" class="w-full rounded-xl my-4" loading="lazy" />')
     .replace(/^### (.+)$/gm, '<h3 class="text-lg font-semibold mt-4 mb-2">$1</h3>')
     .replace(/^## (.+)$/gm, '<h2 class="text-xl font-bold mt-5 mb-2">$1</h2>')
     .replace(/^# (.+)$/gm, '<h1 class="text-2xl font-bold mt-5 mb-3">$1</h1>')
@@ -134,7 +134,8 @@ export default function JobSplitView() {
       .finally(() => setRunningIntake(false))
   }, [jobId, data?.job?.id, data?.job?.status, data?.job?.context, fetchJob])
 
-  // Poll while intake is running (so we pick up CEO's first reply) or while job is executing
+  // Poll while intake is running (so we pick up CEO's first reply) or while job is executing.
+  // When INTAKE_CLARIFICATION with empty chat_history, poll every 2s until Mr. Klein responds.
   useEffect(() => {
     if (!data?.job) return
     const status = data.job.status
@@ -142,7 +143,7 @@ export default function JobSplitView() {
     const ms = status === 'INTAKE_CLARIFICATION' ? 2000 : 5000
     const interval = setInterval(fetchJob, ms)
     return () => clearInterval(interval)
-  }, [data?.job?.status, fetchJob])
+  }, [data?.job?.status, data?.job?.context, fetchJob])
 
   useEffect(() => {
     if (!sendingChat && ceoTyping) {
@@ -584,9 +585,17 @@ export default function JobSplitView() {
               <div className="space-y-4">
                 <div className="rounded-lg bg-green-100 text-green-800 px-4 py-3 font-medium">Content Ready!</div>
                 {imageUrl && (
-                  <div className="mb-4">
-                    <img src={imageUrl} alt="Generated illustration" className="w-full rounded-xl shadow-sm" loading="lazy" />
-                    <a href={imageUrl} target="_blank" rel="noopener noreferrer" className="text-sm text-indigo-600 hover:text-indigo-800 mt-1 inline-block">Open full size</a>
+                  <div className="mb-4 rounded-xl overflow-hidden">
+                    <img
+                      src={imageUrl}
+                      alt="Generated illustration"
+                      className="w-full"
+                      loading="lazy"
+                      onError={(e) => { e.target.style.display = 'none' }}
+                    />
+                    <a href={imageUrl} target="_blank" rel="noopener noreferrer" className="text-sm text-indigo-600 hover:text-indigo-800 mt-2 inline-block px-1">
+                      Open full size
+                    </a>
                   </div>
                 )}
                 <div className="rounded-xl border border-slate-200 p-4 bg-white">
@@ -629,9 +638,17 @@ export default function JobSplitView() {
               <div className="space-y-4">
                 <div className="rounded-lg bg-green-100 text-green-800 px-4 py-3 font-medium">Job Completed</div>
                 {imageUrl && (
-                  <div className="mb-4">
-                    <img src={imageUrl} alt="Generated illustration" className="w-full rounded-xl shadow-sm" loading="lazy" />
-                    <a href={imageUrl} target="_blank" rel="noopener noreferrer" className="text-sm text-indigo-600 hover:text-indigo-800 mt-1 inline-block">Open full size</a>
+                  <div className="mb-4 rounded-xl overflow-hidden">
+                    <img
+                      src={imageUrl}
+                      alt="Generated illustration"
+                      className="w-full"
+                      loading="lazy"
+                      onError={(e) => { e.target.style.display = 'none' }}
+                    />
+                    <a href={imageUrl} target="_blank" rel="noopener noreferrer" className="text-sm text-indigo-600 hover:text-indigo-800 mt-2 inline-block px-1">
+                      Open full size
+                    </a>
                   </div>
                 )}
                 <div className="rounded-xl border border-slate-200 p-4 bg-white">
