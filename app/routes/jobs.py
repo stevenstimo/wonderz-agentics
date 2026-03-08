@@ -255,15 +255,7 @@ async def send_chat_message(
             ctx = _coerce_context(job["context"])
             chat_history = list(ctx.get("chat_history") or [])
             chat_history.append({"role": "user", "content": msg})
-            patch = json.dumps({"chat_history": chat_history}, default=_json_default)
-            await conn.execute(
-                """
-                UPDATE jobs SET context = COALESCE(context, '{}'::jsonb) || $1::jsonb, updated_at=now()
-                WHERE id=$2
-                """,
-                patch,
-                job_id,
-            )
+            await _update_job_context(conn, job_id, {"chat_history": chat_history})
             background_tasks.add_task(run_intake_answers_inline, job_id, None)
             row = await conn.fetchrow("SELECT status FROM jobs WHERE id=$1", job_id)
             return {
@@ -285,16 +277,14 @@ async def send_chat_message(
             chat_history.append({"role": "ceo", "content": ceo_reply})
             feedback_list = list(ctx.get("feedback_during_run") or [])
             feedback_list.append({"user": msg, "ceo_instruction": instruction or msg[:200]})
-            new_ctx = {
-                **ctx,
-                "chat_history": chat_history,
-                "feedback_during_run": feedback_list,
-                "ceo_instruction_for_run": instruction or (feedback_list[-1]["ceo_instruction"] if feedback_list else ""),
-            }
-            await conn.execute(
-                "UPDATE jobs SET context=$1::jsonb, updated_at=now() WHERE id=$2",
-                json.dumps(new_ctx, default=_json_default),
+            await _update_job_context(
+                conn,
                 job_id,
+                {
+                    "chat_history": chat_history,
+                    "feedback_during_run": feedback_list,
+                    "ceo_instruction_for_run": instruction or (feedback_list[-1]["ceo_instruction"] if feedback_list else ""),
+                },
             )
             return {
                 "job_id": job_id,
@@ -504,14 +494,11 @@ async def request_plan_changes(
                     detail="Job not found"
                 )
             
-            # Update job status and store feedback (avoid jsonb_set: context may be null/text)
-            row = await conn.fetchrow("SELECT context FROM jobs WHERE id=$1", job_id)
-            ctx = _coerce_context(row.get("context") if row else None)
-            ctx["feedback"] = req.feedback
+            # Update job status and store feedback (use _update_job_context to preserve job_number)
+            await _update_job_context(conn, job_id, {"feedback": req.feedback})
             await conn.execute(
-                "UPDATE jobs SET status=$1, context=$2::jsonb, updated_at=now() WHERE id=$3",
+                "UPDATE jobs SET status=$1, updated_at=now() WHERE id=$2",
                 JobStatus.INTAKE_CLARIFICATION.value,
-                json.dumps(ctx, default=_json_default),
                 job_id,
             )
         
@@ -561,17 +548,16 @@ async def submit_feedback(
                 )
             
             ctx = _coerce_context(job.get("context"))
-            original_job_number = ctx.get("job_number")
             chat_history = list(ctx.get("chat_history") or [])
             chat_history.append({"role": "user", "content": req.feedback})
-            ctx["chat_history"] = chat_history
-            ctx["user_feedback"] = req.feedback
-            if original_job_number is not None:
-                ctx["job_number"] = original_job_number
+            await _update_job_context(
+                conn,
+                job_id,
+                {"chat_history": chat_history, "user_feedback": req.feedback},
+            )
             await conn.execute(
-                "UPDATE jobs SET status=$1, context=$2::jsonb, updated_at=now() WHERE id=$3",
+                "UPDATE jobs SET status=$1, updated_at=now() WHERE id=$2",
                 JobStatus.INTAKE_CLARIFICATION.value,
-                json.dumps(ctx, default=_json_default),
                 job_id,
             )
         

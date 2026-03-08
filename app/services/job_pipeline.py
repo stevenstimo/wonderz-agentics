@@ -61,10 +61,10 @@ async def _load_job(conn, job_id: str):
 async def _update_job_context(conn, job_id: str, updates: Dict[str, Any]) -> Dict[str, Any]:
     row = await conn.fetchrow("SELECT context FROM jobs WHERE id=$1", job_id)
     current = _coerce_context(row.get("context") if row else None)
-    saved_number = current.get("job_number")
+    saved_job_number = current.get("job_number")
     current.update(updates)
-    if saved_number and not current.get("job_number"):
-        current["job_number"] = saved_number
+    if saved_job_number:
+        current["job_number"] = saved_job_number
     logger.info("_update_job_context for %s: job_number=%s", job_id, current.get("job_number"))
     await conn.execute(
         "UPDATE jobs SET context=$1::jsonb, updated_at=now() WHERE id=$2",
@@ -128,6 +128,44 @@ def _brief_ctx(context: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
+def _generate_image_gemini(prompt: str) -> dict:
+    """Generate image using Gemini and save to disk, return URL path. Fallback to Pollinations if no key or error."""
+    try:
+        api_key = os.environ.get("GOOGLE_API_KEY")
+        if not api_key:
+            encoded = quote(prompt)
+            return {"image_url": f"https://image.pollinations.ai/prompt/{encoded}?width=1024&height=768&nologo=true", "source": "pollinations"}
+
+        import google.generativeai as genai
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel("gemini-2.0-flash-exp")
+        response = model.generate_content(
+            [f"Generate a professional editorial photograph: {prompt}"],
+            generation_config={"response_mime_type": "image/jpeg"},
+        )
+
+        image_dir = "/home/exedev/wonderz-agentics/web_ui/frontend/dist/generated"
+        os.makedirs(image_dir, exist_ok=True)
+        filename = f"{uuid.uuid4().hex[:12]}.jpg"
+        filepath = os.path.join(image_dir, filename)
+
+        if response.candidates and response.candidates[0].content.parts:
+            for part in response.candidates[0].content.parts:
+                if hasattr(part, "inline_data") and part.inline_data:
+                    image_bytes = part.inline_data.data
+                    with open(filepath, "wb") as f:
+                        f.write(image_bytes)
+                    return {"image_url": f"/generated/{filename}", "source": "gemini"}
+
+        encoded = quote(prompt)
+        return {"image_url": f"https://image.pollinations.ai/prompt/{encoded}?width=1024&height=768&nologo=true", "source": "pollinations_fallback"}
+
+    except Exception as e:
+        logger.error("Gemini image generation failed: %s", e)
+        encoded = quote(prompt)
+        return {"image_url": f"https://image.pollinations.ai/prompt/{encoded}?width=1024&height=768&nologo=true", "source": "pollinations_fallback"}
+
+
 def _build_image_prompt(context: Dict[str, Any]) -> str:
     """Build a descriptive English image prompt from job context for Pollinations.ai."""
     brief_ctx = _brief_ctx(context)
@@ -173,15 +211,15 @@ def _run_step_agent(
     role_lower = (agent_role or "").lower()
     step_desc = step_name or agent_role or "step"
 
-    # Image generator: Pollinations.ai (no API key required) — run BEFORE Anthropic check
+    # Image generator: Gemini (with Pollinations fallback) — run BEFORE Anthropic check
     if role_lower in ("image_generator", "image generator", "imagegenerator", "image_generation"):
         image_prompt = _build_image_prompt(context)
-        encoded_prompt = quote(image_prompt, safe="")
-        image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=768&nologo=true"
+        result = _generate_image_gemini(image_prompt)
         output = {
-            "image_url": image_url,
+            "image_url": result["image_url"],
             "image_prompt": image_prompt,
             "image_status": "generated",
+            "image_source": result.get("source", "unknown"),
             "agent_role": agent_role,
         }
         return (output, 0)
@@ -586,7 +624,7 @@ async def run_job_inline(job_id: str, context_extra: Optional[dict] = None):
                     tokens_used,
                     job_id,
                 )
-                if output.get("image_url") and "pollinations" in output["image_url"]:
+                if output.get("image_url"):
                     await _update_job_context(conn, job_id, {"image_url": output["image_url"]})
                 logger.info("run_job_inline: job %s step %s of %s done", job_id, idx + 1, num_steps)
 
@@ -604,7 +642,7 @@ async def run_job_inline(job_id: str, context_extra: Optional[dict] = None):
                         step_output = json.loads(step_output)
                     except json.JSONDecodeError:
                         continue
-                if step_output.get("image_url") and "pollinations" in step_output["image_url"]:
+                if step_output.get("image_url"):
                     await _update_job_context(conn, job_id, {"image_url": step_output["image_url"]})
                     break
 

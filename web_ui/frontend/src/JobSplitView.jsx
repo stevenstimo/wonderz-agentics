@@ -585,17 +585,13 @@ export default function JobSplitView() {
               <div className="space-y-4">
                 <div className="rounded-lg bg-green-100 text-green-800 px-4 py-3 font-medium">Content Ready!</div>
                 {imageUrl && (
-                  <div className="mb-4 rounded-xl overflow-hidden">
+                  <div className="mb-4 rounded-xl overflow-hidden bg-slate-100 min-h-[200px] relative">
                     <img
                       src={imageUrl}
                       alt="Generated illustration"
-                      className="w-full"
-                      loading="lazy"
-                      onError={(e) => { e.target.style.display = 'none' }}
+                      className="w-full rounded-xl"
+                      loading="eager"
                     />
-                    <a href={imageUrl} target="_blank" rel="noopener noreferrer" className="text-sm text-indigo-600 hover:text-indigo-800 mt-2 inline-block px-1">
-                      Open full size
-                    </a>
                   </div>
                 )}
                 <div className="rounded-xl border border-slate-200 p-4 bg-white">
@@ -638,17 +634,13 @@ export default function JobSplitView() {
               <div className="space-y-4">
                 <div className="rounded-lg bg-green-100 text-green-800 px-4 py-3 font-medium">Job Completed</div>
                 {imageUrl && (
-                  <div className="mb-4 rounded-xl overflow-hidden">
+                  <div className="mb-4 rounded-xl overflow-hidden bg-slate-100 min-h-[200px] relative">
                     <img
                       src={imageUrl}
                       alt="Generated illustration"
-                      className="w-full"
-                      loading="lazy"
-                      onError={(e) => { e.target.style.display = 'none' }}
+                      className="w-full rounded-xl"
+                      loading="eager"
                     />
-                    <a href={imageUrl} target="_blank" rel="noopener noreferrer" className="text-sm text-indigo-600 hover:text-indigo-800 mt-2 inline-block px-1">
-                      Open full size
-                    </a>
                   </div>
                 )}
                 <div className="rounded-xl border border-slate-200 p-4 bg-white">
