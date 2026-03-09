@@ -484,6 +484,8 @@ async def run_intake_inline(job_id: str, job_post: str):
 
     try:
         brief = intake.analyze_job_post(job_post)
+        chat_history = []
+        chat_history.append({"role": "ceo", "content": brief.message or ""})
         async with pool.acquire() as conn:
             await _update_job_context(
                 conn,
@@ -491,6 +493,7 @@ async def run_intake_inline(job_id: str, job_post: str):
                 {
                     "brief": brief.model_dump(),
                     "previous_answers": {},
+                    "chat_history": chat_history,
                 },
             )
 
