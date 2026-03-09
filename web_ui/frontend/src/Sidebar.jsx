@@ -25,6 +25,7 @@ import {
   Menu,
   X,
   Inbox,
+  BarChart3,
 } from 'lucide-react'
 import { supabase } from './supabase'
 import { getCurrentUserRole, isSuperAdmin } from './authz'
@@ -48,6 +49,7 @@ const MANAGEMENT = [
 ]
 
 const OPERATIONS = [
+  { label: 'SEO Tool', icon: BarChart3, path: '/seo' },
   { label: 'Developer Bot', icon: Code, path: '/devbot' },
   { label: 'HR Feedback', icon: MessageSquare, path: '/hr-feedback' },
   { label: 'Safety Gate', icon: Shield, path: '/approvals' },

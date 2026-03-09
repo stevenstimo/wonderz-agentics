@@ -34,6 +34,7 @@ import WorkTeamOrg from './WorkTeamOrg.jsx'
 import Study from './Study.jsx'
 import ProductManagement from './ProductManagement.jsx'
 import AgentInbox from './AgentInbox.jsx'
+import SEOTool from './SEOTool.jsx'
 import './index.css'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
@@ -68,6 +69,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <Route path="/study" element={<Study />} />
           <Route path="/product-management" element={<ProductManagement />} />
           <Route path="/inbox" element={<AgentInbox />} />
+          <Route path="/seo" element={<SEOTool />} />
           <Route path="/devbot" element={<DevbotHome />} />
           <Route path="/hiring" element={<HiringHall onHire={() => {}} />} />
           <Route path="/newbies" element={<Newbies />} />
