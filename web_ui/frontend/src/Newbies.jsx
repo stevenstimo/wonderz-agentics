@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, GraduationCap, UserPlus } from 'lucide-react'
+import { Plus, GraduationCap, UserPlus, Loader2 } from 'lucide-react'
 import PageLayout from './PageLayout'
 import { apiUrl } from './apiClient'
 import { supabase } from './supabase'
@@ -55,8 +55,10 @@ export default function Newbies() {
   })
 
   const [trainNewbie, setTrainNewbie] = useState(null)
-  const [trainForm, setTrainForm] = useState({ source_url: '', category: 'management' })
+  const [trainForm, setTrainForm] = useState({ urls: '', category: 'management' })
   const [training, setTraining] = useState(false)
+  const [trainError, setTrainError] = useState('')
+  const [trainProgress, setTrainProgress] = useState({ current: 0, total: 0, skipped: [] })
 
   const canEdit = true // tijdelijk: isAdmin(userRole) faalt omdat userRole niet correct wordt opgehaald na inloggen
   console.log('userRole:', userRole, 'canEdit:', canEdit)
@@ -140,38 +142,66 @@ export default function Newbies() {
   }
 
   const openTrainModal = (n) => {
-    console.log('openTrainModal newbie:', n, 'newbie_id:', n?.newbie_id)
     setTrainNewbie(n)
-    setTrainForm({ source_url: '', category: 'management' })
+    setTrainForm({ urls: '', category: 'management' })
+    setTrainError('')
+    setTrainProgress({ current: 0, total: 0, skipped: [] })
   }
 
   const submitTrain = async () => {
-    if (!trainNewbie || !trainForm.source_url?.trim()) return
+    const urlLines = (trainForm.urls || '')
+      .split(/\n/)
+      .map((u) => (u || '').trim())
+      .filter(Boolean)
+    if (!trainNewbie || urlLines.length === 0) return
+
     const newbieId = trainNewbie.newbie_id
-    console.log('Training newbie_id:', newbieId, 'full trainNewbie:', trainNewbie)
+    const total = urlLines.length
     setTraining(true)
-    setError('')
-    try {
-      const res = await fetch(apiUrl(`/api/newbies/${encodeURIComponent(newbieId)}/train`), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          source_url: trainForm.source_url.trim(),
-          category: trainForm.category,
-        }),
-      })
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
-        throw new Error(data.detail || `Training mislukt (${res.status})`)
+    setTrainError('')
+    setTrainProgress({ current: 0, total, skipped: [] })
+
+    const skipped = []
+    let processed = 0
+
+    for (let i = 0; i < urlLines.length; i++) {
+      const url = urlLines[i]
+      setTrainProgress((p) => ({ ...p, current: i + 1, skipped: [...skipped] }))
+
+      try {
+        const res = await fetch(apiUrl('/api/newbies/train'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            newbie_id: newbieId,
+            source_url: url,
+            category: trainForm.category,
+          }),
+        })
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}))
+          skipped.push({ index: i + 1, url, reason: data.detail || `HTTP ${res.status}` })
+          continue
+        }
+        processed++
+        await fetchNewbies()
+      } catch (err) {
+        skipped.push({ index: i + 1, url, reason: err.message || 'Niet bereikbaar' })
       }
-      setTrainNewbie(null)
-      setTrainForm({ source_url: '', category: 'management' })
-      await fetchNewbies()
-    } catch (err) {
-      setError(err.message || 'Training mislukt')
-    } finally {
-      setTraining(false)
     }
+
+    setTrainProgress((p) => ({ ...p, skipped }))
+    if (skipped.length > 0) {
+      setTrainError(
+        `Verwerkt: ${processed} van ${total}. Overgeslagen: ${skipped.map((s) => `URL ${s.index} (${s.reason})`).join('; ')}`
+      )
+    } else {
+      setTrainNewbie(null)
+      setTrainForm({ urls: '', category: 'management' })
+      setTrainProgress({ current: 0, total: 0, skipped: [] })
+      await fetchNewbies()
+    }
+    setTraining(false)
   }
 
   return (
@@ -339,21 +369,40 @@ export default function Newbies() {
           <div className="modal-card space-y-3 max-w-lg" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-xl font-bold">Train: {trainNewbie.newbie_name}</h2>
             <p className="text-sm text-slate-600">Voeg een URL toe om de score voor een categorie te verhogen.</p>
+
+            {training && (
+              <div className="flex items-center gap-2 py-2 px-3 rounded-lg bg-indigo-50 text-indigo-700">
+                <Loader2 className="w-5 h-5 animate-spin shrink-0" />
+                <span className="text-sm">
+                  {trainProgress.total > 1
+                    ? `Verwerkt ${trainProgress.current} van ${trainProgress.total} URLs...`
+                    : 'URL wordt opgehaald en verwerkt...'}
+                </span>
+              </div>
+            )}
+
+            {trainError && (
+              <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{trainError}</div>
+            )}
+
             <div>
-              <label className="block text-sm font-semibold mb-1">URL</label>
-              <input
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg"
-                placeholder="https://..."
-                value={trainForm.source_url}
-                onChange={(e) => setTrainForm({ ...trainForm, source_url: e.target.value })}
+              <label className="block text-sm font-semibold mb-1">URLs (één per regel)</label>
+              <textarea
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg disabled:opacity-60 disabled:bg-slate-50 min-h-[120px] font-mono text-sm"
+                placeholder={'https://...\nhttps://...\nhttps://...'}
+                value={trainForm.urls}
+                onChange={(e) => setTrainForm({ ...trainForm, urls: e.target.value })}
+                disabled={training}
+                rows={5}
               />
             </div>
             <div>
               <label className="block text-sm font-semibold mb-1">Categorie</label>
               <select
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg"
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg disabled:opacity-60 disabled:bg-slate-50"
                 value={trainForm.category}
                 onChange={(e) => setTrainForm({ ...trainForm, category: e.target.value })}
+                disabled={training}
               >
                 {CATEGORIES.map(({ key, label, apiValue }) => (
                   <option key={key} value={apiValue}>
@@ -366,7 +415,7 @@ export default function Newbies() {
               <button
                 type="button"
                 onClick={() => !training && setTrainNewbie(null)}
-                className="flex-1 px-4 py-2 border border-slate-300 rounded-lg hover:bg-slate-50"
+                className="flex-1 px-4 py-2 border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-60"
                 disabled={training}
               >
                 Annuleren
@@ -374,10 +423,17 @@ export default function Newbies() {
               <button
                 type="button"
                 onClick={submitTrain}
-                disabled={training || !trainForm.source_url?.trim()}
-                className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg disabled:opacity-50"
+                disabled={training || !(trainForm.urls || '').trim()}
+                className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg disabled:opacity-50 flex items-center justify-center gap-2"
               >
-                {training ? 'Bezig...' : 'Train'}
+                {training ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Training...
+                  </>
+                ) : (
+                  'Train'
+                )}
               </button>
             </div>
           </div>

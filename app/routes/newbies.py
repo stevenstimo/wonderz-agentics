@@ -160,18 +160,30 @@ async def create_newbie(req: CreateNewbieRequest):
 
 
 class TrainNewbieRequest(BaseModel):
+    newbie_id: Optional[str] = Field(None, min_length=1)  # voor POST /train (body) i.p.v. path
     source_url: Optional[str] = Field(None, min_length=10)
     url: Optional[str] = Field(None, min_length=10)
+    urls: Optional[List[str]] = Field(None, min_length=1)  # bulk: meerdere URLs,zelfde categorie
     category: str = Field(..., pattern=r"^(management|creative|development|operations)$")
 
     @model_validator(mode="after")
     def require_url(self):
-        if not (self.source_url or self.url):
-            raise ValueError("Either source_url or url is required")
+        has_single = bool((self.source_url or self.url or "").strip())
+        has_bulk = bool(self.urls and len([u for u in self.urls if (u or "").strip()]) > 0)
+        if not has_single and not has_bulk:
+            raise ValueError("Either source_url, url, or urls array is required")
+        if has_single and has_bulk:
+            raise ValueError("Use either single URL or urls array, not both")
         return self
 
     def get_url(self) -> str:
         return (self.source_url or self.url or "").strip()
+
+    def get_urls(self) -> List[str]:
+        """Normalized list of URLs (bulk mode). Filters empty, strips whitespace."""
+        if not self.urls:
+            return []
+        return [u.strip() for u in self.urls if (u or "").strip()]
 
 
 def _compute_readiness(score_m: int, score_c: int, score_d: int, score_o: int) -> int:
@@ -207,71 +219,162 @@ MAX_SCORE_PER_CATEGORY = 80  # Laatste 20 punten komen via hire-beoordeling
 SCORE_PER_TRAINING = 10  # MVP: vaste +10 per training
 
 
-@router.post("/{newbie_id}/train", status_code=status.HTTP_201_CREATED)
-async def train_newbie(newbie_id: str, req: TrainNewbieRequest):
-    """Train a newbie with a URL. Scrapes content, assigns +10 to category (max 80/category). Prevents duplicate URL spam."""
+async def _do_train_newbie(conn, newbie_id: str, req: TrainNewbieRequest):
+    """Shared logic for train endpoints. newbie_id from path or body. Raises on error."""
     from app.services.training import scrape_url, extract_text, TrainingError
 
+    row = await conn.fetchrow("SELECT * FROM newbies WHERE newbie_id = $1", newbie_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Newbie not found")
+    if row.get("status") == "hired":
+        raise HTTPException(status_code=400, detail="Cannot train a hired newbie")
+
+    url = req.get_url()
+    existing = await conn.fetchrow(
+        "SELECT 1 FROM newbie_trainings WHERE newbie_id = $1 AND source_url = $2 AND category = $3",
+        newbie_id,
+        url,
+        req.category,
+    )
+    if existing:
+        raise HTTPException(
+            status_code=400,
+            detail="Deze URL is al gebruikt voor deze categorie. Kies een andere URL.",
+        )
+
+    try:
+        html = await scrape_url(url)
+    except TrainingError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    text = extract_text(html)
+    if len((text or "").strip()) < 50:
+        raise HTTPException(status_code=400, detail="Extracted text is too short (min 50 chars)")
+
+    score_gained = SCORE_PER_TRAINING
+    col = CATEGORY_TO_COLUMN.get(req.category)
+    if not col:
+        raise HTTPException(status_code=400, detail="Invalid category")
+
+    await conn.execute(
+        """
+        INSERT INTO newbie_trainings (newbie_id, source_url, category, score_gained, status, completed_at)
+        VALUES ($1, $2, $3, $4, 'completed', now())
+        """,
+        newbie_id,
+        url,
+        req.category,
+        score_gained,
+    )
+    await conn.execute(
+        f"UPDATE newbies SET {col} = LEAST($1, COALESCE({col}, 0) + $2), updated_at = now() WHERE newbie_id = $3",
+        MAX_SCORE_PER_CATEGORY,
+        score_gained,
+        newbie_id,
+    )
+    await _update_readiness_and_status(conn, newbie_id)
+    return await conn.fetchrow("SELECT * FROM newbies WHERE newbie_id = $1", newbie_id)
+
+
+async def _try_train_one_url(conn, newbie_id: str, url: str, category: str) -> tuple[bool, Optional[str]]:
+    """Try to train one URL. Returns (success, error_message). Does not raise."""
+    from app.services.training import scrape_url, extract_text, TrainingError
+
+    row = await conn.fetchrow("SELECT * FROM newbies WHERE newbie_id = $1", newbie_id)
+    if not row:
+        return False, "Newbie not found"
+    if row.get("status") == "hired":
+        return False, "Cannot train a hired newbie"
+
+    existing = await conn.fetchrow(
+        "SELECT 1 FROM newbie_trainings WHERE newbie_id = $1 AND source_url = $2 AND category = $3",
+        newbie_id,
+        url,
+        category,
+    )
+    if existing:
+        return False, "URL al gebruikt voor deze categorie"
+
+    try:
+        html = await scrape_url(url)
+    except TrainingError as e:
+        return False, str(e)
+
+    text = extract_text(html)
+    if len((text or "").strip()) < 50:
+        return False, "Extracted text is too short"
+
+    col = CATEGORY_TO_COLUMN.get(category)
+    if not col:
+        return False, "Invalid category"
+
+    await conn.execute(
+        """
+        INSERT INTO newbie_trainings (newbie_id, source_url, category, score_gained, status, completed_at)
+        VALUES ($1, $2, $3, $4, 'completed', now())
+        """,
+        newbie_id,
+        url,
+        category,
+        SCORE_PER_TRAINING,
+    )
+    await conn.execute(
+        f"UPDATE newbies SET {col} = LEAST($1, COALESCE({col}, 0) + $2), updated_at = now() WHERE newbie_id = $3",
+        MAX_SCORE_PER_CATEGORY,
+        SCORE_PER_TRAINING,
+        newbie_id,
+    )
+    await _update_readiness_and_status(conn, newbie_id)
+    return True, None
+
+
+@router.post("/train", status_code=status.HTTP_201_CREATED)
+async def train_newbie_body(req: TrainNewbieRequest):
+    """Train a newbie with newbie_id in body. Single URL (source_url) or bulk (urls array)."""
+    if not req.newbie_id:
+        raise HTTPException(status_code=400, detail="newbie_id is required in request body")
+    newbie_id = req.newbie_id.strip()
+
+    urls = req.get_urls()
+    if urls:
+        # Bulk: process URLs sequentially
+        pool = await get_db()
+        processed = 0
+        skipped = 0
+        score_gained = 0
+        row = None
+        async with pool.acquire() as conn:
+            for url in urls:
+                ok, _err = await _try_train_one_url(conn, newbie_id, url, req.category)
+                if ok:
+                    processed += 1
+                    score_gained += SCORE_PER_TRAINING
+                    row = await conn.fetchrow("SELECT * FROM newbies WHERE newbie_id = $1", newbie_id)
+                else:
+                    skipped += 1
+        logger.info("Bulk train newbie %s: processed=%s skipped=%s score_gained=%s", newbie_id, processed, skipped, score_gained)
+        return {
+            "processed": processed,
+            "skipped": skipped,
+            "score_gained": score_gained,
+            "newbie": _row_to_dict(row) if row else None,
+        }
+
+    # Single URL
     pool = await get_db()
     async with pool.acquire() as conn:
-        row = await conn.fetchrow("SELECT * FROM newbies WHERE newbie_id = $1", newbie_id)
-        if not row:
-            raise HTTPException(status_code=404, detail="Newbie not found")
-        if row.get("status") == "hired":
-            raise HTTPException(status_code=400, detail="Cannot train a hired newbie")
+        row = await _do_train_newbie(conn, newbie_id, req)
+    logger.info("Trained newbie %s: +%s in %s", newbie_id, SCORE_PER_TRAINING, req.category)
+    return _row_to_dict(row)
 
-        url = req.get_url()
-        # Prevent duplicate URL spam: same URL + category already trained?
-        existing = await conn.fetchrow(
-            "SELECT 1 FROM newbie_trainings WHERE newbie_id = $1 AND source_url = $2 AND category = $3",
-            newbie_id,
-            url,
-            req.category,
-        )
-        if existing:
-            raise HTTPException(
-                status_code=400,
-                detail="Deze URL is al gebruikt voor deze categorie. Kies een andere URL.",
-            )
 
-        try:
-            html = await scrape_url(url)
-        except TrainingError as e:
-            raise HTTPException(status_code=400, detail=str(e))
-
-        text = extract_text(html)
-        if len(text or "").strip() < 50:
-            raise HTTPException(status_code=400, detail="Extracted text is too short (min 50 chars)")
-
-        score_gained = SCORE_PER_TRAINING
-
-        col = CATEGORY_TO_COLUMN.get(req.category)
-        if not col:
-            raise HTTPException(status_code=400, detail="Invalid category")
-
-        await conn.execute(
-            """
-            INSERT INTO newbie_trainings (newbie_id, source_url, category, score_gained, status, completed_at)
-            VALUES ($1, $2, $3, $4, 'completed', now())
-            """,
-            newbie_id,
-            url,
-            req.category,
-            score_gained,
-        )
-
-        # Add to newbie's category score; cap at MAX_SCORE_PER_CATEGORY (80)
-        await conn.execute(
-            f"UPDATE newbies SET {col} = LEAST($1, COALESCE({col}, 0) + $2), updated_at = now() WHERE newbie_id = $3",
-            MAX_SCORE_PER_CATEGORY,
-            score_gained,
-            newbie_id,
-        )
-
-        await _update_readiness_and_status(conn, newbie_id)
-        row = await conn.fetchrow("SELECT * FROM newbies WHERE newbie_id = $1", newbie_id)
-
-    logger.info("Trained newbie %s: +%s in %s, readiness=%s", newbie_id, score_gained, req.category, row.get("readiness_score"))
+@router.post("/{newbie_id}/train", status_code=status.HTTP_201_CREATED)
+async def train_newbie_path(newbie_id: str, req: TrainNewbieRequest):
+    """Train a newbie (newbie_id in path). Voor backwards compatibility."""
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        row = await _do_train_newbie(conn, newbie_id, req)
+    logger.info("Trained newbie %s: +%s in %s", newbie_id, SCORE_PER_TRAINING, req.category)
     return _row_to_dict(row)
 
 
