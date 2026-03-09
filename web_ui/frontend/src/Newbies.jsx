@@ -234,7 +234,11 @@ export default function Newbies() {
             {newbies.map((n) => (
               <div
                 key={n.newbie_id}
-                className="block rounded-lg border border-slate-200 p-4 hover:border-indigo-300 hover:bg-slate-50/50 transition"
+                role="button"
+                tabIndex={0}
+                onClick={() => navigate(`/newbies/${encodeURIComponent(n.newbie_id)}`)}
+                onKeyDown={(e) => e.key === 'Enter' && navigate(`/newbies/${encodeURIComponent(n.newbie_id)}`)}
+                className="block rounded-lg border border-slate-200 p-4 hover:border-indigo-300 hover:bg-slate-50/50 transition cursor-pointer"
               >
                 <div className="flex items-start justify-between gap-3 mb-2">
                   <div>
@@ -271,7 +275,7 @@ export default function Newbies() {
                   ))}
                 </div>
 
-                <div className="mt-4 flex items-center gap-2">
+                <div className="mt-4 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
                   <button
                     type="button"
                     className="text-sm text-indigo-600 hover:underline font-medium flex items-center gap-1"
