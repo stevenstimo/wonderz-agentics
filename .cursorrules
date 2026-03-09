@@ -1,0 +1,36 @@
+# Wonderz Agentics — Cursor Configuration
+
+## Stack
+- Backend: FastAPI (Python), Supabase (PostgreSQL + pgvector)
+- Frontend: React + TypeScript + Tailwind
+- AI: Anthropic Claude API (claude-sonnet-4-6 voor kwaliteit, claude-haiku-4-5 voor snelheid)
+- Port: 8090 (backend), 3001 (frontend dev server)
+
+## Deployment
+- Backend: altijd starten via `start_backend.sh` (nooit direct uvicorn)
+- DATABASE_URL staat permanent in ~/.bashrc
+- Nooit `sed -i` voor multiline fixes — gebruik altijd `python3 -c` met string replace
+- Migration fix pattern: `python3 -c` met string replace op `app/db.py`
+
+## Code conventies
+- Python: type hints verplicht, async/await voor alle I/O
+- Database: altijd asyncpg, parameters via %s placeholders (nooit f-strings in queries)
+- JSON in database: altijd json.dumps() voor dict params
+- Errors: altijd loggen naar job_steps.error_log bij agent failures
+
+## Agent architectuur
+- Worker agents: voeren taken uit, produceren evidence-based output
+- CEO agent (Orchestrator): beheert de pipeline, quality gates, max 3 retries
+- Reviewer agent: valideert worker output (APPROVED / NEEDS_CHANGES)
+- GTM Agent: growth, marketing en go-to-market taken
+
+## Quality gates
+- Elke feature implementatie gaat door een Dev↔QA loop
+- Geen deployment zonder Reality Checker approval
+- Token budget: 50.000 per job, 80% = warning, 100% = hard stop
+
+## Verboden
+- Nooit hardcoded API keys in code
+- Nooit allow_origins=["*"] in productie
+- Nooit synchrone database calls in async context
+- Nooit direct json.loads() op database output zonder isinstance check

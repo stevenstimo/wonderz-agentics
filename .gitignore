@@ -26,3 +26,6 @@ output/
 .idea/
 .vercel
 .env*.local
+
+# Temporary clone for agency-agents conversion
+agency-agents-source/
