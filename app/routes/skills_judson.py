@@ -221,6 +221,9 @@ async def _ensure_judson_schema(conn) -> None:
         await conn.execute("ALTER TABLE agent_skills ADD COLUMN IF NOT EXISTS source_document text")
         await conn.execute("ALTER TABLE agent_skills ADD COLUMN IF NOT EXISTS created_by text DEFAULT 'manual'")
         await conn.execute("ALTER TABLE agent_skills ADD COLUMN IF NOT EXISTS status text DEFAULT 'active'")
+        await conn.execute("ALTER TABLE agent_skills ADD COLUMN IF NOT EXISTS lifecycle_stage text[] DEFAULT '{}'")
+        await conn.execute("ALTER TABLE agent_skills ADD COLUMN IF NOT EXISTS agent_role text[] DEFAULT '{}'")
+        await conn.execute("ALTER TABLE agent_skills ADD COLUMN IF NOT EXISTS use_case text[] DEFAULT '{}'")
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS skill_uploads (
                 id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -327,6 +330,46 @@ def _normalize_skill_type(skill_type: Any) -> str:
     return "technique"
 
 
+# Domain -> default tags for skills without explicit lifecycle_stage/agent_role/use_case
+_DOMAIN_DEFAULT_TAGS = {
+    "strategy": (["pre-launch"], ["gtm-strategist"], ["market-entry"]),
+    "advertising": (["launch", "scale"], ["paid-media-specialist"], ["paid-advertising"]),
+    "seo": (["launch", "scale"], ["seo-specialist"], ["seo-optimization"]),
+    "content": (["launch", "scale"], ["content-writer"], ["content-production"]),
+    "copywriting": (["launch", "scale"], ["content-writer"], ["content-production"]),
+    "email": (["launch", "scale", "retention"], ["content-writer"], ["retention"]),
+    "social": (["launch", "scale"], ["content-writer"], ["paid-advertising"]),
+    "voice": (["pre-launch"], ["brand-strategist"], ["competitive-differentiation"]),
+    "quality": (["audit"], ["project-lead"], ["audit"]),
+    "structure": (["launch"], ["content-writer"], ["content-production"]),
+    "research": (["pre-launch"], ["market-analyst"], ["market-validation"]),
+    "management": (["pre-launch"], ["project-lead"], ["market-entry"]),
+}
+
+
+def _normalize_skill_tags(s: dict, domain: str) -> tuple[list[str], list[str], list[str]]:
+    """Return (lifecycle_stage, agent_role, use_case) as lists for DB TEXT[].
+    Uses explicit values from skill dict if present, else domain defaults."""
+    def _to_list(val: Any) -> list[str]:
+        if isinstance(val, list):
+            return [str(x).strip() for x in val if x is not None and str(x).strip()]
+        if isinstance(val, str):
+            return [x.strip() for x in val.split(",") if x.strip()]
+        return []
+
+    ls = _to_list(s.get("lifecycle_stage"))
+    ar = _to_list(s.get("agent_role"))
+    uc = _to_list(s.get("use_case"))
+
+    if not ls or not ar or not uc:
+        defaults = _DOMAIN_DEFAULT_TAGS.get(domain.lower(), (["pre-launch"], ["gtm-strategist"], ["market-entry"]))
+        ls = ls or defaults[0]
+        ar = ar or defaults[1]
+        uc = uc or defaults[2]
+
+    return (ls, ar, uc)
+
+
 # --- Request/Response models ---
 
 
@@ -354,12 +397,16 @@ async def get_relevant_skills_endpoint(payload: dict):
     Given a task description, return relevant skills from the library.
     Used by agents (e.g. GTM) to load skills before executing a task.
 
-    Payload: task_description (str), domain (str, optional), limit (int, default 5)
+    Payload: task_description (str), domain (str, optional), limit (int, default 5),
+             task_type (str, optional), agent_role (str, optional)
+    When task_type or agent_role is provided, filters deterministically on use_case/agent_role.
     Returns: { skills: [...], skill_ids: [...] }
     """
     task_description = payload.get("task_description", "")
     domain_filter = payload.get("domain")
     limit = payload.get("limit", 5)
+    task_type = payload.get("task_type")
+    agent_role = payload.get("agent_role")
     if limit > 10:
         limit = 10
 
@@ -371,6 +418,8 @@ async def get_relevant_skills_endpoint(payload: dict):
         task_description=task_description,
         domain=domain_filter,
         limit=limit,
+        task_type=task_type,
+        agent_role=agent_role,
     )
     return result
 
@@ -623,13 +672,15 @@ async def approve_skills(req: ApproveRequest):
             content = s.get("content") or ""
             is_update = s.get("is_update") is True
             source_doc = s.get("source_document") or ""
+            lifecycle_stage, agent_role, use_case = _normalize_skill_tags(s, domain)
 
             try:
                 if is_update:
                     await conn.execute(
                         """
                         UPDATE agent_skills SET name = $1, domain = $2, skill_type = $3, applicable_to = $4, content = $5,
-                        source_document = $6, created_by = 'judson', status = 'active'
+                        source_document = $6, created_by = 'judson', status = 'active',
+                        lifecycle_stage = $8, agent_role = $9, use_case = $10
                         WHERE skill_id = $7
                         """,
                         name,
@@ -639,13 +690,16 @@ async def approve_skills(req: ApproveRequest):
                         content,
                         source_doc,
                         skill_id,
+                        lifecycle_stage,
+                        agent_role,
+                        use_case,
                     )
                 else:
                     await conn.execute(
                         """
-                        INSERT INTO agent_skills (skill_id, name, domain, skill_type, applicable_to, content, source_document, created_by, status)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, 'judson', 'active')
-                        ON CONFLICT (skill_id) DO UPDATE SET name = $2, domain = $3, skill_type = $4, applicable_to = $5, content = $6, source_document = $7, created_by = 'judson', status = 'active'
+                        INSERT INTO agent_skills (skill_id, name, domain, skill_type, applicable_to, content, source_document, created_by, status, lifecycle_stage, agent_role, use_case)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, 'judson', 'active', $8, $9, $10)
+                        ON CONFLICT (skill_id) DO UPDATE SET name = $2, domain = $3, skill_type = $4, applicable_to = $5, content = $6, source_document = $7, created_by = 'judson', status = 'active', lifecycle_stage = $8, agent_role = $9, use_case = $10
                         """,
                         skill_id,
                         name,
@@ -654,6 +708,9 @@ async def approve_skills(req: ApproveRequest):
                         applicable_to,
                         content,
                         source_doc,
+                        lifecycle_stage,
+                        agent_role,
+                        use_case,
                     )
                 approved_count += 1
             except Exception as e:

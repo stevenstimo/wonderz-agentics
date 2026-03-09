@@ -11,25 +11,69 @@ logger = logging.getLogger(__name__)
 # Max chars per skill content to avoid token overflow (approx 1500 tokens)
 MAX_CONTENT_CHARS_PER_SKILL = 6000
 
+# task_type -> use_case mapping for deterministic retrieval
+TASK_TYPE_TO_USE_CASE: Dict[str, List[str]] = {
+    "market-entry": ["market-entry"],
+    "market-validation": ["market-validation"],
+    "competitive-differentiation": ["competitive-differentiation"],
+    "acquisition-planning": ["acquisition-planning"],
+    "content-production": ["content-production"],
+    "seo-optimization": ["seo-optimization"],
+    "paid-advertising": ["paid-advertising"],
+    "compliance": ["compliance"],
+    "retention": ["retention"],
+    "repositioning": ["repositioning"],
+}
+
 
 async def get_relevant_skills(
     pool,
     task_description: str,
     domain: Optional[str] = None,
     limit: int = 5,
+    task_type: Optional[str] = None,
+    agent_role: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Fetch skills relevant to a task. Uses Judson (Claude) to pick from library.
+    Fetch skills relevant to a task. When task_type or agent_role is provided,
+    filters deterministically on use_case/agent_role; otherwise uses Judson (Claude).
     Falls back to hardcoded trigger rules on failure.
     Returns {"skills": [...], "skill_ids": [...]}.
     """
     from anthropic import Anthropic
 
-    # Fetch skills from library for Judson to choose from
+    # Build base query with optional tag filters for deterministic retrieval
+    use_case_filter = None
+    if task_type:
+        use_cases = TASK_TYPE_TO_USE_CASE.get(task_type.lower(), [task_type])
+        use_case_filter = use_cases
+
     async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            "SELECT skill_id, name, domain, content FROM agent_skills ORDER BY domain, name LIMIT 100"
-        )
+        if use_case_filter or agent_role:
+            # Deterministic filter: skills matching use_case and/or agent_role
+            parts: List[str] = []
+            params: List[Any] = []
+            if use_case_filter:
+                parts.append("$1 = ANY(COALESCE(use_case, ARRAY[]::text[]))")
+                params.append(use_case_filter[0])
+            if agent_role:
+                parts.append("$%d = ANY(COALESCE(agent_role, ARRAY[]::text[]))" % (len(params) + 1))
+                params.append(agent_role)
+            where_clause = " AND ".join(parts)
+            try:
+                rows = await conn.fetch(
+                    "SELECT skill_id, name, domain, content FROM agent_skills WHERE " + where_clause + " ORDER BY domain, name LIMIT 100",
+                    *params,
+                )
+            except Exception as e:
+                logger.warning("Tag-based skill filter failed (columns may not exist): %s; using unfiltered", e)
+                rows = await conn.fetch(
+                    "SELECT skill_id, name, domain, content FROM agent_skills ORDER BY domain, name LIMIT 100"
+                )
+        else:
+            rows = await conn.fetch(
+                "SELECT skill_id, name, domain, content FROM agent_skills ORDER BY domain, name LIMIT 100"
+            )
     skills_list = [dict(r) for r in rows]
     if not skills_list:
         return {"skills": [], "skill_ids": []}
@@ -120,6 +164,8 @@ async def build_skills_context(
     task_description: str,
     domain: Optional[str] = None,
     limit: int = 5,
+    task_type: Optional[str] = None,
+    agent_role: Optional[str] = None,
 ) -> tuple[str, List[str]]:
     """
     Fetches relevant skills and formats as injectable context.
@@ -132,6 +178,8 @@ async def build_skills_context(
             task_description=task_description,
             domain=domain,
             limit=limit,
+            task_type=task_type,
+            agent_role=agent_role,
         )
         skills = result.get("skills", [])
         skill_ids = result.get("skill_ids", [])
