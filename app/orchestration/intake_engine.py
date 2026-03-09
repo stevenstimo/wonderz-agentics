@@ -89,6 +89,11 @@ RULES:
 - Reply in the same language as the user's job_post.
 - Be brief and friendly, not corporate.
 
+GTM/CAMPAIGN/LAUNCH JOBS: When the job mentions GTM, campagne, campaign, launch, lancering, go-to-market, or marketing strategie:
+- ALWAYS ask about: target audience (doelgroep, sector, bedrijfsgrootte), budget (marketing budget), and timeline (lanceringsdatum, tijdlijn) if these are NOT already in the job post.
+- Choose max 3 of these that are missing: doelgroep, budget, tijdlijn, concurrenten, primaire KPI.
+- These questions are essential for the GTM agents to deliver effective work.
+
 Respond with JSON:
 {
     "is_complete": boolean,

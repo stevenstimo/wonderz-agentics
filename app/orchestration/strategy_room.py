@@ -2,6 +2,7 @@
 StrategyRoom: Converts StrategicBrief to ExecutionPlan.
 
 The CEO Agent uses this to determine which agents to hire and in what sequence.
+GTM jobs get a multi-agent plan with GTM specialists (Marcus, Sophie, Tom, Anna, Daan, Eva).
 """
 
 from typing import List, Dict, Optional
@@ -20,6 +21,38 @@ class HiredAgent:
     def __init__(self, role: str, agent_id: str):
         self.role = role
         self.agent_id = agent_id
+
+
+GTM_KEYWORDS = [
+    "gtm", "go-to-market", "campagne", "campaign", "launch",
+    "lancering", "marktintroductie", "marketing strategie",
+]
+
+
+def is_gtm_job(job_post: str) -> bool:
+    """Detect GTM/campaign/launch jobs that need multi-agent GTM plan."""
+    if not job_post or not isinstance(job_post, str):
+        return False
+    return any(kw in job_post.lower() for kw in GTM_KEYWORDS)
+
+
+def build_gtm_plan(brief) -> "ExecutionPlan":
+    """GTM jobs get a multi-agent plan with all GTM specialists."""
+    steps = [
+        JobStep(step_index=1, agent_role="agent:gtm:director", unified_tool="gtm_strategy", requires_approval=False, description="GTM strategie en marktanalyse"),
+        JobStep(step_index=2, agent_role="agent:ads:meta", unified_tool="meta_ads", requires_approval=False, description="Meta/Instagram campagne plan"),
+        JobStep(step_index=3, agent_role="agent:ads:google", unified_tool="google_ads", requires_approval=False, description="Google Ads strategie"),
+        JobStep(step_index=4, agent_role="agent:email:specialist", unified_tool="email_marketing", requires_approval=False, description="Email sequence voor leads"),
+        JobStep(step_index=5, agent_role="agent:social:specialist", unified_tool="social_content", requires_approval=False, description="Social media content plan"),
+        JobStep(step_index=6, agent_role="agent:seo:strategist", unified_tool="seo_strategy", requires_approval=False, description="SEO en content strategie"),
+        JobStep(step_index=7, agent_role="reviewer", unified_tool="review_content", requires_approval=False, description="Review alle campagne materialen"),
+    ]
+    return ExecutionPlan(
+        brief=brief,
+        steps=steps,
+        hired_agents=["agent:gtm:director", "agent:ads:meta", "agent:ads:google", "agent:email:specialist", "agent:social:specialist", "agent:seo:strategist", "reviewer"],
+        estimated_duration_seconds=1200,
+    )
 
 
 class StrategyRoom:
@@ -110,6 +143,12 @@ class StrategyRoom:
         
         if not brief.is_complete:
             raise ValueError("StrategicBrief is not complete; cannot generate plan.")
+
+        # GTM jobs: use multi-agent GTM plan instead of copywriter flow
+        job_post = getattr(brief, "job_post", "") or ""
+        if is_gtm_job(job_post):
+            logger.info("GTM job detected — using GTM multi-agent plan")
+            return build_gtm_plan(brief)
 
         available_agents = available_agents or []
         

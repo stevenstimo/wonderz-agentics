@@ -45,6 +45,18 @@ from app.models.requests import (
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
+GTM_JOB_KEYWORDS = ["gtm", "campagne", "campaign", "launch", "go-to-market", "lancering", "marktintroductie", "marketing strategie"]
+
+
+def get_token_budget(job_post: str) -> int:
+    """GTM jobs get higher token budget (150k vs 50k default)."""
+    if not job_post or not isinstance(job_post, str):
+        return 50_000
+    job_lower = job_post.lower()
+    if any(kw in job_lower for kw in GTM_JOB_KEYWORDS):
+        return 150_000
+    return 50_000
+
 
 def _json_default(obj):
     if hasattr(obj, "isoformat"):
@@ -134,10 +146,11 @@ async def create_job(req: CreateJobRequest, background_tasks: BackgroundTasks):
                 "job_post": req.job_post,
                 "source_platform": source_platform,
             }
+            token_budget = get_token_budget(req.job_post)
             await conn.execute(
                 """
-                INSERT INTO jobs (id, user_id, job_post, status, source_platform, context, created_at, updated_at)
-                VALUES ($1, $2, $3, $4, $5, $6, now(), now())
+                INSERT INTO jobs (id, user_id, job_post, status, source_platform, context, token_budget, created_at, updated_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, now(), now())
                 """,
                 job_id,
                 str(req.user_id),
@@ -145,6 +158,7 @@ async def create_job(req: CreateJobRequest, background_tasks: BackgroundTasks):
                 JobStatus.INTAKE_CLARIFICATION.value,
                 source_platform,
                 json.dumps(context, default=_json_default),
+                token_budget,
             )
         
         logger.info(f"Job {job_id} created successfully")

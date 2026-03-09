@@ -511,6 +511,8 @@ export default function JobSplitView() {
             )}
 
             {job?.status === 'RUNNING' && (() => {
+              const updatedAt = job?.updated_at ? new Date(job.updated_at).getTime() : 0
+              const isStuck = updatedAt > 0 && (Date.now() - updatedAt) > 5 * 60 * 1000
               const stepList = (steps && steps.length) > 0 ? steps : (planSteps.length > 0 ? planSteps.map((p, i) => ({ id: `plan-${i}`, step_index: p.step_index ?? i + 1, step_name: p.description, agent_role: p.agent_role, status: 'pending' })) : [])
               const completedCount = stepList.filter((s) => s.status === 'completed').length
               const totalCount = stepList.length || 1
@@ -523,11 +525,22 @@ export default function JobSplitView() {
                 if (r === 'reviewer') return 'Reviewer'
                 if (r === 'image_generator' || r === 'image_generation') return 'Image generator'
                 if (r === 'seo' || r === 'seo_specialist') return 'SEO'
+                if (r.includes('gtm:director')) return 'Marcus (GTM Director)'
+                if (r.includes('ads:meta')) return 'Sophie (Meta Ads)'
+                if (r.includes('ads:google')) return 'Tom (Google Ads)'
+                if (r.includes('email:specialist')) return 'Anna (Email)'
+                if (r.includes('social:specialist')) return 'Daan (Social)'
+                if (r.includes('seo:strategist')) return 'Eva (SEO)'
                 return role
               }
               return (
                 <div className="space-y-4">
                   <h3 className="text-base font-semibold text-slate-900">Execution in Progress</h3>
+                  {isStuck && (
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                      Dit job duurt langer dan verwacht. De backend werkt mogelijk nog aan een grote campagne. Blijf de pagina verversen — bij een crash is tussentijdse content opgeslagen.
+                    </div>
+                  )}
                   <p className="text-sm text-slate-600">
                     {allPending ? 'Execution is starting… Steps will show "In progress" and "Done" as they run. You can keep chatting with Mr. Klein on the left.' : 'Assigned agents run each step in order. Status updates every 5 seconds.'}
                   </p>
