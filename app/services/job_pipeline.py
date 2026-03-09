@@ -61,11 +61,7 @@ async def _load_job(conn, job_id: str):
 async def _update_job_context(conn, job_id: str, updates: Dict[str, Any]) -> Dict[str, Any]:
     row = await conn.fetchrow("SELECT context FROM jobs WHERE id=$1", job_id)
     current = _coerce_context(row.get("context") if row else None)
-    saved_job_number = current.get("job_number")
     current.update(updates)
-    if saved_job_number:
-        current["job_number"] = saved_job_number
-    logger.info("_update_job_context for %s: job_number=%s", job_id, current.get("job_number"))
     await conn.execute(
         "UPDATE jobs SET context=$1::jsonb, updated_at=now() WHERE id=$2",
         json.dumps(current, default=_json_default),

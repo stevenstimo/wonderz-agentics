@@ -130,12 +130,9 @@ async def create_job(req: CreateJobRequest, background_tasks: BackgroundTasks):
         logger.info(f"Creating job {job_id} for user {req.user_id}")
         
         async with pool.acquire() as conn:
-            count = await conn.fetchval("SELECT COUNT(*) FROM jobs")
-            job_number = str((count or 0) + 1).zfill(4)
             context = {
                 "job_post": req.job_post,
                 "source_platform": source_platform,
-                "job_number": job_number,
             }
             await conn.execute(
                 """
@@ -220,6 +217,20 @@ def _coerce_context(raw) -> dict:
         except json.JSONDecodeError:
             return {}
     return {}
+
+
+def _job_for_response(job_row) -> dict:
+    """Prepare job dict for API response: inject job_number from job_number_int into context."""
+    d = dict(job_row)
+    jni = d.get("job_number_int")
+    ctx = _coerce_context(d.get("context"))
+    ctx = dict(ctx) if ctx else {}
+    if jni is not None:
+        ctx["job_number"] = f"{jni:04d}"
+    elif "job_number" not in ctx:
+        ctx["job_number"] = "?"
+    d["context"] = ctx
+    return d
 
 
 @router.post("/{job_id}/chat")
@@ -494,7 +505,7 @@ async def request_plan_changes(
                     detail="Job not found"
                 )
             
-            # Update job status and store feedback (use _update_job_context to preserve job_number)
+            # Update job status and store feedback
             await _update_job_context(conn, job_id, {"feedback": req.feedback})
             await conn.execute(
                 "UPDATE jobs SET status=$1, updated_at=now() WHERE id=$2",
@@ -646,15 +657,15 @@ async def list_jobs(status: Optional[str] = None, limit: int = 50):
     async with pool.acquire() as conn:
         if status:
             rows = await conn.fetch(
-                "SELECT id, user_id, job_post, status, source_platform, created_at, updated_at, tokens_used, token_budget, context FROM jobs WHERE status=$1 ORDER BY created_at DESC LIMIT $2",
+                "SELECT id, user_id, job_post, status, source_platform, created_at, updated_at, tokens_used, token_budget, context, job_number_int FROM jobs WHERE status=$1 ORDER BY created_at DESC LIMIT $2",
                 status, limit
             )
         else:
             rows = await conn.fetch(
-                "SELECT id, user_id, job_post, status, source_platform, created_at, updated_at, tokens_used, token_budget, context FROM jobs ORDER BY created_at DESC LIMIT $1",
+                "SELECT id, user_id, job_post, status, source_platform, created_at, updated_at, tokens_used, token_budget, context, job_number_int FROM jobs ORDER BY created_at DESC LIMIT $1",
                 limit
             )
-    return [dict(r) for r in rows]
+    return [_job_for_response(r) for r in rows]
 
 
 @router.get("/{job_id}")
@@ -715,7 +726,7 @@ async def get_job(job_id: str):
             )
         
         return {
-            "job": dict(job),
+            "job": _job_for_response(job),
             "clarifications": [dict(c) for c in clarifications],
             "steps": [dict(s) for s in steps],
             "artifacts": [dict(a) for a in artifacts]

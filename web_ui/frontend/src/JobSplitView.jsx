@@ -15,6 +15,14 @@ function parseContext(ctx) {
   }
 }
 
+function getOutputContent(job, context) {
+  const ctx = context || (job ? parseContext(job.context) : {})
+  return ctx?.final_content
+    || ctx?.proposed_data?.content
+    || job?.proposed_data?.content
+    || null
+}
+
 function renderMarkdown(text) {
   if (!text) return ''
   return text
@@ -581,7 +589,10 @@ export default function JobSplitView() {
               )
             })()}
 
-            {job?.status === 'JOB_READY' && (
+            {job?.status === 'JOB_READY' && (() => {
+              const content = getOutputContent(job, context)
+              const contentStr = typeof content === 'string' ? content : (content != null ? String(content) : '')
+              return (
               <div className="space-y-4">
                 <div className="rounded-lg bg-green-100 text-green-800 px-4 py-3 font-medium">Content Ready!</div>
                 {imageUrl && (
@@ -600,7 +611,7 @@ export default function JobSplitView() {
                     <button
                       type="button"
                       onClick={() => {
-                        const text = typeof context.final_content === 'string' ? context.final_content : (context.final_content != null ? JSON.stringify(context.final_content) : '')
+                        const text = typeof content === 'string' ? content : (content != null ? JSON.stringify(content) : '')
                         if (text) navigator.clipboard.writeText(text)
                       }}
                       className="text-xs font-medium text-indigo-600 hover:text-indigo-800"
@@ -609,7 +620,7 @@ export default function JobSplitView() {
                     </button>
                   </div>
                   <div className="prose prose-slate max-w-none text-slate-800 max-h-96 overflow-y-auto">
-                    <div dangerouslySetInnerHTML={{ __html: renderMarkdown(typeof context.final_content === 'string' ? context.final_content : (context.final_content != null ? String(context.final_content) : '')) || '<p class="text-slate-500">No content yet.</p>' }} />
+                    <div dangerouslySetInnerHTML={{ __html: renderMarkdown(contentStr) || '<p class="text-slate-500">No content yet.</p>' }} />
                   </div>
                 </div>
                 {artifacts?.length > 0 && (
@@ -628,9 +639,13 @@ export default function JobSplitView() {
                   </button>
                 </div>
               </div>
-            )}
+              )
+            })()}
 
-            {job?.status === 'COMPLETED' && (
+            {job?.status === 'COMPLETED' && (() => {
+              const content = getOutputContent(job, context)
+              const contentStr = typeof content === 'string' ? content : (content != null ? String(content) : '')
+              return (
               <div className="space-y-4">
                 <div className="rounded-lg bg-green-100 text-green-800 px-4 py-3 font-medium">Job Completed</div>
                 {imageUrl && (
@@ -646,7 +661,7 @@ export default function JobSplitView() {
                 <div className="rounded-xl border border-slate-200 p-4 bg-white">
                   <h3 className="text-sm font-medium text-slate-500 mb-2">Final content</h3>
                   <div className="prose prose-slate max-w-none text-slate-800 max-h-96 overflow-y-auto">
-                    <div dangerouslySetInnerHTML={{ __html: renderMarkdown(typeof context.final_content === 'string' ? context.final_content : (context.final_content != null ? String(context.final_content) : '')) || '<p class="text-slate-500">No content.</p>' }} />
+                    <div dangerouslySetInnerHTML={{ __html: renderMarkdown(contentStr) || '<p class="text-slate-500">No content.</p>' }} />
                   </div>
                 </div>
                 {context.deployment && (
@@ -657,7 +672,8 @@ export default function JobSplitView() {
                 )}
                 <button type="button" onClick={() => navigate('/job-center')} className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700">Back to Job Center</button>
               </div>
-            )}
+              )
+            })()}
 
             {job?.status === 'FAILED' && (
               <div className="space-y-4">

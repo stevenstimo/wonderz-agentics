@@ -9,7 +9,7 @@ from typing import Any, Optional
 from app.db import init_db_pool, close_db_pool
 
 # Import job flow routes
-from app.routes.jobs import router as jobs_router
+from app.routes.jobs import router as jobs_router, _job_for_response
 
 # Celery task will be imported lazily to avoid starting worker at import time
 
@@ -30,38 +30,9 @@ register_routers(app)
 app.include_router(jobs_router)
 
 
-async def _backfill_job_numbers():
-    """One-time backfill: assign job_number to jobs missing it (by created_at order)."""
-    try:
-        from app.db import _pool
-        if not _pool:
-            return
-        async with _pool.acquire() as conn:
-            await conn.execute("""
-                WITH ranked AS (
-                    SELECT id, ROW_NUMBER() OVER (ORDER BY created_at) AS rn
-                    FROM jobs
-                ),
-                to_update AS (
-                    SELECT id, rn FROM ranked
-                    WHERE id IN (
-                        SELECT id FROM jobs
-                        WHERE context::jsonb->>'job_number' IS NULL OR context::jsonb->>'job_number' = ''
-                    )
-                )
-                UPDATE jobs j
-                SET context = COALESCE(j.context, '{}'::jsonb) || jsonb_build_object('job_number', LPAD(t.rn::text, 4, '0'))
-                FROM to_update t WHERE j.id = t.id
-            """)
-    except Exception as e:
-        import logging
-        logging.getLogger(__name__).warning("Backfill job_numbers failed: %s", e)
-
-
 @app.on_event("startup")
 async def on_startup():
     await init_db_pool()
-    await _backfill_job_numbers()
 
 
 @app.on_event("shutdown")
@@ -85,7 +56,7 @@ async def job_progress_ws(websocket: WebSocket, job_id: str):
         while True:
             async with _pool.acquire() as conn:
                 job_row = await conn.fetchrow(
-                    "SELECT id, status, context, updated_at FROM jobs WHERE id=$1",
+                    "SELECT id, status, context, updated_at, job_number_int FROM jobs WHERE id=$1",
                     job_id
                 )
                 if not job_row:
@@ -114,7 +85,7 @@ async def job_progress_ws(websocket: WebSocket, job_id: str):
                     )
                     await websocket.send_json({
                         "type": "job_update",
-                        "job": dict(job_row),
+                        "job": _job_for_response(job_row),
                         "steps": [dict(s) for s in steps]
                     })
                     last_job_updated_at = job_row.get("updated_at")
@@ -198,7 +169,8 @@ async def get_job_legacy(job_id: str):
                 token_budget,
                 tokens_used,
                 token_limit_exceeded_at,
-                token_used_total
+                token_used_total,
+                job_number_int
             FROM jobs
             WHERE id=$1
             """,
@@ -206,7 +178,7 @@ async def get_job_legacy(job_id: str):
         )
         if not row:
             raise HTTPException(status_code=404, detail="job not found")
-        return dict(row)
+        return _job_for_response(row)
 
 
 from fastapi import Request

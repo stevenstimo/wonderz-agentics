@@ -18,6 +18,14 @@ const STATUS_BADGE = {
   CANCELLED: 'bg-gray-100 text-gray-600',
 }
 
+function getOutputContent(job, context) {
+  const ctx = context || {}
+  return ctx?.final_content
+    || ctx?.proposed_data?.content
+    || job?.proposed_data?.content
+    || null
+}
+
 function StatusBadge({ status }) {
   const cls = STATUS_BADGE[status] || 'bg-gray-100 text-gray-700'
   return (
@@ -487,14 +495,17 @@ export default function JobDetail() {
       )}
 
       {/* JOB_READY: chat read-only, Content Ready! banner, final_content, Approve & Request Revisions */}
-      {job?.status === 'JOB_READY' && (
+      {job?.status === 'JOB_READY' && (() => {
+        const content = getOutputContent(job, context)
+        const contentStr = typeof content === 'string' ? content : (content != null ? String(content) : '')
+        return (
         <>
           <ChatHistoryReadOnly chatHistory={chatHistory} />
           <div className="panel-card space-y-4">
             <div className="rounded-lg bg-green-100 text-green-800 px-4 py-3 font-medium">Content Ready!</div>
             <div className="rounded-lg border border-slate-200 p-4 bg-white">
               <h3 className="text-sm font-medium text-slate-500 mb-2">Final content</h3>
-              <div className="text-slate-800 whitespace-pre-wrap">{typeof context.final_content === 'string' ? context.final_content : (context.final_content != null ? JSON.stringify(context.final_content) : 'No content yet.')}</div>
+              <div className="text-slate-800 whitespace-pre-wrap">{contentStr || 'No content yet.'}</div>
             </div>
             {artifacts?.length > 0 && (
               <ul className="space-y-2">
@@ -545,17 +556,21 @@ export default function JobDetail() {
             )}
           </div>
         </>
-      )}
+        )
+      })()}
 
       {/* COMPLETED: Job Completed banner, final content, deployment info */}
-      {job?.status === 'COMPLETED' && (
+      {job?.status === 'COMPLETED' && (() => {
+        const content = getOutputContent(job, context)
+        const contentStr = typeof content === 'string' ? content : (content != null ? String(content) : '')
+        return (
         <>
           <ChatHistoryReadOnly chatHistory={chatHistory} />
           <div className="panel-card space-y-4">
             <div className="rounded-lg bg-green-100 text-green-800 px-4 py-3 font-medium">Job Completed</div>
             <div className="rounded-lg border border-slate-200 p-4 bg-white">
               <h3 className="text-sm font-medium text-slate-500 mb-2">Final content</h3>
-              <div className="text-slate-800 whitespace-pre-wrap">{typeof context.final_content === 'string' ? context.final_content : (context.final_content != null ? JSON.stringify(context.final_content) : '')}</div>
+              <div className="text-slate-800 whitespace-pre-wrap">{contentStr}</div>
             </div>
             {context.deployment && (
               <div className="rounded-lg border border-slate-200 p-4 bg-slate-50">
@@ -565,7 +580,8 @@ export default function JobDetail() {
             )}
           </div>
         </>
-      )}
+        )
+      })()}
 
       {/* FAILED: error, Retry button */}
       {job?.status === 'FAILED' && (

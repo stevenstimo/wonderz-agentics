@@ -215,15 +215,12 @@ class OperationsManager:
     # ============ Context Storage ============
 
     async def store_job_context(self, conn: asyncpg.Connection, job_id: str, data: Dict[str, Any]):
-        """Store or update job context data (brief, plan, answers, etc.). Preserves job_number."""
+        """Store or update job context data (brief, plan, answers, etc.)."""
         existing = await self.get_job_context(conn, job_id)
-        saved_job_number = existing.get("job_number") if existing else None
         if existing:
             existing.update(data)
         else:
             existing = data
-        if saved_job_number:
-            existing["job_number"] = saved_job_number
 
         await conn.execute(
             "UPDATE jobs SET context=$1::jsonb, updated_at=now() WHERE id=$2",

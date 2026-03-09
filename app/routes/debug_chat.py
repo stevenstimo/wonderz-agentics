@@ -55,8 +55,8 @@ def _parse_context(ctx: Any) -> dict:
 
 def _format_job_context(job: dict, steps: list, clarifications: list) -> str:
     """Build a clear db_context string for Claude from job, steps, clarifications."""
-    ctx = _parse_context(job.get("context"))
-    job_number = ctx.get("job_number", "?")
+    jni = job.get("job_number_int")
+    job_number = f"{jni:04d}" if jni is not None else "?"
     step_details = ""
     for s in steps:
         output = s.get("output")
@@ -144,13 +144,13 @@ async def _gather_context(conn, message: str) -> tuple[dict, dict]:
             query_results["clarifications_count"] = len(clarifications)
             return db_context, query_results
 
-    # #NNNN: job by job_number in context (supports #126, #0126, etc.)
+    # #NNNN: job by job_number_int (supports #126, #0126, etc.)
     number_match = re.search(r"#(\d{1,6})", message)
     if number_match:
-        job_number = number_match.group(1).zfill(4)
+        job_number_int = int(number_match.group(1))
         job = await conn.fetchrow(
-            "SELECT * FROM jobs WHERE context::jsonb->>'job_number' = $1 ORDER BY created_at DESC LIMIT 1",
-            job_number,
+            "SELECT * FROM jobs WHERE job_number_int = $1 ORDER BY created_at DESC LIMIT 1",
+            job_number_int,
         )
         if job:
             job_id = str(job["id"])
@@ -163,7 +163,7 @@ async def _gather_context(conn, message: str) -> tuple[dict, dict]:
                 job_id,
             )
             db_context = _format_job_context(job_d, [_row_to_dict(s) for s in steps], clarifications)
-            query_results["job_number"] = job_number
+            query_results["job_number"] = f"{job_number_int:04d}"
             query_results["steps_count"] = len(steps)
             query_results["clarifications_count"] = len(clarifications)
             return db_context, query_results
