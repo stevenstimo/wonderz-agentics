@@ -33,3 +33,4 @@ agency-agents-source-new/
 agency-agents.zip
 .env.vm
 .env
+debug-*.log
