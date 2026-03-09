@@ -40,7 +40,7 @@ const WORKSPACE = [
 const MANAGEMENT = [
   { label: 'Crew', icon: UsersRound, path: '/crew' },
   { label: 'Agents', icon: Users, path: '/agents' },
-  { label: 'Talents', icon: Star, path: '/talents' },
+  { label: 'Newbies', icon: Star, path: '/newbies' },
   { label: 'Training Hub', icon: GraduationCap, path: '/training' },
   { label: 'Skills Library', icon: BookOpen, path: '/skills-library' },
   { label: 'Improvements', icon: TrendingUp, path: '/hr/improvements' },

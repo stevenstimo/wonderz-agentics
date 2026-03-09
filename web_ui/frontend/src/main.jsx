@@ -18,7 +18,7 @@ import ExplainerPersona from './ExplainerPersona.jsx'
 import ExplainerCrew from './ExplainerCrew.jsx'
 import DeveloperBot from './DeveloperBot.jsx'
 import DevbotHome from './DevbotHome.jsx'
-import TalentOverview from './TalentOverview.jsx'
+import Newbies from './Newbies.jsx'
 import Settings from './Settings.jsx'
 import Status from './Status.jsx'
 import MyAccount from './MyAccount.jsx'
@@ -70,7 +70,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <Route path="/inbox" element={<AgentInbox />} />
           <Route path="/devbot" element={<DevbotHome />} />
           <Route path="/hiring" element={<HiringHall onHire={() => {}} />} />
-          <Route path="/talents" element={<TalentOverview />} />
+          <Route path="/newbies" element={<Newbies />} />
+          <Route path="/talents" element={<Navigate to="/newbies" replace />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/status" element={<Status />} />
           <Route path="/my-account" element={<MyAccount />} />
