@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Plus, GraduationCap, UserPlus } from 'lucide-react'
 import PageLayout from './PageLayout'
 import { apiUrl } from './apiClient'
-import { getCurrentUserRole, isSuperAdmin } from './authz'
+import { getCurrentUserRole, isAdmin } from './authz'
 
 const CATEGORIES = [
   { key: 'score_management', label: 'Management', apiValue: 'management' },
@@ -57,7 +57,7 @@ export default function Newbies() {
   const [trainForm, setTrainForm] = useState({ source_url: '', category: 'management' })
   const [training, setTraining] = useState(false)
 
-  const canEdit = isSuperAdmin(userRole)
+  const canEdit = isAdmin(userRole)
 
   const fetchNewbies = async () => {
     setLoading(true)

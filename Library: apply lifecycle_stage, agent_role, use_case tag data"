@@ -1,0 +1,24 @@
+                         skill_id                          |                            name                             |   domain    |          created_at           
+-----------------------------------------------------------+-------------------------------------------------------------+-------------+-------------------------------
+ jurisdiction-specific-legal-pages-compliance-matrix-eu-uk | Jurisdiction-Specific Legal Pages Compliance Matrix (EU/UK) | operations  | 2026-03-09 20:52:37.058959+00
+ marketing-claims-compliance-screening-regulated-markets   | Marketing Claims Compliance Screening (Regulated Markets)   | copywriting | 2026-03-09 20:52:37.057992+00
+ regulated-market-authorization-status-verification        | Regulated Market Authorization Status Verification          | strategy    | 2026-03-09 20:52:37.05645+00
+ phase-gated-launch-validation-checklist                   | Phase-Gated Launch Validation Checklist                     | strategy    | 2026-03-09 20:51:12.598239+00
+ channel-selection-prioritization-for-market-entry         | Channel Selection & Prioritization for Market Entry         | strategy    | 2026-03-09 20:48:47.19764+00
+ go-to-market-positioning-statement                        | Go-to-Market Positioning Statement                          | strategy    | 2026-03-09 20:47:46.675786+00
+ som-assumptions-validation-checklist                      | SOM Assumptions Validation Checklist                        | strategy    | 2026-03-09 20:47:02.879088+00
+ gtm-budget-sizing-from-som                                | GTM Budget Sizing from SOM                                  | strategy    | 2026-03-09 20:47:02.877615+00
+ market-sizing-tam-sam-som-framework                       | Market Sizing & TAM/SAM/SOM Framework                       | strategy    | 2026-03-09 20:47:02.873527+00
+ content-repurposing-multi-format-adaptation               | Content Repurposing & Multi-Format Adaptation               | structure   | 2026-03-09 00:55:48.032167+00
+ design-brief-translation-from-content                     | Design Brief Translation from Content                       | structure   | 2026-03-09 00:55:48.031219+00
+ client-ready-output-presentation                          | Client-Ready Output Presentation                            | management  | 2026-03-09 00:55:48.030083+00
+ brand-voice-creation-from-scratch                         | Brand Voice Creation from Scratch                           | voice       | 2026-03-09 00:55:48.026089+00
+ conversion-focused-copy-evaluation                        | Conversion-Focused Copy Evaluation                          | copywriting | 2026-03-09 00:55:48.025107+00
+ research-brief-synthesis                                  | Research Brief Synthesis                                    | research    | 2026-03-09 00:55:48.021697+00
+ keyword-scoring-prioritization-model                      | Keyword Scoring & Prioritization Model                      | seo         | 2026-03-09 00:21:24.626136+00
+ e-e-a-t-for-ymyl-high-competition-topics                  | E-E-A-T for YMYL & High-Competition Topics                  | quality     | 2026-03-09 00:21:24.625202+00
+ competitive-keyword-gap-analysis                          | Competitive Keyword Gap Analysis                            | seo         | 2026-03-09 00:21:24.624163+00
+ keyword-mapping-content-assignment-framework              | Keyword Mapping & Content Assignment Framework              | seo         | 2026-03-09 00:21:24.620809+00
+ quick-win-keyword-prioritization-positions-8-20           | Quick-Win Keyword Prioritization (Positions 8-20)           | seo         | 2026-03-09 00:21:24.619743+00
+(20 rows)
+
