@@ -1,15 +1,18 @@
 """
 GTM Agent — Growth, Marketing & Go-To-Market specialist.
 Combineert Growth Hacker + Content Creator + Trend Researcher + Feedback Synthesizer.
+Skills injection: loads relevant skills from library before each task.
 """
 import asyncio
 import json
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from anthropic import Anthropic
 
 from app.config.gtm_platforms import get_platform_context
+from app.database import get_db
+from app.utils.skills_context import build_skills_context
 
 logger = logging.getLogger(__name__)
 
@@ -76,15 +79,32 @@ async def run_gtm_agent(
     Voer GTM Agent uit voor een specifieke taak.
 
     Returns:
-        dict met 'output', 'evidence', 'next_steps', 'metrics_to_track'
+        dict met 'output', 'evidence', 'next_steps', 'metrics_to_track', 'skills_applied', 'skill_ids_used'
     """
     platform_config = get_platform_context(platform)
 
-    # Bouw system prompt met platform context
+    # Step 1: Fetch relevant skills from library
+    skills_context = ""
+    skill_ids_used: List[str] = []
+    try:
+        pool = await get_db()
+        skills_context, skill_ids_used = await build_skills_context(
+            pool=pool,
+            task_description=job_brief,
+            domain="strategy",
+            limit=5,
+        )
+    except Exception as e:
+        logger.warning("Skills context fetch failed: %s; continuing without skills", e)
+
+    # Bouw system prompt met platform context + skills
     system = (
         GTM_SYSTEM_PROMPT
         + f"\n\n## Platform Context\n{json.dumps(platform_config, indent=2, ensure_ascii=False)}"
     )
+    if skills_context:
+        system = system + "\n\n" + skills_context
+        logger.info("GTM Agent: injected %d skills: %s", len(skill_ids_used), skill_ids_used)
 
     # Bouw user prompt op basis van taaktype
     task_prompts = {
@@ -184,4 +204,6 @@ Lever JSON op met:
         "next_steps": output.get("week_1_actions", output.get("quick_wins", [])),
         "metrics_to_track": output.get("success_metrics", {}),
         "tokens_used": tokens_used,
+        "skills_applied": bool(skill_ids_used),
+        "skill_ids_used": skill_ids_used,
     }

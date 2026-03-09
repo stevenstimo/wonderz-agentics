@@ -348,6 +348,33 @@ class ChatRequest(BaseModel):
 # --- Endpoints ---
 
 
+@router.post("/relevant")
+async def get_relevant_skills_endpoint(payload: dict):
+    """
+    Given a task description, return relevant skills from the library.
+    Used by agents (e.g. GTM) to load skills before executing a task.
+
+    Payload: task_description (str), domain (str, optional), limit (int, default 5)
+    Returns: { skills: [...], skill_ids: [...] }
+    """
+    task_description = payload.get("task_description", "")
+    domain_filter = payload.get("domain")
+    limit = payload.get("limit", 5)
+    if limit > 10:
+        limit = 10
+
+    pool = await get_db()
+    from app.utils.skills_context import get_relevant_skills
+
+    result = await get_relevant_skills(
+        pool=pool,
+        task_description=task_description,
+        domain=domain_filter,
+        limit=limit,
+    )
+    return result
+
+
 @router.post("/upload")
 async def upload_document(file: UploadFile = File(...)):
     """Accept a document (PDF, Excel, CSV, Word, txt, md, .skill); extract text; store and trigger analysis."""

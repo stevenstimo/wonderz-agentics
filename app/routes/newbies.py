@@ -5,6 +5,7 @@ Training: URL → score per category. readiness_score = avg(4 scores). status=re
 """
 
 import json
+import os
 import re
 import uuid
 import logging
@@ -274,6 +275,72 @@ async def train_newbie(newbie_id: str, req: TrainNewbieRequest):
     return _row_to_dict(row)
 
 
+SYSTEM_PROMPT_MODEL = "claude-3-haiku-20240307"
+
+
+async def _generate_system_prompt_via_claude(
+    newbie_name: str,
+    persona: str,
+    qualities: str,
+    development: str,
+    role: str,
+) -> str:
+    """Generate system_prompt via Claude API. Uses claude-3-haiku for speed + cost.
+    No silent fallback: raises if API key missing or API call fails."""
+    logger.info("Calling Claude API for system_prompt...")
+    api_key = (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
+    if not api_key:
+        logger.error("ANTHROPIC_API_KEY not set in hire context; cannot generate system_prompt")
+        raise ValueError(
+            "ANTHROPIC_API_KEY is not set. System prompt generation requires the Anthropic API. "
+            "Set the key in your environment or pass system_prompt explicitly in the hire request."
+        )
+
+    from anthropic import Anthropic
+
+    system_instruction = (
+        "Genereer een system_prompt voor een AI agent. "
+        "Verwerk het karakter en de toon van de persona in de werkwijze. "
+        "Max 400 woorden. Schrijf in de tweede persoon (Jij bent...)."
+    )
+    user_content = f"""Naam: {newbie_name}
+Rol: {role}
+
+Persona (wie is hij/zij?):
+{persona or '(niet opgegeven)'}
+
+Kwaliteiten (waar is hij/zij goed in?):
+{qualities or '(niet opgegeven)'}
+
+Ontwikkelpunten (wat moet nog groeien?):
+{development or '(niet opgegeven)'}
+
+Output alleen de system_prompt, geen uitleg of markdown."""
+
+    try:
+        client = Anthropic()
+        response = client.messages.create(
+            model=SYSTEM_PROMPT_MODEL,
+            max_tokens=1024,
+            system=system_instruction,
+            messages=[{"role": "user", "content": user_content}],
+        )
+        text = (response.content[0].text if response.content else "").strip()
+        if not text:
+            logger.error("Claude API returned empty system_prompt for %s (role=%s)", newbie_name, role)
+            raise ValueError("Claude API returned empty system_prompt")
+        logger.info("Hire system_prompt generated for %s (role=%s):\n%s", newbie_name, role, text)
+        return text
+    except ValueError:
+        raise
+    except Exception as e:
+        logger.exception("Claude API failed for system_prompt generation: %s", e)
+        raise RuntimeError(
+            f"System prompt generation failed: {e}. "
+            "Pass system_prompt explicitly in the hire request to bypass Claude."
+        ) from e
+
+
 class HireNewbieRequest(BaseModel):
     role: Optional[str] = None  # defaults to suggested_role or "custom"
     system_prompt: Optional[str] = None  # defaults to persona + qualities + development
@@ -302,12 +369,19 @@ async def hire_newbie(newbie_id: str, req: HireNewbieRequest = HireNewbieRequest
         role = req.role or row.get("suggested_role") or "custom"
         system_prompt = req.system_prompt
         if not system_prompt:
-            parts = [
-                row.get("persona") or "",
-                f"\n\nQualities: {row.get('qualities') or ''}",
-                f"\n\nDevelopment: {row.get('development') or ''}",
-            ]
-            system_prompt = "".join(parts).strip() or "Agent persona."
+            try:
+                system_prompt = await _generate_system_prompt_via_claude(
+                    newbie_name=name,
+                    persona=row.get("persona") or "",
+                    qualities=row.get("qualities") or "",
+                    development=row.get("development") or "",
+                    role=role,
+                )
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+            except RuntimeError as e:
+                raise HTTPException(status_code=503, detail=str(e))
+            logger.info("Hire newbie %s: system_prompt (length=%d):\n%s", newbie_id, len(system_prompt), system_prompt)
         goal = req.goal or f"Execute tasks as {name}."
         tool_json = json.dumps(req.tool_whitelist or [])
         knowledge_json = json.dumps(req.knowledge_sources or [])
@@ -315,7 +389,9 @@ async def hire_newbie(newbie_id: str, req: HireNewbieRequest = HireNewbieRequest
         agent_id = f"agent:{role.lower().replace(' ', '-')[:20]}-{uuid.uuid4().hex[:8]}"
         now = datetime.now(timezone.utc)
 
-        existing = await conn.fetchrow("SELECT agent_id FROM hired_agents WHERE name = $1", name)
+        existing = await conn.fetchrow(
+            "SELECT agent_id FROM hired_agents WHERE name = $1 AND is_active = true", name
+        )
         if existing:
             raise HTTPException(
                 status_code=409,
