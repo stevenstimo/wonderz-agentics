@@ -29,3 +29,5 @@ output/
 
 # Temporary clone for agency-agents conversion
 agency-agents-source/
+.env.vm
+.env
