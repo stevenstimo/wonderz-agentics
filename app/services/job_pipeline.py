@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from app.db import init_db_pool
 from app.database import get_db
 from app.orchestration.intake_engine import IntakeEngine
+from app.utils.job_file_generator import generate_job_artifact, parse_output_to_sections
 from app.orchestration.strategy_room import StrategyRoom
 from models.unified import JobStatus, ExecutionPlan
 
@@ -42,6 +43,65 @@ def _json_default(obj: Any) -> Any:
     if isinstance(obj, (date, datetime)):
         return obj.isoformat()
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
+
+async def _maybe_generate_job_artifact(
+    conn,
+    job_id: str,
+    context: Dict[str, Any],
+    completed_steps: list,
+    last_content: Optional[str],
+    job_post: str,
+) -> None:
+    """Generate Word docx from job output when content is available. Non-blocking on error."""
+    try:
+        sections: List[Dict[str, str]] = []
+        step_outputs = []
+        for s in completed_steps:
+            out = s.get("output") if isinstance(s, dict) else None
+            if isinstance(out, str):
+                try:
+                    out = json.loads(out)
+                except json.JSONDecodeError:
+                    out = {}
+            if isinstance(out, dict) and (out.get("content") or out.get("review")):
+                step_outputs.append({
+                    "step_name": (s.get("step_name") or s.get("agent_role") or "Output") if isinstance(s, dict) else "Output",
+                    "content": out.get("content") or out.get("review", ""),
+                })
+
+        if len(step_outputs) > 1:
+            sections = [{"heading": so["step_name"], "body": so["content"]} for so in step_outputs]
+        elif last_content:
+            sections = parse_output_to_sections(last_content)
+
+        if not sections:
+            return
+
+        brief = context.get("brief") or {}
+        if isinstance(brief, dict):
+            brand = brief.get("brand") or brief.get("company") or ""
+        else:
+            brand = ""
+        if not brand:
+            brand = (job_post or "")[:50] or "Wonderz"
+        job_title = "GTM_Strategie" if len(step_outputs) > 1 else "Content"
+        content = {
+            "title": (job_post or "Rapport")[:80],
+            "brand": brand,
+            "date": __import__("datetime").datetime.now().strftime("%d %B %Y"),
+            "sections": sections,
+        }
+        await generate_job_artifact(
+            conn=conn,
+            job_id=job_id,
+            content=content,
+            file_type="docx",
+            brand_name=brand,
+            job_title=job_title,
+        )
+    except Exception as e:
+        logger.warning("Job artifact generation skipped for %s: %s", job_id, e)
 
 
 async def _get_pool():
@@ -756,6 +816,7 @@ async def run_job_inline(job_id: str, context_extra: Optional[dict] = None):
                 async with pool_ready.acquire() as conn:
                     logger.info("Storing final_content for job %s", job_id_str)
                     await _update_job_context(conn, job_id_str, {"final_content": last_content or "No content produced"})
+                    await _maybe_generate_job_artifact(conn, job_id_str, context or {}, completed_steps, last_content, job.get("job_post", ""))
                     logger.info("Updating status to JOB_READY for job %s", job_id_str)
                     result = await conn.execute(
                         "UPDATE jobs SET status='JOB_READY', updated_at=now() WHERE id=$1",

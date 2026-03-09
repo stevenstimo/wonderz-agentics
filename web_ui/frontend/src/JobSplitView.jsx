@@ -658,6 +658,21 @@ export default function JobSplitView() {
                     <div dangerouslySetInnerHTML={{ __html: renderMarkdown(contentStr) || '<p class="text-slate-500">No content yet.</p>' }} />
                   </div>
                 </div>
+                {job?.file_artifact_name && (
+                  <div className="flex items-center justify-between rounded-xl border border-slate-200 p-4 bg-slate-50">
+                    <div className="flex items-center gap-2 text-slate-700">
+                      <span className="text-lg">{job.file_artifact_type === 'xlsx' ? '📊' : '📄'}</span>
+                      <span className="text-sm font-medium">{job.file_artifact_name}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => window.open(apiUrl(`/api/jobs/${jobId}/download`), '_blank')}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700"
+                    >
+                      Download {job.file_artifact_type === 'xlsx' ? 'Excel' : 'Word'}
+                    </button>
+                  </div>
+                )}
                 {artifacts?.length > 0 && (
                   <ul className="space-y-2">
                     {artifacts.map((a) => (
@@ -691,6 +706,21 @@ export default function JobSplitView() {
                       className="w-full rounded-xl"
                       loading="eager"
                     />
+                  </div>
+                )}
+                {job?.file_artifact_name && (
+                  <div className="flex items-center justify-between rounded-xl border border-slate-200 p-4 bg-slate-50">
+                    <div className="flex items-center gap-2 text-slate-700">
+                      <span className="text-lg">{job.file_artifact_type === 'xlsx' ? '📊' : '📄'}</span>
+                      <span className="text-sm font-medium">{job.file_artifact_name}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => window.open(apiUrl(`/api/jobs/${jobId}/download`), '_blank')}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700"
+                    >
+                      Download {job.file_artifact_type === 'xlsx' ? 'Excel' : 'Word'}
+                    </button>
                   </div>
                 )}
                 <div className="rounded-xl border border-slate-200 p-4 bg-white">

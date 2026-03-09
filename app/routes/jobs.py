@@ -18,6 +18,7 @@ import logging
 from datetime import datetime
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Depends, status, BackgroundTasks
+from fastapi.responses import FileResponse
 from pydantic import ValidationError
 
 from app.database import get_db
@@ -237,6 +238,7 @@ def _coerce_context(raw) -> dict:
 def _job_for_response(job_row) -> dict:
     """Prepare job dict for API response: inject job_number from job_number_int into context."""
     d = dict(job_row)
+    d.pop("file_artifact_path", None)  # Don't expose server path to frontend
     jni = d.get("job_number_int")
     ctx = _coerce_context(d.get("context"))
     ctx = dict(ctx) if ctx else {}
@@ -681,6 +683,33 @@ async def list_jobs(status: Optional[str] = None, limit: int = 50):
                 limit
             )
     return [_job_for_response(r) for r in rows]
+
+
+@router.get("/{job_id}/download")
+async def download_job_artifact(job_id: str):
+    """Download Word/Excel artifact for a completed job."""
+    job_id = _validate_job_id(job_id)
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT file_artifact_path, file_artifact_name, file_artifact_type FROM jobs WHERE id=$1",
+            job_id,
+        )
+    if not row or not row.get("file_artifact_path"):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Geen bestand beschikbaar voor deze job")
+    path = row["file_artifact_path"]
+    if not os.path.exists(path):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Bestand niet gevonden op server")
+    media_types = {
+        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "pdf": "application/pdf",
+    }
+    return FileResponse(
+        path=path,
+        filename=row.get("file_artifact_name", "artifact"),
+        media_type=media_types.get(row.get("file_artifact_type", ""), "application/octet-stream"),
+    )
 
 
 @router.get("/{job_id}")
