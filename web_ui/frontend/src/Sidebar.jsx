@@ -196,7 +196,7 @@ export default function Sidebar() {
       </button>
 
       <aside
-        className={`fixed top-[var(--top-header-height,56px)] left-0 z-30 w-56 h-[calc(100vh-var(--top-header-height,56px))] bg-slate-900 flex flex-col overflow-y-auto overflow-x-hidden border-r border-slate-800 transition-transform duration-200 lg:translate-x-0 ${
+        className={`fixed lg:relative top-[var(--top-header-height,56px)] lg:top-auto left-0 z-30 w-56 h-[calc(100vh-var(--top-header-height,56px))] lg:h-full bg-slate-900 flex flex-col overflow-y-auto overflow-x-hidden border-r border-slate-800 transition-transform duration-200 lg:translate-x-0 ${
           mobileOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >

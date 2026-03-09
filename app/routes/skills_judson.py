@@ -85,9 +85,11 @@ async def _ensure_judson_schema(conn) -> None:
                 analysis jsonb DEFAULT '{}',
                 proposed_skills jsonb DEFAULT '[]',
                 status text DEFAULT 'pending',
+                source_type text DEFAULT 'document',
                 created_at timestamptz DEFAULT now()
             )
         """)
+        await conn.execute("ALTER TABLE skill_uploads ADD COLUMN IF NOT EXISTS source_type text DEFAULT 'document'")
         _judson_init_done = True
     except Exception as e:
         logger.warning("Judson schema init: %s", e)
@@ -99,7 +101,61 @@ def _slug(s: str) -> str:
     return s.strip("-") or "skill"
 
 
+ALLOWED_EXTENSIONS = {"pdf", "xlsx", "xls", "csv", "docx", "txt", "md", "skill"}
 ALLOWED_SKILL_TYPES = ("technique", "checklist", "voice", "anti-patterns")
+
+
+def _parse_document(filename: str, raw: bytes) -> str:
+    """Extract text from uploaded file. .skill is plain markdown."""
+    ext = (filename or "").lower().split(".")[-1] if "." in (filename or "") else ""
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=422, detail=f"File type .{ext} not allowed")
+    if ext == "pdf":
+        try:
+            import pdfplumber
+            import tempfile
+            import os as _os
+            with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+                tmp.write(raw)
+                tmp.flush()
+            try:
+                with pdfplumber.open(tmp.name) as pdf:
+                    return "\n".join((p.extract_text() or "") for p in pdf.pages)
+            finally:
+                _os.unlink(tmp.name)
+        except ImportError:
+            return ""
+    if ext in ("txt", "md", "skill"):
+        try:
+            import chardet
+            detected = chardet.detect(raw)
+            encoding = detected.get("encoding") or "utf-8"
+            return raw.decode(encoding, errors="replace")
+        except ImportError:
+            return raw.decode("utf-8", errors="replace")
+    if ext == "csv":
+        return raw.decode("utf-8", errors="replace")
+    if ext == "docx":
+        try:
+            import docx
+            import io
+            doc = docx.Document(io.BytesIO(raw))
+            return "\n".join(p.text for p in doc.paragraphs)
+        except ImportError:
+            return raw.decode("utf-8", errors="replace")
+    if ext in ("xlsx", "xls"):
+        try:
+            import io
+            import openpyxl
+            wb = openpyxl.load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+            parts = []
+            for sheet in wb.worksheets:
+                for row in sheet.iter_rows(values_only=True):
+                    parts.append("\t".join(str(c) if c is not None else "" for c in row))
+            return "\n".join(parts)
+        except Exception:
+            return raw.decode("utf-8", errors="replace")
+    return raw.decode("utf-8", errors="replace")
 
 
 def _normalize_applicable_to(applicable_to: Any) -> List[str]:
@@ -144,46 +200,33 @@ class ChatRequest(BaseModel):
 
 @router.post("/upload")
 async def upload_document(file: UploadFile = File(...)):
-    """Accept a document (PDF, txt, md, doc); extract text; store and trigger analysis."""
+    """Accept a document (PDF, Excel, CSV, Word, txt, md, .skill); extract text; store and trigger analysis."""
     pool = await get_db()
     async with pool.acquire() as conn:
         await _ensure_judson_schema(conn)
-        content_text = ""
         filename = file.filename or "document"
         try:
             raw = await file.read()
-            if filename.lower().endswith(".pdf"):
-                try:
-                    import pdfplumber
-                    import tempfile
-                    import os as _os
-                    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-                        tmp.write(raw)
-                        tmp.flush()
-                    try:
-                        with pdfplumber.open(tmp.name) as pdf:
-                            content_text = "\n".join(
-                                (p.extract_text() or "") for p in pdf.pages
-                            )
-                    finally:
-                        _os.unlink(tmp.name)
-                except ImportError:
-                    content_text = ""
-            else:
-                content_text = raw.decode("utf-8", errors="replace")
+            content_text = _parse_document(filename, raw)
+        except HTTPException:
+            raise
         except Exception as e:
             logger.exception("Upload read failed: %s", e)
             raise HTTPException(status_code=400, detail="Failed to read file")
 
+        ext = (filename or "").lower().split(".")[-1] if "." in (filename or "") else ""
+        source_type = "skill_definition" if ext == "skill" else "document"
+
         upload_id = str(uuid.uuid4())
         await conn.execute(
             """
-            INSERT INTO skill_uploads (id, filename, content_text, status)
-            VALUES ($1, $2, $3, 'pending')
+            INSERT INTO skill_uploads (id, filename, content_text, status, source_type)
+            VALUES ($1, $2, $3, 'pending', $4)
             """,
             upload_id,
             filename,
             content_text,
+            source_type,
         )
     return {"upload_id": upload_id, "filename": filename, "status": "analyzing"}
 

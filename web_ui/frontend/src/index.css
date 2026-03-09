@@ -95,22 +95,12 @@ code {
 }
 
 
-.app-shell {
-  padding-top: var(--top-header-height);
-  min-height: 100vh;
-  background-color: #f8fafc;
-}
+/* Layout: sidebar + topbar + content handled by CommandCenter flex structure */
 
 .top-header {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: var(--top-header-height);
-  z-index: 50;
-  background: #ffffff;
-  border-bottom: 1px solid #e2e8f0;
-  backdrop-filter: blur(8px);
+  height: 100%;
+  width: 100%;
+  background: transparent;
 }
 
 .top-header-inner {

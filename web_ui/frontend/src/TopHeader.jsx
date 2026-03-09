@@ -66,8 +66,7 @@ export default function TopHeader() {
   const avatarUrl = getAvatarUrl(user)
 
   return (
-    <header className="top-header">
-      <div className="w-full h-full flex items-center justify-end pr-4 lg:pr-6 gap-3">
+    <div className="top-header w-full h-full flex items-center justify-end pr-4 lg:pr-6 gap-3">
       <Link to="/status" title="Open status dashboard" className="flex items-center gap-2 text-slate-500 hover:text-slate-700">
         <span
           className={`inline-block w-2.5 h-2.5 rounded-full flex-shrink-0 ${
@@ -99,7 +98,6 @@ export default function TopHeader() {
           </div>
         )}
       </button>
-      </div>
-    </header>
+    </div>
   )
 }

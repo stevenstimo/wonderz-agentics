@@ -1,5 +1,3 @@
-import Sidebar from './Sidebar'
-
 const SIZE_CLASS = {
   none: '',
   narrow: 'max-w-4xl mx-auto',
@@ -19,15 +17,12 @@ export default function PageLayout({
   const wrapperClass = [sizeClass, paddingClass, className].filter(Boolean).join(' ')
 
   return (
-    <>
-      <Sidebar />
-      <main className="min-h-screen bg-slate-50 w-full ml-0 lg:ml-56">
-        {wrapperClass ? (
-          <div className={wrapperClass}>{children}</div>
-        ) : (
-          children
-        )}
-      </main>
-    </>
+    <div className="min-h-full w-full">
+      {wrapperClass ? (
+        <div className={wrapperClass}>{children}</div>
+      ) : (
+        children
+      )}
+    </div>
   )
 }

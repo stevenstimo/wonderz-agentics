@@ -341,12 +341,15 @@ export default function SkillsLibrary() {
                 type="file"
                 ref={fileInputRef}
                 onChange={handleFileSelect}
-                accept=".pdf,.txt,.md,.doc"
+                accept=".pdf,.xlsx,.xls,.csv,.docx,.txt,.md,.skill"
                 className="hidden"
               />
               <Upload className="w-5 h-5 text-slate-500" />
-              <span className="text-sm text-slate-600">Drop a PDF or click to upload</span>
+              <span className="text-sm text-slate-600">Drop a document or click to upload</span>
             </div>
+            <p className="text-xs text-slate-500 mt-1">
+              Ondersteund: PDF, Excel (.xlsx, .xls), CSV, Word (.docx), Markdown (.md), Skill files (.skill)
+            </p>
           </div>
 
           {/* Chat input - match JobSplitView */}
@@ -405,39 +408,41 @@ export default function SkillsLibrary() {
               <p className="text-slate-500 text-sm">No skills yet. Upload a document or ask Judson.</p>
             )}
             {!loading && skills.length > 0 && (
-              <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 overflow-hidden min-w-0">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 overflow-hidden min-w-0">
                 {skills.map((skill) => (
                   <div
                     key={skill.skill_id}
                     onClick={() => setSelectedSkill(selectedSkill?.skill_id === skill.skill_id ? null : skill)}
-                    className="rounded-xl border border-slate-200 p-4 bg-white hover:shadow-md hover:border-slate-300 transition cursor-pointer text-left min-w-0 break-words"
+                    className="flex flex-col justify-between h-full bg-white border border-slate-200 rounded-xl p-4 hover:shadow-md hover:border-slate-300 transition cursor-pointer text-left min-w-0 break-words"
                   >
-                    <div className="flex items-start justify-between gap-2 min-w-0">
-                      <h4 className="font-medium text-slate-900 line-clamp-2 flex-1 min-w-0 break-words">{skill.name}</h4>
-                      <span
-                        className={`flex-shrink-0 text-xs px-2 py-0.5 rounded ${
-                          (skill.status || 'active') === 'active'
-                            ? 'bg-green-100 text-green-800'
-                            : (skill.status || '') === 'draft'
-                              ? 'bg-amber-100 text-amber-800'
-                              : 'bg-slate-100 text-slate-600'
-                        }`}
-                      >
-                        {skill.status || 'active'}
-                      </span>
-                    </div>
-                    <div className="flex flex-wrap gap-1.5 mt-2">
-                      <span className={`text-xs px-2 py-0.5 rounded font-medium ${domainBadgeClass(skill.domain)}`}>
-                        {skill.domain || '—'}
-                      </span>
-                      <span className="text-xs px-2 py-0.5 rounded bg-slate-100 text-slate-600">
-                        {skill.skill_type || '—'}
-                      </span>
-                    </div>
-                    <div className="mt-2 text-[11px] text-slate-400">
-                      {skill.success_rate != null ? `${(skill.success_rate * 100).toFixed(0)}% success` : ''}
-                      {skill.success_rate != null && (skill.usage_count || 0) > 0 ? ' · ' : ''}
-                      {skill.usage_count || 0} uses
+                    <div className="flex-1 min-h-0">
+                      <div className="flex items-start justify-between gap-2 min-w-0">
+                        <h4 className="font-medium text-slate-900 line-clamp-2 flex-1 min-w-0 break-words">{skill.name}</h4>
+                        <span
+                          className={`flex-shrink-0 text-xs px-2 py-0.5 rounded ${
+                            (skill.status || 'active') === 'active'
+                              ? 'bg-green-100 text-green-800'
+                              : (skill.status || '') === 'draft'
+                                ? 'bg-amber-100 text-amber-800'
+                                : 'bg-slate-100 text-slate-600'
+                          }`}
+                        >
+                          {skill.status || 'active'}
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5 mt-2">
+                        <span className={`text-xs px-2 py-0.5 rounded font-medium ${domainBadgeClass(skill.domain)}`}>
+                          {skill.domain || '—'}
+                        </span>
+                        <span className="text-xs px-2 py-0.5 rounded bg-slate-100 text-slate-600">
+                          {skill.skill_type || '—'}
+                        </span>
+                      </div>
+                      <div className="mt-2 text-[11px] text-slate-400">
+                        {skill.success_rate != null ? `${(skill.success_rate * 100).toFixed(0)}% success` : ''}
+                        {skill.success_rate != null && (skill.usage_count || 0) > 0 ? ' · ' : ''}
+                        {skill.usage_count || 0} uses
+                      </div>
                     </div>
                     {selectedSkill?.skill_id === skill.skill_id && (
                       <div className="mt-3 pt-3 border-t border-slate-200 text-sm text-slate-700 whitespace-pre-wrap break-words">

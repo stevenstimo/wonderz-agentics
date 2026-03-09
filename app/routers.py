@@ -16,6 +16,7 @@ from app.routes.intelligence import router as intelligence_router
 from app.routes.alex_dev import router as alex_dev_router
 from app.routes.debug_chat import router as debug_chat_router
 from app.routes.skills_judson import router as judson_router
+from app.routes.gtm import router as gtm_router
 
 
 def register_routers(app):
@@ -27,6 +28,7 @@ def register_routers(app):
     app.include_router(status_router)
     app.include_router(talents_router)
     app.include_router(judson_router)
+    app.include_router(gtm_router)
     app.include_router(skills_router)
     app.include_router(settings_router)
     app.include_router(ceo_router)
