@@ -391,7 +391,14 @@ export default function JobSplitView() {
               <p className="text-slate-500 text-sm">Describe your task below. Mr. Klein will create a plan for you.</p>
             )}
             {displayChatHistory.length === 0 && !ceoTyping && jobId && isIntake && (
-              <p className="text-slate-500 text-sm">Mr. Klein is thinking…</p>
+              <div className="thinking-indicator flex items-center gap-1.5 text-slate-500 text-sm">
+                <span>Mr. Klein is thinking</span>
+                <span className="thinking-dots inline-flex gap-0.5">
+                  <span className="thinking-dot">.</span>
+                  <span className="thinking-dot">.</span>
+                  <span className="thinking-dot">.</span>
+                </span>
+              </div>
             )}
             {statusUpper === 'RUNNING' && (
               <p className="text-slate-600 text-sm bg-slate-100 px-3 py-2 rounded-lg">Job is running; your message will be applied after completion.</p>
@@ -417,11 +424,11 @@ export default function JobSplitView() {
               <div className="flex gap-2 justify-start items-center text-slate-500 text-sm">
                 <div className="flex-shrink-0 w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-600 text-xs font-semibold">MK</div>
                 <div className="px-4 py-2.5 rounded-xl rounded-tl-none bg-slate-100 text-slate-600 flex items-center gap-1">
-                  Mr. Klein is thinking…
-                  <span className="inline-flex gap-0.5">
-                    <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-pulse" style={{ animationDelay: '0ms' }} />
-                    <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-pulse" style={{ animationDelay: '150ms' }} />
-                    <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-pulse" style={{ animationDelay: '300ms' }} />
+                  <span>Mr. Klein is thinking</span>
+                  <span className="thinking-dots inline-flex">
+                    <span className="thinking-dot">.</span>
+                    <span className="thinking-dot">.</span>
+                    <span className="thinking-dot">.</span>
                   </span>
                 </div>
               </div>
@@ -474,13 +481,10 @@ export default function JobSplitView() {
                       )}
                     </div>
                   )}
-                  {briefCtx != null && (
-                    <div className="rounded-xl border border-slate-200 p-4 bg-slate-50 text-sm text-slate-700">
-                      {typeof briefCtx === 'string' ? briefCtx : JSON.stringify(briefCtx)}
-                    </div>
-                  )}
                   {runningIntake && <p className="text-amber-700 text-sm font-medium">Intake wordt uitgevoerd… (kan 20–30 sec duren)</p>}
-                  {!briefCtx && !runningIntake && <p className="text-slate-500 text-sm">Waiting for more information...</p>}
+                  {!isApiCreditError && !runningIntake && (
+                    <p className="text-slate-500 text-sm">Wacht op Mr. Klein…</p>
+                  )}
                 </div>
               )
             })()}
@@ -500,7 +504,7 @@ export default function JobSplitView() {
                     ))}
                   </ul>
                 ) : (
-                  <pre className="text-sm text-slate-600 bg-slate-50 p-4 rounded overflow-auto max-h-48">{JSON.stringify(plan, null, 2)}</pre>
+                  <p className="text-slate-500 text-sm">Wacht op Mr. Klein…</p>
                 )}
                 <div className="flex flex-col sm:flex-row gap-2 flex-wrap">
                   <button type="button" onClick={handleApprovePlan} disabled={approvingPlan} className="px-4 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 disabled:opacity-50">
