@@ -17,9 +17,11 @@ import json
 import logging
 from datetime import datetime
 from typing import Optional
-from fastapi import APIRouter, HTTPException, Depends, status, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Depends, status, BackgroundTasks, File, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import ValidationError
+
+from app.utils.document_parser import extract_text_from_file, ALLOWED_EXTENSIONS
 
 from app.database import get_db
 from app.orchestration.manager import OperationsManager
@@ -105,7 +107,27 @@ async def _next_step_index(conn, job_id: str) -> int:
     return (row.get("max_index") or 0) + 1
 
 
+MAX_JOB_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+
+
 # ============ Routes ============
+
+@router.post("/upload")
+async def upload_job_file(file: UploadFile = File(...)):
+    """
+    Extract text from uploaded file (PDF, CSV, .md, .docx, .xlsx, .txt).
+    Returns extracted_text for use in job_post when creating a job.
+    """
+    raw = await file.read()
+    if len(raw) > MAX_JOB_FILE_SIZE:
+        raise HTTPException(status_code=400, detail=f"File too large (max {MAX_JOB_FILE_SIZE // 1024 // 1024} MB)")
+    filename = file.filename or "document"
+    try:
+        text = extract_text_from_file(filename, raw)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"extracted_text": text, "filename": filename}
+
 
 @router.post("", response_model=CreateJobResponse, status_code=status.HTTP_201_CREATED)
 async def create_job(req: CreateJobRequest, background_tasks: BackgroundTasks):

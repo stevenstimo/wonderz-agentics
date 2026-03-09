@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
+import { Upload, X } from 'lucide-react'
 import PageLayout from './PageLayout'
 import { apiUrl } from './apiClient'
 
@@ -102,6 +103,10 @@ export default function JobSplitView() {
   const chatHistoryLengthRef = useRef(0)
   const runIntakeTriggeredRef = useRef(null)
   const [runningIntake, setRunningIntake] = useState(false)
+  const [attachedFile, setAttachedFile] = useState(null)
+  const [extractedText, setExtractedText] = useState('')
+  const [uploadingFile, setUploadingFile] = useState(false)
+  const fileInputRef = useRef(null)
 
   const fetchJob = useCallback(async () => {
     if (!jobId) return null
@@ -229,21 +234,65 @@ export default function JobSplitView() {
     }
   }
 
+  const handleFileSelect = async (files) => {
+    const f = files?.[0]
+    if (!f) return
+    const ext = (f.name || '').toLowerCase().split('.').pop()
+    const allowed = ['pdf', 'csv', 'md', 'docx', 'xlsx', 'xls', 'txt']
+    if (!allowed.includes(ext)) {
+      setError(`Bestandstype .${ext} niet ondersteund. Gebruik: ${allowed.join(', ')}`)
+      return
+    }
+    setUploadingFile(true)
+    setError(null)
+    try {
+      const form = new FormData()
+      form.append('file', f)
+      const res = await fetch(apiUrl('/api/jobs/upload'), { method: 'POST', body: form })
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}))
+        throw new Error(j.detail || 'Upload mislukt')
+      }
+      const data = await res.json()
+      setAttachedFile(f)
+      setExtractedText(data.extracted_text || '')
+    } catch (err) {
+      setError(err.message || 'Bestand uploaden mislukt')
+    } finally {
+      setUploadingFile(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+
+  const clearAttachment = () => {
+    setAttachedFile(null)
+    setExtractedText('')
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
   const handleSendMessage = async (e) => {
     e?.preventDefault()
     const msg = chatInput.trim()
-    if (!msg || sendingChat) return
+    if ((!msg && !extractedText) || sendingChat) return
 
     if (!jobId) {
+      const jobPost = extractedText
+        ? (msg ? `${msg}\n\n--- Bijlage: ${attachedFile?.name || 'document'} ---\n${extractedText}` : `Document bijgevoegd:\n\n${extractedText}`)
+        : msg
+      if (jobPost.length < 10) {
+        setError('Beschrijf je opdracht (min. 10 tekens) of voeg een bestand toe.')
+        return
+      }
       setSendingChat(true)
       setChatInput('')
+      clearAttachment()
       try {
         const res = await fetch(apiUrl('/api/jobs'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             user_id: '00000000-0000-0000-0000-000000000001',
-            job_post: msg,
+            job_post: jobPost,
             source_platform: 'web'
           })
         })
@@ -435,6 +484,42 @@ export default function JobSplitView() {
             )}
             <div ref={chatEndRef} />
           </div>
+          {!jobId && (
+            <div className="flex-shrink-0 px-3 pb-2">
+              <div
+                onClick={() => !uploadingFile && fileInputRef.current?.click()}
+                onDrop={(e) => { e.preventDefault(); handleFileSelect(e.dataTransfer?.files) }}
+                onDragOver={(e) => e.preventDefault()}
+                className={`border-2 border-dashed rounded-lg p-3 flex items-center justify-center gap-2 cursor-pointer transition text-sm ${
+                  uploadingFile ? 'border-slate-200 bg-slate-50 opacity-60' : 'border-slate-200 hover:border-indigo-300 bg-slate-50/50'
+                }`}
+              >
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={(e) => handleFileSelect(e.target?.files)}
+                  accept=".pdf,.csv,.md,.docx,.xlsx,.xls,.txt"
+                  className="hidden"
+                />
+                {attachedFile ? (
+                  <span className="flex items-center gap-2 text-slate-700">
+                    <span className="font-medium truncate max-w-[180px]">{attachedFile.name}</span>
+                    <span className="text-slate-500">({extractedText.length.toLocaleString()} tekens)</span>
+                    <button type="button" onClick={(e) => { e.stopPropagation(); clearAttachment() }} className="p-0.5 rounded hover:bg-slate-200" aria-label="Verwijderen">
+                      <X className="w-4 h-4" />
+                    </button>
+                  </span>
+                ) : (
+                  <>
+                    <Upload className="w-4 h-4 text-slate-500" />
+                    <span className="text-slate-600">
+                      {uploadingFile ? 'Bestand verwerken…' : 'Sleep PDF, CSV of .md hier of klik om te uploaden'}
+                    </span>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
           <form onSubmit={handleSendMessage} className="flex-shrink-0 flex gap-2 p-3 border-t border-slate-200 bg-white">
             <textarea
               value={chatInput}
@@ -442,12 +527,12 @@ export default function JobSplitView() {
               onKeyDown={handleKeyDown}
               placeholder={jobId ? 'Type your message...' : 'Beschrijf je opdracht...'}
               className="flex-1 px-4 py-2.5 border border-slate-300 rounded-xl text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none min-h-[44px] max-h-32"
-              disabled={inputDisabled}
+              disabled={inputDisabled || uploadingFile}
               rows={1}
             />
             <button
               type="submit"
-              disabled={inputDisabled || !chatInput.trim()}
+              disabled={inputDisabled || uploadingFile || (!chatInput.trim() && !extractedText)}
               className="px-5 py-2.5 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition self-end"
             >
               {sendingChat ? 'Sending…' : 'Send'}
