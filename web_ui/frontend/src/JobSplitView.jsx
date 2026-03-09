@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Upload, X } from 'lucide-react'
+import { Upload, X, Paperclip, FileSpreadsheet, FileText, Image as ImageIcon } from 'lucide-react'
 import PageLayout from './PageLayout'
 import { apiUrl } from './apiClient'
 
@@ -65,6 +65,50 @@ function StatusBadge({ status }) {
   )
 }
 
+function getAttachmentIcon(filename) {
+  const ext = (filename || '').toLowerCase().split('.').pop()
+  if (['xlsx', 'xls', 'csv'].includes(ext)) return FileSpreadsheet
+  if (['pdf', 'docx', 'txt', 'md'].includes(ext)) return FileText
+  if (['png', 'jpg', 'jpeg'].includes(ext)) return ImageIcon
+  return Paperclip
+}
+
+function AttachmentPill({ attachment, isUserBubble }) {
+  const filename = attachment?.filename || 'bestand'
+  const url = attachment?.url
+  const summary = attachment?.summary
+  const Icon = getAttachmentIcon(filename)
+  const pillClass = isUserBubble
+    ? 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/20 text-white/95 text-xs font-medium mb-1.5 w-fit hover:bg-white/30 cursor-pointer transition'
+    : 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-200/80 text-slate-700 text-xs font-medium mb-1.5 w-fit hover:bg-slate-300/80 cursor-pointer transition'
+
+  const handleClick = () => {
+    if (url) window.open(url, '_blank', 'noopener,noreferrer')
+  }
+
+  // Tooltip: summary als beschikbaar, anders edge case (leeg) of default
+  let tooltip = url ? 'Open bestand in nieuw tabblad' : 'Bestand verwerkt door agent'
+  if (typeof summary === 'string' && summary.length > 0) {
+    tooltip = summary
+  } else if (attachment) {
+    tooltip = 'Bestand ontvangen — inhoud kon niet worden gelezen'
+  }
+
+  return (
+    <span
+      role="button"
+      tabIndex={0}
+      onClick={handleClick}
+      onKeyDown={(e) => e.key === 'Enter' && handleClick()}
+      title={tooltip}
+      className={pillClass}
+    >
+      <Icon className="w-3.5 h-3.5 shrink-0" />
+      <span className="truncate max-w-[180px]">{filename}</span>
+    </span>
+  )
+}
+
 function StepOutputExpand({ output }) {
   const [open, setOpen] = useState(false)
   if (!output || typeof output !== 'object') return null
@@ -107,6 +151,8 @@ export default function JobSplitView() {
   const [extractedText, setExtractedText] = useState('')
   const [uploadingFile, setUploadingFile] = useState(false)
   const fileInputRef = useRef(null)
+  const [chatAttachedFile, setChatAttachedFile] = useState(null)
+  const chatFileInputRef = useRef(null)
 
   const fetchJob = useCallback(async () => {
     if (!jobId) return null
@@ -270,10 +316,29 @@ export default function JobSplitView() {
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
+  const handleChatFileSelect = (files) => {
+    const f = files?.[0]
+    if (!f) return
+    const ext = (f.name || '').toLowerCase().split('.').pop()
+    const allowed = ['pdf', 'csv', 'txt', 'docx', 'png', 'jpg', 'jpeg', 'md', 'xlsx', 'xls']
+    if (!allowed.includes(ext)) {
+      setError(`Bestandstype .${ext} niet toegestaan. Gebruik: ${allowed.join(', ')}`)
+      return
+    }
+    setChatAttachedFile(f)
+    setError(null)
+  }
+
+  const clearChatAttachment = () => {
+    setChatAttachedFile(null)
+    if (chatFileInputRef.current) chatFileInputRef.current.value = ''
+  }
+
   const handleSendMessage = async (e) => {
     e?.preventDefault()
     const msg = chatInput.trim()
-    if ((!msg && !extractedText) || sendingChat) return
+    const hasChatAttachment = !!chatAttachedFile
+    if ((!msg && !extractedText && !hasChatAttachment) || sendingChat) return
 
     if (!jobId) {
       const jobPost = extractedText
@@ -310,8 +375,10 @@ export default function JobSplitView() {
       return
     }
 
-    setOptimisticMessages((prev) => [...prev, { role: 'user', content: msg }])
+    const fileToSend = chatAttachedFile
+    setOptimisticMessages((prev) => [...prev, { role: 'user', content: msg, attachment: fileToSend ? { filename: fileToSend.name } : undefined }])
     setChatInput('')
+    clearChatAttachment()
     setSendingChat(true)
     if (statusUpper === 'INTAKE_CLARIFICATION' || statusUpper === 'RUNNING') {
       setCeoTyping(true)
@@ -320,11 +387,22 @@ export default function JobSplitView() {
     try {
       let res
       if (status === 'INTAKE_CLARIFICATION' || status === 'RUNNING') {
-        res = await fetch(apiUrl(`/api/jobs/${jobId}/chat`), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: msg })
-        })
+        const hasFile = !!fileToSend
+        if (hasFile) {
+          const form = new FormData()
+          form.append('message', msg || '(bijlage)')
+          form.append('file', fileToSend)
+          res = await fetch(apiUrl(`/api/jobs/${jobId}/chat`), {
+            method: 'POST',
+            body: form
+          })
+        } else {
+          res = await fetch(apiUrl(`/api/jobs/${jobId}/chat`), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: msg })
+          })
+        }
       } else if (status === 'PLAN_PROPOSED') {
         res = await fetch(apiUrl(`/api/jobs/${jobId}/request-changes`), {
           method: 'POST',
@@ -452,7 +530,11 @@ export default function JobSplitView() {
             {statusUpper === 'RUNNING' && (
               <p className="text-slate-600 text-sm bg-slate-100 px-3 py-2 rounded-lg">Job is running; your message will be applied after completion.</p>
             )}
-            {displayChatHistory.map((msg, i) => (
+            {displayChatHistory.map((msg, i) => {
+              const prevMsg = displayChatHistory[i - 1]
+              const isCeoRespondingToAttachment = msg.role === 'ceo' && prevMsg?.role === 'user' && prevMsg?.attachment
+              const attachmentFilename = prevMsg?.attachment?.filename
+              return (
               <div key={i} className={`flex gap-2 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                 {msg.role === 'ceo' && (
                   <div className="flex-shrink-0 w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-600 text-xs font-semibold">MK</div>
@@ -464,11 +546,17 @@ export default function JobSplitView() {
                       msg.role === 'ceo' ? 'bg-slate-100 text-slate-800 rounded-tl-none' : 'bg-indigo-600 text-white rounded-tr-none'
                     }`}
                   >
+                    {msg.role === 'user' && msg.attachment && (
+                      <AttachmentPill attachment={msg.attachment} isUserBubble />
+                    )}
+                    {isCeoRespondingToAttachment && attachmentFilename && (
+                      <p className="text-xs text-slate-500 mb-1">📎 Gebaseerd op: {attachmentFilename}</p>
+                    )}
                     <p className="text-sm whitespace-pre-wrap">{msg.content || ''}</p>
                   </div>
                 </div>
               </div>
-            ))}
+            )})}
             {ceoTyping && (
               <div className="flex gap-2 justify-start items-center text-slate-500 text-sm">
                 <div className="flex-shrink-0 w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-600 text-xs font-semibold">MK</div>
@@ -520,7 +608,36 @@ export default function JobSplitView() {
               </div>
             </div>
           )}
-          <form onSubmit={handleSendMessage} className="flex-shrink-0 flex gap-2 p-3 border-t border-slate-200 bg-white">
+          <form onSubmit={handleSendMessage} className="flex-shrink-0 flex flex-col gap-2 p-3 border-t border-slate-200 bg-white">
+            {jobId && chatAttachedFile && (
+              <div className="flex items-center gap-2 text-sm text-slate-600">
+                <span className="font-medium truncate max-w-[200px]">{chatAttachedFile.name}</span>
+                <button type="button" onClick={clearChatAttachment} className="p-0.5 rounded hover:bg-slate-200" aria-label="Verwijderen">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+            <div className="flex gap-2">
+            {jobId && (
+              <>
+                <input
+                  type="file"
+                  ref={chatFileInputRef}
+                  onChange={(e) => handleChatFileSelect(e.target?.files)}
+                  accept=".pdf,.csv,.txt,.docx,.png,.jpg,.jpeg,.md,.xlsx,.xls"
+                  className="hidden"
+                />
+                <button
+                  type="button"
+                  onClick={() => chatFileInputRef.current?.click()}
+                  className="flex-shrink-0 p-2.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50 hover:border-slate-400 transition self-end"
+                  title="Bestand bijvoegen"
+                  aria-label="Bestand bijvoegen"
+                >
+                  <Paperclip className="w-5 h-5" />
+                </button>
+              </>
+            )}
             <textarea
               value={chatInput}
               onChange={(e) => setChatInput(e.target.value)}
@@ -532,11 +649,12 @@ export default function JobSplitView() {
             />
             <button
               type="submit"
-              disabled={inputDisabled || uploadingFile || (!chatInput.trim() && !extractedText)}
+              disabled={inputDisabled || uploadingFile || (!chatInput.trim() && !extractedText && !chatAttachedFile)}
               className="px-5 py-2.5 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition self-end"
             >
               {sendingChat ? 'Sending…' : 'Send'}
             </button>
+            </div>
           </form>
         </div>
 
