@@ -19,11 +19,19 @@ const STATUS_BADGE = {
 }
 
 function getOutputContent(job, context) {
+  // Alleen tonen bij JOB_READY of COMPLETED
+  if (!['JOB_READY', 'COMPLETED'].includes(job?.status)) return null
+
   const ctx = context || {}
-  return ctx?.final_content
+  const content = ctx?.final_content
     || ctx?.proposed_data?.content
     || job?.proposed_data?.content
     || null
+
+  // Zorg dat het een string is, niet een object
+  if (!content || typeof content !== 'string') return null
+
+  return content
 }
 
 function StatusBadge({ status }) {
