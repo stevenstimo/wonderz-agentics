@@ -582,6 +582,16 @@ export default function JobSplitView() {
                               </span>
                             </div>
                           </div>
+                          {isRunning && (
+                            <div className="px-3 pb-2">
+                              <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                                <div
+                                  className="h-full bg-indigo-500 rounded-full transition-all duration-500"
+                                  style={{ width: `${s.progress_pct ?? 10}%` }}
+                                />
+                              </div>
+                            </div>
+                          )}
                           {isDone && s.output && (
                             <div className="border-t border-slate-100 px-3 pb-2 pt-1">
                               {s.output.image_url && (

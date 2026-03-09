@@ -142,6 +142,14 @@ async def _update_job_context(conn, job_id: str, updates: Dict[str, Any]) -> Dic
     return current
 
 
+async def _update_step_progress(conn, step_id, pct: int):
+    """Update progress_pct for a job step (10% start, 70% after LLM, 100% done)."""
+    await conn.execute(
+        "UPDATE job_steps SET progress_pct = $1 WHERE id = $2",
+        pct, step_id,
+    )
+
+
 async def _store_clarifications(conn, job_id: str, clarifications, round_number: int):
     for q in clarifications:
         await conn.execute(
@@ -634,7 +642,7 @@ async def run_job_inline(job_id: str, context_extra: Optional[dict] = None):
             if is_revision and num_steps > 0:
                 await conn.execute(
                     """
-                    UPDATE job_steps SET status='pending', started_at=NULL, completed_at=NULL, output='{}'::jsonb, tokens_used=0
+                    UPDATE job_steps SET status='pending', started_at=NULL, completed_at=NULL, output='{}'::jsonb, tokens_used=0, progress_pct=0
                     WHERE job_id=$1
                     """,
                     job_id,
@@ -651,6 +659,7 @@ async def run_job_inline(job_id: str, context_extra: Optional[dict] = None):
                     "UPDATE job_steps SET status='running', started_at=now() WHERE id=$1",
                     step_id,
                 )
+                await _update_step_progress(conn, step_id, 10)
 
                 started = time.monotonic()
                 logger.info(
@@ -668,6 +677,7 @@ async def run_job_inline(job_id: str, context_extra: Optional[dict] = None):
                     context=context or {},
                     previous_content=previous_content,
                 )
+                await _update_step_progress(conn, step_id, 70)
                 output["step_name"] = step.get("step_name")
                 output["agent_role"] = step.get("agent_role")
                 output["unified_tool"] = step.get("unified_tool")
@@ -683,7 +693,7 @@ async def run_job_inline(job_id: str, context_extra: Optional[dict] = None):
                 await conn.execute(
                     """
                     UPDATE job_steps
-                    SET status='completed', completed_at=now(), output=$1::jsonb, tokens_used=$2, timing_ms=$3
+                    SET status='completed', completed_at=now(), output=$1::jsonb, tokens_used=$2, timing_ms=$3, progress_pct=100
                     WHERE id=$4
                     """,
                     json.dumps(output, default=_json_default),
