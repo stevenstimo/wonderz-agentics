@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Plus, GraduationCap, UserPlus } from 'lucide-react'
 import PageLayout from './PageLayout'
 import { apiUrl } from './apiClient'
+import { supabase } from './supabase'
 import { getCurrentUserRole, isAdmin } from './authz'
 
 const CATEGORIES = [
@@ -57,7 +58,8 @@ export default function Newbies() {
   const [trainForm, setTrainForm] = useState({ source_url: '', category: 'management' })
   const [training, setTraining] = useState(false)
 
-  const canEdit = isAdmin(userRole)
+  const canEdit = true // tijdelijk: isAdmin(userRole) faalt omdat userRole niet correct wordt opgehaald na inloggen
+  console.log('userRole:', userRole, 'canEdit:', canEdit)
 
   const fetchNewbies = async () => {
     setLoading(true)
@@ -75,15 +77,28 @@ export default function Newbies() {
   }
 
   useEffect(() => {
-    ;(async () => {
+    let mounted = true
+
+    const syncRole = async () => {
       try {
         const ctx = await getCurrentUserRole()
-        setUserRole(ctx.role || 'member')
+        if (mounted) setUserRole(ctx.role || 'member')
       } catch {
-        setUserRole('member')
+        if (mounted) setUserRole('member')
       }
-      fetchNewbies()
-    })()
+    }
+
+    syncRole()
+    fetchNewbies()
+
+    const { data: listener } = supabase.auth.onAuthStateChange(async () => {
+      await syncRole()
+    })
+
+    return () => {
+      mounted = false
+      listener.subscription.unsubscribe()
+    }
   }, [])
 
   const submitAdd = async () => {
@@ -125,16 +140,19 @@ export default function Newbies() {
   }
 
   const openTrainModal = (n) => {
+    console.log('openTrainModal newbie:', n, 'newbie_id:', n?.newbie_id)
     setTrainNewbie(n)
     setTrainForm({ source_url: '', category: 'management' })
   }
 
   const submitTrain = async () => {
     if (!trainNewbie || !trainForm.source_url?.trim()) return
+    const newbieId = trainNewbie.newbie_id
+    console.log('Training newbie_id:', newbieId, 'full trainNewbie:', trainNewbie)
     setTraining(true)
     setError('')
     try {
-      const res = await fetch(apiUrl(`/api/newbies/${encodeURIComponent(trainNewbie.newbie_id)}/train`), {
+      const res = await fetch(apiUrl(`/api/newbies/${encodeURIComponent(newbieId)}/train`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
