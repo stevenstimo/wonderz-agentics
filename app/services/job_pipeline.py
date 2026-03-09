@@ -701,6 +701,7 @@ async def run_job_inline(job_id: str, context_extra: Optional[dict] = None):
                     timing_ms,
                     step_id,
                 )
+                await _update_step_progress(conn, step_id, 100)
 
                 await conn.execute(
                     "UPDATE jobs SET tokens_used=COALESCE(tokens_used, 0) + $1, updated_at=now() WHERE id=$2",
