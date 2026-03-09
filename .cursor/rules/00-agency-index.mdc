@@ -1,5 +1,5 @@
 ---
-description: Master index van alle 68 Agency agents beschikbaar in dit project. Gebruik deze als referentie om de juiste agent te activeren.
+description: Master index van alle 61 Agency agents beschikbaar in dit project. Gebruik deze als referentie om de juiste agent te activeren.
 globs: ""
 alwaysApply: false
 ---
@@ -30,13 +30,6 @@ alwaysApply: true
 | `@devops-automator` | CI/CD, Docker, deployment, infrastructure |
 | `@rapid-prototyper` | Snel iets bouwen om een hypothese te testen |
 | `@senior-developer` | Complexe implementaties die extra expertise vragen |
-| `@data-engineer` | ETL pipelines, data modeling, data warehouses |
-| `@security-engineer` | Security audits, vulnerability assessment |
-| `@developer-advocate` | Developer docs, SDK's, community support |
-| `@lsp-index-engineer` | LSP tooling, code indexing |
-| `@terminal-integration-specialist` | CLI tools, terminal integraties |
-| `@tool-evaluator` | Tool/package evaluatie en vergelijking |
-| `@workflow-optimizer` | Workflow automatisering en optimalisatie |
 
 ## 🎨 Design Division
 
@@ -46,11 +39,6 @@ alwaysApply: true
 | `@ui-designer` | Design tokens, component specs, visual system |
 | `@brand-guardian` | Brand consistentie, tone of voice, visual identity |
 | `@whimsy-injector` | Micro-interacties, loading states, personality in UI |
-| `@ux-researcher` | User research, usability testing |
-| `@accessibility-auditor` | WCAG compliance, accessibility audits |
-| `@inclusive-visuals-specialist` | Inclusive imagery, diverse representation |
-| `@image-prompt-engineer` | AI image prompts, visual asset creatie |
-| `@visual-storyteller` | Visuele storytelling, data visualisatie |
 
 ## 📢 Marketing Division
 
@@ -61,12 +49,6 @@ alwaysApply: true
 | `@social-media-strategist` | Cross-platform social strategie |
 | `@tiktok-strategist` | TikTok content en groei (voor Blogable) |
 | `@instagram-curator` | Instagram visuele content |
-| `@twitter-engager` | Twitter/X engagement en content |
-| `@reddit-community-builder` | Reddit community building |
-| `@xiaohongshu-specialist` | Xiaohongshu (Little Red Book) strategie |
-| `@zhihu-strategist` | Zhihu content en community |
-| `@wechat-official-account-manager` | WeChat Official Account beheer |
-| `@app-store-optimizer` | ASO, app store listings |
 
 ## 📦 Product Division
 
@@ -75,8 +57,6 @@ alwaysApply: true
 | `@sprint-prioritizer` | Backlog grooming, RICE scoring, sprint planning |
 | `@trend-researcher` | Marktonderzoek, competitive analysis |
 | `@feedback-synthesizer` | User feedback analyseren en prioriteren |
-| `@behavioral-nudge-engine` | Behavioral design, conversion optimization |
-| `@experiment-tracker` | A/B tests, experiment tracking |
 
 ## 🗂️ Project Management Division
 
@@ -85,8 +65,6 @@ alwaysApply: true
 | `@studio-producer` | Strategische portfolio beslissingen |
 | `@senior-project-manager` | Spec → task list conversie |
 | `@project-shepherd` | Cross-functionele coördinatie, stakeholder alignment |
-| `@studio-operations` | Studio operations, process management |
-| `@agents-orchestrator` | Multi-agent orchestration |
 
 ## 🧪 Testing Division
 
@@ -96,47 +74,16 @@ alwaysApply: true
 | `@reality-checker` | Finale integratie test — standaard verdict is NEEDS WORK |
 | `@api-tester` | API endpoint validatie, integration tests |
 | `@performance-benchmarker` | Load testing, Core Web Vitals, database performance |
-| `@test-results-analyzer` | Test resultaten analyseren en rapportage |
 
 ## 🛠️ Support Division
 
 | Agent | Wanneer activeren |
 |-------|------------------|
 | `@analytics-reporter` | KPI dashboards, data analyse, business intelligence |
-| `@data-analytics-reporter` | Data analytics, reporting |
 | `@legal-compliance-checker` | GDPR/AVG compliance, privacy policy, security audit |
 | `@executive-summary-generator` | Stakeholder rapportage (SCQA format, ≤500 woorden) |
 | `@finance-tracker` | Budget analyse, ROI berekeningen, cost projections |
 | `@infrastructure-maintainer` | Server monitoring, backup, disaster recovery |
-| `@support-responder` | Customer support, ticket handling |
-| `@report-distribution-agent` | Report distributie en scheduling |
-| `@sales-data-extraction-agent` | Sales data extractie en analyse |
-
-## 🤖 AI & Agent Division
-
-| Agent | Wanneer activeren |
-|-------|------------------|
-| `@agentic-identity-trust-architect` | Agent identity, trust architecture |
-| `@autonomous-optimization-architect` | Autonomous system optimization |
-| `@data-consolidation-agent` | Data consolidatie en normalisatie |
-
-## 📱 Platform-Specific Division
-
-| Agent | Wanneer activeren |
-|-------|------------------|
-| `@mobile-app-builder` | Mobile app development (iOS/Android) |
-| `@visionos-spatial-engineer` | visionOS spatial computing |
-| `@macos-spatial-metal-engineer` | macOS Metal, spatial engineering |
-| `@xr-interface-architect` | XR interface design |
-| `@xr-immersive-developer` | XR immersive experiences |
-| `@xr-cockpit-interaction-specialist` | XR cockpit interactions |
-
-## 📝 Content & Documentation
-
-| Agent | Wanneer activeren |
-|-------|------------------|
-| `@technical-writer` | Technische documentatie, API docs |
-| `@cultural-intelligence-strategist` | Cross-cultural content strategie |
 
 ---
 

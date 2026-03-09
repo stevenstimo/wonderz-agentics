@@ -33,7 +33,13 @@ export default function AgentsOverview() {
       const res = await fetch(`${apiBase}/api/agents`)
       const data = await res.json().catch(() => [])
       if (!res.ok) throw new Error('Failed to load agents')
-      setAgents(Array.isArray(data) ? data : [])
+      const list = Array.isArray(data) ? data : []
+      const sorted = [...list].sort((a, b) => {
+        if ((a.role || '').toLowerCase() === 'ceo') return -1
+        if ((b.role || '').toLowerCase() === 'ceo') return 1
+        return (a.name || '').localeCompare(b.name || '')
+      })
+      setAgents(sorted)
     } catch (err) {
       setError(err.message || 'Unknown error')
       setAgents([])

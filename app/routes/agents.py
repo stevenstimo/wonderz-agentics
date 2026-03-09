@@ -131,7 +131,9 @@ async def list_agents() -> List[Dict[str, Any]]:
                 is_suspended,
                 system_prompt
             FROM hired_agents
-            ORDER BY hired_at DESC
+            ORDER BY
+                CASE WHEN LOWER(role) = 'ceo' THEN 0 ELSE 1 END,
+                COALESCE(name, '') ASC
             """
         )
 
