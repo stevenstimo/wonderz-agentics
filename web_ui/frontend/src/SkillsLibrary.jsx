@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { Send, Loader2, Upload } from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
 import { apiUrl } from './apiClient'
 import PageLayout from './PageLayout'
 
@@ -252,11 +253,11 @@ export default function SkillsLibrary() {
                 <div className={`flex flex-col gap-0.5 max-w-[85%] ${msg.role === 'user' ? 'items-end' : ''}`}>
                   {msg.role === 'assistant' && <span className="text-xs text-slate-500">Judson</span>}
                   <div
-                    className={`px-4 py-2.5 rounded-xl whitespace-pre-wrap ${
+                    className={`px-4 py-2.5 rounded-xl text-sm [&_a]:underline [&_code]:bg-black/20 [&_pre]:bg-black/20 [&_pre]:p-2 [&_pre]:rounded ${
                       msg.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-slate-700 text-white rounded-tl-none'
                     }`}
                   >
-                    <p className="text-sm">{msg.content || ''}</p>
+                    <ReactMarkdown>{msg.content || ''}</ReactMarkdown>
                   </div>
                 </div>
               </div>
