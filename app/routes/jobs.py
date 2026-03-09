@@ -193,6 +193,7 @@ async def trigger_run_intake(job_id: str):
     Only allowed when job status is INTAKE_CLARIFICATION.
     """
     job_id = _validate_job_id(job_id)
+    logger.info("run-intake endpoint called for job %s", job_id)
     pool = await get_db()
     async with pool.acquire() as conn:
         job = await conn.fetchrow("SELECT id, status, job_post, context FROM jobs WHERE id=$1", job_id)

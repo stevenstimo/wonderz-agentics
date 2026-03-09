@@ -155,7 +155,7 @@ IMPORTANT: You can only acknowledge feedback and confirm the team will work on i
         for attempt in range(self.max_retries):
             try:
                 logger.debug(f"IntakeEngine API call attempt {attempt + 1}/{self.max_retries}")
-                
+                logger.info("Calling Claude API for intake")
                 response = self.client.messages.create(
                     model=self.model,
                     max_tokens=1500,
@@ -164,7 +164,7 @@ IMPORTANT: You can only acknowledge feedback and confirm the team will work on i
                 )
 
                 response_text = response.content[0].text
-                
+                logger.info("Claude response: %s", (response_text[:100] if response_text else "(empty)"))
                 # Parse the JSON response
                 try:
                     # Try to extract JSON from the response
@@ -179,7 +179,7 @@ IMPORTANT: You can only acknowledge feedback and confirm the team will work on i
                     data = json.loads(json_str)
                     
                 except (json.JSONDecodeError, ValueError) as e:
-                    logger.error(f"JSON parsing error in intake response: {e}")
+                    logger.error("Intake error: %s", e, exc_info=True)
                     return self._get_fallback_brief(job_post, f"JSON parsing error: {str(e)}", key_fingerprint=key_fp)
 
                 # Validate parsed data structure
@@ -211,12 +211,12 @@ IMPORTANT: You can only acknowledge feedback and confirm the team will work on i
                     return brief
                     
                 except Exception as e:
-                    logger.error(f"Error converting parsed data to StrategicBrief: {e}")
+                    logger.error("Intake error: %s", e, exc_info=True)
                     return self._get_fallback_brief(job_post, f"Conversion error: {str(e)}", key_fingerprint=key_fp)
 
             except (APITimeoutError, TimeoutError) as e:
                 last_error = e
-                logger.warning(f"Timeout on attempt {attempt + 1}: {str(e)}")
+                logger.error("Intake error: %s", e, exc_info=True)
                 
                 if attempt < self.max_retries - 1:
                     # Exponential backoff: 1s, 2s, 4s
@@ -230,7 +230,7 @@ IMPORTANT: You can only acknowledge feedback and confirm the team will work on i
 
             except RateLimitError as e:
                 last_error = e
-                logger.warning(f"Rate limit error on attempt {attempt + 1}: {str(e)}")
+                logger.error("Intake error: %s", e, exc_info=True)
                 
                 if attempt < self.max_retries - 1:
                     # Longer backoff for rate limits: 2s, 4s, 8s
@@ -244,7 +244,7 @@ IMPORTANT: You can only acknowledge feedback and confirm the team will work on i
 
             except APIError as e:
                 last_error = e
-                logger.error(f"API error on attempt {attempt + 1}: {str(e)}")
+                logger.error("Intake error: %s", e, exc_info=True)
                 
                 # Don't retry on auth or validation errors
                 if "401" in str(e) or "403" in str(e):
@@ -262,7 +262,7 @@ IMPORTANT: You can only acknowledge feedback and confirm the team will work on i
 
             except Exception as e:
                 last_error = e
-                logger.error(f"Unexpected error in intake: {e}", exc_info=True)
+                logger.error("Intake error: %s", e, exc_info=True)
                 return self._get_fallback_brief(job_post, f"Unexpected error: {str(e)}", key_fingerprint=key_fp)
 
         # Should not reach here, but fallback just in case

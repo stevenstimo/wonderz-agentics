@@ -473,8 +473,10 @@ async def run_intake_inline(job_id: str, job_post: str):
        - Update job status to PLAN_PROPOSED
        - Store the plan in jobs.context jsonb
     """
+    logger.info("Starting intake for job %s", job_id)
     pool = await _get_pool()
     if not pool:
+        logger.warning("DB pool not available, skipping intake for job %s", job_id)
         return
 
     intake = IntakeEngine()
@@ -517,7 +519,7 @@ async def run_intake_inline(job_id: str, job_post: str):
                 job_id,
             )
     except Exception as exc:
-        logger.error("run_intake_inline failed for job %s: %s", job_id, exc, exc_info=True)
+        logger.error("Intake error for job %s: %s", job_id, exc, exc_info=True)
 
 
 async def run_intake_answers_inline(job_id: str, answers: dict):
