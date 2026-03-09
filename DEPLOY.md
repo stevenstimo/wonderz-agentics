@@ -5,38 +5,43 @@
 | Component | Hosting | Deploy |
 |-----------|---------|--------|
 | **Backend** | exe.dev server (systemd: `wonderz-backend.service`) | `git pull` → `sudo systemctl restart wonderz-backend` |
-| **Frontend** | Vercel | Auto-deploy on push to `main` |
+| **Frontend** | exe.dev server (nginx, statische build) | `npm run build` → `dist/` is live |
 | **Local backend** | — | `http://localhost:8090` |
 
 **Backend URL:** https://wonderz-agentic.exe.xyz
 
 > Fly.io is **niet in gebruik**. Negeer `fly.toml` en alle flyctl configuratie.
+> **Vercel** wordt **niet** gebruikt voor wonderz-agentic.exe.xyz.
 
 ---
 
-## Frontend (Vercel)
+## Frontend (exe.dev server)
 
-Build: `web_ui/frontend/dist/`
+De live frontend draait als statische build via nginx op de exe.dev server. De `dist/` folder is de live frontend.
 
-**Deploy:** Push naar `main` → Vercel deployt automatisch.
-
-**Handmatig (Vercel CLI):**
+**Deploy:**
 ```bash
-cd web_ui/frontend
-vercel --prod
+cd ~/wonderz-agentics/web_ui/frontend && npm run build
 ```
-
-Stel `VITE_API_URL` in Vercel Project Settings → Environment Variables: `https://wonderz-agentic.exe.xyz`
 
 ---
 
 ## Backend (exe.dev server)
 
-**Deploy stappen:**
-1. `git pull` op de server
-2. `sudo systemctl restart wonderz-backend`
+**Deploy:**
+```bash
+git pull && sudo systemctl restart wonderz-backend
+```
 
 Service: `wonderz-backend.service`
+
+---
+
+## Volledige deploy (beide)
+
+```bash
+cd ~/wonderz-agentics && git pull && sudo systemctl restart wonderz-backend && cd web_ui/frontend && npm run build
+```
 
 ---
 
@@ -44,10 +49,11 @@ Service: `wonderz-backend.service`
 
 | Wat | Actie |
 |-----|-------|
-| Frontend | Push naar `main` (Vercel auto-deploy) |
-| Backend | `git pull` + `sudo systemctl restart wonderz-backend` op server |
+| Frontend | `cd ~/wonderz-agentics/web_ui/frontend && npm run build` |
+| Backend | `git pull && sudo systemctl restart wonderz-backend` |
+| Volledige deploy | `cd ~/wonderz-agentics && git pull && sudo systemctl restart wonderz-backend && cd web_ui/frontend && npm run build` |
 | Lokaal | `./start_backend.sh` of `uvicorn app.main:app --host 0.0.0.0 --port 8090` |
 
 **URLs:**
 - Backend: https://wonderz-agentic.exe.xyz
-- Frontend: Vercel URL (zie Vercel dashboard)
+- Frontend: wonderz-agentic.exe.xyz (nginx op exe.dev server)

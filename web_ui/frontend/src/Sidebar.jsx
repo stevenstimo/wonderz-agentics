@@ -32,6 +32,7 @@ import { apiUrl } from './apiClient'
 
 const WORKSPACE = [
   { label: 'Dashboard', icon: LayoutDashboard, path: '/' },
+  { label: 'Inbox', icon: Inbox, path: '/inbox', badgeKey: 'inbox' },
   { label: 'Job Center', icon: Briefcase, path: '/job-center' },
   { label: 'Mission Control', icon: Compass, path: '/mission-control' },
 ]
@@ -47,7 +48,6 @@ const MANAGEMENT = [
 ]
 
 const OPERATIONS = [
-  { label: 'Inbox', icon: Inbox, path: '/inbox', badgeKey: 'inbox' },
   { label: 'Developer Bot', icon: Code, path: '/devbot' },
   { label: 'HR Feedback', icon: MessageSquare, path: '/hr-feedback' },
   { label: 'Safety Gate', icon: Shield, path: '/approvals' },
@@ -245,7 +245,11 @@ export default function Sidebar() {
           <nav className="space-y-1 flex-1">
             <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 px-3 mb-2">Workspace</div>
             {WORKSPACE.map((item) => (
-              <NavItem key={item.label} item={item} />
+              <NavItem
+                key={item.label}
+                item={item}
+                badge={item.badgeKey === 'inbox' ? inboxUnread : undefined}
+              />
             ))}
 
             <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 px-3 mt-4 mb-2">Management</div>
