@@ -2,13 +2,25 @@
 
 import json
 import logging
-from datetime import date, datetime
+import uuid
+from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, status, Body
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.database import get_db
+
+# Hiring Hall spec: geldige tools en categorieën
+VALID_TOOLS = [
+    "read_product", "write_copy", "read_analytics", "write_social",
+    "read_tickets", "write_tickets", "read_jobs", "send_report",
+    "web_search", "read_lessons",
+]
+VALID_CATEGORIES = [
+    "Management", "Content", "Marketing", "Operations",
+    "Technical", "Support", "Analytics", "Custom",
+]
 
 
 def _json_default(obj: Any) -> Any:
@@ -44,11 +56,40 @@ def _serialize_agent_row(row: Any) -> Dict[str, Any]:
     record["knowledge_base_sources"] = _to_json_compat(record.get("knowledge_base_sources"))
     record["tool_access_whitelist"] = _to_json_compat(record.get("tool_access_whitelist"))
     record["hiring_logic"] = _to_json_compat(record.get("hiring_logic"))
+    # Spec compat: agent_name alias voor name
+    if "name" in record and "agent_name" not in record:
+        record["agent_name"] = record["name"]
     return record
 
 
 
+def _generate_agent_id(role: str) -> str:
+    """Genereert agent_id conform Product Spec: agent:<role>-<short-uuid>."""
+    short_uuid = str(uuid.uuid4())[:4]
+    safe_role = role.lower().replace(" ", "-")[:30]
+    return f"agent:{safe_role}-{short_uuid}"
+
+
+class KnowledgeSource(BaseModel):
+    url: str
+    added_at: Optional[str] = None
+    status: str = "pending"
+    approved_by: Optional[str] = None
+
+
+class AgentCreateHiringHall(BaseModel):
+    """Hiring Hall spec (Product Spec v1.1): agent_name, goal, system_prompt, etc."""
+    agent_name: str = Field(..., min_length=2, max_length=100)
+    role: str = Field(...)
+    category: str = Field(default="Custom")
+    goal: str = Field(..., min_length=10, max_length=500)
+    system_prompt: str = Field(..., min_length=20)
+    tool_whitelist: List[str] = Field(default_factory=list)
+    knowledge_sources: List[Any] = Field(default_factory=list)
+
+
 class AgentCreate(BaseModel):
+    """Legacy: agent_id, name, role — backward compat voor talents promote etc."""
     agent_id: Any
     name: str
     role: str
@@ -250,71 +291,126 @@ async def get_agent(agent_id: str) -> Dict[str, Any]:
     return _serialize_agent_row(row)
 
 
+def _is_hiring_hall_payload(body: Dict[str, Any]) -> bool:
+    """Detecteert spec-style payload (agent_name, goal) vs legacy (agent_id, name)."""
+    return "agent_name" in body or "goal" in body
+
+
 @router.post("", response_model=AgentResponse, status_code=status.HTTP_201_CREATED)
-async def create_agent(body: AgentCreate) -> Dict[str, Any]:
+async def create_agent(body: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+    """
+    Maakt een nieuwe agent aan.
+    Ondersteunt twee payload-vormen:
+    - Hiring Hall spec: agent_name, role, category, goal, system_prompt, tool_whitelist, knowledge_sources
+    - Legacy: agent_id, name, role, specialization, system_instructions, etc.
+    """
     pool = await get_db()
-    hired_at = body.hired_at or datetime.utcnow()
-    updated_at = body.updated_at or datetime.utcnow()
+    now = datetime.now(timezone.utc)
+
+    if _is_hiring_hall_payload(body):
+        # ─── Hiring Hall spec (Product Spec v1.1) ─────────────────────────
+        try:
+            payload = AgentCreateHiringHall(**body)
+        except Exception as e:
+            raise HTTPException(status_code=422, detail=str(e))
+
+        # Valideer tool_whitelist
+        for t in payload.tool_whitelist:
+            if t not in VALID_TOOLS:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Onbekende tool: {t}. Geldige tools: {VALID_TOOLS}",
+                )
+
+        agent_id = _generate_agent_id(payload.role)
+        knowledge_json = json.dumps(payload.knowledge_sources) if payload.knowledge_sources else "[]"
+        tool_json = json.dumps(payload.tool_whitelist)
+
+        async with pool.acquire() as conn:
+            # Check duplicate naam
+            existing = await conn.fetchrow(
+                "SELECT agent_id FROM hired_agents WHERE name = $1",
+                payload.agent_name,
+            )
+            if existing:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Een actieve agent met de naam '{payload.agent_name}' bestaat al (ID: {existing['agent_id']}).",
+                )
+
+            row = await conn.fetchrow(
+                """
+                INSERT INTO hired_agents (
+                    agent_id, name, role, goal, category,
+                    system_prompt, system_instructions,
+                    tool_access_whitelist, knowledge_base_sources,
+                    status, is_active, is_suspended,
+                    hired_at, updated_at
+                )
+                VALUES (
+                    $1, $2, $3, $4, $5,
+                    $6, $6,
+                    $7::jsonb, $8::jsonb,
+                    'active', true, false,
+                    $9, $9
+                )
+                RETURNING *
+                """,
+                agent_id,
+                payload.agent_name,
+                payload.role,
+                payload.goal,
+                payload.category,
+                payload.system_prompt,
+                tool_json,
+                knowledge_json,
+                now,
+            )
+
+        logger.info("Agent aangemaakt (Hiring Hall): %s (%s)", agent_id, payload.agent_name)
+        return _serialize_agent_row(row)
+
+    # ─── Legacy payload (agent_id, name, role) ─────────────────────────────
+    try:
+        legacy = AgentCreate(**body)
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    hired_at = legacy.hired_at or now
+    updated_at = legacy.updated_at or now
+
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             """
             INSERT INTO hired_agents (
-                agent_id,
-                name,
-                role,
-                specialization,
-                status,
-                permissions,
-                system_instructions,
-                knowledge_base_sources,
-                tool_access_whitelist,
-                hiring_logic,
-                performance_score,
-                completed_tasks,
-                hired_at,
-                updated_at,
-                is_suspended,
-                system_prompt
+                agent_id, name, role, specialization, status,
+                permissions, system_instructions, knowledge_base_sources,
+                tool_access_whitelist, hiring_logic,
+                performance_score, completed_tasks, hired_at, updated_at,
+                is_suspended, system_prompt
             )
             VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8,
-                $9, $10, $11, $12, $13, $14, $15, $16
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+                $11, $12, $13, $14, $15, $16
             )
-            RETURNING
-                id,
-                agent_id,
-                name,
-                role,
-                specialization,
-                status,
-                permissions,
-                system_instructions,
-                knowledge_base_sources,
-                tool_access_whitelist,
-                hiring_logic,
-                performance_score,
-                completed_tasks,
-                hired_at,
-                updated_at,
-                is_suspended,
-                system_prompt
+            RETURNING *
             """,
-            body.agent_id,
-            body.name,
-            body.role,
-            body.specialization,
-            body.status,
-            _to_json_str(body.permissions),
-            body.system_instructions,
-            _to_json_str(body.knowledge_base_sources),
-            _to_json_str(body.tool_access_whitelist),
-            _to_json_str(body.hiring_logic),
-            body.performance_score,
-            body.completed_tasks,
+            legacy.agent_id,
+            legacy.name,
+            legacy.role,
+            legacy.specialization,
+            legacy.status or "active",
+            _to_json_str(legacy.permissions),
+            legacy.system_instructions,
+            _to_json_str(legacy.knowledge_base_sources),
+            _to_json_str(legacy.tool_access_whitelist),
+            _to_json_str(legacy.hiring_logic),
+            legacy.performance_score,
+            legacy.completed_tasks,
             hired_at,
             updated_at,
-            body.is_suspended,
-            body.system_prompt,
+            legacy.is_suspended,
+            legacy.system_prompt,
         )
 
     return _serialize_agent_row(row)

@@ -8,6 +8,7 @@ from app.routes.crew import router as crew_router
 from app.routes.monitoring import router as monitoring_router
 from app.routes.status import router as status_router
 from app.routes.talents import router as talents_router
+from app.routes.newbies import router as newbies_router
 from app.routes.skills import router as skills_router
 from app.routes.settings import router as settings_router
 from app.routes.ceo import router as ceo_router
@@ -29,6 +30,7 @@ def register_routers(app):
     app.include_router(monitoring_router)
     app.include_router(status_router)
     app.include_router(talents_router)
+    app.include_router(newbies_router)
     app.include_router(judson_router)
     app.include_router(gtm_router)
     app.include_router(skills_router)

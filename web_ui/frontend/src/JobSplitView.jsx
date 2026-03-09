@@ -587,7 +587,7 @@ export default function JobSplitView() {
                               <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
                                 <div
                                   className="h-full bg-indigo-500 rounded-full transition-all duration-500"
-                                  style={{ width: `${s.progress_pct ?? 10}%` }}
+                                  style={{ width: `${Math.max(10, s.progress_pct ?? 0)}%` }}
                                 />
                               </div>
                             </div>

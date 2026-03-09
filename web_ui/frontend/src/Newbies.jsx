@@ -1,14 +1,15 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Plus, GraduationCap, UserPlus } from 'lucide-react'
 import PageLayout from './PageLayout'
 import { apiUrl } from './apiClient'
 import { getCurrentUserRole, isSuperAdmin } from './authz'
 
 const CATEGORIES = [
-  { key: 'score_management', label: 'Management' },
-  { key: 'score_creative', label: 'Creative' },
-  { key: 'score_development', label: 'Development' },
-  { key: 'score_operations', label: 'Operations' },
+  { key: 'score_management', label: 'Management', apiValue: 'management' },
+  { key: 'score_creative', label: 'Creative', apiValue: 'creative' },
+  { key: 'score_development', label: 'Development', apiValue: 'development' },
+  { key: 'score_operations', label: 'Operations', apiValue: 'operations' },
 ]
 
 function truncate(str, max = 120) {
@@ -37,6 +38,7 @@ function StatusBadge({ status }) {
 }
 
 export default function Newbies() {
+  const navigate = useNavigate()
   const [newbies, setNewbies] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -50,6 +52,10 @@ export default function Newbies() {
     development: '',
     suggested_role: '',
   })
+
+  const [trainNewbie, setTrainNewbie] = useState(null)
+  const [trainForm, setTrainForm] = useState({ source_url: '', category: 'management' })
+  const [training, setTraining] = useState(false)
 
   const canEdit = isSuperAdmin(userRole)
 
@@ -115,7 +121,39 @@ export default function Newbies() {
   }
 
   const handleHireNow = (newbie) => {
-    window.location.href = `/hiring?promote=${encodeURIComponent(newbie.newbie_id)}`
+    navigate(`/hiring?promote=${encodeURIComponent(newbie.newbie_id)}`)
+  }
+
+  const openTrainModal = (n) => {
+    setTrainNewbie(n)
+    setTrainForm({ source_url: '', category: 'management' })
+  }
+
+  const submitTrain = async () => {
+    if (!trainNewbie || !trainForm.source_url?.trim()) return
+    setTraining(true)
+    setError('')
+    try {
+      const res = await fetch(apiUrl(`/api/newbies/${encodeURIComponent(trainNewbie.newbie_id)}/train`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          source_url: trainForm.source_url.trim(),
+          category: trainForm.category,
+        }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.detail || `Training mislukt (${res.status})`)
+      }
+      setTrainNewbie(null)
+      setTrainForm({ source_url: '', category: 'management' })
+      await fetchNewbies()
+    } catch (err) {
+      setError(err.message || 'Training mislukt')
+    } finally {
+      setTraining(false)
+    }
   }
 
   return (
@@ -189,8 +227,8 @@ export default function Newbies() {
                   <button
                     type="button"
                     className="text-sm text-indigo-600 hover:underline font-medium flex items-center gap-1"
-                    onClick={() => {}}
-                    title="Training (komt in Fase 4)"
+                    onClick={() => openTrainModal(n)}
+                    title="Train met URL"
                   >
                     <GraduationCap className="w-4 h-4" />
                     Train
@@ -271,6 +309,57 @@ export default function Newbies() {
                 className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg disabled:opacity-50"
               >
                 {adding ? 'Bezig...' : 'Aanmaken'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Train Newbie */}
+      {trainNewbie && (
+        <div className="modal-overlay" onClick={() => !training && setTrainNewbie(null)}>
+          <div className="modal-card space-y-3 max-w-lg" onClick={(e) => e.stopPropagation()}>
+            <h2 className="text-xl font-bold">Train: {trainNewbie.newbie_name}</h2>
+            <p className="text-sm text-slate-600">Voeg een URL toe om de score voor een categorie te verhogen.</p>
+            <div>
+              <label className="block text-sm font-semibold mb-1">URL</label>
+              <input
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg"
+                placeholder="https://..."
+                value={trainForm.source_url}
+                onChange={(e) => setTrainForm({ ...trainForm, source_url: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-semibold mb-1">Categorie</label>
+              <select
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg"
+                value={trainForm.category}
+                onChange={(e) => setTrainForm({ ...trainForm, category: e.target.value })}
+              >
+                {CATEGORIES.map(({ key, label, apiValue }) => (
+                  <option key={key} value={apiValue}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => !training && setTrainNewbie(null)}
+                className="flex-1 px-4 py-2 border border-slate-300 rounded-lg hover:bg-slate-50"
+                disabled={training}
+              >
+                Annuleren
+              </button>
+              <button
+                type="button"
+                onClick={submitTrain}
+                disabled={training || !trainForm.source_url?.trim()}
+                className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg disabled:opacity-50"
+              >
+                {training ? 'Bezig...' : 'Train'}
               </button>
             </div>
           </div>

@@ -57,6 +57,7 @@ def _format_job_context(job: dict, steps: list, clarifications: list) -> str:
     """Build a clear db_context string for Claude from job, steps, clarifications."""
     jni = job.get("job_number_int")
     job_number = f"{jni:04d}" if jni is not None else "?"
+    ctx = _parse_context(job.get("context"))
     step_details = ""
     for s in steps:
         output = s.get("output")
