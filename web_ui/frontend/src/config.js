@@ -80,15 +80,15 @@ export const CONFIG = {
       database: 'postgres',
     },
     
-    // Vercel Deployment
+    // Vercel Deployment (frontend)
     vercel: {
       frontend: 'https://wonderz-agentics.vercel.app',
-      apiProd: 'https://wonderz-agentics.fly.dev',
+      apiProd: 'https://wonderz-agentic.exe.xyz',
     },
     
-    // Fly.io Deployment
-    flyio: {
-      api: 'https://wonderz-agentics.fly.dev',
+    // Backend (exe.dev server; Fly.io niet in gebruik)
+    backend: {
+      api: 'https://wonderz-agentic.exe.xyz',
     },
   },
 

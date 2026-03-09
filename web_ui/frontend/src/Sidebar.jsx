@@ -24,9 +24,11 @@ import {
   Zap,
   Menu,
   X,
+  Inbox,
 } from 'lucide-react'
 import { supabase } from './supabase'
 import { getCurrentUserRole, isSuperAdmin } from './authz'
+import { apiUrl } from './apiClient'
 
 const WORKSPACE = [
   { label: 'Dashboard', icon: LayoutDashboard, path: '/' },
@@ -45,6 +47,7 @@ const MANAGEMENT = [
 ]
 
 const OPERATIONS = [
+  { label: 'Inbox', icon: Inbox, path: '/inbox', badgeKey: 'inbox' },
   { label: 'Developer Bot', icon: Code, path: '/devbot' },
   { label: 'HR Feedback', icon: MessageSquare, path: '/hr-feedback' },
   { label: 'Safety Gate', icon: Shield, path: '/approvals' },
@@ -89,7 +92,7 @@ function initials(user) {
   return name.charAt(0).toUpperCase()
 }
 
-function NavItem({ item }) {
+function NavItem({ item, badge }) {
   const Icon = item.icon
   if (!item.path || item.path === '#') {
     return (
@@ -111,7 +114,12 @@ function NavItem({ item }) {
       }
     >
       <Icon className="w-[18px] h-[18px] flex-shrink-0" />
-      <span className="text-sm font-medium">{item.label}</span>
+      <span className="text-sm font-medium flex-1 min-w-0 truncate">{item.label}</span>
+      {badge != null && badge > 0 && (
+        <span className="flex-shrink-0 min-w-[1.25rem] h-5 px-1.5 rounded-full bg-indigo-500 text-white text-xs font-medium flex items-center justify-center">
+          {badge > 99 ? '99+' : badge}
+        </span>
+      )}
     </NavLink>
   )
 }
@@ -150,6 +158,28 @@ export default function Sidebar() {
   const [user, setUser] = useState(null)
   const [role, setRole] = useState('member')
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [inboxUnread, setInboxUnread] = useState(0)
+
+  useEffect(() => {
+    let active = true
+    const fetchInboxSummary = async () => {
+      try {
+        const res = await fetch(apiUrl('/api/inbox/summary'))
+        if (res.ok && active) {
+          const data = await res.json()
+          setInboxUnread(data?.total_unread ?? 0)
+        }
+      } catch {
+        if (active) setInboxUnread(0)
+      }
+    }
+    fetchInboxSummary()
+    const interval = setInterval(fetchInboxSummary, 30000)
+    return () => {
+      active = false
+      clearInterval(interval)
+    }
+  }, [])
 
   useEffect(() => {
     let active = true
@@ -225,7 +255,11 @@ export default function Sidebar() {
 
             <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 px-3 mt-4 mb-2">Operations</div>
             {OPERATIONS.map((item) => (
-              <NavItem key={item.label} item={item} />
+              <NavItem
+                key={item.label}
+                item={item}
+                badge={item.badgeKey === 'inbox' ? inboxUnread : undefined}
+              />
             ))}
 
             <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 px-3 mt-4 mb-2">Knowledge</div>

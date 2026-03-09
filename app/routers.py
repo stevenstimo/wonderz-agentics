@@ -17,6 +17,8 @@ from app.routes.alex_dev import router as alex_dev_router
 from app.routes.debug_chat import router as debug_chat_router
 from app.routes.skills_judson import router as judson_router
 from app.routes.gtm import router as gtm_router
+from app.routes.dev_bot import router as dev_bot_router, devbot_router
+from app.routes.agent_inbox import router as agent_inbox_router
 
 
 def register_routers(app):
@@ -36,3 +38,6 @@ def register_routers(app):
     app.include_router(intelligence_router)
     app.include_router(alex_dev_router)
     app.include_router(debug_chat_router)
+    app.include_router(dev_bot_router)
+    app.include_router(devbot_router)
+    app.include_router(agent_inbox_router)

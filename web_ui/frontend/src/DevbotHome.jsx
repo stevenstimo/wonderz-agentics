@@ -1,11 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import PageLayout from './PageLayout';
 import DaveDevConsole from './DaveDevConsole';
+import DeveloperBot from './DeveloperBot';
 
 const agents = [
   { id: 'dave', name: 'Dave Dev', description: 'Technical Consultant & Chief Architect' },
-  // Meer agents kunnen hier toegevoegd worden
+  { id: 'devbot', name: 'Developer Bot', description: 'Debug toegang: job logs, DB queries, agent steps, errors' },
 ];
 
 export default function DevbotHome() {
@@ -58,6 +59,7 @@ export default function DevbotHome() {
               </div>
 
               {agent.id === 'dave' && <DaveDevConsole />}
+              {agent.id === 'devbot' && <DeveloperBot embedded />}
             </div>
           ) : (
             <div className="panel-card">

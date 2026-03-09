@@ -7,7 +7,11 @@
 - Port: 8090 (backend), 3001 (frontend dev server)
 
 ## Deployment
-- Backend: altijd starten via `start_backend.sh` (nooit direct uvicorn)
+- Backend: exe.dev server via systemd (`wonderz-backend.service`); deploy: `git pull` → `sudo systemctl restart wonderz-backend`
+- Frontend: Vercel (auto-deploy op main push)
+- Backend URL: https://wonderz-agentic.exe.xyz | Lokaal: http://localhost:8090
+- Fly.io: NIET in gebruik — negeer fly.toml
+- Lokaal: altijd starten via `start_backend.sh` (nooit direct uvicorn)
 - DATABASE_URL staat permanent in ~/.bashrc
 - Nooit `sed -i` voor multiline fixes — gebruik altijd `python3 -c` met string replace
 - Migration fix pattern: `python3 -c` met string replace op `app/db.py`

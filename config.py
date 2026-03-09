@@ -57,8 +57,8 @@ class AppConfig:
     BACKEND_DEV = "http://localhost:8090"
     FRONTEND_DEV = "http://localhost:5173"
     
-    # Production URLs
-    BACKEND_PROD = "https://wonderz-agentics.fly.dev"
+    # Production URLs (exe.dev server)
+    BACKEND_PROD = "https://wonderz-agentic.exe.xyz"
     FRONTEND_PROD = "https://frontend-rho-one-99.vercel.app"
     
     # Database

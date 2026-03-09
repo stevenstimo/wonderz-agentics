@@ -1,9 +1,11 @@
+import asyncio
 import json
 import logging
 import os
 import re
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import quote
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -17,6 +19,21 @@ logger = logging.getLogger(__name__)
 
 # Model for pipeline agent calls (copywriter, reviewer)
 CLAUDE_MODEL = "claude-sonnet-4-5-20250929"
+
+# Per-step timeouts (seconds)
+TIMEOUT_CONTENT_STEP = 120
+TIMEOUT_GTM_STEP = 180
+TIMEOUT_REVIEW_STEP = 60
+
+# Thread pool for running sync _run_step_agent with timeout
+_step_executor: Optional[ThreadPoolExecutor] = None
+
+
+def _get_step_executor() -> ThreadPoolExecutor:
+    global _step_executor
+    if _step_executor is None:
+        _step_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="job_step")
+    return _step_executor
 
 
 def _json_default(obj: Any) -> Any:
@@ -56,6 +73,61 @@ async def _load_job(conn, job_id: str):
     if not job:
         raise ValueError(f"Job not found: {job_id}")
     return job
+
+
+async def _save_checkpoint(conn, job_id: str, content: str, step_name: str) -> None:
+    """Save intermediate content to job context so it survives crashes."""
+    if not content or not isinstance(content, str):
+        return
+    try:
+        await _update_job_context(conn, job_id, {"final_content": content, "checkpoint_step": step_name})
+        logger.debug("Checkpoint saved for job %s after step %s", job_id, step_name)
+    except Exception as e:
+        logger.warning("Checkpoint save failed for job %s: %s", job_id, e)
+
+
+def _get_step_timeout(agent_role: str, step_name: str) -> int:
+    """Return timeout in seconds based on step type."""
+    role_lower = (agent_role or "").lower()
+    step_lower = (step_name or "").lower()
+    if role_lower in ("reviewer", "review"):
+        return TIMEOUT_REVIEW_STEP
+    if any(kw in role_lower or kw in step_lower for kw in ("gtm", "campagne", "campaign", "launch", "go-to-market", "meta", "google", "email", "social", "seo")):
+        return TIMEOUT_GTM_STEP
+    return TIMEOUT_CONTENT_STEP
+
+
+async def _run_step_agent_with_timeout(
+    agent_role: str,
+    step_name: str,
+    context: Dict[str, Any],
+    previous_content: Optional[str],
+) -> Tuple[Dict[str, Any], int]:
+    """Run agent step with per-step timeout. On timeout: mark step failed, pipeline continues."""
+    timeout = _get_step_timeout(agent_role, step_name)
+    loop = asyncio.get_event_loop()
+    executor = _get_step_executor()
+    try:
+        result = await asyncio.wait_for(
+            loop.run_in_executor(
+                executor,
+                lambda: _run_step_agent(agent_role, step_name, context, previous_content),
+            ),
+            timeout=timeout,
+        )
+        return result
+    except asyncio.TimeoutError:
+        logger.warning("Step timeout after %ds: job step %s (%s)", timeout, step_name, agent_role)
+        return (
+            {
+                "status": "failed",
+                "content": None,
+                "error": f"Step timeout after {timeout}s",
+                "agent_role": agent_role,
+                "step_name": step_name or agent_role,
+            },
+            0,
+        )
 
 
 async def _update_job_context(conn, job_id: str, updates: Dict[str, Any]) -> Dict[str, Any]:
@@ -585,7 +657,7 @@ async def run_job_inline(job_id: str, context_extra: Optional[dict] = None):
                 step_name = step.get("step_name") or step.get("agent_role") or "step"
                 agent_role = step.get("agent_role") or ""
 
-                output, tokens_used = _run_step_agent(
+                output, tokens_used = await _run_step_agent_with_timeout(
                     agent_role=agent_role,
                     step_name=step_name,
                     context=context or {},
@@ -622,6 +694,9 @@ async def run_job_inline(job_id: str, context_extra: Optional[dict] = None):
                 )
                 if output.get("image_url"):
                     await _update_job_context(conn, job_id, {"image_url": output["image_url"]})
+                # Checkpoint: save content after each step that produces it (survives crash)
+                if last_content and output.get("status") in ("completed", "success"):
+                    await _save_checkpoint(conn, job_id, last_content, step_name or agent_role)
                 logger.info("run_job_inline: job %s step %s of %s done", job_id, idx + 1, num_steps)
 
             # Ensure image_url is in job context for frontend (from any step that produced one)
