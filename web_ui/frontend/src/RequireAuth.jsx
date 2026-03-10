@@ -14,6 +14,10 @@ export default function RequireAuth({ children }) {
   const [hasSession, setHasSession] = useState(false)
 
   useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setHasSession(!!session?.user)
+      setLoading(false)
+    })
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (_event, session) => {
         setHasSession(!!session?.user)
