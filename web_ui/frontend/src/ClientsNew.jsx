@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import PageLayout from './PageLayout'
 import { Building, ArrowLeft } from 'lucide-react'
 import { Link } from 'react-router-dom'
@@ -13,6 +13,7 @@ function slugFromName(name) {
 
 export default function ClientsNew() {
   const navigate = useNavigate()
+  const location = useLocation()
   const [clientName, setClientName] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -31,7 +32,7 @@ export default function ClientsNew() {
         body: JSON.stringify({ client_name: clientName.trim() }),
       })
       if (res.status === 401) {
-        navigate('/login')
+        navigate('/login', { state: { from: location } })
         return
       }
       if (res.ok) {

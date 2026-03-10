@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useLocation } from 'react-router-dom'
 import PageLayout from './PageLayout'
 import { Building, Plus, Zap } from 'lucide-react'
 import { buildAuthHeaders } from './authz'
@@ -7,6 +7,7 @@ import { apiUrl } from './apiClient'
 
 export default function ClientsOverview() {
   const navigate = useNavigate()
+  const location = useLocation()
   const [clients, setClients] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -20,7 +21,7 @@ export default function ClientsOverview() {
         headers: await buildAuthHeaders(),
       })
       if (res.status === 401) {
-        navigate('/login')
+        navigate('/login', { state: { from: location } })
         return
       }
       if (res.ok) {
@@ -40,7 +41,7 @@ export default function ClientsOverview() {
 
   useEffect(() => {
     fetchClients()
-  }, [navigate])
+  }, [navigate, location])
 
   const handleCreateVitbliss = async () => {
     setCreatingVitbliss(true)
@@ -52,7 +53,7 @@ export default function ClientsOverview() {
         body: JSON.stringify({ client_name: 'Vitbliss' }),
       })
       if (res.status === 401) {
-        navigate('/login')
+        navigate('/login', { state: { from: location } })
         return
       }
       if (res.ok) {

@@ -1,8 +1,11 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, ChevronDown, ChevronRight, Briefcase, Target, BookOpen, Activity, ImagePlus, Trash2 } from 'lucide-react'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
+import { ArrowLeft, Briefcase, Target, BookOpen, Activity, ImagePlus, Trash2, MessageCircle } from 'lucide-react'
 import PageLayout from './PageLayout'
 import { apiUrl } from './apiClient'
+import { buildAuthHeaders } from './authz'
+import { VALID_TOOLS } from './agentConstants'
+import AgentDirectChat from './components/AgentDirectChat'
 
 const AVATAR_COLORS = [
   { name: 'indigo', bg: 'bg-indigo-600' },
@@ -69,39 +72,114 @@ function resizeImageToDataUrl(file) {
   })
 }
 
+const TAB_PROFIEL = 'profiel'
+const TAB_KENNIS = 'kennis'
+const TAB_PRESTATIES = 'prestaties'
+const TAB_CHAT = 'chat'
+
+function KennisTab({ agentId, knowledgeSources, relativeTime }) {
+  const [manualChunks, setManualChunks] = useState([])
+  const [loading, setLoading] = useState(true)
+  useEffect(() => {
+    if (!agentId) return
+    setLoading(true)
+    fetch(apiUrl(`/api/training/${encodeURIComponent(agentId)}/knowledge-base`))
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data) => {
+        const list = Array.isArray(data) ? data : []
+        setManualChunks(list.filter((c) => (c.source_url || '').startsWith('direct_chat:')))
+      })
+      .catch(() => setManualChunks([]))
+      .finally(() => setLoading(false))
+  }, [agentId])
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+      <h3 className="text-lg font-semibold text-slate-900 mb-4">Kennisbronnen</h3>
+      <Link
+        to="/training"
+        className="inline-flex items-center gap-2 text-sm font-medium text-indigo-600 hover:text-indigo-800 mb-4"
+      >
+        + URL toevoegen (Training Hub)
+      </Link>
+      {knowledgeSources.length === 0 ? (
+        <p className="text-sm text-slate-500">Geen kennisbronnen. Voeg URLs toe via de Training Hub.</p>
+      ) : (
+        <ul className="space-y-2">
+          {knowledgeSources.map((src, i) => (
+            <li key={i} className="flex items-start justify-between gap-2 text-sm">
+              <span className="min-w-0 truncate text-slate-700">
+                {typeof src === 'string' ? src : (src?.url || src?.source || JSON.stringify(src))}
+              </span>
+              {typeof src === 'object' && (src.chunks != null || src.added_at) && (
+                <span className="text-slate-400 shrink-0">
+                  {src.chunks != null ? `${src.chunks} chunks` : ''}
+                  {src.added_at ? ` · ${relativeTime(src.added_at)}` : ''}
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      <h4 className="text-sm font-semibold text-slate-800 mt-6 mb-2">Handmatig opgeslagen</h4>
+      {loading ? (
+        <p className="text-xs text-slate-500">Laden...</p>
+      ) : manualChunks.length === 0 ? (
+        <p className="text-xs text-slate-500">Geen items. Sla berichten op vanuit Direct Chat met het bookmark-icoon.</p>
+      ) : (
+        <ul className="space-y-2">
+          {manualChunks.map((c) => (
+            <li key={c.id} className="text-sm text-slate-700 border-l-2 border-indigo-200 pl-3 py-1">
+              {c.text}
+              <span className="text-xs text-slate-500 block mt-0.5">{c.source_url} · {relativeTime(c.created_at)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 export default function AgentDetail() {
   const { agentId } = useParams()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tab = searchParams.get('tab') || TAB_PROFIEL
+  const setTab = (t) => setSearchParams(t === TAB_PROFIEL ? {} : { tab: t })
+
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
-  const [nameEdit, setNameEdit] = useState('')
-  const [editingName, setEditingName] = useState(false)
-  const [systemInstructionsEdit, setSystemInstructionsEdit] = useState('')
-  const [systemInstructionsDirty, setSystemInstructionsDirty] = useState(false)
-  const [savingInstructions, setSavingInstructions] = useState(false)
-  const [savingName, setSavingName] = useState(false)
+  const [profileForm, setProfileForm] = useState({ name: '', goal: '', system_prompt: '', tool_access_whitelist: [] })
+  const [profileDirty, setProfileDirty] = useState(false)
+  const [savingProfile, setSavingProfile] = useState(false)
   const [savingStatus, setSavingStatus] = useState(false)
   const [savingAvatar, setSavingAvatar] = useState(false)
   const [showAvatarColors, setShowAvatarColors] = useState(false)
-  const [systemInstructionsOpen, setSystemInstructionsOpen] = useState(true)
-  const [toolsOpen, setToolsOpen] = useState(true)
-  const [knowledgeOpen, setKnowledgeOpen] = useState(true)
+  const [showDeactivateModal, setShowDeactivateModal] = useState(false)
 
   const loadDetail = useCallback(async () => {
     if (!agentId) return
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(apiUrl(`/api/agents/${encodeURIComponent(agentId)}/detail`))
+      const res = await fetch(apiUrl(`/api/agents/${encodeURIComponent(agentId)}/detail`), {
+        headers: await buildAuthHeaders(),
+      })
       if (!res.ok) {
         if (res.status === 404) throw new Error('Agent not found')
         throw new Error((await res.json()).detail || 'Failed to load')
       }
       const json = await res.json()
       setData(json)
-      setSystemInstructionsEdit(json.agent?.system_instructions ?? json.agent?.system_prompt ?? '')
-      setSystemInstructionsDirty(false)
+      const a = json.agent || {}
+      const tools = Array.isArray(a.tool_access_whitelist) ? a.tool_access_whitelist : []
+      setProfileForm({
+        name: a.name || '',
+        goal: a.goal || '',
+        system_prompt: a.system_prompt || a.system_instructions || '',
+        tool_access_whitelist: tools.map((t) => (typeof t === 'string' ? t : t.name || t)),
+      })
+      setProfileDirty(false)
     } catch (err) {
       setError(err.message || 'Failed to load agent')
       setData(null)
@@ -124,7 +202,6 @@ export default function AgentDetail() {
   const avatarImageUrl = avatarConfig.imageDataUrl || avatarConfig.imageUrl || null
   const avatarBg = AVATAR_COLORS.find((c) => c.name === avatarColor)?.bg || 'bg-indigo-600'
   const fileInputRef = useRef(null)
-  const toolsList = Array.isArray(agent.tool_access_whitelist) ? agent.tool_access_whitelist : []
   const knowledgeSources = Array.isArray(agent.knowledge_base_sources) ? agent.knowledge_base_sources : []
 
   const totalTokens = recentWork.reduce((acc, s) => acc + (Number(s.tokens_used) || 0), 0)
@@ -137,64 +214,64 @@ export default function AgentDetail() {
   const circumference = 2 * Math.PI * 36
   const strokeDash = (performanceScore / 100) * circumference
 
-  const startEditName = () => {
-    setNameEdit(agent.name || '')
-    setEditingName(true)
-  }
-  const cancelEditName = () => {
-    setEditingName(false)
-    setNameEdit('')
-  }
-  const saveName = async () => {
-    const trimmed = (nameEdit || '').trim()
-    if (trimmed === (agent.name || '').trim()) {
-      setEditingName(false)
-      return
+  const syncProfileFormFromAgent = useCallback(() => {
+    const tools = Array.isArray(agent.tool_access_whitelist) ? agent.tool_access_whitelist : []
+    setProfileForm({
+      name: agent.name || '',
+      goal: agent.goal || '',
+      system_prompt: agent.system_prompt || agent.system_instructions || '',
+      tool_access_whitelist: tools.map((t) => (typeof t === 'string' ? t : t.name || t)),
+    })
+    setProfileDirty(false)
+  }, [agent.name, agent.goal, agent.system_prompt, agent.system_instructions, agent.tool_access_whitelist])
+
+  const saveProfile = async () => {
+    const payload = {
+      name: profileForm.name.trim(),
+      goal: profileForm.goal.trim() || undefined,
+      system_prompt: profileForm.system_prompt.trim(),
+      tool_access_whitelist: profileForm.tool_access_whitelist,
     }
-    setSavingName(true)
+    setSavingProfile(true)
     try {
       const res = await fetch(apiUrl(`/api/agents/${encodeURIComponent(agentId)}`), {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: trimmed }),
+        headers: await buildAuthHeaders(),
+        body: JSON.stringify(payload),
       })
       if (!res.ok) throw new Error((await res.json()).detail || 'Update failed')
       await loadDetail()
-      setEditingName(false)
     } catch (err) {
       alert(err.message)
     } finally {
-      setSavingName(false)
+      setSavingProfile(false)
     }
   }
 
-  const saveSystemInstructions = async () => {
-    setSavingInstructions(true)
-    try {
-      const res = await fetch(apiUrl(`/api/agents/${encodeURIComponent(agentId)}`), {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ system_instructions: systemInstructionsEdit }),
-      })
-      if (!res.ok) throw new Error((await res.json()).detail || 'Update failed')
-      await loadDetail()
-      setSystemInstructionsDirty(false)
-    } catch (err) {
-      alert(err.message)
-    } finally {
-      setSavingInstructions(false)
-    }
+  const cancelProfile = () => {
+    syncProfileFormFromAgent()
   }
 
-  const toggleStatus = async () => {
-    const next = (agent.status === 'active' || !agent.is_suspended) ? 'suspended' : 'active'
-    if (!window.confirm(`Set status to ${next}?`)) return
+  const toggleTool = (tool) => {
+    setProfileForm((prev) => {
+      const exists = prev.tool_access_whitelist.includes(tool)
+      return {
+        ...prev,
+        tool_access_whitelist: exists
+          ? prev.tool_access_whitelist.filter((t) => t !== tool)
+          : [...prev.tool_access_whitelist, tool],
+      }
+    })
+    setProfileDirty(true)
+  }
+
+  const setProfileIsActive = async (value) => {
     setSavingStatus(true)
     try {
       const res = await fetch(apiUrl(`/api/agents/${encodeURIComponent(agentId)}`), {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: next }),
+        headers: await buildAuthHeaders(),
+        body: JSON.stringify({ is_active: value }),
       })
       if (!res.ok) throw new Error((await res.json()).detail || 'Update failed')
       await loadDetail()
@@ -202,6 +279,16 @@ export default function AgentDetail() {
       alert(err.message)
     } finally {
       setSavingStatus(false)
+      setShowDeactivateModal(false)
+    }
+  }
+
+  const handleIsActiveToggle = () => {
+    const currentlyActive = agent.is_active !== false
+    if (currentlyActive) {
+      setShowDeactivateModal(true)
+    } else {
+      setProfileIsActive(true)
     }
   }
 
@@ -213,7 +300,7 @@ export default function AgentDetail() {
       if (avatarImageUrl) body.imageDataUrl = avatarImageUrl
       const res = await fetch(apiUrl(`/api/agents/${encodeURIComponent(agentId)}/avatar`), {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: await buildAuthHeaders(),
         body: JSON.stringify(body),
       })
       if (!res.ok) throw new Error((await res.json()).detail || 'Update failed')
@@ -231,7 +318,7 @@ export default function AgentDetail() {
     try {
       const res = await fetch(apiUrl(`/api/agents/${encodeURIComponent(agentId)}/avatar`), {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: await buildAuthHeaders(),
         body: JSON.stringify({
           color: avatarColor,
           initials: avatarInitials,
@@ -253,7 +340,7 @@ export default function AgentDetail() {
     try {
       const res = await fetch(apiUrl(`/api/agents/${encodeURIComponent(agentId)}/avatar`), {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: await buildAuthHeaders(),
         body: JSON.stringify({
           color: avatarColor,
           initials: avatarInitials,
@@ -322,10 +409,42 @@ export default function AgentDetail() {
     )
   }
 
-  const isActive = agent.status === 'active' && !agent.is_suspended
+  const isActive = agent.is_active !== false
+
+  const tabClass = (t) =>
+    tab === t
+      ? 'bg-white border border-slate-200 border-b-0 text-indigo-600'
+      : 'text-slate-500 hover:text-slate-900'
 
   return (
     <PageLayout size="wide" padded className="!max-w-none">
+      {showDeactivateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true" aria-labelledby="deactivate-modal-title">
+          <div className="rounded-xl bg-white p-6 shadow-xl max-w-md mx-4">
+            <h2 id="deactivate-modal-title" className="text-lg font-semibold text-slate-900 mb-2">Agent deactiveren</h2>
+            <p className="text-slate-600 text-sm mb-4">
+              Agent {agent.name || 'deze agent'} wordt gedeactiveerd. Lopende taken worden niet onderbroken.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                type="button"
+                onClick={() => setShowDeactivateModal(false)}
+                className="rounded-lg px-4 py-2 border border-slate-300 text-slate-700 text-sm font-medium hover:bg-slate-50"
+              >
+                Annuleren
+              </button>
+              <button
+                type="button"
+                onClick={() => setProfileIsActive(false)}
+                disabled={savingStatus}
+                className="rounded-lg px-4 py-2 bg-red-600 text-white text-sm font-medium hover:bg-red-700 disabled:opacity-50"
+              >
+                {savingStatus ? 'Bezig…' : 'Deactiveren'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="mb-4 flex items-center gap-2">
         <Link
           to="/agents"
@@ -335,8 +454,43 @@ export default function AgentDetail() {
         </Link>
       </div>
 
+      <div className="flex gap-2 border-b border-slate-200 mb-4">
+        <button
+          type="button"
+          onClick={() => setTab(TAB_PROFIEL)}
+          className={`px-6 py-3 font-semibold rounded-t-xl transition-colors ${tabClass(TAB_PROFIEL)}`}
+        >
+          Profiel
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab(TAB_KENNIS)}
+          className={`px-6 py-3 font-semibold rounded-t-xl transition-colors ${tabClass(TAB_KENNIS)}`}
+        >
+          Kennis
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab(TAB_PRESTATIES)}
+          className={`px-6 py-3 font-semibold rounded-t-xl transition-colors ${tabClass(TAB_PRESTATIES)}`}
+        >
+          Prestaties
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab(TAB_CHAT)}
+          className={`px-6 py-3 font-semibold rounded-t-xl transition-colors flex items-center gap-2 ${tabClass(TAB_CHAT)}`}
+        >
+          <MessageCircle className="w-4 h-4" /> Chat
+        </button>
+      </div>
+
+      {tab === TAB_CHAT && (
+        <AgentDirectChat agentId={agentId} agent={agent} />
+      )}
+
+      {tab === TAB_PROFIEL && (
       <div className="grid grid-cols-1 lg:grid-cols-[40%_60%] gap-6">
-        {/* LEFT: Profile & Settings */}
         <div className="space-y-4">
           <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="flex flex-wrap items-start gap-4">
@@ -393,37 +547,7 @@ export default function AgentDetail() {
                 )}
               </div>
               <div className="min-w-0 flex-1">
-                {editingName ? (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <input
-                      type="text"
-                      value={nameEdit}
-                      onChange={(e) => setNameEdit(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') saveName()
-                        if (e.key === 'Escape') cancelEditName()
-                      }}
-                      className="flex-1 min-w-[120px] px-2 py-1 border border-slate-300 rounded text-lg font-semibold text-slate-900"
-                      autoFocus
-                    />
-                    <button type="button" onClick={saveName} disabled={savingName} className="btn-manage text-sm">
-                      Save
-                    </button>
-                    <button type="button" onClick={cancelEditName} className="px-2 py-1 text-slate-600 text-sm">
-                      Cancel
-                    </button>
-                  </div>
-                ) : (
-                  <h1
-                    className="text-xl font-bold text-slate-900 cursor-pointer hover:bg-slate-50 rounded px-1 -mx-1"
-                    onClick={startEditName}
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(e) => e.key === 'Enter' && startEditName()}
-                  >
-                    {agent.name || '—'}
-                  </h1>
-                )}
+                <h1 className="text-xl font-bold text-slate-900">{agent.name || '—'}</h1>
                 <div className="flex flex-wrap items-center gap-2 mt-1">
                   <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-800">
                     {agent.role || '—'}
@@ -437,17 +561,18 @@ export default function AgentDetail() {
                 <div className="flex items-center gap-3 mt-2">
                   <button
                     type="button"
-                    onClick={toggleStatus}
+                    onClick={handleIsActiveToggle}
                     disabled={savingStatus}
                     className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none ${isActive ? 'bg-green-500' : 'bg-slate-300'}`}
                     role="switch"
+                    aria-checked={isActive}
                   >
                     <span
                       className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition translate-x-0.5 ${isActive ? 'translate-x-5' : 'translate-x-0.5'}`}
                     />
                   </button>
-                  <span className={`text-xs font-medium ${isActive ? 'text-green-700' : 'text-red-700'}`}>
-                    {isActive ? 'Active' : 'Suspended'}
+                  <span className={`text-xs font-medium ${isActive ? 'text-green-700' : 'text-slate-600'}`}>
+                    {isActive ? 'Actief' : 'Inactief'}
                   </span>
                 </div>
                 <p className="text-xs text-slate-500 font-mono mt-1">{agent.agent_id}</p>
@@ -458,60 +583,70 @@ export default function AgentDetail() {
             </div>
           </div>
 
-          {/* System Instructions */}
-          <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-            <button
-              type="button"
-              onClick={() => setSystemInstructionsOpen(!systemInstructionsOpen)}
-              className="w-full flex items-center justify-between px-4 py-3 text-left font-semibold text-slate-900 bg-slate-50/50"
-            >
-              System Instructions
-              {systemInstructionsOpen ? (
-                <ChevronDown className="w-4 h-4 text-slate-500" />
-              ) : (
-                <ChevronRight className="w-4 h-4 text-slate-500" />
-              )}
-            </button>
-            {systemInstructionsOpen && (
-              <div className="p-4 border-t border-slate-200">
-                <textarea
-                  value={systemInstructionsEdit}
-                  onChange={(e) => {
-                    setSystemInstructionsEdit(e.target.value)
-                    setSystemInstructionsDirty(true)
-                  }}
-                  rows={6}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-800 font-mono"
-                  placeholder="System instructions or prompt..."
-                />
-                <div className="flex items-center justify-between mt-2">
-                  <span className="text-xs text-slate-500">{systemInstructionsEdit.length} characters</span>
-                  <button
-                    type="button"
-                    onClick={saveSystemInstructions}
-                    disabled={!systemInstructionsDirty || savingInstructions}
-                    className="btn-manage text-sm"
-                  >
-                    {savingInstructions ? 'Saving…' : 'Save'}
-                  </button>
-                </div>
+          {/* Bewerkbare velden */}
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm space-y-4">
+            <h3 className="text-sm font-semibold text-slate-900">Profiel bewerken</h3>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Naam</label>
+              <input
+                type="text"
+                value={profileForm.name}
+                onChange={(e) => { setProfileForm((p) => ({ ...p, name: e.target.value })); setProfileDirty(true) }}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Doel binnen crew</label>
+              <input
+                type="text"
+                value={profileForm.goal}
+                onChange={(e) => { setProfileForm((p) => ({ ...p, goal: e.target.value })); setProfileDirty(true) }}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                placeholder="Doel van de agent"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">System Instructions</label>
+              <textarea
+                value={profileForm.system_prompt}
+                onChange={(e) => { setProfileForm((p) => ({ ...p, system_prompt: e.target.value })); setProfileDirty(true) }}
+                rows={6}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono"
+                placeholder="System instructions..."
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-2">Tool Access</label>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {VALID_TOOLS.map((tool) => (
+                  <label key={tool} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 hover:bg-slate-50">
+                    <input
+                      type="checkbox"
+                      checked={profileForm.tool_access_whitelist.includes(tool)}
+                      onChange={() => toggleTool(tool)}
+                    />
+                    <span className="text-sm text-slate-700">{tool}</span>
+                  </label>
+                ))}
               </div>
-            )}
-          </div>
-
-          {/* Tools Access */}
-          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <h3 className="text-sm font-semibold text-slate-900 mb-2">Tools Access</h3>
-            <div className="flex flex-wrap gap-1.5">
-              {toolsList.map((t, i) => (
-                <span
-                  key={i}
-                  className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-700"
-                >
-                  {typeof t === 'string' ? t : t.name || JSON.stringify(t)}
-                </span>
-              ))}
-              <span className="text-xs text-slate-400">(add/remove via API)</span>
+            </div>
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={saveProfile}
+                disabled={!profileDirty || savingProfile}
+                className="rounded-lg px-4 py-2 bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {savingProfile ? 'Opslaan…' : 'Opslaan'}
+              </button>
+              <button
+                type="button"
+                onClick={cancelProfile}
+                disabled={!profileDirty}
+                className="rounded-lg px-4 py-2 border border-slate-300 text-slate-700 text-sm font-medium hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Annuleren
+              </button>
             </div>
           </div>
 
@@ -542,8 +677,17 @@ export default function AgentDetail() {
             )}
           </div>
         </div>
+        <div className="hidden lg:block" />
+      </div>
+      )}
 
-        {/* RIGHT: Performance & Activity */}
+      {tab === TAB_KENNIS && (
+      <KennisTab agentId={agentId} knowledgeSources={knowledgeSources} relativeTime={relativeTime} />
+      )}
+
+      {tab === TAB_PRESTATIES && (
+      <div className="grid grid-cols-1 lg:grid-cols-[40%_60%] gap-6">
+        <div className="space-y-4" />
         <div className="space-y-4">
           <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <h3 className="text-sm font-semibold text-slate-900 mb-3">Performance</h3>
@@ -691,6 +835,7 @@ export default function AgentDetail() {
           </div>
         </div>
       </div>
+      )}
     </PageLayout>
   )
 }

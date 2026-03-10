@@ -54,7 +54,7 @@ export default function TrainingHub() {
       if (!res.ok) {
         setError(getErrorMessage(data) || 'Training mislukt')
       } else {
-        setChunksProcessed(data.chunks)
+        setChunksProcessed(data.chunks_processed ?? data.chunks)
         setUrl('')
         await loadAgents()
       }

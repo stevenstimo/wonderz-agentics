@@ -5,18 +5,38 @@ import json
 from datetime import datetime
 from typing import Optional, List, Dict, Set, Any
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import JSONResponse
 
 from app.middleware.auth import require_super_admin
 from pydantic import BaseModel, model_validator, Field, root_validator
 
 from app.database import get_db
 from app.services.hr_manager import HRManager
+from app.agents.hr_manager import HRManager as SpecHRManager, _serialize as _serialize_spec
 from app.orchestration.manager import OperationsManager
 from models.unified import JobStatus, StrategicBrief
 from app.services.training import train_agent_from_url
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/hr", tags=["hr"])
+
+TRAINING_REQUESTS_UNAVAILABLE = {
+    "error": "training_requests niet beschikbaar",
+    "detail": "Tabel bestaat nog niet",
+}
+
+
+def _is_training_requests_unavailable(exc: Exception) -> bool:
+    try:
+        import asyncpg
+        if type(exc).__name__ == "UndefinedTableError" or (
+            hasattr(asyncpg, "UndefinedTableError") and isinstance(exc, asyncpg.UndefinedTableError)
+        ):
+            return "training_requests" in str(exc).lower()
+    except Exception:
+        pass
+    msg = str(exc).lower()
+    return "training_requests" in msg and ("does not exist" in msg or "undefined_table" in msg or "relation" in msg)
 _columns_cache: Dict[str, Set[str]] = {}
 
 
@@ -126,6 +146,17 @@ async def _get_hr_manager() -> HRManager:
     return HRManager(pool)
 
 
+async def _get_spec_hr() -> SpecHRManager:
+    pool = await get_db()
+    return SpecHRManager(pool)
+
+
+class UpdatePointBody(BaseModel):
+    status: str
+    approved_by: Optional[str] = None
+    source_url: Optional[str] = None
+
+
 @router.get("/improvements")
 async def list_improvements():
     """List improvement suggestions (alias for development-points)."""
@@ -138,54 +169,88 @@ async def list_improvements():
              "created_at": str(p.get("created_at", ""))} for p in points]
 
 
-@router.get("/development-points", response_model=List[DevelopmentPoint])
+@router.get("/development-points")
 async def list_development_points(
-    agent_id: Optional[str] = None,
-    agent_role: Optional[str] = None,
-    impact: Optional[str] = None,
-    status: Optional[str] = None,
+    agent_id: Optional[str] = Query(None),
+    agent_role: Optional[str] = Query(None),
+    impact: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    format: Optional[str] = Query(None, description="'spec' for {development_points, count}"),
 ):
-    """Lists development points with optional filters."""
-    hr = await _get_hr_manager()
-    status_filter = None
-    if status:
-        status_lower = status.lower()
-        if status_lower not in {"all", "any", "*"}:
-            status_filter = status
-    points = await hr.get_development_points(
-        agent_id=agent_id,
-        agent_role=agent_role,
-        impact=impact,
-        status=status_filter,
-    )
-    return [
-        DevelopmentPoint(
-            point_id=p.get("point_id") or p.get("id"),
-            agent_id=p.get("agent_id"),
-            agent_role=p.get("agent_role"),
-            issue_description=p.get("issue_description") or p.get("description") or "",
-            frequency=p.get("frequency") or 0,
-            impact=p.get("impact") or "low",
-            status=p.get("status") or "OPEN",
-            source_url=p.get("source_url"),
-            evidence_example=p.get("evidence_example"),
-            proposed_by=p.get("proposed_by"),
-            resolution=p.get("resolution"),
-            approval_notes=p.get("approval_notes") or p.get("notes"),
-            approved_by=p.get("approved_by"),
-            rejected_by=p.get("rejected_by"),
-            created_at=p.get("created_at"),
-            updated_at=p.get("updated_at"),
-            resolved_at=p.get("resolved_at"),
+    """Lists development points with optional filters. Default: spec format for HRDashboard."""
+    if format == "legacy":
+        # Legacy format: use services HRManager
+        hr = await _get_hr_manager()
+        status_filter = None
+        if status:
+            status_lower = (status or "").lower()
+            if status_lower not in {"all", "any", "*"}:
+                status_filter = status
+        points = await hr.get_development_points(
+            agent_id=agent_id,
+            agent_role=agent_role,
+            impact=impact,
+            status=status_filter,
         )
-        for p in points
-    ]
+        return [
+            DevelopmentPoint(
+                point_id=p.get("point_id") or p.get("id"),
+                agent_id=p.get("agent_id"),
+                agent_role=p.get("agent_role"),
+                issue_description=p.get("issue_description") or p.get("description") or "",
+                frequency=p.get("frequency") or 0,
+                impact=p.get("impact") or "low",
+                status=p.get("status") or "OPEN",
+                source_url=p.get("source_url"),
+                evidence_example=p.get("evidence_example"),
+                proposed_by=p.get("proposed_by"),
+                resolution=p.get("resolution"),
+                approval_notes=p.get("approval_notes") or p.get("notes"),
+                approved_by=p.get("approved_by"),
+                rejected_by=p.get("rejected_by"),
+                created_at=p.get("created_at"),
+                updated_at=p.get("updated_at"),
+                resolved_at=p.get("resolved_at"),
+            )
+            for p in points
+        ]
+    # Spec format: { development_points, count }
+    hr = await _get_spec_hr()
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        conditions = ["1=1"]
+        params: list = []
+        idx = 1
+        if agent_id:
+            conditions.append(f"dp.agent_id = ${idx}")
+            params.append(agent_id)
+            idx += 1
+        if impact:
+            conditions.append(f"dp.impact = ${idx}")
+            params.append(impact)
+            idx += 1
+        if status:
+            conditions.append(f"dp.status = ${idx}")
+            params.append(status)
+            idx += 1
+        rows = await conn.fetch(
+            f"""
+            SELECT dp.*, ha.name as agent_name FROM development_points dp
+            LEFT JOIN hired_agents ha ON dp.agent_id = ha.agent_id
+            WHERE {' AND '.join(conditions)}
+            ORDER BY CASE dp.impact WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
+                     dp.frequency DESC, dp.created_at DESC
+            """,
+            *params,
+        )
+    serialized = _serialize_spec(rows)
+    return {"development_points": serialized, "count": len(serialized)}
 
 
 @router.get("/report")
 async def get_weekly_report(_: None = Depends(require_super_admin)):
-    """Weekly HR performance report per agent. Super admin only."""
-    hr = await _get_hr_manager()
+    """Weekly HR performance report per agent. Super admin only. Uses spec agent (agent_name from name)."""
+    hr = await _get_spec_hr()
     report = await hr.generate_weekly_report()
     return report
 
@@ -207,49 +272,62 @@ async def approve_training(req: ApproveTrainingRequest):
     """Approve a development point and start training."""
     # Training request approval path
     if req.request_id or req.approved is not None:
-        pool = await get_db()
+        try:
+            pool = await get_db()
 
-        async with pool.acquire() as conn:
-            request = await conn.fetchrow(
-                "SELECT * FROM training_requests WHERE request_id = $1",
-                req.request_id,
-            )
-            if not request:
-                raise HTTPException(status_code=404, detail="Request not found")
+            async with pool.acquire() as conn:
+                exists = await conn.fetchval(
+                    "SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'training_requests'"
+                )
+                if not exists:
+                    return JSONResponse(status_code=503, content=TRAINING_REQUESTS_UNAVAILABLE)
 
-            new_status = "approved" if req.approved else "rejected"
-            await conn.execute(
-                """
-                UPDATE training_requests
-                SET status = $1,
-                    approved_at = NOW(),
-                    approved_by = $2,
-                    approval_notes = $3
-                WHERE request_id = $4
-                """,
-                new_status,
-                req.approved_by,
-                req.notes,
-                req.request_id,
-            )
+                request = await conn.fetchrow(
+                    "SELECT * FROM training_requests WHERE request_id = $1",
+                    req.request_id,
+                )
+                if not request:
+                    raise HTTPException(status_code=404, detail="Request not found")
 
-        if req.approved:
-            url = req.source_url or request.get("suggested_url")
-            if not url:
-                raise HTTPException(status_code=400, detail="No training URL provided")
+                new_status = "approved" if req.approved else "rejected"
+                await conn.execute(
+                    """
+                    UPDATE training_requests
+                    SET status = $1,
+                        approved_at = NOW(),
+                        approved_by = $2,
+                        approval_notes = $3
+                    WHERE request_id = $4
+                    """,
+                    new_status,
+                    req.approved_by,
+                    req.notes,
+                    req.request_id,
+                )
 
-            await train_agent_from_url(
-                pool=pool,
-                agent_id=request["agent_id"],
-                url=url,
-                approved_by=req.approved_by,
-            )
+            if req.approved:
+                url = req.source_url or request.get("suggested_url")
+                if not url:
+                    raise HTTPException(status_code=400, detail="No training URL provided")
 
-        return {
-            "request_id": req.request_id,
-            "status": new_status,
-            "training_started": bool(req.approved),
-        }
+                await train_agent_from_url(
+                    pool=pool,
+                    agent_id=request["agent_id"],
+                    url=url,
+                    approved_by=req.approved_by,
+                )
+
+            return {
+                "request_id": req.request_id,
+                "status": new_status,
+                "training_started": bool(req.approved),
+            }
+        except HTTPException:
+            raise
+        except Exception as e:
+            if _is_training_requests_unavailable(e):
+                return JSONResponse(status_code=503, content=TRAINING_REQUESTS_UNAVAILABLE)
+            raise
 
     # Development point approval path (legacy)
     hr = await _get_hr_manager()
@@ -499,63 +577,100 @@ class TrainingRequestOut(BaseModel):
 
 @router.post("/training-request")
 async def submit_training_request(req: TrainingRequestIn):
-    pool = await get_db()
+    try:
+        pool = await get_db()
 
-    request_id = f"TR-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}"
+        async with pool.acquire() as conn:
+            exists = await conn.fetchval(
+                "SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'training_requests'"
+            )
+            if not exists:
+                return JSONResponse(status_code=503, content=TRAINING_REQUESTS_UNAVAILABLE)
 
-    async with pool.acquire() as conn:
-        await conn.execute(
-            """
-            INSERT INTO training_requests (
-                request_id, agent_id, reason,
-                confidence_score, suggested_url,
-                status, created_at
-            ) VALUES ($1, $2, $3, $4, $5, 'pending', NOW())
-            """,
-            request_id,
-            req.agent_id,
-            req.reason,
-            req.confidence_score,
-            req.suggested_url,
-        )
+            request_id = f"TR-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}"
 
-    return {
-        "request_id": request_id,
-        "status": "pending",
-        "agent_id": req.agent_id,
-    }
+            await conn.execute(
+                """
+                INSERT INTO training_requests (
+                    request_id, agent_id, reason,
+                    confidence_score, suggested_url,
+                    status, created_at
+                ) VALUES ($1, $2, $3, $4, $5, 'pending', NOW())
+                """,
+                request_id,
+                req.agent_id,
+                req.reason,
+                req.confidence_score,
+                req.suggested_url,
+            )
+
+        return {
+            "request_id": request_id,
+            "status": "pending",
+            "agent_id": req.agent_id,
+        }
+    except Exception as e:
+        if _is_training_requests_unavailable(e):
+            return JSONResponse(status_code=503, content=TRAINING_REQUESTS_UNAVAILABLE)
+        raise
 
 
 @router.get("/training-requests", response_model=List[TrainingRequestOut])
 async def list_training_requests(status: Optional[str] = Query(default="pending")):
+    try:
+        pool = await get_db()
+
+        async with pool.acquire() as conn:
+            exists = await conn.fetchval(
+                "SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'training_requests'"
+            )
+            if not exists:
+                return JSONResponse(status_code=503, content=TRAINING_REQUESTS_UNAVAILABLE)
+
+            if status:
+                rows = await conn.fetch(
+                    """
+                    SELECT * FROM training_requests
+                    WHERE status = $1
+                    ORDER BY created_at DESC
+                    """,
+                    status,
+                )
+            else:
+                rows = await conn.fetch(
+                    """
+                    SELECT * FROM training_requests
+                    ORDER BY created_at DESC
+                    """
+                )
+
+        results = []
+        for r in rows:
+            data = dict(r)
+            for key in ("created_at", "approved_at"):
+                if data.get(key):
+                    data[key] = data[key].isoformat()
+            results.append(TrainingRequestOut(**data))
+        return results
+    except Exception as e:
+        if _is_training_requests_unavailable(e):
+            return JSONResponse(status_code=503, content=TRAINING_REQUESTS_UNAVAILABLE)
+        raise
+
+
+@router.patch("/development-points/{point_id}")
+async def update_development_point(point_id: str, body: UpdatePointBody):
+    """Spec endpoint: update development point status."""
+    valid = {"OPEN", "AWAITING_APPROVAL", "IN_TRAINING", "RESOLVED", "DISMISSED"}
+    if body.status not in valid:
+        raise HTTPException(status_code=400, detail=f"Ongeldige status. Kies uit: {valid}")
+    hr = await _get_spec_hr()
     pool = await get_db()
-
     async with pool.acquire() as conn:
-        if status:
-            rows = await conn.fetch(
-                """
-                SELECT * FROM training_requests
-                WHERE status = $1
-                ORDER BY created_at DESC
-                """,
-                status,
-            )
-        else:
-            rows = await conn.fetch(
-                """
-                SELECT * FROM training_requests
-                ORDER BY created_at DESC
-                """
-            )
-
-    results = []
-    for r in rows:
-        data = dict(r)
-        for key in ("created_at", "approved_at"):
-            if data.get(key):
-                data[key] = data[key].isoformat()
-        results.append(TrainingRequestOut(**data))
-    return results
+        existing = await conn.fetchrow("SELECT point_id FROM development_points WHERE point_id = $1", point_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail=f"Point {point_id} niet gevonden")
+    return await hr.update_point_status(point_id, body.status, body.approved_by, body.source_url)
 
 
 @router.post("/development-points/{point_id}/resolve")
@@ -580,14 +695,18 @@ async def dismiss_point(point_id: str):
 
 @router.post("/scan")
 async def trigger_scan(since_days: int = Query(default=7)):
-    """Manually trigger an HR scan (for testing)."""
-    hr = await _get_hr_manager()
+    """Manually trigger an HR scan. Uses spec agent (retry_count, agent_id from job_steps) + direct_chat scan."""
+    hr = await _get_spec_hr()
     try:
-        result = await hr.scan_job_steps(since_days=since_days)
+        job_results = await hr.scan_job_steps(since_days=since_days)
+        chat_results = await hr.scan_direct_chats(since_days=since_days)
+        results = job_results + chat_results
     except Exception as e:
         logger.error("HR scan failed: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
-    return {"status": "scan_completed", "since_days": since_days, **result}
+    created = sum(1 for r in results if r.get("action") == "created")
+    incremented = sum(1 for r in results if r.get("action") == "incremented")
+    return {"scanned_days": since_days, "results": results, "created": created, "incremented": incremented}
 
 
 @router.post("/check-effectiveness/{point_id}")

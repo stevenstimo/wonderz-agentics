@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import PageLayout from './PageLayout'
-import { RefreshCw } from 'lucide-react'
+import { RefreshCw, MessageCircle } from 'lucide-react'
+import { buildAuthHeaders } from './authz'
 
 const IMPACT_STYLES = {
   high: { className: 'wz-badge', color: 'var(--color-status-error)' },
@@ -28,7 +30,7 @@ export default function HRDashboard() {
     try {
       const res = await fetch('/api/hr/development-points')
       const data = await res.json()
-      setPoints(Array.isArray(data) ? data : [])
+      setPoints(data.development_points ?? (Array.isArray(data) ? data : []))
     } catch (err) {
       console.error('Failed to load development points:', err)
     }
@@ -36,9 +38,19 @@ export default function HRDashboard() {
 
   async function loadReport() {
     try {
-      const res = await fetch('/api/hr/report')
+      const res = await fetch('/api/hr/report', { headers: await buildAuthHeaders() })
       const data = await res.json()
-      setReport(Array.isArray(data) ? data : [])
+      const agents = data.agents ?? {}
+      setReport(Object.entries(agents).map(([agent_id, a]) => ({
+        agent_id,
+        agent_name: a.agent_name ?? a.name,
+        agent_role: a.role,
+        jobs_completed: a.performance?.jobs_touched_7d ?? 0,
+        avg_retry_rate: a.performance?.retry_rate ?? 0,
+        open_points: a.open_points_count ?? a.open_points ?? 0,
+        in_training: 0,
+        resolved_last_30_days: 0
+      })))
     } catch (err) {
       console.error('Failed to load report:', err)
     }
@@ -150,25 +162,30 @@ export default function HRDashboard() {
                         {impactKey}
                       </span>
                     </div>
-                    <div style={{ fontSize: '12px', color: 'var(--color-text-muted)' }}>Agent: {point.agent_id}</div>
+                    <div style={{ fontSize: '12px', color: 'var(--color-text-muted)' }}>Agent: {point.agent_name || point.agent_id}</div>
                     <div style={{ fontSize: '12px', color: 'var(--color-text-muted)' }}>
                       Frequentie: {point.frequency}
                     </div>
-                    <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
-                      <button
-                        className="wz-btn-primary"
-                        style={{ fontSize: '12px' }}
-                        onClick={() => updatePoint(point.point_id, 'APPROVED')}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '4px', alignItems: 'center' }}>
+                      <Link
+                        to={`/agents/${encodeURIComponent(point.agent_id || '')}?tab=chat`}
+                        className="wz-btn-ghost"
+                        style={{ fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                       >
-                        Approve
-                      </button>
-                      <button
-                        className="wz-btn-primary"
-                        style={{ fontSize: '12px', background: 'transparent', color: 'var(--color-brand-primary)' }}
-                        onClick={() => updatePoint(point.point_id, 'DISMISSED')}
+                        <MessageCircle style={{ width: '14px', height: '14px' }} />
+                        Bespreek direct met {point.agent_name || point.agent_id || 'agent'}
+                      </Link>
+                      <select
+                        value={point.status || 'OPEN'}
+                        onChange={(e) => updatePoint(point.point_id, e.target.value)}
+                        style={{ fontSize: '12px', padding: '4px 8px', borderRadius: 6, border: '1px solid var(--color-border)', background: 'var(--color-bg-secondary)', color: 'var(--color-text-primary)' }}
                       >
-                        Dismiss
-                      </button>
+                        <option value="OPEN">OPEN</option>
+                        <option value="AWAITING_APPROVAL">AWAITING_APPROVAL</option>
+                        <option value="IN_TRAINING">IN_TRAINING</option>
+                        <option value="RESOLVED">RESOLVED</option>
+                        <option value="DISMISSED">DISMISSED</option>
+                      </select>
                     </div>
                   </div>
                 )

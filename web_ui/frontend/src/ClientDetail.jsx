@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
-import { useParams, Link, useNavigate } from 'react-router-dom'
+import { useParams, Link, useNavigate, useLocation, useSearchParams } from 'react-router-dom'
 import PageLayout from './PageLayout'
-import { Building, ArrowLeft, Save, CheckCircle, XCircle, Link2 } from 'lucide-react'
+import { Building, ArrowLeft, Save, CheckCircle, XCircle, Link2, Plug } from 'lucide-react'
 import { buildAuthHeaders } from './authz'
 import { apiUrl } from './apiClient'
 
@@ -33,9 +33,13 @@ const PLATFORM_FIELDS = {
   ],
 }
 
+const GOOGLE_PLATFORMS = ['ga4', 'gsc', 'google_ads']
+
 export default function ClientDetail() {
   const { slug } = useParams()
   const navigate = useNavigate()
+  const location = useLocation()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [client, setClient] = useState(null)
   const [integrations, setIntegrations] = useState([])
   const [loading, setLoading] = useState(true)
@@ -45,7 +49,34 @@ export default function ClientDetail() {
 
   const isIntegrationConnected = (integrationType) => {
     const found = integrations.find((i) => i.integration_type === integrationType)
-    return found && (found.api_key_masked || found.extra_config?.account_id || Object.keys(found.extra_config || {}).length > 0)
+    return found && (found.api_key_masked || found.extra_config?.account_id || found.extra_config?.oauth_connected || Object.keys(found.extra_config || {}).length > 0)
+  }
+
+  const handleGoogleConnect = async () => {
+    setError('')
+    try {
+      const res = await fetch(apiUrl('/api/integrations/google/auth-url'), {
+        method: 'POST',
+        headers: { ...(await buildAuthHeaders()), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ return_to: `/clients/${slug}` }),
+      })
+      if (res.status === 401) {
+        navigate('/login', { state: { from: location } })
+        return
+      }
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}))
+        setError(j.detail || 'Kon auth URL niet ophalen')
+        return
+      }
+      const { url } = await res.json()
+      if (url) {
+        window.location.href = url
+      }
+    } catch (err) {
+      console.error('Google connect failed:', err)
+      setError(err.message || 'Verbinden mislukt')
+    }
   }
 
   const configuredPlatforms = integrations
@@ -66,7 +97,7 @@ export default function ClientDetail() {
           fetch(apiUrl('/api/integrations'), { headers }),
         ])
         if (clientRes.status === 401 || integrationsRes.status === 401) {
-          navigate('/login')
+          navigate('/login', { state: { from: location } })
           return
         }
         if (clientRes.ok && integrationsRes.ok) {
@@ -91,7 +122,38 @@ export default function ClientDetail() {
       }
     }
     fetchData()
-  }, [slug, navigate])
+  }, [slug, navigate, location])
+
+  // Refetch when returning from OAuth callback (?connected=google)
+  useEffect(() => {
+    const connected = searchParams.get('connected')
+    if (connected === 'google') {
+      setSearchParams({}, { replace: true })
+      const refetch = async () => {
+        try {
+          const headers = await buildAuthHeaders()
+          const [clientRes, integrationsRes] = await Promise.all([
+            fetch(apiUrl(`/api/clients/${slug}`), { headers }),
+            fetch(apiUrl('/api/integrations'), { headers }),
+          ])
+          if (clientRes.ok && integrationsRes.ok) {
+            const [clientData, integrationsData] = await Promise.all([
+              clientRes.json(),
+              integrationsRes.json(),
+            ])
+            setClient(clientData)
+            setIntegrations(integrationsData)
+            const forms = {}
+            for (const pc of clientData.platform_configs || []) {
+              forms[pc.platform] = { ...pc.config }
+            }
+            setPlatformForms(forms)
+          }
+        } catch (_) {}
+      }
+      refetch()
+    }
+  }, [searchParams, slug])
 
   const getConfigForPlatform = (platform) => {
     const pc = client?.platform_configs?.find((p) => p.platform === platform)
@@ -122,7 +184,7 @@ export default function ClientDetail() {
         body: JSON.stringify({ platform, config }),
       })
       if (res.status === 401) {
-        navigate('/login')
+        navigate('/login', { state: { from: location } })
         return
       }
       if (res.ok) {
@@ -160,7 +222,7 @@ export default function ClientDetail() {
         headers: await buildAuthHeaders(),
       })
       if (res.status === 401) {
-        navigate('/login')
+        navigate('/login', { state: { from: location } })
         return
       }
       if (res.ok) {
@@ -250,6 +312,7 @@ export default function ClientDetail() {
 
       <div className="space-y-4">
         {allPlatforms.map((platform) => {
+          const isGoogle = GOOGLE_PLATFORMS.includes(platform)
           const canConfigure = configuredPlatforms.includes(platform)
           const configured = isConfigured(platform)
           const form = platformForms[platform] || {}
@@ -272,7 +335,9 @@ export default function ClientDetail() {
                       ? 'bg-emerald-100 text-emerald-800'
                       : canConfigure
                         ? 'bg-slate-100 text-slate-600'
-                        : 'bg-slate-200 text-slate-500'
+                        : isGoogle
+                          ? 'bg-slate-100 text-slate-600'
+                          : 'bg-slate-200 text-slate-500'
                   }`}
                 >
                   {configured ? (
@@ -285,17 +350,37 @@ export default function ClientDetail() {
                       <XCircle className="w-4 h-4" />
                       Niet geconfigureerd
                     </>
+                  ) : isGoogle ? (
+                    <>
+                      <XCircle className="w-4 h-4" />
+                      Niet verbonden
+                    </>
                   ) : (
                     <>Koppel eerst in Integrations</>
                   )}
                 </span>
               </div>
 
-              {!canConfigure && (
+              {isGoogle && !canConfigure && (
+                <div className="mt-2">
+                  <button
+                    type="button"
+                    onClick={handleGoogleConnect}
+                    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 transition"
+                  >
+                    <Plug className="w-4 h-4" />
+                    Verbind Google
+                  </button>
+                </div>
+              )}
+
+              {!isGoogle && !canConfigure && (
                 <p className="text-sm text-slate-500">
-                  Configureer eerst {PLATFORM_LABELS[platform]} in{' '}
-                  <Link to="/integrations" className="text-indigo-600 hover:underline">
-                    Integrations
+                  <Link
+                    to="/integrations"
+                    className="text-indigo-600 hover:underline hover:text-indigo-800"
+                  >
+                    Configureer eerst {PLATFORM_LABELS[platform]} in Integrations
                   </Link>
                 </p>
               )}

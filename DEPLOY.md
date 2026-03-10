@@ -32,7 +32,7 @@ cd ~/wonderz-agentics/web_ui/frontend && npm run build
 
 | Variabele | Beschrijving |
 |----------|--------------|
-| `SUPABASE_JWT_SECRET` | JWT secret uit Supabase (Project Settings → API → JWT Secret). Zonder dit krijg je "Auth not configured" op /api/clients en andere auth-routes. |
+| `SUPABASE_URL` | Supabase project URL (bijv. `https://your-project.supabase.co`). Gebruikt voor JWT-validatie via JWKS (ES256). Zonder dit krijg je "Auth not configured" op /api/clients en andere auth-routes. |
 | `DATABASE_URL` | PostgreSQL connection string |
 
 **Deploy:**

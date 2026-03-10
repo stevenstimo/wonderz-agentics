@@ -1,6 +1,11 @@
 """
 Shared agent validation logic (DRY).
 Used by both POST and PATCH endpoints.
+
+DEPRECATED: Deze validator wordt niet meer gebruikt in de Hiring Hall POST.
+De Hiring Hall (app/routes/agents.py) is de enige authoritative bron voor
+rol- en tool-validatie. Dit bestand blijft bestaan voor bestaande tests.
+Verwijder dit bestand pas als alle tests zijn gemigreerd.
 """
 from typing import Dict, List, Optional
 import re

@@ -5,29 +5,25 @@ import PageLayout from './PageLayout'
 
 /**
  * Wrapper that requires an authenticated session.
- * No session → redirect to /login with returnTo.
- * Session present → render children.
+ * Waits for onAuthStateChange to fire (not getSession) so magic link
+ * hash is processed before we decide. No session → redirect to /login.
  */
 export default function RequireAuth({ children }) {
   const location = useLocation()
-  const [loading, setLoading] = useState(true)
-  const [hasSession, setHasSession] = useState(false)
+  const [initialized, setInitialized] = useState(false)
+  const [session, setSession] = useState(null)
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setHasSession(!!session?.user)
-      setLoading(false)
-    })
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (_event, session) => {
-        setHasSession(!!session?.user)
-        setLoading(false)
+        setSession(session)
+        setInitialized(true)
       }
     )
     return () => subscription.unsubscribe()
   }, [])
 
-  if (loading) {
+  if (!initialized) {
     return (
       <PageLayout size="narrow" padded>
         <div className="panel-card flex items-center justify-center py-12">
@@ -37,7 +33,7 @@ export default function RequireAuth({ children }) {
     )
   }
 
-  if (!hasSession) {
+  if (!session?.user) {
     return <Navigate to="/login" state={{ from: location }} replace />
   }
 

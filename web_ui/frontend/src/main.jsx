@@ -6,12 +6,14 @@ import App from './App.jsx'
 import RequireAuth from './RequireAuth.jsx'
 import CommandCenter from './CommandCenter.jsx'
 import LoginPage from './LoginPage.jsx'
+import AuthCallback from './AuthCallback.jsx'
 import HRImprovements from './HRImprovements.jsx'
 import CrewManagement from './CrewManagement.jsx'
 import TrainingManagement from './TrainingManagement.jsx'
 import ApprovalDashboard from './ApprovalDashboard.jsx'
 import JobCenter from './JobCenter.jsx'
 import AgentsOverview from './AgentsOverview.jsx'
+import AgentsPage from './AgentsPage.jsx'
 import AgentDetail from './AgentDetail.jsx'
 import NewCrewMember from './NewCrewMember.jsx'
 import ExplainerHowItWorks from './ExplainerHowItWorks.jsx'
@@ -35,7 +37,7 @@ import JobSplitView from './JobSplitView.jsx'
 import NewJob from './NewJob.jsx'
 import SkillsLibrary from './SkillsLibrary.jsx'
 import MissionControl from './MissionControl.jsx'
-import HRFeedback from './HRFeedback.jsx'
+import HRDashboard from './HRDashboard.jsx'
 import PersonalProjects from './PersonalProjects.jsx'
 import WorkTeamOrg from './WorkTeamOrg.jsx'
 import Study from './Study.jsx'
@@ -61,6 +63,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/auth/callback" element={<AuthCallback />} />
         <Route path="/seo" element={<SEOLanding />} />
         <Route element={<AuthenticatedLayout />}>
           <Route path="/" element={<App />} />
@@ -71,7 +74,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <Route path="/jobs/:jobId" element={<JobSplitView />} />
           <Route path="/crew" element={<CrewManagement />} />
           <Route path="/crew/management" element={<CrewManagement />} />
-          <Route path="/agents" element={<AgentsOverview />} />
+          <Route path="/agents" element={<AgentsPage />} />
           <Route path="/agents/new" element={<NewCrewMember />} />
           <Route path="/agents/:agentId" element={<AgentDetail />} />
           <Route path="/agents/:agentId/edit" element={<AgentDetail />} />
@@ -79,7 +82,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <Route path="/training/management" element={<TrainingManagement />} />
           <Route path="/skills-library" element={<SkillsLibrary />} />
           <Route path="/approvals" element={<ApprovalDashboard />} />
-          <Route path="/hr-feedback" element={<HRFeedback />} />
+          <Route path="/hr-feedback" element={<HRDashboard />} />
           <Route path="/hr/improvements" element={<HRImprovements />} />
           <Route path="/explainer" element={<Navigate to="/explainer/how-it-works" replace />} />
           <Route path="/explainer/how-it-works" element={<ExplainerHowItWorks />} />

@@ -17,6 +17,10 @@ const VALID_TOOLS = [
   { id: 'send_report', label: 'Send Report' },
   { id: 'web_search', label: 'Web Search' },
   { id: 'read_lessons', label: 'Read Lessons' },
+  { id: 'review_content', label: 'Review Content' },
+  { id: 'optimize_seo', label: 'Optimize SEO' },
+  { id: 'keyword_research', label: 'Keyword Research' },
+  { id: 'provide_feedback', label: 'Provide Feedback' },
 ];
 
 const CATEGORIES = [

@@ -1,93 +1,151 @@
-import httpx
-from bs4 import BeautifulSoup
-from datetime import datetime, timezone
-import asyncpg
+"""
+app/services/training_workflow.py
+Training Workflow — Crew Intelligent
+Spec: Product Spec v1.1, Sectie 5
+
+Stack: asyncpg, httpx (follow_redirects), BeautifulSoup, OpenAI embeddings
+Embeddings: text-embedding-3-small (1536 dimensies)
+Kolom: knowledge_base_sources (niet knowledge_sources)
+"""
+
 import json
+from datetime import datetime, timezone
+from typing import Optional
+
+import httpx
+import asyncpg
+
+from app.services.training import (
+    validate_url,
+    chunk_text as _chunk_text_legacy,
+    generate_embedding,
+    update_knowledge_sources,
+    TrainingError,
+)
+
+try:
+    from bs4 import BeautifulSoup
+    BS4_AVAILABLE = True
+except ImportError:
+    BS4_AVAILABLE = False
 
 
-async def scrape_url(url: str) -> str:
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.get(url)
-        resp.raise_for_status()
-    soup = BeautifulSoup(resp.text, "html.parser")
-    for tag in soup(["script", "style", "nav", "footer"]):
-        tag.decompose()
-    return soup.get_text(separator="\n", strip=True)
+def _chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> list[str]:
+    """Splitst tekst in overlappende chunks. Returns list[str]."""
+    chunks_tuples = _chunk_text_legacy(text, chunk_size=chunk_size, overlap=overlap)
+    return [c[0] for c in chunks_tuples]
 
 
-def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> list[str]:
-    words = text.split()
-    chunks = []
-    i = 0
-    while i < len(words):
-        chunk = " ".join(words[i:i + chunk_size])
-        chunks.append(chunk)
-        i += chunk_size - overlap
-    return chunks
+async def _scrape(url: str) -> Optional[str]:
+    """Fetch URL en extraheer leesbare tekst."""
+    validated = validate_url(url)
+    try:
+        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+            response = await client.get(
+                validated,
+                headers={"User-Agent": "CrewIntelligent/1.0"},
+            )
+            response.raise_for_status()
+            html = response.text
+    except Exception as e:
+        raise TrainingError(f"Scrape mislukt voor {url}: {e}") from e
+
+    if BS4_AVAILABLE:
+        soup = BeautifulSoup(html, "html.parser")
+        for tag in soup(["script", "style", "nav", "footer", "header"]):
+            tag.decompose()
+        return soup.get_text(separator="\n", strip=True)
+    import re
+    return re.sub(r"<[^>]+>", " ", html)
 
 
-async def embed_text(text: str, openai_api_key: str) -> list[float]:
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.post(
-            "https://api.openai.com/v1/embeddings",
-            headers={"Authorization": f"Bearer {openai_api_key}"},
-            json={"input": text, "model": "text-embedding-3-small"},
-        )
-        resp.raise_for_status()
-        return resp.json()["data"][0]["embedding"]
+class TrainingWorkflow:
+    """Training Workflow class — scrape, chunk, embed, store. Spec v1.1 Sectie 5."""
 
+    def __init__(self, pool: asyncpg.pool.Pool):
+        self.pool = pool
 
-async def run_training(agent_id: str, url: str, approved_by: str, db, openai_api_key: str):
-    text = await scrape_url(url)
-    chunks = chunk_text(text)
+    async def start_training(
+        self,
+        agent_id: str,
+        url: str,
+        approved_by: str = "ceo",
+        chunk_size: int = 500,
+        overlap: int = 50,
+    ) -> dict:
+        """
+        Volledige training flow: scrape URL, chunk, embed, sla op.
+        Update knowledge_base_sources in hired_agents.
+        Returns: {chunks_processed, agent_id, source_url}
+        """
+        text = await _scrape(url)
+        if not text or len(text) < 50:
+            raise TrainingError(f"Kon geen tekst ophalen van {url} of te kort")
 
-    for i, chunk in enumerate(chunks):
-        embedding = await embed_text(chunk, openai_api_key)
-        await db.execute(
-            """
-            INSERT INTO agent_knowledge (agent_id, source_url, chunk_text, embedding, chunk_index, created_at, is_active)
-            VALUES ($1, $2, $3, $4::vector, $5, $6, true)
-        """,
+        chunks = _chunk_text(text, chunk_size=chunk_size, overlap=overlap)
+        if not chunks:
+            raise TrainingError("Geen chunks gegenereerd — pagina mogelijk leeg")
+
+        processed = 0
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                """
+                UPDATE agent_knowledge SET is_active = false
+                WHERE agent_id = $1 AND source_url = $2
+                """,
+                agent_id,
+                url,
+            )
+
+            for i, chunk in enumerate(chunks):
+                embedding = await generate_embedding(chunk[:8000])
+                await conn.execute(
+                    """
+                    INSERT INTO agent_knowledge
+                        (agent_id, source_url, chunk_text, embedding, chunk_index, is_active)
+                    VALUES ($1, $2, $3, $4::vector, $5, true)
+                    """,
+                    agent_id,
+                    url,
+                    chunk,
+                    json.dumps(embedding),
+                    i,
+                )
+                processed += 1
+
+        await update_knowledge_sources(
+            self.pool,
             agent_id,
             url,
-            chunk,
-            json.dumps(embedding),
-            i,
-            datetime.now(timezone.utc),
+            processed,
+            approved_by=approved_by,
         )
 
-    # Update knowledge_sources in hired_agents
-    agent = await db.fetchrow("SELECT knowledge_sources FROM hired_agents WHERE agent_id = $1", agent_id)
-    sources = json.loads(agent["knowledge_sources"]) if agent["knowledge_sources"] else []
-    sources.append(
-        {
-            "url": url,
-            "added_at": datetime.now(timezone.utc).isoformat(),
-            "status": "active",
-            "approved_by": approved_by,
+        return {
+            "chunks_processed": processed,
+            "agent_id": agent_id,
+            "source_url": url,
         }
-    )
-    await db.execute(
-        "UPDATE hired_agents SET knowledge_sources = $1 WHERE agent_id = $2",
-        json.dumps(sources),
-        agent_id,
-    )
-    return len(chunks)
 
-
-async def retrieve_context(
-    agent_id: str, query: str, db, openai_api_key: str, top_k: int = 5
-) -> list[str]:
-    embedding = await embed_text(query, openai_api_key)
-    rows = await db.fetch(
-        """
-        SELECT chunk_text FROM agent_knowledge
-        WHERE agent_id = $1 AND is_active = true
-        ORDER BY embedding <=> $2::vector
-        LIMIT $3
-    """,
-        agent_id,
-        json.dumps(embedding),
-        top_k,
-    )
-    return [r["chunk_text"] for r in rows]
+    async def retrieve_context(
+        self,
+        agent_id: str,
+        query: str,
+        top_k: int = 5,
+    ) -> list[str]:
+        """Haalt de meest relevante chunks op via cosine similarity."""
+        query_embedding = await generate_embedding(query[:8000])
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT chunk_text
+                FROM agent_knowledge
+                WHERE agent_id = $1 AND is_active = true AND embedding IS NOT NULL
+                ORDER BY embedding <=> $2::vector
+                LIMIT $3
+                """,
+                agent_id,
+                json.dumps(query_embedding),
+                top_k,
+            )
+        return [row["chunk_text"] for row in rows]

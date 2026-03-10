@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
-import { Upload, X, Paperclip, FileSpreadsheet, FileText, Image as ImageIcon } from 'lucide-react'
+import { useParams, useNavigate, Link } from 'react-router-dom'
+import { Upload, X, Paperclip, FileSpreadsheet, FileText, Image as ImageIcon, MessageCircle } from 'lucide-react'
 import PageLayout from './PageLayout'
 import { apiUrl } from './apiClient'
 
@@ -809,6 +809,25 @@ export default function JobSplitView() {
                       )
                     })}
                   </ul>
+                  {stepList.length > 0 && (() => {
+                    const agentsWithId = stepList.filter((s) => s.agent_id).map((s) => ({ agent_id: s.agent_id, role: s.agent_role }))
+                    const uniqueAgents = agentsWithId.filter((a, i, arr) => arr.findIndex((x) => x.agent_id === a.agent_id) === i)
+                    if (uniqueAgents.length === 0) return null
+                    return (
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        {uniqueAgents.slice(0, 3).map((a) => (
+                          <Link
+                            key={a.agent_id}
+                            to={`/agents/${encodeURIComponent(a.agent_id)}?tab=chat`}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-indigo-600 hover:bg-indigo-50"
+                          >
+                            <MessageCircle className="w-4 h-4" />
+                            Vraag {agentLabel(a.role)} direct over deze job
+                          </Link>
+                        ))}
+                      </div>
+                    )
+                  })()}
                   {allPending && (
                     <div className="space-y-2">
                       <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">

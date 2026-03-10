@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import PageLayout from './PageLayout'
-
-const apiBase = (import.meta.env.VITE_API_URL || 'http://localhost:8090').replace(/\/$/, '')
+import { apiUrl } from './apiClient'
+import { buildAuthHeaders } from './authz'
 
 function initials(name) {
   if (!name || typeof name !== 'string') return '?'
@@ -11,12 +11,11 @@ function initials(name) {
   return (name[0] || '?').toUpperCase()
 }
 
-function StatusBadge({ status, isSuspended }) {
-  const active = !isSuspended && (status === 'active' || status === 'hired' || !status)
-  const cls = active ? 'bg-blue-100 text-blue-800' : 'bg-red-100 text-red-800'
+function StatusBadge({ isActive }) {
+  const cls = isActive ? 'bg-green-100 text-green-800' : 'bg-slate-200 text-slate-600'
   return (
     <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${cls}`}>
-      {active ? 'Active' : 'Suspended'}
+      {isActive ? 'Actief' : 'Inactief'}
     </span>
   )
 }
@@ -30,10 +29,10 @@ export default function AgentsOverview() {
     setLoading(true)
     setError('')
     try {
-      const res = await fetch(`${apiBase}/api/agents`)
-      const data = await res.json().catch(() => [])
-      if (!res.ok) throw new Error('Failed to load agents')
-      const list = Array.isArray(data) ? data : []
+      const res = await fetch(apiUrl('/api/agents'), { headers: await buildAuthHeaders() })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.detail || 'Failed to load agents')
+      const list = Array.isArray(data) ? data : (data?.agents || [])
       const sorted = [...list].sort((a, b) => {
         if ((a.role || '').toLowerCase() === 'ceo') return -1
         if ((b.role || '').toLowerCase() === 'ceo') return 1
@@ -53,7 +52,10 @@ export default function AgentsOverview() {
     e.stopPropagation()
     if (!window.confirm('Deactivate this agent?')) return
     try {
-      const res = await fetch(`${apiBase}/api/agents/${encodeURIComponent(agentId)}`, { method: 'DELETE' })
+      const res = await fetch(apiUrl(`/api/agents/${encodeURIComponent(agentId)}`), {
+        method: 'DELETE',
+        headers: await buildAuthHeaders(),
+      })
       if (!res.ok) throw new Error('Deactivation failed')
       setAgents((prev) => prev.filter((agent) => agent.agent_id !== agentId))
     } catch (err) {
@@ -86,7 +88,7 @@ export default function AgentsOverview() {
               to="/agents/new"
               className="rounded-lg px-4 py-2.5 bg-indigo-600 text-white font-medium hover:bg-indigo-700 transition"
             >
-              New Agent
+              + Nieuwe agent
             </Link>
           </div>
         </div>
@@ -106,11 +108,11 @@ export default function AgentsOverview() {
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50/80">
                     <th className="text-left py-3 px-4 text-xs font-semibold uppercase tracking-wider text-slate-500">Agent</th>
-                    <th className="text-left py-3 px-4 text-xs font-semibold uppercase tracking-wider text-slate-500">Role</th>
-                    <th className="text-left py-3 px-4 text-xs font-semibold uppercase tracking-wider text-slate-500">Specialization</th>
+                    <th className="text-left py-3 px-4 text-xs font-semibold uppercase tracking-wider text-slate-500">Rol</th>
+                    <th className="text-left py-3 px-4 text-xs font-semibold uppercase tracking-wider text-slate-500">Categorie</th>
                     <th className="text-left py-3 px-4 text-xs font-semibold uppercase tracking-wider text-slate-500">Status</th>
                     <th className="text-left py-3 px-4 text-xs font-semibold uppercase tracking-wider text-slate-500">Performance</th>
-                    <th className="text-right py-3 px-4 text-xs font-semibold uppercase tracking-wider text-slate-500">Actions</th>
+                    <th className="text-right py-3 px-4 text-xs font-semibold uppercase tracking-wider text-slate-500">Acties</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -131,9 +133,9 @@ export default function AgentsOverview() {
                         </Link>
                       </td>
                       <td className="py-3 px-4 text-sm text-slate-600">{agent.role || '—'}</td>
-                      <td className="py-3 px-4 text-sm text-slate-600">{agent.specialization || '—'}</td>
+                      <td className="py-3 px-4 text-sm text-slate-600">{agent.category || '—'}</td>
                       <td className="py-3 px-4">
-                        <StatusBadge status={agent.status} isSuspended={agent.is_suspended} />
+                        <StatusBadge isActive={agent.is_active !== false} />
                       </td>
                       <td className="py-3 px-4">
                         {typeof agent.performance_score === 'number' ? (
@@ -152,10 +154,16 @@ export default function AgentsOverview() {
                       </td>
                       <td className="py-3 px-4 text-right">
                         <Link
+                          to={`/agents/${encodeURIComponent(agent.agent_id)}?tab=chat`}
+                          className="text-indigo-600 hover:text-indigo-800 text-sm font-medium mr-3"
+                        >
+                          Open chat
+                        </Link>
+                        <Link
                           to={`/agents/${encodeURIComponent(agent.agent_id)}`}
                           className="text-indigo-600 hover:text-indigo-800 text-sm font-medium"
                         >
-                          View Details
+                          Bewerken
                         </Link>
                         <button
                           type="button"
@@ -171,7 +179,15 @@ export default function AgentsOverview() {
               </table>
             </div>
             {!agents.length && (
-              <div className="py-12 text-center text-slate-500 text-sm">No agents found.</div>
+              <div className="py-16 text-center">
+                <p className="text-slate-600 mb-4">Nog geen agents in je crew. Maak je eerste agent aan om te beginnen.</p>
+                <Link
+                  to="/agents/new"
+                  className="inline-flex rounded-lg px-4 py-2.5 bg-indigo-600 text-white font-medium hover:bg-indigo-700 transition"
+                >
+                  Maak eerste agent aan
+                </Link>
+              </div>
             )}
           </>
         )}

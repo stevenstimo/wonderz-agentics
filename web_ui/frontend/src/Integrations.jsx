@@ -1,22 +1,24 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation, useSearchParams } from 'react-router-dom'
 import PageLayout from './PageLayout'
 import { Plug, Save, CheckCircle, XCircle } from 'lucide-react'
 import { buildAuthHeaders } from './authz'
 import { apiUrl } from './apiClient'
 
 const PLATFORMS = [
-  { id: 'klaviyo', name: 'Klaviyo', connected: false, form: true },
-  { id: 'shopify', name: 'Shopify', connected: false, form: false },
-  { id: 'google_ads', name: 'Google Ads', connected: false, form: false },
-  { id: 'ga4', name: 'GA4', connected: false, form: false },
-  { id: 'google_search_console', name: 'Google Search Console', connected: false, form: false },
-  { id: 'meta_business', name: 'Meta Business', connected: false, form: false },
-  { id: 'pinterest', name: 'Pinterest', connected: false, form: false },
+  { id: 'klaviyo', name: 'Klaviyo', connected: false, form: true, oauth: false },
+  { id: 'shopify', name: 'Shopify', connected: false, form: false, oauth: false },
+  { id: 'google_ads', name: 'Google Ads', connected: false, form: false, oauth: true },
+  { id: 'ga4', name: 'GA4', connected: false, form: false, oauth: true },
+  { id: 'google_search_console', name: 'Google Search Console', connected: false, form: false, oauth: true },
+  { id: 'meta_business', name: 'Meta Business', connected: false, form: false, oauth: false },
+  { id: 'pinterest', name: 'Pinterest', connected: false, form: false, oauth: false },
 ]
 
 export default function Integrations() {
   const navigate = useNavigate()
+  const location = useLocation()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [integrations, setIntegrations] = useState([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -32,7 +34,7 @@ export default function Integrations() {
           headers: await buildAuthHeaders(),
         })
         if (res.status === 401) {
-          navigate('/login')
+          navigate('/login', { state: { from: location } })
           return
         }
         if (res.ok) {
@@ -51,11 +53,57 @@ export default function Integrations() {
       }
     }
     fetchIntegrations()
-  }, [navigate])
+  }, [navigate, location])
+
+  // Refetch when returning from OAuth callback (?connected=google)
+  useEffect(() => {
+    const connected = searchParams.get('connected')
+    if (connected === 'google') {
+      setSearchParams({}, { replace: true })
+      const refetch = async () => {
+        try {
+          const res = await fetch(apiUrl('/api/integrations'), {
+            headers: await buildAuthHeaders(),
+          })
+          if (res.ok) {
+            const data = await res.json()
+            setIntegrations(data)
+          }
+        } catch (_) {}
+      }
+      refetch()
+    }
+  }, [searchParams])
 
   const isConnected = (platformId) => {
     const found = integrations.find((i) => i.integration_type === platformId)
-    return found && (found.api_key_masked || found.extra_config?.account_id)
+    return found && (found.api_key_masked || found.extra_config?.account_id || found.extra_config?.oauth_connected)
+  }
+
+  const handleGoogleConnect = async () => {
+    setError('')
+    try {
+      const res = await fetch(apiUrl('/api/integrations/google/auth-url'), {
+        method: 'POST',
+        headers: await buildAuthHeaders(),
+      })
+      if (res.status === 401) {
+        navigate('/login', { state: { from: location } })
+        return
+      }
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}))
+        setError(j.detail || 'Kon auth URL niet ophalen')
+        return
+      }
+      const { url } = await res.json()
+      if (url) {
+        window.location.href = url
+      }
+    } catch (err) {
+      console.error('Google connect failed:', err)
+      setError(err.message || 'Verbinden mislukt')
+    }
   }
 
   const handleKlaviyoSave = async () => {
@@ -71,7 +119,7 @@ export default function Integrations() {
         body: JSON.stringify(body),
       })
       if (res.status === 401) {
-        navigate('/login')
+        navigate('/login', { state: { from: location } })
         return
       }
       if (res.ok) {
@@ -191,7 +239,20 @@ export default function Integrations() {
                 </div>
               )}
 
-              {platform.id !== 'klaviyo' && (
+              {platform.oauth && !connected && (
+                <div className="mt-2">
+                  <button
+                    type="button"
+                    onClick={handleGoogleConnect}
+                    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 transition"
+                  >
+                    <Plug className="w-4 h-4" />
+                    Verbinden
+                  </button>
+                </div>
+              )}
+
+              {!platform.form && !platform.oauth && (
                 <p className="text-sm text-slate-500 mt-2">
                   Binnenkort beschikbaar.
                 </p>
