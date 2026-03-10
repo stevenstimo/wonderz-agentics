@@ -33,6 +33,12 @@ app.include_router(jobs_router)
 @app.on_event("startup")
 async def on_startup():
     await init_db_pool()
+    if not os.getenv("SUPABASE_JWT_SECRET"):
+        import logging
+        logging.getLogger(__name__).warning(
+            "SUPABASE_JWT_SECRET not set — /api/clients and other auth routes will return 503 'Auth not configured'. "
+            "Set it in systemd Environment or .env (Supabase → Project Settings → API → JWT Secret)."
+        )
 
 
 @app.on_event("shutdown")

@@ -28,6 +28,13 @@ cd ~/wonderz-agentics/web_ui/frontend && npm run build
 
 ## Backend (exe.dev server)
 
+**Vereiste environment variabelen** (in systemd service of `.env`):
+
+| Variabele | Beschrijving |
+|----------|--------------|
+| `SUPABASE_JWT_SECRET` | JWT secret uit Supabase (Project Settings → API → JWT Secret). Zonder dit krijg je "Auth not configured" op /api/clients en andere auth-routes. |
+| `DATABASE_URL` | PostgreSQL connection string |
+
 **Deploy:**
 ```bash
 git pull && sudo systemctl restart wonderz-backend

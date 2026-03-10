@@ -6,7 +6,6 @@ import { buildAuthHeaders } from './authz'
 import { apiUrl } from './apiClient'
 
 export default function ClientsOverview() {
-  console.log('ClientsOverview mounted')
   const navigate = useNavigate()
   const [clients, setClients] = useState([])
   const [loading, setLoading] = useState(true)

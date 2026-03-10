@@ -1,4 +1,4 @@
-import { supabase } from './supabase'
+import { supabase } from './supabase'  // same instance as supabase.js
 
 export const DEFAULT_ROLE = 'member'
 export const SUPER_ADMIN_EMAIL = 'stevenstimo@gmail.com'
@@ -31,7 +31,13 @@ export async function getAccessToken() {
 }
 
 export async function buildAuthHeaders(extraHeaders = {}) {
-  const token = await getAccessToken()
+  let token = null
+  try {
+    const { data } = await supabase.auth.getSession()
+    token = data?.session?.access_token || null
+  } catch (_err) {
+    // Session unavailable (e.g. Supabase not configured) — send request without auth
+  }
   return {
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
