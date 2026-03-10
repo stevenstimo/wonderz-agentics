@@ -2,8 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, Briefcase, Target, BookOpen, Activity, ImagePlus, Trash2, MessageCircle } from 'lucide-react'
 import PageLayout from './PageLayout'
-import { apiUrl } from './apiClient'
-import { buildAuthHeaders } from './authz'
+import { apiUrl, apiFetch } from './apiClient'
 import { VALID_TOOLS } from './agentConstants'
 import AgentDirectChat from './components/AgentDirectChat'
 
@@ -83,7 +82,7 @@ function KennisTab({ agentId, knowledgeSources, relativeTime }) {
   useEffect(() => {
     if (!agentId) return
     setLoading(true)
-    fetch(apiUrl(`/api/training/${encodeURIComponent(agentId)}/knowledge-base`))
+    apiFetch(`/api/training/${encodeURIComponent(agentId)}/knowledge-base`)
       .then((r) => (r.ok ? r.json() : []))
       .then((data) => {
         const list = Array.isArray(data) ? data : []
@@ -162,9 +161,7 @@ export default function AgentDetail() {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(apiUrl(`/api/agents/${encodeURIComponent(agentId)}/detail`), {
-        headers: await buildAuthHeaders(),
-      })
+      const res = await apiFetch(`/api/agents/${encodeURIComponent(agentId)}/detail`)
       if (!res.ok) {
         if (res.status === 404) throw new Error('Agent not found')
         throw new Error((await res.json()).detail || 'Failed to load')
@@ -234,9 +231,9 @@ export default function AgentDetail() {
     }
     setSavingProfile(true)
     try {
-      const res = await fetch(apiUrl(`/api/agents/${encodeURIComponent(agentId)}`), {
+      const res = await apiFetch(`/api/agents/${encodeURIComponent(agentId)}`, {
         method: 'PATCH',
-        headers: await buildAuthHeaders(),
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })
       if (!res.ok) throw new Error((await res.json()).detail || 'Update failed')
@@ -268,9 +265,9 @@ export default function AgentDetail() {
   const setProfileIsActive = async (value) => {
     setSavingStatus(true)
     try {
-      const res = await fetch(apiUrl(`/api/agents/${encodeURIComponent(agentId)}`), {
+      const res = await apiFetch(`/api/agents/${encodeURIComponent(agentId)}`, {
         method: 'PATCH',
-        headers: await buildAuthHeaders(),
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ is_active: value }),
       })
       if (!res.ok) throw new Error((await res.json()).detail || 'Update failed')
@@ -298,9 +295,9 @@ export default function AgentDetail() {
     try {
       const body = { color, initials: initialsVal || avatarInitials }
       if (avatarImageUrl) body.imageDataUrl = avatarImageUrl
-      const res = await fetch(apiUrl(`/api/agents/${encodeURIComponent(agentId)}/avatar`), {
+      const res = await apiFetch(`/api/agents/${encodeURIComponent(agentId)}/avatar`, {
         method: 'PATCH',
-        headers: await buildAuthHeaders(),
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       })
       if (!res.ok) throw new Error((await res.json()).detail || 'Update failed')
@@ -316,9 +313,9 @@ export default function AgentDetail() {
     setSavingAvatar(true)
     setShowAvatarColors(false)
     try {
-      const res = await fetch(apiUrl(`/api/agents/${encodeURIComponent(agentId)}/avatar`), {
+      const res = await apiFetch(`/api/agents/${encodeURIComponent(agentId)}/avatar`, {
         method: 'PATCH',
-        headers: await buildAuthHeaders(),
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           color: avatarColor,
           initials: avatarInitials,
@@ -338,9 +335,9 @@ export default function AgentDetail() {
     setSavingAvatar(true)
     setShowAvatarColors(false)
     try {
-      const res = await fetch(apiUrl(`/api/agents/${encodeURIComponent(agentId)}/avatar`), {
+      const res = await apiFetch(`/api/agents/${encodeURIComponent(agentId)}/avatar`, {
         method: 'PATCH',
-        headers: await buildAuthHeaders(),
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           color: avatarColor,
           initials: avatarInitials,

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import PageLayout from './PageLayout'
 import { Save, Eye, EyeOff, AlertCircle } from 'lucide-react'
-import { buildAuthHeaders } from './authz'
+
 
 const apiBase = (import.meta.env.VITE_API_URL || 'http://localhost:8090').replace(/\/$/, '')
 
@@ -28,7 +28,6 @@ export default function Settings() {
       try {
         const response = await fetch(`${apiBase}/api/settings`, {
           method: 'GET',
-          headers: await buildAuthHeaders(),
         })
 
         if (response.ok) {
@@ -60,7 +59,6 @@ export default function Settings() {
     try {
       const response = await fetch(`${apiBase}/api/settings`, {
         method: 'POST',
-        headers: await buildAuthHeaders(),
         body: JSON.stringify(settings),
       })
 

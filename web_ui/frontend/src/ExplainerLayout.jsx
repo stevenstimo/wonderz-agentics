@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import PageLayout from './PageLayout'
-import { buildAuthHeaders, getCurrentUserRole, isSuperAdmin } from './authz'
+import { getCurrentUserRole, isSuperAdmin } from './authz'
 
 const apiBase = (import.meta.env.VITE_API_URL || 'http://localhost:8090').replace(/\/$/, '')
 
@@ -99,7 +99,6 @@ export default function ExplainerLayout({ slug, fallbackTitle }) {
     try {
       const res = await fetch(`${apiBase}/api/explainer/sections/${slug}`, {
         method: 'PUT',
-        headers: await buildAuthHeaders(),
         body: JSON.stringify({ title: draftTitle, body_markdown: draftBody }),
       })
       if (!res.ok) {

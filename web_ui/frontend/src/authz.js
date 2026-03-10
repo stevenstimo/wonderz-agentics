@@ -1,4 +1,4 @@
-import { supabase } from './supabase'  // same instance as supabase.js
+import { supabase } from './supabase'
 
 export const DEFAULT_ROLE = 'member'
 export const SUPER_ADMIN_EMAIL = 'stevenstimo@gmail.com'

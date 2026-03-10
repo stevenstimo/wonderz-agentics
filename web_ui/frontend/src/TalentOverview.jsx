@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Plus } from 'lucide-react'
 import PageLayout from './PageLayout'
-import { buildAuthHeaders, getCurrentUserRole, isSuperAdmin } from './authz'
+import { getCurrentUserRole, isSuperAdmin } from './authz'
 
 const apiBase = (import.meta.env.VITE_API_URL || 'http://localhost:8090').replace(/\/$/, '')
 const crewRoles = ['Developer', 'Product Owner', 'Reviewer', 'DevOps', 'AI', 'HR', 'Training', 'CIO']
@@ -78,7 +78,6 @@ export default function TalentOverview() {
     try {
       const res = await fetch(`${apiBase}/api/talents/${selectedTalent.id}/promote`, {
         method: 'POST',
-        headers: await buildAuthHeaders(),
         body: JSON.stringify(promoteForm),
       })
 
@@ -101,7 +100,6 @@ export default function TalentOverview() {
     try {
       const res = await fetch(`${apiBase}/api/talents`, {
         method: 'POST',
-        headers: await buildAuthHeaders(),
         body: JSON.stringify({ ...addForm, skills: [] }),
       })
       if (!res.ok) throw new Error(`Talent toevoegen mislukt (${res.status})`)
@@ -131,7 +129,6 @@ export default function TalentOverview() {
     try {
       const res = await fetch(`${apiBase}/api/talents/${avatarTalent.id}`, {
         method: 'PUT',
-        headers: await buildAuthHeaders(),
         body: JSON.stringify({ avatar_url: avatarValue }),
       })
       if (!res.ok) throw new Error(`Avatar bijwerken mislukt (${res.status})`)

@@ -6,7 +6,6 @@ import App from './App.jsx'
 import RequireAuth from './RequireAuth.jsx'
 import CommandCenter from './CommandCenter.jsx'
 import LoginPage from './LoginPage.jsx'
-import AuthCallback from './AuthCallback.jsx'
 import HRImprovements from './HRImprovements.jsx'
 import CrewManagement from './CrewManagement.jsx'
 import TrainingManagement from './TrainingManagement.jsx'
@@ -29,7 +28,9 @@ import ApiKeys from './ApiKeys.jsx'
 import Integrations from './Integrations.jsx'
 import ClientsOverview from './ClientsOverview.jsx'
 import ClientsNew from './ClientsNew.jsx'
-import ClientDetail from './ClientDetail.jsx'
+import ClientDetailLayout from './ClientDetailLayout.jsx'
+import ClientDashboardPage from './ClientDashboardPage.jsx'
+import ClientIntegrations from './ClientIntegrations.jsx'
 import Status from './Status.jsx'
 import MyAccount from './MyAccount.jsx'
 import HiringHall from './HiringHall.jsx'
@@ -63,7 +64,6 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
-        <Route path="/auth/callback" element={<AuthCallback />} />
         <Route path="/seo" element={<SEOLanding />} />
         <Route element={<AuthenticatedLayout />}>
           <Route path="/" element={<App />} />
@@ -104,7 +104,11 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <Route path="/integrations" element={<Integrations />} />
           <Route path="/clients" element={<ClientsOverview />} />
           <Route path="/clients/new" element={<ClientsNew />} />
-          <Route path="/clients/:slug" element={<ClientDetail />} />
+          <Route path="/clients/:slug" element={<ClientDetailLayout />}>
+            <Route index element={<Navigate to="dashboard" replace />} />
+            <Route path="dashboard" element={<ClientDashboardPage />} />
+            <Route path="integrations" element={<ClientIntegrations />} />
+          </Route>
           <Route path="/status" element={<Status />} />
           <Route path="/my-account" element={<MyAccount />} />
           <Route path="/devbot/dave" element={<DaveDevConsole />} />

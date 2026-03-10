@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { BarChart3, Upload, Loader2, Download, CheckCircle } from 'lucide-react'
 import PageLayout from './PageLayout'
-import { apiUrl } from './apiClient'
+import { apiUrl, apiFetch } from './apiClient'
 
 export default function SEOTool() {
   const [brandName, setBrandName] = useState('')
@@ -30,7 +30,7 @@ export default function SEOTool() {
 
   async function pollStatus(id) {
     try {
-      const res = await fetch(apiUrl(`/api/seo/status/${id}`))
+      const res = await apiFetch(`/api/seo/status/${id}`)
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail || 'Status check failed')
       setStatus(data.status)
@@ -97,7 +97,7 @@ export default function SEOTool() {
       form.append('audience', audience.trim())
       form.append('language', language.trim() || 'nl')
 
-      const res = await fetch(apiUrl('/api/seo/upload'), {
+      const res = await apiFetch('/api/seo/upload', {
         method: 'POST',
         body: form,
       })

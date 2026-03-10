@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { apiUrl } from './apiClient'
+import { apiUrl, apiFetch } from './apiClient'
 
 function renderMarkdown(text) {
   if (!text) return ''
@@ -38,7 +38,7 @@ export default function DebugChat() {
     const conversation_history = [...messages, userMsg]
 
     try {
-      const res = await fetch(apiUrl('/api/debug/chat'), {
+      const res = await apiFetch('/api/debug/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: msg, conversation_history }),

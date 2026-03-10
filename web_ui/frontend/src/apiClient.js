@@ -1,3 +1,5 @@
+import { supabase } from './supabase'
+
 export const API_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:8090').replace(/\/$/, '')
 
 export function apiUrl(path) {
@@ -6,28 +8,35 @@ export function apiUrl(path) {
   return `${base}${normalized}`
 }
 
-export async function fetchJsonStrict(path, options = {}) {
-  const res = await fetch(apiUrl(path), options)
+// Centrale auth fetch — injecteert altijd automatisch de Bearer token
+export async function apiFetch(path, options = {}) {
+  const { data: { session } } = await supabase.auth.getSession()
+  const token = session?.access_token
+  const { headers: extraHeaders, ...rest } = options
+  const headers = {
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(extraHeaders || {}),
+  }
+  return fetch(apiUrl(path), { ...rest, headers })
+}
+
+// JSON helper met auth
+export async function fetchJson(path, options = {}) {
+  const res = await apiFetch(path, options)
   const contentType = (res.headers.get('content-type') || '').toLowerCase()
   const raw = await res.text()
-
   let parsed = null
   if (raw.length > 0 && contentType.includes('application/json')) {
-    try {
-      parsed = JSON.parse(raw)
-    } catch (_err) {
-      throw new Error(`Invalid JSON response from ${apiUrl(path)}`)
+    try { parsed = JSON.parse(raw) } catch (_) {
+      throw new Error(`Invalid JSON from ${path}`)
     }
   }
-
   if (!res.ok) {
     const detail = parsed?.detail || parsed?.error || parsed?.message
-    throw new Error(detail || `Request failed (${res.status}) for ${apiUrl(path)}`)
+    throw new Error(detail || `Request failed (${res.status}) for ${path}`)
   }
-
-  if (raw.length > 0 && !contentType.includes('application/json')) {
-    throw new Error(`Expected JSON but got ${contentType || 'unknown'} from ${apiUrl(path)}`)
-  }
-
   return parsed
 }
+
+// Backward compat alias
+export const fetchJsonStrict = fetchJson

@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { MessageCircle, Send, Loader2, Bookmark } from 'lucide-react'
-import { apiUrl } from '../apiClient'
-import { buildAuthHeaders } from '../authz'
+import { apiUrl, apiFetch } from '../apiClient'
 
 const SOFT_LIMIT = 10000
 const HARD_BLOCK = 20000
@@ -55,10 +54,7 @@ export default function AgentDirectChat({ agentId, agent }) {
   const messagesEndRef = useRef(null)
   const scrollRef = useRef(null)
 
-  const fetchWithAuth = useCallback(async (url, options = {}) => {
-    const headers = await buildAuthHeaders(options.headers || {})
-    return fetch(apiUrl(url), { ...options, headers: { ...headers, ...options.headers } })
-  }, [])
+  const fetchWithAuth = useCallback((url, options = {}) => apiFetch(url, options), [])
 
   const loadChats = useCallback(async () => {
     if (!agentId) return
@@ -198,10 +194,9 @@ export default function AgentDirectChat({ agentId, agent }) {
     if (!saveModal || !selectedChat || !agentId) return
     setSavingToMemory(true)
     try {
-      const headers = await buildAuthHeaders()
-      const res = await fetch(apiUrl(`/api/agents/${encodeURIComponent(agentId)}/knowledge/save`), {
+      const res = await apiFetch(`/api/agents/${encodeURIComponent(agentId)}/knowledge/save`, {
         method: 'POST',
-        headers,
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ chat_id: selectedChat.chat_id, message_id: saveModal.message_id, label: label || null }),
       })
       if (!res.ok) throw new Error((await res.json()).detail || 'Save failed')

@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, GraduationCap, UserPlus, Loader2, BookOpen, Target, Activity, Info } from 'lucide-react'
 import PageLayout from './PageLayout'
-import { apiUrl } from './apiClient'
+import { apiUrl, apiFetch } from './apiClient'
 
 const CATEGORIES = [
   { key: 'score_management', label: 'Management', apiValue: 'management' },
@@ -102,7 +102,7 @@ export default function NewbieDetail() {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(apiUrl(`/api/newbies/${encodeURIComponent(newbieId)}`))
+      const res = await apiFetch(`/api/newbies/${encodeURIComponent(newbieId)}`)
       if (!res.ok) {
         if (res.status === 404) throw new Error('Newbie not found')
         throw new Error((await res.json()).detail || 'Failed to load')
@@ -110,7 +110,7 @@ export default function NewbieDetail() {
       const data = await res.json()
       setNewbie(data)
 
-      const trainRes = await fetch(apiUrl(`/api/newbies/${encodeURIComponent(newbieId)}/trainings`))
+      const trainRes = await apiFetch(`/api/newbies/${encodeURIComponent(newbieId)}/trainings`)
       if (trainRes.ok) {
         const trainData = await trainRes.json()
         setTrainings(Array.isArray(trainData) ? trainData : [])
@@ -157,7 +157,7 @@ export default function NewbieDetail() {
       setTrainProgress((p) => ({ ...p, current: i + 1, skipped: [...skipped] }))
 
       try {
-        const res = await fetch(apiUrl('/api/newbies/train'), {
+        const res = await apiFetch('/api/newbies/train', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

@@ -3,8 +3,8 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import PageLayout from './PageLayout'
 import { Building, ArrowLeft } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { buildAuthHeaders } from './authz'
-import { apiUrl } from './apiClient'
+
+import { apiUrl, apiFetch } from './apiClient'
 
 function slugFromName(name) {
   const s = (name || '').trim().toLowerCase()
@@ -26,9 +26,8 @@ export default function ClientsNew() {
     setSaving(true)
     setError('')
     try {
-      const res = await fetch(apiUrl('/api/clients'), {
+      const res = await apiFetch('/api/clients', {
         method: 'POST',
-        headers: await buildAuthHeaders(),
         body: JSON.stringify({ client_name: clientName.trim() }),
       })
       if (res.status === 401) {

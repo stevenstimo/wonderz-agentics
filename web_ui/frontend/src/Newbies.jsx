@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Plus, GraduationCap, UserPlus, Loader2 } from 'lucide-react'
 import PageLayout from './PageLayout'
-import { apiUrl } from './apiClient'
+import { apiUrl, apiFetch } from './apiClient'
 import { supabase } from './supabase'
 import { getCurrentUserRole, isAdmin } from './authz'
 
@@ -68,7 +68,7 @@ export default function Newbies() {
     if (!silent) setLoading(true)
     setError('')
     try {
-      const res = await fetch(apiUrl('/api/newbies'))
+      const res = await apiFetch('/api/newbies')
       if (!res.ok) throw new Error(`Newbies ophalen mislukt (${res.status})`)
       const data = await res.json()
       setNewbies(Array.isArray(data) ? data : [])
@@ -113,7 +113,7 @@ export default function Newbies() {
     setAdding(true)
     setError('')
     try {
-      const res = await fetch(apiUrl('/api/newbies'), {
+      const res = await apiFetch('/api/newbies', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -172,7 +172,7 @@ export default function Newbies() {
       setTrainingProgress({ newbieId, current: i + 1, total })
 
       try {
-        const res = await fetch(apiUrl('/api/newbies/train'), {
+        const res = await apiFetch('/api/newbies/train', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

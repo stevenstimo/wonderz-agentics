@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from app.db import init_db_pool
 from app.database import get_db
+from app.services.token_guard import TokenGuard
 from app.orchestration.intake_engine import IntakeEngine
 from app.utils.job_file_generator import generate_job_artifact, parse_output_to_sections
 from app.orchestration.strategy_room import StrategyRoom
@@ -711,9 +712,30 @@ async def run_job_inline(job_id: str, context_extra: Optional[dict] = None):
 
             logger.info("run_job_inline: job %s with %s steps", job_id, num_steps)
 
+            token_guard = TokenGuard(db_pool=pool)
             last_content: Optional[str] = None
             previous_content: Optional[str] = None
             for idx, step in enumerate(steps):
+                # Token budget check before each step
+                check = await token_guard.check_before_call(job_id, estimated_tokens=2000)
+                if not check.get("allowed", True):
+                    logger.warning(
+                        "Job %s stopped: token budget exceeded (%s)",
+                        job_id, check.get("reason", "unknown"),
+                    )
+                    await _update_job_context(conn, job_id, {
+                        "token_budget_exceeded": True,
+                        "tokens_used": check.get("used"),
+                        "token_budget": check.get("budget"),
+                    })
+                    break
+                if check.get("warning"):
+                    logger.info(
+                        "Token budget warning for job %s: %.1f%% used",
+                        job_id, check.get("percentage", 0),
+                    )
+                    await _update_job_context(conn, job_id, {"token_budget_warning": check.get("percentage")})
+
                 step_id = step["id"]
                 await conn.execute(
                     "UPDATE job_steps SET status='running', started_at=now() WHERE id=$1",
@@ -763,11 +785,7 @@ async def run_job_inline(job_id: str, context_extra: Optional[dict] = None):
                 )
                 await _update_step_progress(conn, step_id, 100)
 
-                await conn.execute(
-                    "UPDATE jobs SET tokens_used=COALESCE(tokens_used, 0) + $1, updated_at=now() WHERE id=$2",
-                    tokens_used,
-                    job_id,
-                )
+                await token_guard.register_usage(job_id, tokens_used, step_id)
                 if output.get("image_url"):
                     await _update_job_context(conn, job_id, {"image_url": output["image_url"]})
                 # Checkpoint: save content after each step that produces it (survives crash)

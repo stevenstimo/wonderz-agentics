@@ -5,9 +5,11 @@
  */
 
 import { useState, useEffect } from 'react'
+import { apiFetch } from './apiClient'
 import { useNavigate } from 'react-router-dom'
 import PageLayout from './PageLayout'
-import { buildAuthHeaders } from './authz'
+import { useAuthReady } from './useAuthReady'
+
 
 const API = (import.meta.env.VITE_API_URL || 'http://localhost:8090').replace(/\/$/, '')
 
@@ -23,26 +25,26 @@ const ROLE_COLORS = {
 }
 
 export default function AgentsPage() {
+  const authReady = useAuthReady()
   const [agents, setAgents] = useState([])
   const [loading, setLoading] = useState(true)
   const navigate = useNavigate()
 
   useEffect(() => {
-    buildAuthHeaders()
-      .then((headers) => fetch(`${API}/api/agents`, { headers }))
+    if (!authReady) return
+    apiFetch('/api/agents')
       .then((r) => r.json())
       .then((d) => {
         setAgents(d.agents || [])
         setLoading(false)
       })
       .catch(() => setLoading(false))
-  }, [])
+  }, [authReady])
 
   const deactivate = async (agentId) => {
     if (!confirm(`Agent ${agentId} deactiveren?`)) return
     try {
-      const headers = await buildAuthHeaders()
-      await fetch(`${API}/api/agents/${encodeURIComponent(agentId)}`, { method: 'DELETE', headers })
+      await apiFetch(`/api/agents/${encodeURIComponent(agentId)}`, { method: 'DELETE' })
       setAgents((prev) =>
         prev.map((a) => (a.agent_id === agentId ? { ...a, is_active: false } : a))
       )

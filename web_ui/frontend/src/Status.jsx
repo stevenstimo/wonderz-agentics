@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react'
 import { Activity, CheckCircle2, AlertTriangle, Bot, Settings as SettingsIcon, RefreshCw } from 'lucide-react'
 import PageLayout from './PageLayout'
-import { apiUrl } from './apiClient'
+import { apiUrl, apiFetch } from './apiClient'
 
 function StatusRow({ label, ok, detail }) {
   return (
@@ -40,7 +40,7 @@ export default function Status() {
     setLoadError('')
     try {
       const summaryStart = performance.now()
-      const summaryRes = await fetch(apiUrl('/api/status/summary'))
+      const summaryRes = await apiFetch('/api/status/summary')
       const summaryElapsed = Math.round(performance.now() - summaryStart)
       setHealthLatencyMs(summaryElapsed)
 

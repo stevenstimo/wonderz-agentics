@@ -4,7 +4,7 @@ import { Briefcase, BrainCircuit, ShieldCheck, Info, UserPlus, GraduationCap } f
 import PageLayout from './PageLayout';
 import AuthorizeRecruitButton from './components/AuthorizeRecruitButton';
 import { useHiringHall } from './hooks/useHiringHall';
-import { apiUrl } from './apiClient';
+import { apiUrl, apiFetch } from './apiClient';
 
 const VALID_TOOLS = [
   { id: 'read_product', label: 'Read Product' },
@@ -66,7 +66,7 @@ const HiringHall = ({ onHire }) => {
   useEffect(() => {
     if (activeTab === TAB_PROMOTE) {
       setLoadingNewbies(true);
-      fetch(apiUrl('/api/newbies/ready'))
+      apiFetch('/api/newbies/ready')
         .then((r) => r.ok ? r.json() : [])
         .then((data) => setReadyNewbies(Array.isArray(data) ? data : []))
         .catch(() => setReadyNewbies([]))
@@ -78,7 +78,7 @@ const HiringHall = ({ onHire }) => {
     setHiringNewbieId(newbie.newbie_id);
     setHireError(null);
     try {
-      const res = await fetch(apiUrl(`/api/newbies/${newbie.newbie_id}/hire`), {
+      const res = await apiFetch(`/api/newbies/${newbie.newbie_id}/hire`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),

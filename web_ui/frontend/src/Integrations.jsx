@@ -2,8 +2,8 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom'
 import PageLayout from './PageLayout'
 import { Plug, Save, CheckCircle, XCircle } from 'lucide-react'
-import { buildAuthHeaders } from './authz'
-import { apiUrl } from './apiClient'
+
+import { apiUrl, apiFetch } from './apiClient'
 
 const PLATFORMS = [
   { id: 'klaviyo', name: 'Klaviyo', connected: false, form: true, oauth: false },
@@ -30,8 +30,7 @@ export default function Integrations() {
       setLoading(true)
       setError('')
       try {
-        const res = await fetch(apiUrl('/api/integrations'), {
-          headers: await buildAuthHeaders(),
+        const res = await apiFetch('/api/integrations', {
         })
         if (res.status === 401) {
           navigate('/login', { state: { from: location } })
@@ -62,8 +61,7 @@ export default function Integrations() {
       setSearchParams({}, { replace: true })
       const refetch = async () => {
         try {
-          const res = await fetch(apiUrl('/api/integrations'), {
-            headers: await buildAuthHeaders(),
+          const res = await apiFetch('/api/integrations', {
           })
           if (res.ok) {
             const data = await res.json()
@@ -83,9 +81,8 @@ export default function Integrations() {
   const handleGoogleConnect = async () => {
     setError('')
     try {
-      const res = await fetch(apiUrl('/api/integrations/google/auth-url'), {
+      const res = await apiFetch('/api/integrations/google/auth-url', {
         method: 'POST',
-        headers: await buildAuthHeaders(),
       })
       if (res.status === 401) {
         navigate('/login', { state: { from: location } })
@@ -113,9 +110,8 @@ export default function Integrations() {
       const body = {}
       if (klaviyoForm.api_key) body.api_key = klaviyoForm.api_key
       if (klaviyoForm.account_id) body.extra_config = { account_id: klaviyoForm.account_id }
-      const res = await fetch(apiUrl('/api/integrations/klaviyo'), {
+      const res = await apiFetch('/api/integrations/klaviyo', {
         method: 'PUT',
-        headers: await buildAuthHeaders(),
         body: JSON.stringify(body),
       })
       if (res.status === 401) {
@@ -123,8 +119,7 @@ export default function Integrations() {
         return
       }
       if (res.ok) {
-        const listRes = await fetch(apiUrl('/api/integrations'), {
-          headers: await buildAuthHeaders(),
+        const listRes = await apiFetch('/api/integrations', {
         })
         if (listRes.ok) {
           setIntegrations(await listRes.json())

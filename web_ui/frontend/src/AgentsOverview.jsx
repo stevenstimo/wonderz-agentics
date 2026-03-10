@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import PageLayout from './PageLayout'
-import { apiUrl } from './apiClient'
-import { buildAuthHeaders } from './authz'
+import { apiUrl, apiFetch } from './apiClient'
 
 function initials(name) {
   if (!name || typeof name !== 'string') return '?'
@@ -29,7 +28,7 @@ export default function AgentsOverview() {
     setLoading(true)
     setError('')
     try {
-      const res = await fetch(apiUrl('/api/agents'), { headers: await buildAuthHeaders() })
+      const res = await apiFetch('/api/agents')
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data?.detail || 'Failed to load agents')
       const list = Array.isArray(data) ? data : (data?.agents || [])
@@ -52,9 +51,8 @@ export default function AgentsOverview() {
     e.stopPropagation()
     if (!window.confirm('Deactivate this agent?')) return
     try {
-      const res = await fetch(apiUrl(`/api/agents/${encodeURIComponent(agentId)}`), {
+      const res = await apiFetch(`/api/agents/${encodeURIComponent(agentId)}`, {
         method: 'DELETE',
-        headers: await buildAuthHeaders(),
       })
       if (!res.ok) throw new Error('Deactivation failed')
       setAgents((prev) => prev.filter((agent) => agent.agent_id !== agentId))

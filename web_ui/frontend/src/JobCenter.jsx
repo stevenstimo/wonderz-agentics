@@ -1,7 +1,8 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import PageLayout from './PageLayout'
-import { apiUrl } from './apiClient'
+import { apiUrl, apiFetch } from './apiClient'
+import { useAuthReady } from './useAuthReady'
 
 const STATUS_BADGE = {
   INTAKE_CLARIFICATION: 'bg-amber-100 text-amber-800',
@@ -94,6 +95,7 @@ const FAILED_STATUSES = ['FAILED', 'CANCELLED']
 
 export default function JobCenter() {
   const navigate = useNavigate()
+  const authReady = useAuthReady()
   const [jobs, setJobs] = useState([])
   const [filter, setFilter] = useState('all')
   const [loading, setLoading] = useState(true)
@@ -107,7 +109,7 @@ export default function JobCenter() {
 
   const fetchJobs = useCallback(async () => {
     try {
-      const res = await fetch(apiUrl('/api/jobs'))
+      const res = await apiFetch('/api/jobs')
       if (!res.ok) throw new Error('Failed to load jobs')
       const data = await res.json()
       setJobs(Array.isArray(data) ? data : [])
@@ -120,20 +122,22 @@ export default function JobCenter() {
   }, [])
 
   useEffect(() => {
+    if (!authReady) return
     fetchJobs()
     const interval = setInterval(fetchJobs, 10000)
     return () => clearInterval(interval)
-  }, [fetchJobs])
+  }, [authReady, fetchJobs])
 
   useEffect(() => {
+    if (!authReady) return
     let active = true
     const fetchCrew = async () => {
       setCrewLoading(true)
       setCrewError(null)
       try {
         const [crewRes, explainerRes] = await Promise.all([
-          fetch(apiUrl('/api/crew')),
-          fetch(apiUrl('/api/explainer/sections')),
+          apiFetch('/api/crew'),
+          apiFetch('/api/explainer/sections'),
         ])
         if (!crewRes.ok) throw new Error('Failed to load crew status')
         if (!explainerRes.ok) throw new Error('Failed to load updates')
@@ -151,7 +155,7 @@ export default function JobCenter() {
     }
     fetchCrew()
     return () => { active = false }
-  }, [])
+  }, [authReady])
 
   const filteredJobs = jobs.filter((j) => {
     if (filter === 'active') { if (!IN_PROGRESS_STATUSES.includes(j.status)) return false }

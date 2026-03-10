@@ -2,6 +2,7 @@ import os
 
 from dotenv import load_dotenv
 load_dotenv()  # load .env before any app code uses os.getenv (e.g. SUPABASE_URL)
+load_dotenv(".env.vm")  # exe.dev VM config (overrides .env)
 
 import json
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect

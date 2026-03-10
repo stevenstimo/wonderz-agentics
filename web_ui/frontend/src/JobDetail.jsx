@@ -5,7 +5,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import PageLayout from './PageLayout'
-import { apiUrl } from './apiClient'
+import { apiUrl, apiFetch } from './apiClient'
 
 const STATUS_BADGE = {
   INTAKE_CLARIFICATION: 'bg-amber-100 text-amber-800',
@@ -166,7 +166,7 @@ export default function JobDetail() {
     try {
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), 180000)
-      const res = await fetch(apiUrl(`/api/jobs/${jobId}/approve-plan`), { method: 'POST', signal: controller.signal })
+      const res = await apiFetch(`/api/jobs/${jobId}/approve-plan`, { method: 'POST', signal: controller.signal })
       clearTimeout(timeoutId)
       if (!res.ok) throw new Error('Failed to approve plan')
       await fetchJob()
@@ -182,7 +182,7 @@ export default function JobDetail() {
     if (!requestChangesText.trim()) return
     setSubmittingRequest(true)
     try {
-      const res = await fetch(apiUrl(`/api/jobs/${jobId}/request-changes`), {
+      const res = await apiFetch(`/api/jobs/${jobId}/request-changes`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ feedback: requestChangesText.trim() })
@@ -201,7 +201,7 @@ export default function JobDetail() {
   const handleApproveDeploy = async () => {
     setApprovingDeploy(true)
     try {
-      const res = await fetch(apiUrl(`/api/jobs/${jobId}/approve`), { method: 'POST' })
+      const res = await apiFetch(`/api/jobs/${jobId}/approve`, { method: 'POST' })
       if (!res.ok) throw new Error('Failed to approve and deploy')
       await fetchJob()
     } catch (err) {
@@ -288,7 +288,7 @@ export default function JobDetail() {
     setSendingChat(true)
     setChatInput('')
     try {
-      const res = await fetch(apiUrl(`/api/jobs/${jobId}/chat`), {
+      const res = await apiFetch(`/api/jobs/${jobId}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: msg })
@@ -595,6 +595,11 @@ export default function JobDetail() {
       {job?.status === 'FAILED' && (
         <div className="panel-card space-y-4">
           <h3 className="text-lg font-semibold text-red-800">Job failed</h3>
+          {context?.token_budget_exceeded && (
+            <div className="rounded-lg bg-red-100 text-red-800 px-4 py-3 font-medium">
+              Token budget exceeded: {context.tokens_used ?? job?.tokens_used ?? '?'} / {context.token_budget ?? job?.token_budget ?? 50000} tokens used.
+            </div>
+          )}
           <pre className="text-sm text-slate-700 bg-slate-50 p-4 rounded overflow-auto max-h-48">
             {(typeof context.error === 'string' && context.error) || (typeof context.message === 'string' && context.message) || JSON.stringify(context, null, 2)}
           </pre>
@@ -602,7 +607,7 @@ export default function JobDetail() {
             type="button"
             onClick={async () => {
               try {
-                const res = await fetch(apiUrl('/api/jobs'), {
+                const res = await apiFetch('/api/jobs', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({

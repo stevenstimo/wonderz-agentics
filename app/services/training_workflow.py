@@ -38,9 +38,11 @@ def _chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> list[str
 
 async def _scrape(url: str) -> Optional[str]:
     """Fetch URL en extraheer leesbare tekst."""
+    import os
     validated = validate_url(url)
+    verify = os.getenv("TRAINING_SSL_VERIFY", "true").lower() != "false"
     try:
-        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=15, follow_redirects=True, verify=verify) as client:
             response = await client.get(
                 validated,
                 headers={"User-Agent": "CrewIntelligent/1.0"},

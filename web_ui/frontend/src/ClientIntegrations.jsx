@@ -1,12 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link, useNavigate, useLocation, useSearchParams } from 'react-router-dom'
-import PageLayout from './PageLayout'
-import { Building, ArrowLeft, Save, CheckCircle, XCircle, Link2, Plug } from 'lucide-react'
+import { Save, CheckCircle, XCircle, Link2, Plug } from 'lucide-react'
+import { apiFetch } from './apiClient'
 
-import { apiUrl, apiFetch } from './apiClient'
-import { useAuthReady } from './useAuthReady'
-
-// integration_type (from client_integrations) -> platform (for client_platform_configs)
 const INTEGRATION_TO_PLATFORM = {
   ga4: 'ga4',
   google_search_console: 'gsc',
@@ -24,9 +20,9 @@ const PLATFORM_LABELS = {
 }
 
 const PLATFORM_FIELDS = {
-  ga4: [], // GA4: OAuth only, no manual fields
-  gsc: [], // GSC: OAuth only
-  google_ads: [], // Google Ads: OAuth only
+  ga4: [{ key: 'property_id', label: 'GA4 Property ID', placeholder: '123456789 (optioneel, anders eerste property)' }],
+  gsc: [{ key: 'site_url', label: 'Site URL', placeholder: 'https://example.com/' }],
+  google_ads: [{ key: 'customer_id', label: 'Customer ID', placeholder: '123-456-7890' }],
   shopify: [{ key: 'shop_domain', label: 'Shop domain', placeholder: 'vitbliss.myshopify.com' }],
   klaviyo: [
     { key: 'account_id', label: 'Account ID', placeholder: 'AbCdEf' },
@@ -36,8 +32,7 @@ const PLATFORM_FIELDS = {
 
 const GOOGLE_PLATFORMS = ['ga4', 'gsc', 'google_ads']
 
-export default function ClientDetail() {
-  const authReady = useAuthReady()
+export default function ClientIntegrations() {
   const { slug } = useParams()
   const navigate = useNavigate()
   const location = useLocation()
@@ -62,7 +57,7 @@ export default function ClientDetail() {
       const res = await apiFetch('/api/integrations/google/auth-url', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ client_slug: slug, return_to: `/clients/${slug}` }),
+        body: JSON.stringify({ client_slug: slug, return_to: `/clients/${slug}/integrations` }),
       })
       if (res.status === 401) {
         navigate('/login', { state: { from: location } })
@@ -113,7 +108,6 @@ export default function ClientDetail() {
   const allPlatforms = Object.keys(PLATFORM_LABELS)
 
   useEffect(() => {
-    if (!authReady) return
     const fetchData = async () => {
       setLoading(true)
       setError('')
@@ -148,11 +142,9 @@ export default function ClientDetail() {
       }
     }
     fetchData()
-  }, [authReady, slug, navigate, location])
+  }, [slug, navigate, location])
 
-  // Refetch when returning from OAuth callback (?connected=google)
   useEffect(() => {
-    if (!authReady) return
     const connected = searchParams.get('connected')
     if (connected === 'google') {
       setSearchParams({}, { replace: true })
@@ -179,7 +171,7 @@ export default function ClientDetail() {
       }
       refetch()
     }
-  }, [authReady, searchParams, slug])
+  }, [searchParams, slug])
 
   const getConfigForPlatform = (platform) => {
     const pc = client?.platform_configs?.find((p) => p.platform === platform)
@@ -206,6 +198,7 @@ export default function ClientDetail() {
       const config = platformForms[platform] || {}
       const res = await apiFetch(`/api/clients/${slug}/platforms`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ platform, config }),
       })
       if (res.status === 401) {
@@ -213,8 +206,7 @@ export default function ClientDetail() {
         return
       }
       if (res.ok) {
-        const clientRes = await apiFetch(`/api/clients/${slug}`, {
-        })
+        const clientRes = await apiFetch(`/api/clients/${slug}`)
         if (clientRes.ok) {
           const clientData = await clientRes.json()
           setClient(clientData)
@@ -249,8 +241,7 @@ export default function ClientDetail() {
         return
       }
       if (res.ok) {
-        const clientRes = await apiFetch(`/api/clients/${slug}`, {
-        })
+        const clientRes = await apiFetch(`/api/clients/${slug}`)
         if (clientRes.ok) {
           setClient(await clientRes.json())
           setPlatformForms((prev) => {
@@ -273,59 +264,19 @@ export default function ClientDetail() {
 
   if (loading) {
     return (
-      <PageLayout size="narrow" padded>
-        <div className="panel-card bg-white shadow-sm border border-slate-200 p-6 rounded-xl">
-          Client laden...
-        </div>
-      </PageLayout>
-    )
-  }
-
-  if (!client) {
-    return (
-      <PageLayout size="narrow" padded>
-        {error && (
-          <div className="mb-4 p-4 rounded-lg bg-red-50 text-red-700 border border-red-200 text-sm">
-            {error}
-          </div>
-        )}
-        <Link to="/clients" className="text-indigo-600 hover:underline">
-          Terug naar clients
-        </Link>
-      </PageLayout>
+      <div className="panel-card bg-white shadow-sm border border-slate-200 p-6 rounded-xl">
+        Integraties laden...
+      </div>
     )
   }
 
   return (
-    <PageLayout size="narrow" padded>
-      <Link
-        to="/clients"
-        className="inline-flex items-center gap-2 text-sm text-slate-500 hover:text-slate-700 mb-6"
-      >
-        <ArrowLeft className="w-4 h-4" />
-        Terug naar clients
-      </Link>
+    <div>
       {error && (
         <div className="mb-4 p-4 rounded-lg bg-red-50 text-red-700 border border-red-200 text-sm">
           {error}
         </div>
       )}
-
-      <div className="mb-8">
-        <h1 className="page-title flex items-center gap-2">
-          <Building className="w-8 h-8" />
-          {client.client_name}
-        </h1>
-        <div className="mt-3 p-4 rounded-xl bg-indigo-50 border border-indigo-100">
-          <p className="text-sm text-indigo-800 font-medium mb-1">@mention voor jobs</p>
-          <code className="text-lg font-mono text-indigo-900 bg-white px-2 py-1 rounded border border-indigo-200">
-            @{client.slug}
-          </code>
-          <p className="text-xs text-indigo-600 mt-2">
-            Gebruik dit in job posts om de client te adresseren
-          </p>
-        </div>
-      </div>
 
       <h2 className="text-base font-semibold text-slate-800 mb-4 flex items-center gap-2">
         <Link2 className="w-5 h-5" />
@@ -424,7 +375,7 @@ export default function ClientDetail() {
                 </p>
               )}
 
-              {canConfigure && !isGoogle && (
+              {canConfigure && fields.length > 0 && (
                 <div className="space-y-3 mt-2">
                   {fields.map(({ key, label, placeholder }) => (
                     <div key={key}>
@@ -467,6 +418,6 @@ export default function ClientDetail() {
           )
         })}
       </div>
-    </PageLayout>
+    </div>
   )
 }

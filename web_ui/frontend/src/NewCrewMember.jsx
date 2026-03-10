@@ -1,8 +1,8 @@
 import { useEffect, useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import PageLayout from './PageLayout'
-import { apiUrl } from './apiClient'
-import { buildAuthHeaders } from './authz'
+import { apiUrl, apiFetch } from './apiClient'
+
 import { VALID_TOOLS, VALID_CATEGORIES } from './agentConstants'
 
 const initialForm = {
@@ -37,8 +37,7 @@ export default function NewCrewMember() {
     async function loadPresets() {
       setPresetsLoading(true)
       try {
-        const res = await fetch(apiUrl('/api/agents/presets'), {
-          headers: await buildAuthHeaders(),
+        const res = await apiFetch('/api/agents/presets', {
         })
         const data = await res.json().catch(() => ({}))
         if (!res.ok) throw new Error(data?.detail || 'Presets laden mislukt')
@@ -102,9 +101,8 @@ export default function NewCrewMember() {
         system_prompt: form.system_prompt.trim(),
         tool_whitelist: form.tool_whitelist,
       }
-      const res = await fetch(apiUrl('/api/agents'), {
+      const res = await apiFetch('/api/agents', {
         method: 'POST',
-        headers: await buildAuthHeaders(),
         body: JSON.stringify(body),
       })
       const data = await res.json().catch(() => ({}))

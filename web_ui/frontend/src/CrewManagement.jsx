@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Plus, Edit2, Trash2, User, Shield, Code, Container, RefreshCw, X, Check, AlertCircle, Loader } from 'lucide-react'
 import PageLayout from './PageLayout'
-import { buildAuthHeaders, getCurrentUserRole, isSuperAdmin } from './authz'
+import { getCurrentUserRole, isSuperAdmin } from './authz'
 
 const roleIcons = {
   'Product Owner': Shield,
@@ -165,7 +165,6 @@ export default function CrewManagement() {
 
       const res = await fetch(endpoint, {
         method,
-        headers: await buildAuthHeaders(),
         body: JSON.stringify(payload),
       })
 
@@ -212,7 +211,6 @@ export default function CrewManagement() {
     try {
       const res = await fetch(`${apiBase}/api/crew/${crewId}`, {
         method: 'DELETE',
-        headers: await buildAuthHeaders(),
       })
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}))

@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { Upload, X, Paperclip, FileSpreadsheet, FileText, Image as ImageIcon, MessageCircle } from 'lucide-react'
 import PageLayout from './PageLayout'
-import { apiUrl } from './apiClient'
+import { apiUrl, apiFetch } from './apiClient'
 
 function parseContext(ctx) {
   if (!ctx) return {}
@@ -159,7 +159,7 @@ export default function JobSplitView() {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(apiUrl(`/api/jobs/${jobId}`))
+      const res = await apiFetch(`/api/jobs/${jobId}`)
       if (!res.ok) {
         if (res.status === 404) throw new Error('Job not found')
         throw new Error('Failed to load job')
@@ -188,7 +188,7 @@ export default function JobSplitView() {
     if (runIntakeTriggeredRef.current === jobId) return
     runIntakeTriggeredRef.current = jobId
     setRunningIntake(true)
-    fetch(apiUrl(`/api/jobs/${jobId}/run-intake`), { method: 'POST' })
+    apiFetch(`/api/jobs/${jobId}/run-intake`, { method: 'POST' })
       .then(async (res) => {
         if (!res.ok) {
           const j = await res.json().catch(() => ({}))
@@ -250,7 +250,7 @@ export default function JobSplitView() {
       }
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), 180000)
-      const res = await fetch(apiUrl(`/api/jobs/${jobId}/approve-plan`), { method: 'POST', signal: controller.signal })
+      const res = await apiFetch(`/api/jobs/${jobId}/approve-plan`, { method: 'POST', signal: controller.signal })
       clearTimeout(timeoutId)
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
@@ -270,7 +270,7 @@ export default function JobSplitView() {
   const handleApproveDeploy = async () => {
     setApprovingDeploy(true)
     try {
-      const res = await fetch(apiUrl(`/api/jobs/${jobId}/approve`), { method: 'POST' })
+      const res = await apiFetch(`/api/jobs/${jobId}/approve`, { method: 'POST' })
       if (!res.ok) throw new Error('Failed to approve and deploy')
       await fetchJob()
     } catch (err) {
@@ -294,7 +294,7 @@ export default function JobSplitView() {
     try {
       const form = new FormData()
       form.append('file', f)
-      const res = await fetch(apiUrl('/api/jobs/upload'), { method: 'POST', body: form })
+      const res = await apiFetch('/api/jobs/upload', { method: 'POST', body: form })
       if (!res.ok) {
         const j = await res.json().catch(() => ({}))
         throw new Error(j.detail || 'Upload mislukt')
@@ -352,7 +352,7 @@ export default function JobSplitView() {
       setChatInput('')
       clearAttachment()
       try {
-        const res = await fetch(apiUrl('/api/jobs'), {
+        const res = await apiFetch('/api/jobs', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -392,25 +392,25 @@ export default function JobSplitView() {
           const form = new FormData()
           form.append('message', msg || '(bijlage)')
           form.append('file', fileToSend)
-          res = await fetch(apiUrl(`/api/jobs/${jobId}/chat`), {
+          res = await apiFetch(`/api/jobs/${jobId}/chat`, {
             method: 'POST',
             body: form
           })
         } else {
-          res = await fetch(apiUrl(`/api/jobs/${jobId}/chat`), {
+          res = await apiFetch(`/api/jobs/${jobId}/chat`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ message: msg })
           })
         }
       } else if (status === 'PLAN_PROPOSED') {
-        res = await fetch(apiUrl(`/api/jobs/${jobId}/request-changes`), {
+        res = await apiFetch(`/api/jobs/${jobId}/request-changes`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ feedback: msg })
         })
       } else if (status === 'JOB_READY' || status === 'AWAITING_APPROVAL' || status === 'COMPLETED') {
-        res = await fetch(apiUrl(`/api/jobs/${jobId}/feedback`), {
+        res = await apiFetch(`/api/jobs/${jobId}/feedback`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ feedback: msg })
@@ -964,7 +964,11 @@ export default function JobSplitView() {
 
             {job?.status === 'FAILED' && (
               <div className="space-y-4">
-                <div className="rounded-lg bg-red-100 text-red-800 px-4 py-3 font-medium">Job Failed</div>
+                <div className="rounded-lg bg-red-100 text-red-800 px-4 py-3 font-medium">
+                  {context?.token_budget_exceeded
+                    ? `Token budget exceeded: ${context.tokens_used ?? job?.tokens_used ?? '?'} / ${context.token_budget ?? job?.token_budget ?? 50000} tokens used.`
+                    : 'Job Failed'}
+                </div>
                 {(context.execution_error || context.error || context.message) && (
                   <div className="rounded-xl border border-red-200 bg-red-50 p-4">
                     <h4 className="text-sm font-semibold text-red-800 mb-2">Error log</h4>
@@ -980,7 +984,7 @@ export default function JobSplitView() {
                   type="button"
                   onClick={async () => {
                     try {
-                      const res = await fetch(apiUrl('/api/jobs'), {
+                      const res = await apiFetch('/api/jobs', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ user_id: '00000000-0000-0000-0000-000000000001', job_post: job?.job_post || '', source_platform: job?.source_platform || 'custom' })

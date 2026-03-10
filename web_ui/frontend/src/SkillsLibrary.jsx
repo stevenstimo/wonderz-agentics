@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Send, Loader2, Upload } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
-import { apiUrl } from './apiClient'
+import { apiUrl, apiFetch } from './apiClient'
 import PageLayout from './PageLayout'
 
 const DOMAIN_BADGE = {
@@ -76,7 +76,7 @@ export default function SkillsLibrary() {
     setChatMessages((prev) => [...prev, userMsg])
     setSendingChat(true)
     try {
-      const res = await fetch(apiUrl('/api/skills/judson/chat'), {
+      const res = await apiFetch('/api/skills/judson/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -105,7 +105,7 @@ export default function SkillsLibrary() {
     setChatMessages((prev) => [...prev, { role: 'assistant', content: 'Uploading…' }])
     const form = new FormData()
     form.append('file', file)
-    fetch(apiUrl('/api/skills/judson/upload'), { method: 'POST', body: form })
+    apiFetch('/api/skills/judson/upload', { method: 'POST', body: form })
       .then(async (res) => {
         const data = await res.json()
         if (!res.ok) throw new Error(data.detail || 'Upload failed')
@@ -116,7 +116,7 @@ export default function SkillsLibrary() {
         setChatMessages((prev) => prev.slice(0, -1).concat([{ role: 'assistant', content: `"${data.filename}" received. Analyzing…` }]))
         setUploading(false)
         setAnalyzing(true)
-        return fetch(apiUrl('/api/skills/judson/analyze'), {
+        return apiFetch('/api/skills/judson/analyze', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ upload_id: data.upload_id }),
@@ -171,7 +171,7 @@ export default function SkillsLibrary() {
   async function handleApproveSkills(approvedIndices) {
     if (!lastUploadId || approvedIndices.length === 0) return
     try {
-      const res = await fetch(apiUrl('/api/skills/judson/approve'), {
+      const res = await apiFetch('/api/skills/judson/approve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ upload_id: lastUploadId, approved_skill_indices: approvedIndices }),

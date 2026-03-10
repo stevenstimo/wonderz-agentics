@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from datetime import datetime, timezone
 from typing import List, Tuple, Dict, Any, Optional
@@ -121,20 +122,56 @@ def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> List[Tupl
     return chunks
 
 
+EMBEDDING_DIM = 1536  # agent_knowledge.embedding vector size (OpenAI text-embedding-3-small)
+
+
 async def generate_embedding(text: str) -> List[float]:
-    """Generate an embedding for a given text using OpenAI."""
+    """Generate an embedding for a given text. Tries OpenAI, then Voyage AI fallback."""
     if not text:
         raise TrainingError("Cannot embed empty text")
 
-    try:
-        client = _get_openai_client()
-        response = await client.embeddings.create(
-            model="text-embedding-3-small",
-            input=text,
-        )
-        return response.data[0].embedding
-    except Exception as exc:
-        raise TrainingError(f"Embedding generation failed: {exc}") from exc
+    # 1. Try OpenAI
+    openai_key = os.getenv("OPENAI_API_KEY", "").strip()
+    if openai_key:
+        try:
+            client = _get_openai_client()
+            response = await client.embeddings.create(
+                model="text-embedding-3-small",
+                input=text,
+            )
+            return response.data[0].embedding
+        except Exception as exc:
+            if "quota" in str(exc).lower() or "429" in str(exc):
+                logger.info("OpenAI quota exceeded, trying Voyage fallback")
+            else:
+                raise TrainingError(f"Embedding generation failed: {exc}") from exc
+
+    # 2. Fallback: Voyage AI (output_dim 2048, truncate to 1536 for schema compat)
+    voyage_key = os.getenv("VOYAGE_API_KEY", "").strip()
+    if voyage_key:
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=30) as client:
+                resp = await client.post(
+                    "https://api.voyageai.com/v1/embeddings",
+                    headers={"Authorization": f"Bearer {voyage_key}"},
+                    json={
+                        "input": text,
+                        "model": "voyage-3-5",
+                        "output_dimension": 2048,
+                    },
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                emb = data["data"][0]["embedding"]
+                # Truncate to 1536 for agent_knowledge.embedding VECTOR(1536)
+                return emb[:EMBEDDING_DIM] if len(emb) > EMBEDDING_DIM else emb + [0.0] * (EMBEDDING_DIM - len(emb))
+        except Exception as exc:
+            raise TrainingError(f"Voyage embedding failed: {exc}") from exc
+
+    raise TrainingError(
+        "No embedding provider configured. Set OPENAI_API_KEY or VOYAGE_API_KEY in .env.vm"
+    )
 
 
 async def _insert_chunks(

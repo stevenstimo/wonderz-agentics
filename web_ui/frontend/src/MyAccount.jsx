@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import PageLayout from './PageLayout'
 import { supabase } from './supabase'
 import { getCurrentUserRole } from './authz'
@@ -21,6 +22,7 @@ function getInitials(user) {
 }
 
 export default function MyAccount() {
+  const navigate = useNavigate()
   const [user, setUser] = useState(null)
   const [role, setRole] = useState('member')
   const [busy, setBusy] = useState(false)
@@ -120,6 +122,7 @@ export default function MyAccount() {
     setBusy(true)
     setError('')
     await supabase.auth.signOut()
+    navigate('/login', { replace: true })
     setBusy(false)
   }
 

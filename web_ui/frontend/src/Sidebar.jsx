@@ -31,7 +31,7 @@ import {
 } from 'lucide-react'
 import { supabase } from './supabase'
 import { getCurrentUserRole, isSuperAdmin } from './authz'
-import { apiUrl } from './apiClient'
+import { apiUrl, apiFetch } from './apiClient'
 
 const WORKSPACE = [
   { label: 'Dashboard', icon: LayoutDashboard, path: '/' },
@@ -171,7 +171,7 @@ export default function Sidebar() {
     let active = true
     const fetchInboxSummary = async () => {
       try {
-        const res = await fetch(apiUrl('/api/inbox/summary'))
+        const res = await apiFetch('/api/inbox/summary')
         if (res.ok && active) {
           const data = await res.json()
           setInboxUnread(data?.total_unread ?? 0)

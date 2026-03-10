@@ -37,11 +37,15 @@ GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_INTEGRATION_TYPES = ["ga4", "google_ads", "google_search_console"]
 
 
-def _create_oauth_state(user_id: str, secret: str, return_to: Optional[str] = None) -> str:
+def _create_oauth_state(
+    user_id: str, secret: str, return_to: Optional[str] = None, client_slug: Optional[str] = None
+) -> str:
     """Create signed state for CSRF protection. Expires in 10 min."""
     payload = {"user_id": user_id, "exp": int(time.time()) + 600}
     if return_to:
         payload["return_to"] = return_to
+    if client_slug:
+        payload["client_slug"] = client_slug
     payload = json.dumps(payload)
     payload_b64 = base64.urlsafe_b64encode(payload.encode()).decode().rstrip("=")
     sig = hmac.new(
@@ -52,34 +56,130 @@ def _create_oauth_state(user_id: str, secret: str, return_to: Optional[str] = No
     return f"{payload_b64}.{sig}"
 
 
-def _verify_oauth_state(state: str, secret: str) -> tuple[Optional[str], Optional[str]]:
-    """Verify state and return (user_id, return_to) or (None, None)."""
+def _verify_oauth_state(state: str, secret: str) -> tuple[Optional[str], Optional[str], Optional[str]]:
+    """Verify state and return (user_id, return_to, client_slug) or (None, None, None)."""
     try:
         parts = state.split(".")
         if len(parts) != 2:
-            return (None, None)
+            return (None, None, None)
         payload_b64, sig = parts
         pad = 4 - len(payload_b64) % 4
         if pad != 4:
             payload_b64 += "=" * pad
         payload = json.loads(base64.urlsafe_b64decode(payload_b64).decode())
         if payload.get("exp", 0) < time.time():
-            return (None, None)
+            return (None, None, None)
         expected = hmac.new(
             secret.encode() if isinstance(secret, str) else secret,
             parts[0].encode(),
             hashlib.sha256,
         ).hexdigest()
         if not hmac.compare_digest(expected, sig):
-            return (None, None)
-        return (payload.get("user_id"), payload.get("return_to"))
+            return (None, None, None)
+        return (payload.get("user_id"), payload.get("return_to"), payload.get("client_slug"))
     except Exception as e:
         logger.warning(f"State verification failed: {e}")
-        return (None, None)
+        return (None, None, None)
 
 
 class GoogleAuthUrlRequest(BaseModel):
     return_to: Optional[str] = None
+    client_slug: Optional[str] = None
+
+
+class GoogleRefreshRequest(BaseModel):
+    client_slug: str = Field(..., min_length=1)
+
+
+async def _refresh_google_token(refresh_token: str) -> Optional[str]:
+    """Exchange refresh_token for access_token."""
+    client_id = os.getenv("GOOGLE_CLIENT_ID")
+    client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
+    if not client_id or not client_secret:
+        return None
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            GOOGLE_TOKEN_URL,
+            data={
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token,
+                "client_id": client_id,
+                "client_secret": client_secret,
+            },
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+    if resp.status_code != 200:
+        logger.warning(f"Token refresh failed: {resp.status_code}")
+        return None
+    data = resp.json()
+    return data.get("access_token")
+
+
+@router.post("/google/refresh")
+async def google_refresh(
+    body: GoogleRefreshRequest,
+    current_user: TokenPayload = Depends(get_current_user),
+):
+    """Refresh Google OAuth tokens for a client. Returns ok if at least one token refreshed."""
+    pool = await get_db()
+
+    def get_refresh_token(row):
+        extra = row["extra_config"]
+        if isinstance(extra, str):
+            try:
+                extra = json.loads(extra)
+            except Exception:
+                extra = {}
+        refresh = (extra or {}).get("refresh_token")
+        if refresh:
+            return refresh
+        return row["api_key_encrypted"]
+
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT integration_type, api_key_encrypted, extra_config
+            FROM client_integrations
+            WHERE user_id = $1 AND client_slug = $2 AND integration_type IN ('ga4', 'google_ads', 'google_search_console')
+            """,
+            current_user.user_id,
+            body.client_slug,
+        )
+    if not rows:
+        raise HTTPException(status_code=404, detail="No Google integrations for this client")
+
+    refreshed = 0
+    for row in rows:
+        refresh = get_refresh_token(row)
+        if not refresh:
+            continue
+        access_token = await _refresh_google_token(refresh)
+        if access_token:
+            extra = row["extra_config"]
+            if isinstance(extra, str):
+                try:
+                    extra = json.loads(extra)
+                except Exception:
+                    extra = {}
+            extra = dict(extra or {})
+            extra["access_token"] = access_token
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    """
+                    UPDATE client_integrations
+                    SET extra_config = $4, updated_at = now()
+                    WHERE user_id = $1 AND client_slug = $2 AND integration_type = $3
+                    """,
+                    current_user.user_id,
+                    body.client_slug,
+                    row["integration_type"],
+                    json.dumps(extra),
+                )
+            refreshed += 1
+
+    if refreshed == 0:
+        raise HTTPException(status_code=400, detail="Token refresh failed for all integrations")
+    return {"ok": True, "refreshed": refreshed}
 
 
 @router.post("/google/auth-url")
@@ -98,7 +198,8 @@ async def google_auth_url(
         )
     secret = os.getenv("SUPABASE_JWT_SECRET", "fallback-secret-change-me")
     return_to = body.return_to if body and body.return_to else None
-    state = _create_oauth_state(current_user.user_id, secret, return_to)
+    client_slug = body.client_slug if body and body.client_slug else None
+    state = _create_oauth_state(current_user.user_id, secret, return_to, client_slug)
     scopes = " ".join(GOOGLE_OAUTH_SCOPES)
     params = {
         "client_id": client_id,
@@ -125,7 +226,7 @@ async def google_oauth_callback(code: Optional[str] = None, state: Optional[str]
         return RedirectResponse(url=f"{integrations_url}?error=missing_params", status_code=302)
 
     secret = os.getenv("SUPABASE_JWT_SECRET", "fallback-secret-change-me")
-    user_id, return_to = _verify_oauth_state(state, secret)
+    user_id, return_to, client_slug = _verify_oauth_state(state, secret)
     if not user_id:
         logger.warning("Google callback invalid state")
         return RedirectResponse(url=f"{integrations_url}?error=invalid_state", status_code=302)
@@ -170,23 +271,64 @@ async def google_oauth_callback(code: Optional[str] = None, state: Optional[str]
     pool = await get_db()
     async with pool.acquire() as conn:
         for integration_type in GOOGLE_INTEGRATION_TYPES:
-            integration_id = f"int:{user_id}:{integration_type}"
-            await conn.execute(
-                """
-                INSERT INTO client_integrations
-                    (integration_id, user_id, integration_type, api_key_encrypted, extra_config, updated_at)
-                VALUES ($1, $2, $3, $4, $5, now())
-                ON CONFLICT (user_id, integration_type) DO UPDATE SET
-                    api_key_encrypted = EXCLUDED.api_key_encrypted,
-                    extra_config = EXCLUDED.extra_config,
-                    updated_at = now()
-                """,
-                integration_id,
-                user_id,
-                integration_type,
-                token_to_store,
-                json.dumps(extra_config),
+            integration_id = (
+                f"int:{user_id}:{client_slug}:{integration_type}"
+                if client_slug
+                else f"int:{user_id}:{integration_type}"
             )
+            # For client_slug: use ON CONFLICT. For agency (client_slug=None): PostgreSQL treats NULLs as distinct in UNIQUE, so we upsert manually.
+            if client_slug:
+                await conn.execute(
+                    """
+                    INSERT INTO client_integrations
+                        (integration_id, user_id, client_slug, integration_type, api_key_encrypted, extra_config, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, now())
+                    ON CONFLICT (user_id, client_slug, integration_type) DO UPDATE SET
+                        api_key_encrypted = EXCLUDED.api_key_encrypted,
+                        extra_config = EXCLUDED.extra_config,
+                        updated_at = now()
+                    """,
+                    integration_id,
+                    user_id,
+                    client_slug,
+                    integration_type,
+                    token_to_store,
+                    json.dumps(extra_config),
+                )
+            else:
+                existing = await conn.fetchrow(
+                    """
+                    SELECT integration_id FROM client_integrations
+                    WHERE user_id = $1 AND client_slug IS NULL AND integration_type = $2
+                    """,
+                    user_id,
+                    integration_type,
+                )
+                if existing:
+                    await conn.execute(
+                        """
+                        UPDATE client_integrations
+                        SET api_key_encrypted = $3, extra_config = $4, updated_at = now()
+                        WHERE user_id = $1 AND client_slug IS NULL AND integration_type = $2
+                        """,
+                        user_id,
+                        integration_type,
+                        token_to_store,
+                        json.dumps(extra_config),
+                    )
+                else:
+                    await conn.execute(
+                        """
+                        INSERT INTO client_integrations
+                            (integration_id, user_id, client_slug, integration_type, api_key_encrypted, extra_config, updated_at)
+                        VALUES ($1, $2, NULL, $3, $4, $5, now())
+                        """,
+                        integration_id,
+                        user_id,
+                        integration_type,
+                        token_to_store,
+                        json.dumps(extra_config),
+                    )
 
     if return_to:
         redirect_url = f"{frontend_base.rstrip('/')}{return_to}?connected=google"
@@ -207,6 +349,12 @@ def _sanitize_extra_config(extra: Optional[dict], integration_type: str) -> dict
     """Remove sensitive tokens from extra_config before returning to client."""
     if not extra:
         return {}
+    import json as _json
+    if isinstance(extra, str):
+        try:
+            extra = _json.loads(extra)
+        except Exception:
+            extra = {}
     out = {k: v for k, v in (extra or {}).items() if k not in ("access_token", "refresh_token")}
     if integration_type in GOOGLE_INTEGRATION_TYPES and ("access_token" in extra or "refresh_token" in extra):
         out["oauth_connected"] = True
@@ -216,22 +364,38 @@ def _sanitize_extra_config(extra: Optional[dict], integration_type: str) -> dict
 class IntegrationUpdate(BaseModel):
     api_key: Optional[str] = Field(None, description="API key (stored as-is; encryption TODO)")
     extra_config: Optional[dict] = None
+    client_slug: Optional[str] = None
 
 
 @router.get("")
-async def list_integrations(current_user: TokenPayload = Depends(get_current_user)):
-    """List integrations for the current user."""
+async def list_integrations(
+    client_slug: Optional[str] = None,
+    current_user: TokenPayload = Depends(get_current_user),
+):
+    """List integrations for the current user. If client_slug given, filter to that client; else agency-level (client_slug IS NULL)."""
     pool = await get_db()
     async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            """
-            SELECT integration_id, user_id, integration_type, api_key_encrypted, extra_config, updated_at
-            FROM client_integrations
-            WHERE user_id = $1 AND integration_type IS NOT NULL
-            ORDER BY integration_type
-            """,
-            current_user.user_id,
-        )
+        if client_slug:
+            rows = await conn.fetch(
+                """
+                SELECT integration_id, user_id, client_slug, integration_type, api_key_encrypted, extra_config, updated_at
+                FROM client_integrations
+                WHERE user_id = $1 AND client_slug = $2 AND integration_type IS NOT NULL
+                ORDER BY integration_type
+                """,
+                current_user.user_id,
+                client_slug,
+            )
+        else:
+            rows = await conn.fetch(
+                """
+                SELECT integration_id, user_id, client_slug, integration_type, api_key_encrypted, extra_config, updated_at
+                FROM client_integrations
+                WHERE user_id = $1 AND client_slug IS NULL AND integration_type IS NOT NULL
+                ORDER BY integration_type
+                """,
+                current_user.user_id,
+            )
     return [
         {
             "id": str(r.get("integration_id") or r.get("id", "")),
@@ -280,41 +444,53 @@ async def upsert_integration(
     body: IntegrationUpdate,
     current_user: TokenPayload = Depends(get_current_user),
 ):
-    """Create or update integration for the current user."""
+    """Create or update integration for the current user. Optionally scoped to client_slug."""
+    client_slug = body.client_slug if body.client_slug else None
     pool = await get_db()
     async with pool.acquire() as conn:
         existing = await conn.fetchrow(
-            "SELECT api_key_encrypted, extra_config FROM client_integrations WHERE user_id = $1 AND integration_type = $2",
+            """
+            SELECT api_key_encrypted, extra_config FROM client_integrations
+            WHERE user_id = $1 AND (client_slug IS NOT DISTINCT FROM $2) AND integration_type = $3
+            """,
             current_user.user_id,
+            client_slug,
             integration_type,
         )
         api_key = body.api_key if body.api_key else (existing["api_key_encrypted"] if existing else None)
         extra_config = body.extra_config if body.extra_config is not None else ((existing["extra_config"] or {}) if existing else {})
+        extra_config_json = json.dumps(extra_config) if isinstance(extra_config, dict) else extra_config
         if existing:
             await conn.execute(
                 """
                 UPDATE client_integrations
-                SET api_key_encrypted = $3, extra_config = $4, updated_at = now()
-                WHERE user_id = $1 AND integration_type = $2
+                SET api_key_encrypted = $4, extra_config = $5, updated_at = now()
+                WHERE user_id = $1 AND (client_slug IS NOT DISTINCT FROM $2) AND integration_type = $3
                 """,
                 current_user.user_id,
+                client_slug,
                 integration_type,
                 api_key,
-                extra_config,
+                extra_config_json,
             )
         else:
-            integration_id = f"int:{current_user.user_id}:{integration_type}"
+            integration_id = (
+                f"int:{current_user.user_id}:{client_slug}:{integration_type}"
+                if client_slug
+                else f"int:{current_user.user_id}:{integration_type}"
+            )
             await conn.execute(
                 """
                 INSERT INTO client_integrations
-                    (integration_id, user_id, integration_type, api_key_encrypted, extra_config, updated_at)
-                VALUES ($1, $2, $3, $4, $5, now())
+                    (integration_id, user_id, client_slug, integration_type, api_key_encrypted, extra_config, updated_at)
+                VALUES ($1, $2, $3, $4, $5, $6, now())
                 """,
                 integration_id,
                 current_user.user_id,
+                client_slug,
                 integration_type,
                 api_key,
-                extra_config,
+                extra_config_json,
             )
     return {"status": "ok", "integration_type": integration_type}
 
@@ -322,14 +498,19 @@ async def upsert_integration(
 @router.delete("/{integration_type}")
 async def delete_integration(
     integration_type: str,
+    client_slug: Optional[str] = None,
     current_user: TokenPayload = Depends(get_current_user),
 ):
-    """Delete integration for the current user."""
+    """Delete integration for the current user. Optionally scoped to client_slug."""
     pool = await get_db()
     async with pool.acquire() as conn:
         result = await conn.execute(
-            "DELETE FROM client_integrations WHERE user_id = $1 AND integration_type = $2",
+            """
+            DELETE FROM client_integrations
+            WHERE user_id = $1 AND (client_slug IS NOT DISTINCT FROM $2) AND integration_type = $3
+            """,
             current_user.user_id,
+            client_slug,
             integration_type,
         )
     if result == "DELETE 0":

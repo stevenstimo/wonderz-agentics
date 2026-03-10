@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { apiUrl } from '../apiClient';
+import { apiUrl, apiFetch } from './apiClient';
 
 /**
  * IntakeChatView: Legacy/fallback form for intake Q&A (PATCH /answer).
@@ -24,7 +24,7 @@ export function IntakeChatView({ jobId, clarifications, onAnswersSubmitted }) {
     setError(null);
 
     try {
-      const response = await fetch(apiUrl(`/api/jobs/${jobId}/answer`), {
+      const response = await apiFetch(`/api/jobs/${jobId}/answer`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ answers })

@@ -57,6 +57,12 @@ class HRManager:
                 str(since_days), self.RETRY_THRESHOLD,
             )
             results = []
+            dp_cols = await conn.fetch(
+                "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='development_points'"
+            )
+            col_set = {r["column_name"] for r in dp_cols}
+            has_proposed_by = "proposed_by" in col_set
+            needs_agent_role = "agent_role" in col_set
             for row in retry_data:
                 existing = await conn.fetchrow(
                     """
@@ -76,17 +82,50 @@ class HRManager:
                                     "agent_id": row["agent_id"], "new_frequency": existing["frequency"] + row["freq"]})
                 else:
                     point_id = await generate_point_id(conn)
-                    impact = "high" if row["freq"] >= 10 else "medium" if row["freq"] >= 5 else "low"
-                    await conn.execute(
-                        """
-                        INSERT INTO development_points
-                            (point_id, agent_id, issue_description, evidence_example, frequency, impact, status, proposed_by)
-                        VALUES ($1, $2, $3, $4, $5, $6, 'OPEN', 'hr-manager')
-                        """,
-                        point_id, row["agent_id"], row["retry_reason"],
-                        f"Job {row['first_job']}, {row['freq']}x gezien in {since_days} dagen",
-                        row["freq"], impact,
-                    )
+                    impact = "HIGH" if row["freq"] >= 10 else "MEDIUM" if row["freq"] >= 5 else "LOW"
+                    agent_role_val = None
+                    if needs_agent_role:
+                        role_row = await conn.fetchrow(
+                            "SELECT role FROM hired_agents WHERE agent_id = $1", row["agent_id"]
+                        )
+                        agent_role_val = (role_row["role"] if role_row else "") or ""
+                    ev = f"Job {row['first_job']}, {row['freq']}x gezien in {since_days} dagen"
+                    if has_proposed_by and needs_agent_role:
+                        await conn.execute(
+                            """
+                            INSERT INTO development_points
+                                (point_id, agent_id, agent_role, issue_description, evidence_example, frequency, impact, status, proposed_by)
+                            VALUES ($1, $2, $3, $4, $5, $6, $7, 'OPEN', 'hr-manager')
+                            """,
+                            point_id, row["agent_id"], agent_role_val, row["retry_reason"], ev, row["freq"], impact,
+                        )
+                    elif has_proposed_by:
+                        await conn.execute(
+                            """
+                            INSERT INTO development_points
+                                (point_id, agent_id, issue_description, evidence_example, frequency, impact, status, proposed_by)
+                            VALUES ($1, $2, $3, $4, $5, $6, 'OPEN', 'hr-manager')
+                            """,
+                            point_id, row["agent_id"], row["retry_reason"], ev, row["freq"], impact,
+                        )
+                    elif needs_agent_role:
+                        await conn.execute(
+                            """
+                            INSERT INTO development_points
+                                (point_id, agent_id, agent_role, issue_description, evidence_example, frequency, impact, status)
+                            VALUES ($1, $2, $3, $4, $5, $6, $7, 'OPEN')
+                            """,
+                            point_id, row["agent_id"], agent_role_val, row["retry_reason"], ev, row["freq"], impact,
+                        )
+                    else:
+                        await conn.execute(
+                            """
+                            INSERT INTO development_points
+                                (point_id, agent_id, issue_description, evidence_example, frequency, impact, status)
+                            VALUES ($1, $2, $3, $4, $5, $6, 'OPEN')
+                            """,
+                            point_id, row["agent_id"], row["retry_reason"], ev, row["freq"], impact,
+                        )
                     results.append({"action": "created", "point_id": point_id,
                                     "agent_id": row["agent_id"], "issue": row["retry_reason"],
                                     "frequency": row["freq"], "impact": impact})
@@ -134,18 +173,42 @@ class HRManager:
                 )
                 if not existing:
                     point_id = await generate_point_id(conn)
-                    await conn.execute(
-                        """
-                        INSERT INTO development_points
-                            (point_id, agent_id, issue_description, evidence_example, frequency, impact, status, proposed_by)
-                        VALUES ($1, $2, $3, $4, $5, 'medium', 'OPEN', 'hr-manager')
-                        """,
-                        point_id,
-                        row["agent_id"],
-                        "Agent antwoordt herhaaldelijk met 'ik weet het niet' in Direct Chat",
-                        (row["sample"] or "")[:200],
-                        row["freq"],
+                    dp_cols_chat = await conn.fetch(
+                        "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='development_points'"
                     )
+                    col_set_chat = {r["column_name"] for r in dp_cols_chat}
+                    has_proposed_by_chat = "proposed_by" in col_set_chat
+                    needs_agent_role_chat = "agent_role" in col_set_chat
+                    agent_role_chat = ""
+                    if needs_agent_role_chat:
+                        rrow = await conn.fetchrow("SELECT role FROM hired_agents WHERE agent_id = $1", row["agent_id"])
+                        agent_role_chat = (rrow["role"] if rrow else "") or ""
+                    desc = "Agent antwoordt herhaaldelijk met 'ik weet het niet' in Direct Chat"
+                    sample = (row["sample"] or "")[:200]
+                    if has_proposed_by_chat and needs_agent_role_chat:
+                        await conn.execute(
+                            """INSERT INTO development_points (point_id, agent_id, agent_role, issue_description, evidence_example, frequency, impact, status, proposed_by)
+                            VALUES ($1, $2, $3, $4, $5, $6, 'MEDIUM', 'OPEN', 'hr-manager')""",
+                            point_id, row["agent_id"], agent_role_chat, desc, sample, row["freq"],
+                        )
+                    elif has_proposed_by_chat:
+                        await conn.execute(
+                            """INSERT INTO development_points (point_id, agent_id, issue_description, evidence_example, frequency, impact, status, proposed_by)
+                            VALUES ($1, $2, $3, $4, $5, 'MEDIUM', 'OPEN', 'hr-manager')""",
+                            point_id, row["agent_id"], desc, sample, row["freq"],
+                        )
+                    elif needs_agent_role_chat:
+                        await conn.execute(
+                            """INSERT INTO development_points (point_id, agent_id, agent_role, issue_description, evidence_example, frequency, impact, status)
+                            VALUES ($1, $2, $3, $4, $5, $6, 'MEDIUM', 'OPEN')""",
+                            point_id, row["agent_id"], agent_role_chat, desc, sample, row["freq"],
+                        )
+                    else:
+                        await conn.execute(
+                            """INSERT INTO development_points (point_id, agent_id, issue_description, evidence_example, frequency, impact, status)
+                            VALUES ($1, $2, $3, $4, $5, 'MEDIUM', 'OPEN')""",
+                            point_id, row["agent_id"], desc, sample, row["freq"],
+                        )
                     results.append({"action": "created", "point_id": point_id, "agent_id": row["agent_id"], "source": "direct_chat"})
         return results
 

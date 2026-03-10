@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
+import { apiFetch } from './apiClient'
 import PageLayout from './PageLayout'
 import { Save, Plus, Trash2, Eye, EyeOff, Key } from 'lucide-react'
-import { buildAuthHeaders } from './authz'
+
 
 const apiBase = (import.meta.env.VITE_API_URL || 'http://localhost:8090').replace(/\/$/, '')
 
@@ -23,9 +24,7 @@ export default function ApiKeys() {
     const fetchIntegrations = async () => {
       setLoading(true)
       try {
-        const res = await fetch(`${apiBase}/api/integrations`, {
-          headers: await buildAuthHeaders(),
-        })
+        const res = await apiFetch(`${apiBase}/api/integrations`, { })
         if (res.ok) {
           const data = await res.json()
           setIntegrations(data)
@@ -53,13 +52,10 @@ export default function ApiKeys() {
       if (formValues.api_key) body.api_key = formValues.api_key
       const res = await fetch(`${apiBase}/api/integrations/${editing}`, {
         method: 'PUT',
-        headers: await buildAuthHeaders(),
         body: JSON.stringify(body),
       })
       if (res.ok) {
-        const listRes = await fetch(`${apiBase}/api/integrations`, {
-          headers: await buildAuthHeaders(),
-        })
+        const listRes = await apiFetch(`${apiBase}/api/integrations`, { })
         if (listRes.ok) {
           setIntegrations(await listRes.json())
         }
@@ -77,7 +73,6 @@ export default function ApiKeys() {
     try {
       const res = await fetch(`${apiBase}/api/integrations/${type}`, {
         method: 'DELETE',
-        headers: await buildAuthHeaders(),
       })
       if (res.ok) {
         setIntegrations((prev) => prev.filter((i) => i.integration_type !== type))

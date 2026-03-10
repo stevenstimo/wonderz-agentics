@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import PageLayout from './PageLayout'
 import SherlockWidget from './SherlockWidget.jsx'
+import { useAuthReady } from './useAuthReady'
 import {
   Layers, ClipboardList, Users, Code, PlusCircle,
   Activity, Briefcase, ArrowRight, Zap, CheckCircle2,
@@ -84,6 +85,7 @@ function ServiceCard({ label, ok, detail, icon: Icon }) {
 }
 
 export default function Dashboard() {
+  const authReady = useAuthReady()
   const [recentJobs, setRecentJobs] = useState([])
   const [stats, setStats] = useState({ total: 0, running: 0, ready: 0 })
   const [services, setServices] = useState(null)
@@ -134,11 +136,12 @@ export default function Dashboard() {
   }
 
   useEffect(() => {
+    if (!authReady) return
     fetchJobs()
     fetchStatus()
     const timer = setInterval(fetchStatus, 30000)
     return () => clearInterval(timer)
-  }, [])
+  }, [authReady])
 
   const statusStyle = (status) => {
     const styles = {

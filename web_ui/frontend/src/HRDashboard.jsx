@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
+import { apiFetch } from './apiClient'
 import { Link } from 'react-router-dom'
 import PageLayout from './PageLayout'
 import { RefreshCw, MessageCircle } from 'lucide-react'
-import { buildAuthHeaders } from './authz'
+import { useAuthReady } from './useAuthReady'
+
 
 const IMPACT_STYLES = {
   high: { className: 'wz-badge', color: 'var(--color-status-error)' },
@@ -11,14 +13,16 @@ const IMPACT_STYLES = {
 }
 
 export default function HRDashboard() {
+  const authReady = useAuthReady()
   const [points, setPoints] = useState([])
   const [report, setReport] = useState([])
   const [loading, setLoading] = useState(true)
   const [scanning, setScanning] = useState(false)
 
   useEffect(() => {
+    if (!authReady) return
     loadAll()
-  }, [])
+  }, [authReady])
 
   async function loadAll() {
     setLoading(true)
@@ -38,7 +42,7 @@ export default function HRDashboard() {
 
   async function loadReport() {
     try {
-      const res = await fetch('/api/hr/report', { headers: await buildAuthHeaders() })
+      const res = await apiFetch('/api/hr/report')
       const data = await res.json()
       const agents = data.agents ?? {}
       setReport(Object.entries(agents).map(([agent_id, a]) => ({

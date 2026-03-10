@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { supabase } from '../supabase';
+import { supabase } from '../supabase'
 import IntakeChatView from './IntakeChatView';
 import PlanProposalView from './PlanProposalView';
 import ReviewView from './ReviewView';

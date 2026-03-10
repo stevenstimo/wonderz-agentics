@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import PageLayout from './PageLayout'
-import { apiUrl } from './apiClient'
+import { apiUrl, apiFetch } from './apiClient'
 import { Inbox, Check, X, Trash2 } from 'lucide-react'
 
 const URGENCY_COLORS = {
@@ -39,7 +39,7 @@ export default function AgentInbox() {
 
   const fetchMessages = useCallback(async () => {
     try {
-      const res = await fetch(apiUrl('/api/inbox'))
+      const res = await apiFetch('/api/inbox')
       if (!res.ok) throw new Error('Failed to load inbox')
       const data = await res.json()
       setMessages(Array.isArray(data) ? data : [])
@@ -59,7 +59,7 @@ export default function AgentInbox() {
     if (msg.status === 'unread') {
       setUpdating(true)
       try {
-        const res = await fetch(apiUrl(`/api/inbox/${msg.id}`), {
+        const res = await apiFetch(`/api/inbox/${msg.id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ status: 'read' }),
@@ -79,7 +79,7 @@ export default function AgentInbox() {
   const markActioned = async (msg) => {
     setUpdating(true)
     try {
-      const res = await fetch(apiUrl(`/api/inbox/${msg.id}`), {
+      const res = await apiFetch(`/api/inbox/${msg.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'actioned' }),
@@ -98,7 +98,7 @@ export default function AgentInbox() {
   const markDismissed = async (msg) => {
     setUpdating(true)
     try {
-      const res = await fetch(apiUrl(`/api/inbox/${msg.id}`), {
+      const res = await apiFetch(`/api/inbox/${msg.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'dismissed' }),
@@ -117,7 +117,7 @@ export default function AgentInbox() {
   const deleteMessage = async (msg) => {
     setUpdating(true)
     try {
-      const res = await fetch(apiUrl(`/api/inbox/${msg.id}`), { method: 'DELETE' })
+      const res = await apiFetch(`/api/inbox/${msg.id}`, { method: 'DELETE' })
       if (res.ok) {
         setMessages((prev) => prev.filter((m) => m.id !== msg.id))
         if (selected?.id === msg.id) setSelected(null)

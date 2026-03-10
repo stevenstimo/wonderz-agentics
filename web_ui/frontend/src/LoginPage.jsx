@@ -7,7 +7,7 @@ import { Mail, Lock, Eye, EyeOff, Loader } from 'lucide-react'
 export default function LoginPage() {
   const navigate = useNavigate()
   const location = useLocation()
-  const from = location.state?.from?.pathname ?? '/dashboard'
+  const from = location.state?.from?.pathname ?? location.state?.from ?? '/'
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -18,9 +18,11 @@ export default function LoginPage() {
 
   // If already logged in, redirect to returnTo or account
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      if (data?.session?.user) navigate(from, { replace: true })
-    })
+    supabase.auth.getSession()
+      .then(({ data }) => {
+        if (data?.session?.user) navigate(from, { replace: true })
+      })
+      .catch(() => {})
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) navigate(from, { replace: true })
     })
@@ -37,8 +39,10 @@ export default function LoginPage() {
     if (authError) {
       setError(authError.message)
       setBusy(false)
+    } else {
+      // SPA-navigatie (geen reload): sessie staat al in Supabase-client, RequireAuth vindt die via getSession/onAuthStateChange
+      navigate(from || '/', { replace: true })
     }
-    // onAuthStateChange will redirect on success
   }
 
   const handleRegister = async (e) => {
@@ -56,16 +60,14 @@ export default function LoginPage() {
     setBusy(false)
   }
 
+  // Magic link: not yet supported — /auth/callback route missing
   const handleMagicLink = async (e) => {
     e.preventDefault()
     setBusy(true)
     setError('')
     setMessage('')
 
-    const { error: authError } = await supabase.auth.signInWithOtp({
-      email,
-      options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
-    })
+    const { error: authError } = await supabase.auth.signInWithOtp({ email })
     if (authError) {
       setError(authError.message)
     } else {

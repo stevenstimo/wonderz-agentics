@@ -21,23 +21,49 @@ def _normalized_database_url(url: Optional[str]) -> Optional[str]:
 
 
 async def run_migrations():
-    """Run pending database migrations."""
+    """Run pending database migrations. Uses alembic when app.migrations.runner is absent."""
+    env = {**os.environ, "DATABASE_URL": DATABASE_URL or ""}
+    # Try app.migrations.runner first; fallback to alembic
     try:
         result = subprocess.run(
             [sys.executable, "-m", "app.migrations.runner"],
             capture_output=True,
             text=True,
             timeout=30,
-            env={**os.environ, "DATABASE_URL": DATABASE_URL}
+            env=env,
         )
         if result.returncode == 0:
             logger.info("✓ Database migrations completed")
+            return
+        if "No module named" in (result.stderr or ""):
+            logger.info("app.migrations.runner not found, trying alembic")
         else:
             logger.error(f"Migration failed: {result.stderr}")
             raise RuntimeError("Database migrations failed")
     except Exception as e:
-        logger.warning(f"Could not run migrations: {e}")
-        # Non-fatal - proceed without migrations
+        if "No module named" in str(e):
+            logger.info("app.migrations.runner not found, trying alembic")
+        else:
+            logger.warning(f"Could not run migrations: {e}")
+            raise
+
+    # Fallback: alembic upgrade head
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "alembic", "upgrade", "head"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            env=env,
+            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        )
+        if result.returncode == 0:
+            logger.info("✓ Alembic migrations completed")
+        else:
+            logger.warning(f"Alembic migration warning: {result.stderr or result.stdout}")
+            # Non-fatal - schema may already be up to date
+    except Exception as e:
+        logger.warning(f"Alembic migration skipped: {e}")
 
 
 async def _init_connection_codecs(conn: asyncpg.Connection) -> None:

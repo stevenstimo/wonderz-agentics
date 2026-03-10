@@ -2,10 +2,12 @@ import { useState, useEffect } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import PageLayout from './PageLayout'
 import { Building, Plus, Zap } from 'lucide-react'
-import { buildAuthHeaders } from './authz'
-import { apiUrl } from './apiClient'
+
+import { apiUrl, apiFetch } from './apiClient'
+import { useAuthReady } from './useAuthReady'
 
 export default function ClientsOverview() {
+  const authReady = useAuthReady()
   const navigate = useNavigate()
   const location = useLocation()
   const [clients, setClients] = useState([])
@@ -17,8 +19,7 @@ export default function ClientsOverview() {
     setLoading(true)
     setError('')
     try {
-      const res = await fetch(apiUrl('/api/clients'), {
-        headers: await buildAuthHeaders(),
+      const res = await apiFetch('/api/clients', {
       })
       if (res.status === 401) {
         navigate('/login', { state: { from: location } })
@@ -40,16 +41,16 @@ export default function ClientsOverview() {
   }
 
   useEffect(() => {
+    if (!authReady) return
     fetchClients()
-  }, [navigate, location])
+  }, [authReady, navigate, location])
 
   const handleCreateVitbliss = async () => {
     setCreatingVitbliss(true)
     setError('')
     try {
-      const res = await fetch(apiUrl('/api/clients'), {
+      const res = await apiFetch('/api/clients', {
         method: 'POST',
-        headers: await buildAuthHeaders(),
         body: JSON.stringify({ client_name: 'Vitbliss' }),
       })
       if (res.status === 401) {
