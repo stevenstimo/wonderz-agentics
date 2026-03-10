@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useParams, Link, useNavigate, useLocation, useSearchParams } from 'react-router-dom'
-import { Save, CheckCircle, XCircle, Link2, Plug } from 'lucide-react'
+import { Save, CheckCircle, XCircle, Link2, Plug, RefreshCw } from 'lucide-react'
 import { apiFetch } from './apiClient'
 
 const INTEGRATION_TO_PLATFORM = {
@@ -19,10 +19,16 @@ const PLATFORM_LABELS = {
   klaviyo: 'Klaviyo',
 }
 
+const GOOGLE_DROPDOWN_CONFIG = {
+  ga4: { endpoint: 'ga4-properties', valueKey: 'property_id', labelKey: 'display_name', configKey: 'property_id' },
+  google_ads: { endpoint: 'ads-accounts', valueKey: 'customer_id', labelKey: 'descriptive_name', configKey: 'customer_id' },
+  gsc: { endpoint: 'gsc-sites', valueKey: 'site_url', labelKey: 'site_url', configKey: 'site_url' },
+}
+
 const PLATFORM_FIELDS = {
-  ga4: [{ key: 'property_id', label: 'GA4 Property ID', placeholder: '123456789 (optioneel, anders eerste property)' }],
-  gsc: [{ key: 'site_url', label: 'Site URL', placeholder: 'https://example.com/' }],
-  google_ads: [{ key: 'customer_id', label: 'Customer ID', placeholder: '123-456-7890' }],
+  ga4: [],
+  gsc: [],
+  google_ads: [],
   shopify: [{ key: 'shop_domain', label: 'Shop domain', placeholder: 'vitbliss.myshopify.com' }],
   klaviyo: [
     { key: 'account_id', label: 'Account ID', placeholder: 'AbCdEf' },
@@ -43,6 +49,9 @@ export default function ClientIntegrations() {
   const [saving, setSaving] = useState(null)
   const [error, setError] = useState('')
   const [platformForms, setPlatformForms] = useState({})
+  const [googleOptions, setGoogleOptions] = useState({ ga4: [], google_ads: [], gsc: [] })
+  const [googleLoading, setGoogleLoading] = useState({ ga4: false, google_ads: false, gsc: false })
+  const [googleError, setGoogleError] = useState({ ga4: null, google_ads: null, gsc: null })
 
   const isIntegrationConnected = (integrationType) => {
     const found = integrations.find((i) => i.integration_type === integrationType)
@@ -228,6 +237,72 @@ export default function ClientIntegrations() {
     }
   }
 
+  const fetchGoogleOptions = useCallback(async (platform) => {
+    const cfg = GOOGLE_DROPDOWN_CONFIG[platform]
+    if (!cfg) return
+    setGoogleLoading((prev) => ({ ...prev, [platform]: true }))
+    setGoogleError((prev) => ({ ...prev, [platform]: null }))
+    try {
+      const res = await apiFetch(`/api/clients/${slug}/google/${cfg.endpoint}`)
+      if (res.status === 401) {
+        setGoogleError((prev) => ({ ...prev, [platform]: 'token_expired' }))
+        return
+      }
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}))
+        setGoogleError((prev) => ({ ...prev, [platform]: j.detail || 'Laden mislukt' }))
+        return
+      }
+      const data = await res.json()
+      setGoogleOptions((prev) => ({ ...prev, [platform]: Array.isArray(data) ? data : [] }))
+    } catch (err) {
+      setGoogleError((prev) => ({ ...prev, [platform]: err.message || 'Laden mislukt' }))
+    } finally {
+      setGoogleLoading((prev) => ({ ...prev, [platform]: false }))
+    }
+  }, [slug])
+
+  useEffect(() => {
+    if (!client || !integrations.length) return
+    if (isIntegrationConnected('ga4')) fetchGoogleOptions('ga4')
+    if (isIntegrationConnected('google_ads')) fetchGoogleOptions('google_ads')
+    if (isIntegrationConnected('google_search_console')) fetchGoogleOptions('gsc')
+  }, [client, integrations, fetchGoogleOptions])
+
+  const handleGoogleSelect = async (platform, value) => {
+    const cfg = GOOGLE_DROPDOWN_CONFIG[platform]
+    if (!cfg) return
+    const config = { ...(platformForms[platform] || {}), [cfg.configKey]: value }
+    setPlatformForms((prev) => ({ ...prev, [platform]: config }))
+    setSaving(platform)
+    setError('')
+    try {
+      const res = await apiFetch(`/api/clients/${slug}/platforms`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ platform, config }),
+      })
+      if (res.status === 401) {
+        navigate('/login', { state: { from: location } })
+        return
+      }
+      if (res.ok) {
+        const clientRes = await apiFetch(`/api/clients/${slug}`)
+        if (clientRes.ok) {
+          const clientData = await clientRes.json()
+          setClient(clientData)
+        }
+      } else {
+        const j = await res.json().catch(() => ({}))
+        setError(j.detail || 'Opslaan mislukt')
+      }
+    } catch (err) {
+      setError(err.message || 'Opslaan mislukt')
+    } finally {
+      setSaving(null)
+    }
+  }
+
   const handleDeletePlatform = async (platform) => {
     if (!confirm(`Platform ${PLATFORM_LABELS[platform]} ontkoppelen?`)) return
     setSaving(platform)
@@ -337,19 +412,91 @@ export default function ClientIntegrations() {
               {isGoogle && (
                 <div className="mt-2">
                   {isGoogleConnected ? (
-                    <div className="flex items-center gap-3">
-                      <span className="inline-flex items-center gap-1.5 text-emerald-700 font-medium">
-                        <CheckCircle className="w-5 h-5" />
-                        Verbonden
-                      </span>
-                      <button
-                        type="button"
-                        onClick={handleGoogleDisconnect}
-                        disabled={saving === 'google'}
-                        className="px-4 py-2 rounded-lg border border-red-300 text-red-700 hover:bg-red-50 disabled:opacity-50"
-                      >
-                        {saving === 'google' ? 'Bezig...' : 'Ontkoppelen'}
-                      </button>
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-3">
+                        <span className="inline-flex items-center gap-1.5 text-emerald-700 font-medium">
+                          <CheckCircle className="w-5 h-5" />
+                          Verbonden
+                        </span>
+                        <button
+                          type="button"
+                          onClick={handleGoogleDisconnect}
+                          disabled={saving === 'google'}
+                          className="px-4 py-2 rounded-lg border border-red-300 text-red-700 hover:bg-red-50 disabled:opacity-50"
+                        >
+                          {saving === 'google' ? 'Bezig...' : 'Ontkoppelen'}
+                        </button>
+                      </div>
+                      {canConfigure && GOOGLE_DROPDOWN_CONFIG[platform] && (
+                        <div className="pt-2 border-t border-slate-100">
+                          {(() => {
+                            const cfg = GOOGLE_DROPDOWN_CONFIG[platform]
+                            const opts = googleOptions[platform] || []
+                            const loadErr = googleError[platform]
+                            const load = googleLoading[platform]
+                            const config = getConfigForPlatform(platform)
+                            const currentVal = config[cfg.configKey] || ''
+                            const labels = {
+                              ga4: 'Selecteer GA4 property',
+                              google_ads: 'Selecteer Google Ads account',
+                              gsc: 'Selecteer Search Console site',
+                            }
+                            if (loadErr === 'token_expired') {
+                              return (
+                                <div className="flex items-center gap-2 text-amber-700">
+                                  <span className="text-sm">Token verlopen.</span>
+                                  <button
+                                    type="button"
+                                    onClick={handleGoogleConnect}
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 text-white text-sm font-medium hover:bg-amber-700"
+                                  >
+                                    <RefreshCw className="w-4 h-4" />
+                                    Herverbind Google
+                                  </button>
+                                </div>
+                              )
+                            }
+                            if (loadErr) {
+                              return (
+                                <p className="text-sm text-red-600">{loadErr}</p>
+                              )
+                            }
+                            if (load) {
+                              const loadLabels = {
+                                ga4: 'Properties laden...',
+                                google_ads: 'Accounts laden...',
+                                gsc: 'Sites laden...',
+                              }
+                              return (
+                                <p className="text-sm text-slate-500">{loadLabels[platform] || 'Laden...'}</p>
+                              )
+                            }
+                            return (
+                              <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">
+                                  {labels[platform]}
+                                </label>
+                                <select
+                                  value={currentVal}
+                                  onChange={(e) => handleGoogleSelect(platform, e.target.value)}
+                                  disabled={saving === platform}
+                                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                >
+                                  <option value="">— Kies —</option>
+                                  {opts.map((opt) => (
+                                    <option key={opt[cfg.valueKey]} value={opt[cfg.valueKey]}>
+                                      {opt[cfg.labelKey] || opt[cfg.valueKey]}
+                                    </option>
+                                  ))}
+                                </select>
+                                {saving === platform && (
+                                  <p className="text-xs text-slate-500 mt-1">Opslaan...</p>
+                                )}
+                              </div>
+                            )
+                          })()}
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <button

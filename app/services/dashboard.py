@@ -41,6 +41,92 @@ async def _refresh_access_token(refresh_token: str) -> Optional[str]:
     return data.get("access_token")
 
 
+async def list_ga4_properties(access_token: str) -> list[dict[str, str]]:
+    """List all GA4 properties accessible via the token. Returns [{ property_id, display_name }]."""
+    url = f"{GA4_ADMIN_URL}/accountSummaries"
+    headers = {"Authorization": f"Bearer {access_token}"}
+    result: list[dict[str, str]] = []
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        r = await client.get(url, headers=headers)
+    if r.status_code != 200:
+        raise PermissionError(f"GA4 API error: {r.status_code}")
+    data = r.json()
+    for acc in data.get("accountSummaries", []):
+        for prop in acc.get("propertySummaries", []):
+            name = prop.get("property", "")
+            if name.startswith("properties/"):
+                pid = name.replace("properties/", "")
+                display = prop.get("displayName", pid)
+                result.append({"property_id": pid, "display_name": display})
+    return result
+
+
+async def list_gsc_sites(access_token: str) -> list[dict[str, str]]:
+    """List all GSC sites accessible via the token. Returns [{ site_url, permission_level }]."""
+    url = f"{GSC_BASE_URL}/sites"
+    headers = {"Authorization": f"Bearer {access_token}"}
+    result: list[dict[str, str]] = []
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        r = await client.get(url, headers=headers)
+    if r.status_code != 200:
+        raise PermissionError(f"GSC API error: {r.status_code}")
+    data = r.json()
+    for entry in data.get("siteEntry", []):
+        site_url = entry.get("siteUrl")
+        perm = entry.get("permissionLevel", "")
+        if site_url:
+            result.append({"site_url": site_url, "permission_level": perm})
+    return result
+
+
+def _format_customer_id(cid: str) -> str:
+    """Format 1234567890 as 123-456-7890."""
+    cid = cid.replace("-", "")
+    if len(cid) >= 10:
+        return f"{cid[:3]}-{cid[3:6]}-{cid[6:]}"
+    return cid
+
+
+async def list_google_ads_accounts(refresh_token: str) -> list[dict[str, str]]:
+    """List all Google Ads accounts accessible via the token. Returns [{ customer_id, descriptive_name }]."""
+    try:
+        from google.ads.googleads.client import GoogleAdsClient
+        from google.ads.googleads.errors import GoogleAdsException
+    except ImportError:
+        raise RuntimeError("google-ads package not installed")
+    client_id = os.getenv("GOOGLE_CLIENT_ID")
+    client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
+    developer_token = os.getenv("GOOGLE_ADS_DEVELOPER_TOKEN")
+    if not all([client_id, client_secret, developer_token]):
+        raise RuntimeError("GOOGLE_ADS_DEVELOPER_TOKEN not configured")
+    config = {
+        "developer_token": developer_token,
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "refresh_token": refresh_token,
+    }
+    try:
+        client = GoogleAdsClient.load_from_dict(config)
+        customer_service = client.get_service("CustomerService")
+        response = customer_service.list_accessible_customers()
+        result: list[dict[str, str]] = []
+        for resource_name in response.resource_names:
+            if not resource_name.startswith("customers/"):
+                continue
+            cid = resource_name.replace("customers/", "")
+            desc = _format_customer_id(cid)
+            try:
+                customer = customer_service.get_customer(resource_name=resource_name)
+                desc = getattr(customer, "descriptive_name", None) or desc
+            except (GoogleAdsException, Exception):
+                pass
+            result.append({"customer_id": cid, "descriptive_name": desc})
+        return result
+    except Exception as e:
+        logger.warning(f"List Google Ads accounts failed: {e}")
+        raise PermissionError(str(e)) from e
+
+
 async def _get_first_gsc_site(access_token: str) -> Optional[str]:
     """List GSC sites and return the first site URL."""
     url = f"{GSC_BASE_URL}/sites"

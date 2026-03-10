@@ -3,8 +3,8 @@ app/services/training_workflow.py
 Training Workflow — Crew Intelligent
 Spec: Product Spec v1.1, Sectie 5
 
-Stack: asyncpg, httpx (follow_redirects), BeautifulSoup, OpenAI embeddings
-Embeddings: text-embedding-3-small (1536 dimensies)
+Stack: asyncpg, httpx (follow_redirects), BeautifulSoup, BGE-M3 (local)
+Embeddings: BAAI/bge-m3 (1024 dimensies), lazy-loaded
 Kolom: knowledge_base_sources (niet knowledge_sources)
 """
 

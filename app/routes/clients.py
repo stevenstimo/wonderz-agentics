@@ -23,6 +23,9 @@ from app.services.dashboard import (
     fetch_ga4,
     fetch_gsc,
     fetch_google_ads_via_gaql,
+    list_ga4_properties,
+    list_google_ads_accounts,
+    list_gsc_sites,
 )
 
 logger = logging.getLogger(__name__)
@@ -104,6 +107,122 @@ async def create_client(
                 raise HTTPException(status_code=409, detail="Client with this slug already exists")
             raise
     return {"status": "ok", "slug": slug, "client_id": client_id}
+
+
+@router.get("/{slug}/google/ga4-properties")
+async def get_ga4_properties(
+    slug: str,
+    current_user: TokenPayload = Depends(get_current_user),
+):
+    """List GA4 properties accessible via the client's OAuth tokens."""
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        client = await conn.fetchrow(
+            "SELECT slug FROM clients WHERE user_id = $1 AND slug = $2",
+            current_user.user_id,
+            slug,
+        )
+        if not client:
+            raise HTTPException(status_code=404, detail="Client not found")
+        row = await conn.fetchrow(
+            """
+            SELECT api_key_encrypted, extra_config
+            FROM client_integrations
+            WHERE user_id = $1 AND client_slug = $2 AND integration_type = 'ga4'
+            """,
+            current_user.user_id,
+            slug,
+        )
+    if not row:
+        raise HTTPException(status_code=404, detail="GA4 not connected for this client")
+    refresh = _get_refresh_token(row["api_key_encrypted"], row["extra_config"])
+    if not refresh:
+        raise HTTPException(status_code=400, detail="No refresh token")
+    access_token = await _refresh_access_token(refresh)
+    if not access_token:
+        raise HTTPException(status_code=401, detail="Token refresh failed")
+    try:
+        props = await list_ga4_properties(access_token)
+    except PermissionError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+    return props
+
+
+@router.get("/{slug}/google/ads-accounts")
+async def get_ads_accounts(
+    slug: str,
+    current_user: TokenPayload = Depends(get_current_user),
+):
+    """List Google Ads accounts accessible via the client's OAuth tokens."""
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        client = await conn.fetchrow(
+            "SELECT slug FROM clients WHERE user_id = $1 AND slug = $2",
+            current_user.user_id,
+            slug,
+        )
+        if not client:
+            raise HTTPException(status_code=404, detail="Client not found")
+        row = await conn.fetchrow(
+            """
+            SELECT api_key_encrypted, extra_config
+            FROM client_integrations
+            WHERE user_id = $1 AND client_slug = $2 AND integration_type = 'google_ads'
+            """,
+            current_user.user_id,
+            slug,
+        )
+    if not row:
+        raise HTTPException(status_code=404, detail="Google Ads not connected for this client")
+    refresh = _get_refresh_token(row["api_key_encrypted"], row["extra_config"])
+    if not refresh:
+        raise HTTPException(status_code=400, detail="No refresh token")
+    try:
+        accounts = await list_google_ads_accounts(refresh)
+    except PermissionError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    return accounts
+
+
+@router.get("/{slug}/google/gsc-sites")
+async def get_gsc_sites(
+    slug: str,
+    current_user: TokenPayload = Depends(get_current_user),
+):
+    """List GSC sites accessible via the client's OAuth tokens."""
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        client = await conn.fetchrow(
+            "SELECT slug FROM clients WHERE user_id = $1 AND slug = $2",
+            current_user.user_id,
+            slug,
+        )
+        if not client:
+            raise HTTPException(status_code=404, detail="Client not found")
+        row = await conn.fetchrow(
+            """
+            SELECT api_key_encrypted, extra_config
+            FROM client_integrations
+            WHERE user_id = $1 AND client_slug = $2 AND integration_type = 'google_search_console'
+            """,
+            current_user.user_id,
+            slug,
+        )
+    if not row:
+        raise HTTPException(status_code=404, detail="Search Console not connected for this client")
+    refresh = _get_refresh_token(row["api_key_encrypted"], row["extra_config"])
+    if not refresh:
+        raise HTTPException(status_code=400, detail="No refresh token")
+    access_token = await _refresh_access_token(refresh)
+    if not access_token:
+        raise HTTPException(status_code=401, detail="Token refresh failed")
+    try:
+        sites = await list_gsc_sites(access_token)
+    except PermissionError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+    return sites
 
 
 @router.get("/{slug}/dashboard")

@@ -8,15 +8,14 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 from datetime import datetime, timezone
 from typing import List, Tuple, Dict, Any, Optional
 from urllib.parse import urlparse
 
+import asyncio
 import httpx
 from bs4 import BeautifulSoup
-import openai
 
 logger = logging.getLogger(__name__)
 
@@ -25,14 +24,22 @@ class TrainingError(Exception):
     """Raised when training fails due to validation or processing errors."""
 
 
-_OPENAI_CLIENT: Optional[openai.AsyncOpenAI] = None
+_embedding_model = None
 
 
-def _get_openai_client() -> openai.AsyncOpenAI:
-    global _OPENAI_CLIENT
-    if _OPENAI_CLIENT is None:
-        _OPENAI_CLIENT = openai.AsyncOpenAI()
-    return _OPENAI_CLIENT
+def _get_embedding_model():
+    """Lazy-load BGE-M3 to avoid 30s cold start on every backend restart."""
+    global _embedding_model
+    if _embedding_model is None:
+        from sentence_transformers import SentenceTransformer
+        _embedding_model = SentenceTransformer("BAAI/bge-m3")
+    return _embedding_model
+
+
+def _embed_sync(text: str) -> List[float]:
+    """Sync embedding via BGE-M3. Returns 1024-dim vector."""
+    model = _get_embedding_model()
+    return model.encode(text, normalize_embeddings=True).tolist()
 
 
 async def _get_table_columns(conn, table_name: str) -> set[str]:
@@ -122,56 +129,18 @@ def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> List[Tupl
     return chunks
 
 
-EMBEDDING_DIM = 1536  # agent_knowledge.embedding vector size (OpenAI text-embedding-3-small)
+EMBEDDING_DIM = 1024  # agent_knowledge.embedding vector size (BGE-M3)
 
 
 async def generate_embedding(text: str) -> List[float]:
-    """Generate an embedding for a given text. Tries OpenAI, then Voyage AI fallback."""
+    """Generate embedding via local BGE-M3. No API keys required."""
     if not text:
         raise TrainingError("Cannot embed empty text")
-
-    # 1. Try OpenAI
-    openai_key = os.getenv("OPENAI_API_KEY", "").strip()
-    if openai_key:
-        try:
-            client = _get_openai_client()
-            response = await client.embeddings.create(
-                model="text-embedding-3-small",
-                input=text,
-            )
-            return response.data[0].embedding
-        except Exception as exc:
-            if "quota" in str(exc).lower() or "429" in str(exc):
-                logger.info("OpenAI quota exceeded, trying Voyage fallback")
-            else:
-                raise TrainingError(f"Embedding generation failed: {exc}") from exc
-
-    # 2. Fallback: Voyage AI (output_dim 2048, truncate to 1536 for schema compat)
-    voyage_key = os.getenv("VOYAGE_API_KEY", "").strip()
-    if voyage_key:
-        try:
-            import httpx
-            async with httpx.AsyncClient(timeout=30) as client:
-                resp = await client.post(
-                    "https://api.voyageai.com/v1/embeddings",
-                    headers={"Authorization": f"Bearer {voyage_key}"},
-                    json={
-                        "input": text,
-                        "model": "voyage-3-5",
-                        "output_dimension": 2048,
-                    },
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                emb = data["data"][0]["embedding"]
-                # Truncate to 1536 for agent_knowledge.embedding VECTOR(1536)
-                return emb[:EMBEDDING_DIM] if len(emb) > EMBEDDING_DIM else emb + [0.0] * (EMBEDDING_DIM - len(emb))
-        except Exception as exc:
-            raise TrainingError(f"Voyage embedding failed: {exc}") from exc
-
-    raise TrainingError(
-        "No embedding provider configured. Set OPENAI_API_KEY or VOYAGE_API_KEY in .env.vm"
-    )
+    loop = asyncio.get_event_loop()
+    try:
+        return await loop.run_in_executor(None, _embed_sync, text)
+    except Exception as exc:
+        raise TrainingError(f"Embedding generation failed: {exc}") from exc
 
 
 async def _insert_chunks(

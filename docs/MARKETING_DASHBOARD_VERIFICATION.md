@@ -1,6 +1,35 @@
 # Marketing Dashboard — Verificatie & Deploy
 
-## Stap 1 — JWT ophalen en endpoint handmatig testen
+## Stap 0 — Property/Account/Site endpoints testen (na OAuth)
+
+Na Google OAuth worden properties/accounts/sites automatisch opgehaald via dropdowns. Handmatig testen:
+
+1. JWT ophalen (zie Stap 1 hieronder)
+2. Voer uit (vervang `<token>` en `asured` met client slug):
+```bash
+# GA4 properties
+curl -s -H "Authorization: Bearer <token>" \
+  "http://localhost:8090/api/clients/asured/google/ga4-properties"
+
+# Google Ads accounts
+curl -s -H "Authorization: Bearer <token>" \
+  "http://localhost:8090/api/clients/asured/google/ads-accounts"
+
+# GSC sites
+curl -s -H "Authorization: Bearer <token>" \
+  "http://localhost:8090/api/clients/asured/google/gsc-sites"
+```
+
+**Verwachte response formaten:**
+- `ga4-properties`: `[{ "property_id": "123456789", "display_name": "My GA4 Property" }]`
+- `ads-accounts`: `[{ "customer_id": "1234567890", "descriptive_name": "Account Name" }]`
+- `gsc-sites`: `[{ "site_url": "https://example.com/", "permission_level": "siteOwner" }]`
+
+Bij 404: integratie niet verbonden. Bij 401: token verlopen → "Herverbind Google" in de UI.
+
+---
+
+## Stap 1 — JWT ophalen en dashboard endpoint testen
 
 1. Open de browser op de ingelogde app (bijv. http://localhost:3001 of https://wonderz-agentic.exe.xyz)
 2. Open DevTools (F12) → Console
@@ -13,7 +42,7 @@ console.log(data?.session?.access_token);
 5. Voer uit in de terminal:
 ```bash
 curl -H "Authorization: Bearer <token>" \
-  "http://localhost:8090/api/clients/vitbliss/dashboard?start=2026-02-01&end=2026-03-11"
+  "http://localhost:8090/api/clients/asured/dashboard?start=2026-02-01&end=2026-03-11"
 ```
 6. Plak de volledige JSON response. Controleer:
    - `overview`: users, sessions, conversions, total_cost, cpa
@@ -36,20 +65,33 @@ Als `ga4` echte data bevat:
 
 ---
 
-## Stap 3 — Vier handmatige checks in de browser
+## Stap 3 — Integrations dropdowns (Asured)
 
 | # | Check | Verwacht |
 |---|-------|----------|
-| 1 | Ga naar `/clients/vitbliss/dashboard` | Pagina laadt zonder console errors |
+| 1 | Ga naar `/clients/asured/integrations` | Pagina laadt, Google verbonden |
+| 2 | GA4 dropdown | Laadt properties via API, toont "Properties laden..." tijdens fetch |
+| 3 | Google Ads dropdown | Laadt accounts via API (vereist GOOGLE_ADS_DEVELOPER_TOKEN) |
+| 4 | GSC dropdown | Laadt sites via API |
+| 5 | Selecteer property/account/site | Opslaan via POST /platforms, daarna dashboard toont data |
+| 6 | Bij 401 (token verlopen) | "Herverbind Google" knop zichtbaar |
+
+---
+
+## Stap 4 — Vier handmatige checks in de browser
+
+| # | Check | Verwacht |
+|---|-------|----------|
+| 1 | Ga naar `/clients/asured/dashboard` | Pagina laadt zonder console errors |
 | 2 | Verander de datumrange (start/end) | Loading skeleton, daarna nieuwe data |
 | 3 | Welke blokken tonen lege states? | Alleen blokken met `not_connected` |
-| 4 | Klik "Verbind GA4/Ads/GSC" in een lege state | Navigeert naar `/clients/vitbliss/integrations` |
+| 4 | Klik "Verbind GA4/Ads/GSC" in een lege state | Navigeert naar `/clients/asured/integrations` |
 
 Fix wat niet werkt vóór deploy.
 
 ---
 
-## Stap 4 — Deploy naar productie
+## Stap 5 — Deploy naar productie
 
 ```bash
 cd /home/exedev/wonderz-agentics
@@ -59,13 +101,15 @@ sudo fuser -k 8090/tcp && sudo systemctl restart wonderz-backend
 ```
 
 - Vercel deployt automatisch op push naar main
-- Test daarna op: https://wonderz-agentic.exe.xyz/clients/vitbliss/dashboard
+- Test daarna op: https://wonderz-agentic.exe.xyz/clients/asured/dashboard
 
 ---
 
-## Stap 5 — Google Ads & GSC configureren (als not_connected)
+## Stap 6 — Google property/account/site selectie (dropdowns)
 
-### GOOGLE_ADS_DEVELOPER_TOKEN
+Na OAuth verbinding tonen GA4, Google Ads en GSC een **dropdown** met beschikbare properties/accounts/sites. Selectie wordt automatisch opgeslagen via `POST /api/clients/{slug}/platforms`.
+
+### GOOGLE_ADS_DEVELOPER_TOKEN (vereist voor ads-accounts dropdown)
 
 1. Log in op [Google Ads](https://ads.google.com) met een manager account
 2. Ga naar **Tools & Settings** → **API Center** (of direct: https://ads.google.com/aw/apicenter)
@@ -79,21 +123,10 @@ sudo fuser -k 8090/tcp && sudo systemctl restart wonderz-backend
 
 **Let op:** Test Account Access werkt alleen met test-accounts. Voor productie heb je Basic/Standard Access nodig (review door Google).
 
-### customer_id (Google Ads)
+### Dropdown flow
 
-1. Ga naar `/clients/vitbliss/integrations`
-2. Bij **Google Ads** (als verbonden): vul **Customer ID** in
-3. Formaat: `123-456-7890` (met streepjes) of `1234567890`
-4. Customer ID vind je in Google Ads: rechtsboven naast het account-icoon, of in **Tools** → **Setup** → **Accounts**
+- **GA4**: Selecteer property uit dropdown → `config.property_id` wordt opgeslagen
+- **Google Ads**: Selecteer account uit dropdown → `config.customer_id` wordt opgeslagen
+- **GSC**: Selecteer site uit dropdown → `config.site_url` wordt opgeslagen
 
-### site_url (Search Console)
-
-1. Ga naar `/clients/vitbliss/integrations`
-2. Bij **Google Search Console** (als verbonden): vul **Site URL** in
-3. Formaat: `https://www.vitbliss.nl/` of `sc-domain:vitbliss.nl` (voor domain properties)
-4. Moet exact overeenkomen met de property in Search Console
-
-### property_id (GA4, optioneel)
-
-- Als niet ingevuld: de eerste beschikbare GA4 property wordt gebruikt
-- Voor meerdere properties: vul het Property ID in (Admin → Property Settings in GA4)
+Bij token verlopen: toon "Herverbind Google" knop, klik om OAuth opnieuw te doorlopen.
