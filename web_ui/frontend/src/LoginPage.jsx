@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { supabase } from './supabase'
 import PageLayout from './PageLayout'
 import { Mail, Lock, Eye, EyeOff, Loader } from 'lucide-react'
 
 export default function LoginPage() {
   const navigate = useNavigate()
+  const location = useLocation()
+  const from = location.state?.from?.pathname ?? '/dashboard'
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -14,16 +16,16 @@ export default function LoginPage() {
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
 
-  // If already logged in, redirect to account
+  // If already logged in, redirect to returnTo or account
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
-      if (data?.session?.user) navigate('/my-account', { replace: true })
+      if (data?.session?.user) navigate(from, { replace: true })
     })
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session?.user) navigate('/my-account', { replace: true })
+      if (session?.user) navigate(from, { replace: true })
     })
     return () => listener.subscription.unsubscribe()
-  }, [navigate])
+  }, [navigate, from])
 
   const handleLogin = async (e) => {
     e.preventDefault()

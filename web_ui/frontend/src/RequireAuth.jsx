@@ -1,31 +1,27 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, Navigate } from 'react-router-dom'
 import { supabase } from './supabase'
 import PageLayout from './PageLayout'
 
 /**
  * Wrapper that requires an authenticated session.
- * No session → redirect to /login.
+ * No session → redirect to /login with returnTo.
  * Session present → render children.
  */
 export default function RequireAuth({ children }) {
-  const navigate = useNavigate()
+  const location = useLocation()
   const [loading, setLoading] = useState(true)
   const [hasSession, setHasSession] = useState(false)
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (_event, session) => {
-        if (session?.user) {
-          setHasSession(true)
-        } else {
-          navigate('/login', { replace: true })
-        }
+        setHasSession(!!session?.user)
         setLoading(false)
       }
     )
     return () => subscription.unsubscribe()
-  }, [navigate])
+  }, [])
 
   if (loading) {
     return (
@@ -38,7 +34,7 @@ export default function RequireAuth({ children }) {
   }
 
   if (!hasSession) {
-    return null
+    return <Navigate to="/login" state={{ from: location }} replace />
   }
 
   return children

@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import PageLayout from './PageLayout'
 import { Plug, Save, CheckCircle, XCircle } from 'lucide-react'
 import { buildAuthHeaders } from './authz'
-
-const apiBase = (import.meta.env.VITE_API_URL || 'http://localhost:8090').replace(/\/$/, '')
+import { apiUrl } from './apiClient'
 
 const PLATFORMS = [
   { id: 'klaviyo', name: 'Klaviyo', connected: false, form: true },
@@ -16,18 +16,25 @@ const PLATFORMS = [
 ]
 
 export default function Integrations() {
+  const navigate = useNavigate()
   const [integrations, setIntegrations] = useState([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
   const [klaviyoForm, setKlaviyoForm] = useState({ api_key: '', account_id: '' })
 
   useEffect(() => {
     const fetchIntegrations = async () => {
       setLoading(true)
+      setError('')
       try {
-        const res = await fetch(`${apiBase}/api/integrations`, {
+        const res = await fetch(apiUrl('/api/integrations'), {
           headers: await buildAuthHeaders(),
         })
+        if (res.status === 401) {
+          navigate('/login')
+          return
+        }
         if (res.ok) {
           const data = await res.json()
           setIntegrations(data)
@@ -38,12 +45,13 @@ export default function Integrations() {
         }
       } catch (err) {
         console.error('Failed to load integrations:', err)
+        setError(err.message || 'Laden mislukt')
       } finally {
         setLoading(false)
       }
     }
     fetchIntegrations()
-  }, [])
+  }, [navigate])
 
   const isConnected = (platformId) => {
     const found = integrations.find((i) => i.integration_type === platformId)
@@ -52,25 +60,34 @@ export default function Integrations() {
 
   const handleKlaviyoSave = async () => {
     setSaving(true)
+    setError('')
     try {
       const body = {}
       if (klaviyoForm.api_key) body.api_key = klaviyoForm.api_key
       if (klaviyoForm.account_id) body.extra_config = { account_id: klaviyoForm.account_id }
-      const res = await fetch(`${apiBase}/api/integrations/klaviyo`, {
+      const res = await fetch(apiUrl('/api/integrations/klaviyo'), {
         method: 'PUT',
         headers: await buildAuthHeaders(),
         body: JSON.stringify(body),
       })
+      if (res.status === 401) {
+        navigate('/login')
+        return
+      }
       if (res.ok) {
-        const listRes = await fetch(`${apiBase}/api/integrations`, {
+        const listRes = await fetch(apiUrl('/api/integrations'), {
           headers: await buildAuthHeaders(),
         })
         if (listRes.ok) {
           setIntegrations(await listRes.json())
         }
+      } else {
+        const j = await res.json().catch(() => ({}))
+        setError(j.detail || 'Opslaan mislukt')
       }
     } catch (err) {
       console.error('Failed to save Klaviyo:', err)
+      setError(err.message || 'Opslaan mislukt')
     } finally {
       setSaving(false)
     }
@@ -86,6 +103,11 @@ export default function Integrations() {
 
   return (
     <PageLayout size="narrow" padded>
+      {error && (
+        <div className="mb-4 p-4 rounded-lg bg-red-50 text-red-700 border border-red-200 text-sm">
+          {error}
+        </div>
+      )}
       <h1 className="page-title flex items-center gap-2">
         <Plug className="w-8 h-8" />
         Integraties

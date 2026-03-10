@@ -116,7 +116,7 @@ async def upsert_integration(
                 extra_config,
             )
         else:
-            integration_id = str(uuid.uuid4())
+            integration_id = f"int:{current_user.user_id}:{integration_type}"
             await conn.execute(
                 """
                 INSERT INTO client_integrations

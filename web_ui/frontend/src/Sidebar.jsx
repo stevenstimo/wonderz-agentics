@@ -50,7 +50,7 @@ const MANAGEMENT = [
 ]
 
 const OPERATIONS = [
-  { label: 'SEO Tool', icon: BarChart3, path: '/seo' },
+  { label: 'SEO Tool', icon: BarChart3, path: '/seo/tool' },
   { label: 'Developer Bot', icon: Code, path: '/devbot' },
   { label: 'HR Feedback', icon: MessageSquare, path: '/hr-feedback' },
   { label: 'Safety Gate', icon: Shield, path: '/approvals' },

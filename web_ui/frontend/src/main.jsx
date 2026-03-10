@@ -39,6 +39,7 @@ import Study from './Study.jsx'
 import ProductManagement from './ProductManagement.jsx'
 import AgentInbox from './AgentInbox.jsx'
 import SEOTool from './SEOTool.jsx'
+import SEOLanding from './SEOLanding.jsx'
 
 import './index.css'
 
@@ -57,6 +58,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/seo" element={<SEOLanding />} />
         <Route element={<AuthenticatedLayout />}>
           <Route path="/" element={<App />} />
           <Route path="/dashboard" element={<App />} />
@@ -85,7 +87,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <Route path="/study" element={<Study />} />
           <Route path="/product-management" element={<ProductManagement />} />
           <Route path="/inbox" element={<AgentInbox />} />
-          <Route path="/seo" element={<SEOTool />} />
+          <Route path="/seo/tool" element={<SEOTool />} />
           <Route path="/devbot" element={<DevbotHome />} />
           <Route path="/hiring" element={<HiringHall onHire={() => {}} />} />
           <Route path="/newbies" element={<Newbies />} />
