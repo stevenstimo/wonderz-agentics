@@ -6,7 +6,9 @@ import uuid
 from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, status, Body
+from fastapi import APIRouter, Depends, HTTPException, status, Body
+
+from app.middleware.auth import require_super_admin
 from pydantic import BaseModel, Field
 
 from app.database import get_db
@@ -30,7 +32,7 @@ def _json_default(obj: Any) -> Any:
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/agents", tags=["agents"])
+router = APIRouter(prefix="/api/agents", tags=["agents"], dependencies=[Depends(require_super_admin)])
 
 
 def _to_json_compat(value: Any) -> Any:

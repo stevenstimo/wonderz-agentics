@@ -248,8 +248,15 @@ async def _do_train_newbie(conn, newbie_id: str, req: TrainNewbieRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
     text = extract_text(html)
-    if len((text or "").strip()) < 50:
+    stripped = (text or "").strip()
+    if len(stripped) < 50:
         raise HTTPException(status_code=400, detail="Extracted text is too short (min 50 chars)")
+
+    extracted_summary = (
+        "Pagina vereist JavaScript — inhoud niet extraheerbaar via scraper"
+        if len(stripped) < 200
+        else stripped[:300]
+    )
 
     score_gained = SCORE_PER_TRAINING
     col = CATEGORY_TO_COLUMN.get(req.category)
@@ -258,13 +265,14 @@ async def _do_train_newbie(conn, newbie_id: str, req: TrainNewbieRequest):
 
     await conn.execute(
         """
-        INSERT INTO newbie_trainings (newbie_id, source_url, category, score_gained, status, completed_at)
-        VALUES ($1, $2, $3, $4, 'completed', now())
+        INSERT INTO newbie_trainings (newbie_id, source_url, category, score_gained, status, completed_at, extracted_summary)
+        VALUES ($1, $2, $3, $4, 'completed', now(), $5)
         """,
         newbie_id,
         url,
         req.category,
         score_gained,
+        extracted_summary,
     )
     await conn.execute(
         f"UPDATE newbies SET {col} = LEAST($1, COALESCE({col}, 0) + $2), updated_at = now() WHERE newbie_id = $3",
@@ -301,8 +309,15 @@ async def _try_train_one_url(conn, newbie_id: str, url: str, category: str) -> t
         return False, str(e)
 
     text = extract_text(html)
-    if len((text or "").strip()) < 50:
+    stripped = (text or "").strip()
+    if len(stripped) < 50:
         return False, "Extracted text is too short"
+
+    extracted_summary = (
+        "Pagina vereist JavaScript — inhoud niet extraheerbaar via scraper"
+        if len(stripped) < 200
+        else stripped[:300]
+    )
 
     col = CATEGORY_TO_COLUMN.get(category)
     if not col:
@@ -310,13 +325,14 @@ async def _try_train_one_url(conn, newbie_id: str, url: str, category: str) -> t
 
     await conn.execute(
         """
-        INSERT INTO newbie_trainings (newbie_id, source_url, category, score_gained, status, completed_at)
-        VALUES ($1, $2, $3, $4, 'completed', now())
+        INSERT INTO newbie_trainings (newbie_id, source_url, category, score_gained, status, completed_at, extracted_summary)
+        VALUES ($1, $2, $3, $4, 'completed', now(), $5)
         """,
         newbie_id,
         url,
         category,
         SCORE_PER_TRAINING,
+        extracted_summary,
     )
     await conn.execute(
         f"UPDATE newbies SET {col} = LEAST($1, COALESCE({col}, 0) + $2), updated_at = now() WHERE newbie_id = $3",
@@ -376,6 +392,46 @@ async def train_newbie_path(newbie_id: str, req: TrainNewbieRequest):
         row = await _do_train_newbie(conn, newbie_id, req)
     logger.info("Trained newbie %s: +%s in %s", newbie_id, SCORE_PER_TRAINING, req.category)
     return _row_to_dict(row)
+
+
+@router.post("/backfill-summaries")
+async def backfill_summaries():
+    """
+    Backfill extracted_summary for all newbie_trainings where it is NULL.
+    Re-scrapes each URL and saves first 300 chars (or JS fallback if < 200 chars).
+    """
+    from app.services.training import scrape_url, extract_text, TrainingError
+
+    pool = await get_db()
+    updated = 0
+    failed = 0
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT training_id, source_url FROM newbie_trainings WHERE extracted_summary IS NULL"
+        )
+        total = len(rows)
+        for row in rows:
+            training_id = row["training_id"]
+            url = row["source_url"]
+            try:
+                html = await scrape_url(url)
+                text = extract_text(html)
+                stripped = (text or "").strip()
+                extracted_summary = (
+                    "Pagina vereist JavaScript — inhoud niet extraheerbaar via scraper"
+                    if len(stripped) < 200
+                    else stripped[:300]
+                )
+                await conn.execute(
+                    "UPDATE newbie_trainings SET extracted_summary = $1 WHERE training_id = $2",
+                    extracted_summary,
+                    training_id,
+                )
+                updated += 1
+            except (TrainingError, Exception) as e:
+                logger.warning("Backfill failed for training_id=%s url=%s: %s", training_id, url, e)
+                failed += 1
+    return {"updated": updated, "failed": failed, "total": total}
 
 
 SYSTEM_PROMPT_MODEL = "claude-3-haiku-20240307"

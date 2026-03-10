@@ -267,4 +267,4 @@ async def approve_job_legacy(job_id: str, request: Request):
 
 @app.get("/api/health")
 async def health_check():
-    return {"status": "ok"}
+    return {"status": "ok", "ok": True}

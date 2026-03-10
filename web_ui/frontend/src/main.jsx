@@ -1,10 +1,11 @@
-import HiringHall from './HiringHall.jsx';
-import DaveDevConsole from './DaveDevConsole.jsx';
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom'
 
 import App from './App.jsx'
+import RequireAuth from './RequireAuth.jsx'
+import CommandCenter from './CommandCenter.jsx'
+import LoginPage from './LoginPage.jsx'
 import HRImprovements from './HRImprovements.jsx'
 import CrewManagement from './CrewManagement.jsx'
 import TrainingManagement from './TrainingManagement.jsx'
@@ -18,13 +19,15 @@ import ExplainerPersona from './ExplainerPersona.jsx'
 import ExplainerCrew from './ExplainerCrew.jsx'
 import DeveloperBot from './DeveloperBot.jsx'
 import DevbotHome from './DevbotHome.jsx'
+import DaveDevConsole from './DaveDevConsole.jsx'
 import Newbies from './Newbies.jsx'
 import NewbieDetail from './NewbieDetail.jsx'
 import Settings from './Settings.jsx'
+import ApiKeys from './ApiKeys.jsx'
+import Integrations from './Integrations.jsx'
 import Status from './Status.jsx'
 import MyAccount from './MyAccount.jsx'
-import LoginPage from './LoginPage.jsx'
-import CommandCenter from './CommandCenter.jsx'
+import HiringHall from './HiringHall.jsx'
 import JobSplitView from './JobSplitView.jsx'
 import NewJob from './NewJob.jsx'
 import SkillsLibrary from './SkillsLibrary.jsx'
@@ -36,13 +39,25 @@ import Study from './Study.jsx'
 import ProductManagement from './ProductManagement.jsx'
 import AgentInbox from './AgentInbox.jsx'
 import SEOTool from './SEOTool.jsx'
+
 import './index.css'
+
+function AuthenticatedLayout() {
+  return (
+    <RequireAuth>
+      <CommandCenter>
+        <Outlet />
+      </CommandCenter>
+    </RequireAuth>
+  )
+}
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <BrowserRouter>
-      <CommandCenter>
-        <Routes>
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route element={<AuthenticatedLayout />}>
           <Route path="/" element={<App />} />
           <Route path="/dashboard" element={<App />} />
           <Route path="/job-center" element={<JobCenter />} />
@@ -77,12 +92,13 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <Route path="/newbies/:newbieId" element={<NewbieDetail />} />
           <Route path="/talents" element={<Navigate to="/newbies" replace />} />
           <Route path="/settings" element={<Settings />} />
+          <Route path="/settings/api-keys" element={<ApiKeys />} />
+          <Route path="/integrations" element={<Integrations />} />
           <Route path="/status" element={<Status />} />
           <Route path="/my-account" element={<MyAccount />} />
-          <Route path="/login" element={<LoginPage />} />
           <Route path="/devbot/dave" element={<DaveDevConsole />} />
-        </Routes>
-      </CommandCenter>
+        </Route>
+      </Routes>
     </BrowserRouter>
   </React.StrictMode>,
 )

@@ -22,6 +22,7 @@ import {
   Activity,
   Settings,
   Zap,
+  Key,
   Menu,
   X,
   Inbox,
@@ -74,6 +75,8 @@ const KNOWLEDGE_ITEMS = [
 
 const SYSTEM = [
   { label: 'Status', icon: Activity, path: '/status' },
+  { label: 'Integrations', icon: Zap, path: '/integrations' },
+  { label: 'API Keys', icon: Key, path: '/settings/api-keys' },
   { label: 'Settings', icon: Settings, path: '/settings' },
 ]
 

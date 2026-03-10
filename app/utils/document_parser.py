@@ -1,6 +1,6 @@
 """Extract text from uploaded documents. Used by jobs and skills."""
 
-ALLOWED_EXTENSIONS = {"pdf", "xlsx", "xls", "csv", "docx", "txt", "md", "skill"}
+ALLOWED_EXTENSIONS = {"pdf", "xlsx", "xls", "csv", "docx", "txt", "md", "skill", "png", "jpg", "jpeg"}
 
 
 def extract_text_from_file(filename: str, raw: bytes) -> str:
@@ -54,4 +54,6 @@ def extract_text_from_file(filename: str, raw: bytes) -> str:
             return "\n".join(parts)
         except Exception:
             return raw.decode("utf-8", errors="replace")
+    if ext in ("png", "jpg", "jpeg"):
+        return ""  # Images: no text extraction; caller uses placeholder
     return raw.decode("utf-8", errors="replace")

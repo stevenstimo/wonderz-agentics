@@ -17,13 +17,14 @@ import json
 import logging
 from datetime import datetime
 from typing import Optional
-from fastapi import APIRouter, HTTPException, Depends, status, BackgroundTasks, File, UploadFile
+from fastapi import APIRouter, HTTPException, Depends, status, BackgroundTasks, File, UploadFile, Form, Request
 from fastapi.responses import FileResponse
 from pydantic import ValidationError
 
 from app.utils.document_parser import extract_text_from_file, ALLOWED_EXTENSIONS
 
 from app.database import get_db
+from app.middleware.auth import get_current_user
 from app.orchestration.manager import OperationsManager
 from app.services.deployment import DeploymentService
 from models.unified import JobStatus
@@ -46,7 +47,7 @@ from app.models.requests import (
 )
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/jobs", tags=["jobs"])
+router = APIRouter(prefix="/api/jobs", tags=["jobs"], dependencies=[Depends(get_current_user)])
 
 GTM_JOB_KEYWORDS = ["gtm", "campagne", "campaign", "launch", "go-to-market", "lancering", "marktintroductie", "marketing strategie"]
 
@@ -275,19 +276,59 @@ def _job_for_response(job_row) -> dict:
 @router.post("/{job_id}/chat")
 async def send_chat_message(
     job_id: str,
-    req: ChatMessageRequest,
+    request: Request,
     background_tasks: BackgroundTasks,
 ):
     """
-    Send a chat message for this job.
+    Send a chat message for this job. Accepts:
+    - multipart/form-data: message (required), file (optional)
+    - application/json: { "message": "..." }
     - INTAKE_CLARIFICATION: appends message, re-runs intake (CEO may reply).
     - RUNNING: appends message to chat_history only (no re-run); user can still type and messages are stored.
     - Other statuses: 400.
     """
     job_id = _validate_job_id(job_id)
-    msg = (req.message or "").strip()
+    content_type = (request.headers.get("content-type") or "").lower()
+    msg = ""
+    file = None
+    if "multipart/form-data" in content_type:
+        form = await request.form()
+        msg = (form.get("message") or "").strip()
+        file = form.get("file")  # UploadFile or None
+    else:
+        try:
+            body = await request.json()
+            msg = (body.get("message") or "").strip()
+        except Exception:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid JSON body")
     if not msg:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Message cannot be empty")
+
+    # Process optional file attachment
+    attachment_info = None
+    if file and file.filename:
+        try:
+            raw = await file.read()
+            ext = (file.filename or "").lower().split(".")[-1] if "." in (file.filename or "") else ""
+            if ext not in ALLOWED_EXTENSIONS:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"File type .{ext} not allowed. Use: {', '.join(sorted(ALLOWED_EXTENSIONS))}",
+                )
+            summary = ""
+            if ext in ("pdf", "xlsx", "xls", "csv", "docx", "txt", "md", "skill"):
+                summary = extract_text_from_file(file.filename, raw)
+            else:
+                summary = f"[Image: {file.filename}]"
+            attachment_info = {
+                "filename": file.filename,
+                "content_type": file.content_type or "application/octet-stream",
+                "stored_at": datetime.utcnow().isoformat() + "Z",
+                "summary": summary[:50000] if summary else "",  # cap for DB
+            }
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
     pool = await get_db()
     async with pool.acquire() as conn:
         job = await conn.fetchrow("SELECT id, status, context FROM jobs WHERE id=$1", job_id)
@@ -304,8 +345,16 @@ async def send_chat_message(
         if status_val == JobStatus.INTAKE_CLARIFICATION.value:
             ctx = _coerce_context(job["context"])
             chat_history = list(ctx.get("chat_history") or [])
-            chat_history.append({"role": "user", "content": msg})
-            await _update_job_context(conn, job_id, {"chat_history": chat_history})
+            user_entry = {"role": "user", "content": msg}
+            if attachment_info:
+                user_entry["attachment"] = attachment_info
+                attachments = list(ctx.get("attachments") or [])
+                attachments.append(attachment_info)
+                chat_history.append(user_entry)
+                await _update_job_context(conn, job_id, {"chat_history": chat_history, "attachments": attachments})
+            else:
+                chat_history.append(user_entry)
+                await _update_job_context(conn, job_id, {"chat_history": chat_history})
             background_tasks.add_task(run_intake_answers_inline, job_id, None)
             row = await conn.fetchrow("SELECT status FROM jobs WHERE id=$1", job_id)
             return {
@@ -317,9 +366,17 @@ async def send_chat_message(
             from app.services.job_pipeline import ceo_reply_during_run
             ctx = _coerce_context(job["context"])
             chat_history = list(ctx.get("chat_history") or [])
-            chat_history.append({"role": "user", "content": msg})
+            user_entry = {"role": "user", "content": msg}
+            if attachment_info:
+                user_entry["attachment"] = attachment_info
+                attachments = list(ctx.get("attachments") or [])
+                attachments.append(attachment_info)
+            chat_history.append(user_entry)
+            user_msg_for_ceo = msg
+            if attachment_info and attachment_info.get("summary"):
+                user_msg_for_ceo = msg + "\n\n[Attachment: " + attachment_info.get("filename", "file") + "]\n" + attachment_info["summary"]
             try:
-                ceo_reply, instruction = await ceo_reply_during_run(conn, job_id, ctx, msg)
+                ceo_reply, instruction = await ceo_reply_during_run(conn, job_id, ctx, user_msg_for_ceo)
             except Exception as e:
                 logger.warning("ceo_reply_during_run failed for job %s: %s", job_id, e)
                 ceo_reply = "Ik heb je bericht ontvangen en geef het door aan het team."
@@ -327,15 +384,14 @@ async def send_chat_message(
             chat_history.append({"role": "ceo", "content": ceo_reply})
             feedback_list = list(ctx.get("feedback_during_run") or [])
             feedback_list.append({"user": msg, "ceo_instruction": instruction or msg[:200]})
-            await _update_job_context(
-                conn,
-                job_id,
-                {
-                    "chat_history": chat_history,
-                    "feedback_during_run": feedback_list,
-                    "ceo_instruction_for_run": instruction or (feedback_list[-1]["ceo_instruction"] if feedback_list else ""),
-                },
-            )
+            updates = {
+                "chat_history": chat_history,
+                "feedback_during_run": feedback_list,
+                "ceo_instruction_for_run": instruction or (feedback_list[-1]["ceo_instruction"] if feedback_list else ""),
+            }
+            if attachment_info:
+                updates["attachments"] = attachments
+            await _update_job_context(conn, job_id, updates)
             return {
                 "job_id": job_id,
                 "status": status_val,

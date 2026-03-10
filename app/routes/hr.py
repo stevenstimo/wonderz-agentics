@@ -4,7 +4,9 @@ import logging
 import json
 from datetime import datetime
 from typing import Optional, List, Dict, Set, Any
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+
+from app.middleware.auth import require_super_admin
 from pydantic import BaseModel, model_validator, Field, root_validator
 
 from app.database import get_db
@@ -181,8 +183,8 @@ async def list_development_points(
 
 
 @router.get("/report")
-async def get_weekly_report():
-    """Weekly HR performance report per agent."""
+async def get_weekly_report(_: None = Depends(require_super_admin)):
+    """Weekly HR performance report per agent. Super admin only."""
     hr = await _get_hr_manager()
     report = await hr.generate_weekly_report()
     return report

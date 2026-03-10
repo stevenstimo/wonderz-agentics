@@ -202,4 +202,4 @@ async def status_keys():
 
 @router.get("/api/health")
 async def health_check():
-    return {"status": "ok"}
+    return {"status": "ok", "ok": True}

@@ -21,6 +21,7 @@ from app.routes.gtm import router as gtm_router
 from app.routes.dev_bot import router as dev_bot_router, devbot_router
 from app.routes.agent_inbox import router as agent_inbox_router
 from app.routes.seo_upload import router as seo_router
+from app.routes.integrations import router as integrations_router
 
 
 def register_routers(app):
@@ -45,3 +46,4 @@ def register_routers(app):
     app.include_router(devbot_router)
     app.include_router(agent_inbox_router)
     app.include_router(seo_router)
+    app.include_router(integrations_router)

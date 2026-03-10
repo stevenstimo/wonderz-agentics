@@ -59,12 +59,13 @@ export default function Newbies() {
   const [training, setTraining] = useState(false)
   const [trainError, setTrainError] = useState('')
   const [trainProgress, setTrainProgress] = useState({ current: 0, total: 0, skipped: [] })
+  const [trainingProgress, setTrainingProgress] = useState(null) // { newbieId, current, total } — live op card
 
   const canEdit = true // tijdelijk: isAdmin(userRole) faalt omdat userRole niet correct wordt opgehaald na inloggen
   console.log('userRole:', userRole, 'canEdit:', canEdit)
 
-  const fetchNewbies = async () => {
-    setLoading(true)
+  const fetchNewbies = async (silent = false) => {
+    if (!silent) setLoading(true)
     setError('')
     try {
       const res = await fetch(apiUrl('/api/newbies'))
@@ -74,7 +75,7 @@ export default function Newbies() {
     } catch (err) {
       setError(err.message || 'Newbies ophalen mislukt')
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }
 
@@ -160,6 +161,7 @@ export default function Newbies() {
     setTraining(true)
     setTrainError('')
     setTrainProgress({ current: 0, total, skipped: [] })
+    setTrainingProgress({ newbieId, current: 0, total })
 
     const skipped = []
     let processed = 0
@@ -167,6 +169,7 @@ export default function Newbies() {
     for (let i = 0; i < urlLines.length; i++) {
       const url = urlLines[i]
       setTrainProgress((p) => ({ ...p, current: i + 1, skipped: [...skipped] }))
+      setTrainingProgress({ newbieId, current: i + 1, total })
 
       try {
         const res = await fetch(apiUrl('/api/newbies/train'), {
@@ -184,13 +187,14 @@ export default function Newbies() {
           continue
         }
         processed++
-        await fetchNewbies()
+        await fetchNewbies(true)
       } catch (err) {
         skipped.push({ index: i + 1, url, reason: err.message || 'Niet bereikbaar' })
       }
     }
 
     setTrainProgress((p) => ({ ...p, skipped }))
+    setTrainingProgress(null)
     if (skipped.length > 0) {
       setTrainError(
         `Verwerkt: ${processed} van ${total}. Overgeslagen: ${skipped.map((s) => `URL ${s.index} (${s.reason})`).join('; ')}`
@@ -199,7 +203,7 @@ export default function Newbies() {
       setTrainNewbie(null)
       setTrainForm({ urls: '', category: 'management' })
       setTrainProgress({ current: 0, total: 0, skipped: [] })
-      await fetchNewbies()
+      await fetchNewbies(true)
     }
     setTraining(false)
   }
@@ -231,14 +235,20 @@ export default function Newbies() {
           <div className="text-sm text-slate-500">Laden...</div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full">
-            {newbies.map((n) => (
+            {newbies.map((n) => {
+              const isTraining = trainingProgress?.newbieId === n.newbie_id
+              return (
               <div
                 key={n.newbie_id}
                 role="button"
                 tabIndex={0}
                 onClick={() => navigate(`/newbies/${encodeURIComponent(n.newbie_id)}`)}
                 onKeyDown={(e) => e.key === 'Enter' && navigate(`/newbies/${encodeURIComponent(n.newbie_id)}`)}
-                className="block rounded-lg border border-slate-200 p-4 hover:border-indigo-300 hover:bg-slate-50/50 transition cursor-pointer"
+                className={`block rounded-lg border p-4 transition cursor-pointer ${
+                  isTraining
+                    ? 'border-indigo-400 bg-indigo-50/30 animate-pulse hover:border-indigo-500'
+                    : 'border-slate-200 hover:border-indigo-300 hover:bg-slate-50/50'
+                }`}
               >
                 <div className="flex items-start justify-between gap-3 mb-2">
                   <div>
@@ -247,6 +257,11 @@ export default function Newbies() {
                   </div>
                   <StatusBadge status={n.status || 'in_training'} />
                 </div>
+                {isTraining && (
+                  <p className="text-xs text-indigo-600 font-medium mt-1">
+                    Training bezig... ({trainingProgress.current}/{trainingProgress.total} URLs verwerkt)
+                  </p>
+                )}
                 <p className="text-xs text-slate-600 mt-1 line-clamp-2">{truncate(n.persona, 100)}</p>
 
                 {/* Progress bar */}
@@ -297,7 +312,8 @@ export default function Newbies() {
                   )}
                 </div>
               </div>
-            ))}
+            )
+            })}
             {!newbies.length && (
               <div className="col-span-full py-8 text-center text-sm text-slate-500">
                 Geen newbies gevonden. Klik op &quot;Add Newbie&quot; om te starten.

@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, GraduationCap, UserPlus, Loader2, BookOpen, Target, Activity } from 'lucide-react'
+import { ArrowLeft, GraduationCap, UserPlus, Loader2, BookOpen, Target, Activity, Info } from 'lucide-react'
 import PageLayout from './PageLayout'
 import { apiUrl } from './apiClient'
 
@@ -35,6 +35,52 @@ function formatDate(dateStr) {
   if (!dateStr) return '—'
   const d = new Date(dateStr)
   return d.toLocaleDateString('nl-NL', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
+function ScoreWithTooltip({ training }) {
+  const [show, setShow] = useState(false)
+  const summary = training.extracted_summary
+  const displaySummary = summary
+    ? (summary.length > 300 ? `${summary.slice(0, 300)}...` : summary)
+    : null
+  const categoryLabel = CATEGORIES.find((c) => c.apiValue === training.category)?.label || training.category || '—'
+  return (
+    <td className="py-2 px-2 text-right font-medium text-slate-700">
+      <span className="inline-flex items-center gap-0.5 justify-end">
+        +{training.score_gained ?? 0}
+        <span
+          className="relative inline-flex"
+          onMouseEnter={() => setShow(true)}
+          onMouseLeave={() => setShow(false)}
+        >
+          <Info className="w-4 h-4 text-slate-400 hover:text-slate-600 cursor-help ml-0.5" />
+          {show && (
+            <div
+              className="absolute right-0 top-full mt-1 z-50 p-3 bg-white border border-slate-200 rounded-lg shadow-lg max-w-[320px] text-left"
+              style={{ minWidth: '200px' }}
+            >
+              <div className="text-xs space-y-1.5">
+                <div>
+                  <span className="font-medium text-slate-500">URL</span>
+                  <p className="text-slate-700 break-all mt-0.5">{training.source_url || '—'}</p>
+                </div>
+                <div>
+                  <span className="font-medium text-slate-500">Categorie</span>
+                  <p className="text-slate-700 mt-0.5">{categoryLabel}</p>
+                </div>
+                <div>
+                  <span className="font-medium text-slate-500">Samenvatting</span>
+                  <p className="text-slate-700 mt-0.5 text-slate-600">
+                    {displaySummary || 'Geen samenvatting beschikbaar'}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+        </span>
+      </span>
+    </td>
+  )
 }
 
 export default function NewbieDetail() {
@@ -304,7 +350,7 @@ export default function NewbieDetail() {
                           </a>
                         </td>
                         <td className="py-2 px-2 text-slate-600 capitalize">{t.category || '—'}</td>
-                        <td className="py-2 px-2 text-right font-medium text-slate-700">+{t.score_gained ?? 0}</td>
+                        <ScoreWithTooltip training={t} />
                         <td className="py-2 px-2">
                           <span
                             className={`inline-flex px-1.5 py-0.5 rounded text-xs ${
