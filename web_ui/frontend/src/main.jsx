@@ -25,6 +25,9 @@ import NewbieDetail from './NewbieDetail.jsx'
 import Settings from './Settings.jsx'
 import ApiKeys from './ApiKeys.jsx'
 import Integrations from './Integrations.jsx'
+import ClientsOverview from './ClientsOverview.jsx'
+import ClientsNew from './ClientsNew.jsx'
+import ClientDetail from './ClientDetail.jsx'
 import Status from './Status.jsx'
 import MyAccount from './MyAccount.jsx'
 import HiringHall from './HiringHall.jsx'
@@ -96,6 +99,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <Route path="/settings" element={<Settings />} />
           <Route path="/settings/api-keys" element={<ApiKeys />} />
           <Route path="/integrations" element={<Integrations />} />
+          <Route path="/clients" element={<ClientsOverview />} />
+          <Route path="/clients/new" element={<ClientsNew />} />
+          <Route path="/clients/:slug" element={<ClientDetail />} />
           <Route path="/status" element={<Status />} />
           <Route path="/my-account" element={<MyAccount />} />
           <Route path="/devbot/dave" element={<DaveDevConsole />} />

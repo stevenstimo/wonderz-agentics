@@ -76,6 +76,7 @@ const KNOWLEDGE_ITEMS = [
 const SYSTEM = [
   { label: 'Status', icon: Activity, path: '/status' },
   { label: 'Integrations', icon: Zap, path: '/integrations' },
+  { label: 'Clients', icon: Building, path: '/clients' },
   { label: 'API Keys', icon: Key, path: '/settings/api-keys' },
   { label: 'Settings', icon: Settings, path: '/settings' },
 ]
@@ -280,6 +281,7 @@ export default function Sidebar() {
             <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 px-3 mt-4 mb-2">System</div>
             <NavItem item={SYSTEM[0]} />
             {canManageSettings && <NavItem item={SYSTEM[1]} />}
+            {canManageSettings && <NavItem item={SYSTEM[2]} />}
           </nav>
 
           {/* User profile at bottom */}
