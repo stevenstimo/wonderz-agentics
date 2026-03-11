@@ -1,10 +1,6 @@
 import { supabase } from './supabase'
 
-export const API_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:8090').replace(/\/$/, '')
-
-// #region agent log
-console.log('[DBG-4f273a] API_BASE =', API_BASE, '| VITE_API_URL =', import.meta.env.VITE_API_URL)
-// #endregion
+export const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
 
 export function apiUrl(path) {
   const normalized = path.startsWith('/') ? path : `/${path}`
@@ -14,38 +10,19 @@ export function apiUrl(path) {
 
 export async function apiFetch(path, options = {}) {
   const url = apiUrl(path)
-  // #region agent log
-  console.log('[DBG-4f273a] apiFetch', path, '→', url)
-  // #endregion
   let token = null
   try {
     const { data: { session } } = await supabase.auth.getSession()
     token = session?.access_token
-    // #region agent log
-    console.log('[DBG-4f273a] session ok, hasToken:', !!token)
-    // #endregion
   } catch (e) {
-    // #region agent log
-    console.error('[DBG-4f273a] getSession FAILED:', e?.message)
-    // #endregion
+    // auth unavailable — proceed without token
   }
   const { headers: extraHeaders, ...rest } = options
   const headers = {
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...(extraHeaders || {}),
   }
-  try {
-    const res = await fetch(url, { ...rest, headers })
-    // #region agent log
-    console.log('[DBG-4f273a] fetch done', path, 'status:', res.status, 'ok:', res.ok)
-    // #endregion
-    return res
-  } catch (fetchErr) {
-    // #region agent log
-    console.error('[DBG-4f273a] fetch NETWORK ERROR', path, fetchErr?.message)
-    // #endregion
-    throw fetchErr
-  }
+  return fetch(url, { ...rest, headers })
 }
 
 // JSON helper met auth

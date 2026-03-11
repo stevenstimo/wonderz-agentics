@@ -32,7 +32,7 @@ class CreateJobRequest(BaseModel):
 app = FastAPI(title="Multi-Agentic Crew - Orchestrator API")
 
 # CORS: allow frontend (Vercel + local dev) to call API
-_cors_origins = os.getenv("CORS_ORIGINS", "https://wonderz-agentics.vercel.app,https://wonderz-agentic.exe.xyz,http://localhost:3000,http://localhost:3001,http://localhost:5173,http://127.0.0.1:3000,http://127.0.0.1:5173").split(",")
+_cors_origins = os.getenv("CORS_ORIGINS", "https://wonderz-agentics.vercel.app,https://wonderz-agentic.exe.xyz,https://wonderz-agentic.exe.xyz:3001,http://localhost:3000,http://localhost:3001,http://localhost:5173,http://127.0.0.1:3000,http://127.0.0.1:5173").split(",")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in _cors_origins if o.strip()],

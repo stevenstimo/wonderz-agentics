@@ -124,17 +124,17 @@ class KnowledgeService:
         client_slug: Optional[str] = None,
         client_context_mode: str = "optional",
         top_k: int = 8,
-    ) -> list[str]:
+    ) -> dict[str, Any]:
         """
         Haalt relevante chunks op voor een agent.
         Agency-wide en client_context worden apart opgehaald en gecombineerd.
+        Returns dict with chunks, client_context, lessons, lessons_text, total_lessons.
         """
         pool = await self._get_pool()
         query_embedding = await generate_embedding((query or "")[:8000])
         embedding_json = json.dumps(query_embedding)
 
         async with pool.acquire() as conn:
-            # 2. Haal agency-wide chunks op
             if domain:
                 agency_rows = await conn.fetch(
                     """
@@ -196,7 +196,6 @@ class KnowledgeService:
                     "similarity": float(r["similarity"]),
                 })
 
-        # 4. Haal client_context APART op indien toegestaan
         client_chunks: list[dict[str, Any]] = []
         if client_context_mode != "forbidden" and client_slug:
             client_chunks_raw = await self._fetch_client_context(
@@ -215,12 +214,25 @@ class KnowledgeService:
                         "similarity": c["similarity"],
                     })
 
-        # 5. Combineer en rerank
         combined = agency_chunks + client_chunks
         reranked = self._rerank_by_priority(combined)
+        chunks = self._apply_token_budget(reranked)
 
-        # 6. Apply token budget
-        return self._apply_token_budget(reranked)
+        from app.services.lessons_retriever import LessonsRetriever
+
+        retriever = LessonsRetriever()
+        lessons = await retriever.retrieve(
+            pool=pool, query=query, domain=domain, agent_id=agent_id, top_k=3,
+        )
+        lessons_text = retriever.format_for_context(lessons) if lessons else ""
+
+        return {
+            "chunks": chunks,
+            "client_context": [c["chunk_text"] for c in client_chunks],
+            "lessons": lessons,
+            "lessons_text": lessons_text,
+            "total_lessons": len(lessons),
+        }
 
     async def _fetch_client_context(
         self,

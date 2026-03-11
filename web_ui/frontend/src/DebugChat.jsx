@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { apiUrl, apiFetch } from './apiClient'
+import { apiUrl } from './apiClient'
 
 function renderMarkdown(text) {
   if (!text) return ''
@@ -46,9 +46,9 @@ export default function DebugChat() {
 
     try {
       // #region agent log
-      console.log('[DBG-c78650] calling apiFetch...');
+      console.log('[DBG-c78650] calling fetch (no auth)...');
       // #endregion
-      const res = await apiFetch('/api/debug/chat', {
+      const res = await fetch(apiUrl('/api/debug/chat'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: msg, conversation_history }),

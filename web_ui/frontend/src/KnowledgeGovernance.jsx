@@ -32,7 +32,21 @@ const TABS = [
   { id: 'stale', label: 'Stale Documents' },
   { id: 'permissions', label: 'Permissions' },
   { id: 'audit', label: 'Audit Log' },
+  { id: 'lessons', label: 'Lessons' },
 ]
+
+const CONFIDENCE_BADGE = (score) => {
+  if (score >= 0.90) return { cls: 'bg-green-100 text-green-700', label: 'Hoog' }
+  if (score >= 0.70) return { cls: 'bg-blue-100 text-blue-700', label: 'Voldoende' }
+  return { cls: 'bg-gray-100 text-gray-500', label: 'Afgekeurd' }
+}
+
+const LESSON_STATUS_BADGE = {
+  active: 'bg-green-100 text-green-700',
+  rejected: 'bg-red-100 text-red-700',
+  superseded: 'bg-gray-100 text-gray-500',
+  stale: 'bg-orange-100 text-orange-700',
+}
 
 function formatRelative(dateStr) {
   if (!dateStr) return ''
@@ -80,6 +94,11 @@ export default function KnowledgeGovernance() {
     valid_until: '',
   })
   const [submitting, setSubmitting] = useState(false)
+
+  const [lessons, setLessons] = useState([])
+  const [lessonsStatusFilter, setLessonsStatusFilter] = useState('all')
+  const [lessonsMinConf, setLessonsMinConf] = useState(0)
+  const [expandedLesson, setExpandedLesson] = useState(null)
 
   const fetchQueue = useCallback(async () => {
     setLoading(true)
@@ -197,6 +216,33 @@ export default function KnowledgeGovernance() {
     }
   }, [])
 
+  const fetchLessons = useCallback(async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const params = new URLSearchParams()
+      if (lessonsStatusFilter !== 'all') params.set('status', lessonsStatusFilter)
+      if (lessonsMinConf > 0) params.set('min_confidence', String(lessonsMinConf))
+      const qs = params.toString()
+      const res = await apiFetch(`/api/knowledge/governance/lessons${qs ? `?${qs}` : ''}`)
+      if (res.status === 401) {
+        navigate('/login', { state: { from: location } })
+        return
+      }
+      if (res.ok) {
+        const data = await res.json()
+        setLessons(data)
+      } else {
+        const j = await res.json().catch(() => ({}))
+        setError(j.detail || 'Laden mislukt')
+      }
+    } catch (err) {
+      setError(err.message || 'Laden mislukt')
+    } finally {
+      setLoading(false)
+    }
+  }, [navigate, location, lessonsStatusFilter, lessonsMinConf])
+
   useEffect(() => {
     if (!authReady) return
     if (tab === 'queue') fetchQueue()
@@ -207,7 +253,8 @@ export default function KnowledgeGovernance() {
       fetchDocuments()
     }
     else if (tab === 'audit') fetchAudit()
-  }, [authReady, tab, fetchQueue, fetchStale, fetchPermissions, fetchAudit, fetchAgents, fetchDocuments])
+    else if (tab === 'lessons') fetchLessons()
+  }, [authReady, tab, fetchQueue, fetchStale, fetchPermissions, fetchAudit, fetchAgents, fetchDocuments, fetchLessons])
 
   const handleDeletePermission = async () => {
     if (!deleteModal) return
@@ -524,6 +571,100 @@ export default function KnowledgeGovernance() {
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Tab 5: Lessons */}
+      {tab === 'lessons' && (
+        <div>
+          <div className="flex flex-wrap items-center gap-3 mb-4">
+            <div className="flex gap-1">
+              {['all', 'active', 'rejected'].map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => setLessonsStatusFilter(s)}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                    lessonsStatusFilter === s ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  {s === 'all' ? 'Alle' : s}
+                </button>
+              ))}
+            </div>
+            <select
+              value={lessonsMinConf}
+              onChange={(e) => setLessonsMinConf(Number(e.target.value))}
+              className="px-3 py-1.5 border border-slate-300 rounded-lg text-sm"
+            >
+              <option value={0}>Alle confidence</option>
+              <option value={0.90}>&ge; 0.90</option>
+              <option value={0.70}>&ge; 0.70</option>
+            </select>
+          </div>
+          {loading ? (
+            <p className="text-slate-500">Laden...</p>
+          ) : lessons.length === 0 ? (
+            <div className="p-8 rounded-xl border border-slate-200 bg-slate-50 text-center">
+              <p className="text-slate-600">Nog geen lessons beschikbaar.</p>
+              <p className="text-slate-400 text-sm mt-1">Lessons worden aangemaakt na voltooide agent-taken.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto rounded-lg border border-slate-200">
+              <table className="min-w-full text-sm">
+                <thead className="bg-slate-50">
+                  <tr>
+                    <th className="px-4 py-2 text-left font-medium text-slate-700">Lesson ID</th>
+                    <th className="px-4 py-2 text-left font-medium text-slate-700">Agent</th>
+                    <th className="px-4 py-2 text-left font-medium text-slate-700">Domain</th>
+                    <th className="px-4 py-2 text-left font-medium text-slate-700">Confidence</th>
+                    <th className="px-4 py-2 text-left font-medium text-slate-700">Status</th>
+                    <th className="px-4 py-2 text-left font-medium text-slate-700">Datum</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {lessons.map((l) => {
+                    const conf = CONFIDENCE_BADGE(l.confidence_score ?? 0)
+                    const isExpanded = expandedLesson === l.lesson_id
+                    return (
+                      <tr
+                        key={l.lesson_id}
+                        className="hover:bg-slate-50 cursor-pointer"
+                        onClick={() => setExpandedLesson(isExpanded ? null : l.lesson_id)}
+                      >
+                        <td className="px-4 py-2 font-mono text-xs">{l.lesson_id}</td>
+                        <td className="px-4 py-2">{l.agent_id || '—'}</td>
+                        <td className="px-4 py-2">{l.domain || '—'}</td>
+                        <td className="px-4 py-2">
+                          <span className={`px-2 py-0.5 text-xs font-medium rounded ${conf.cls}`}>
+                            {(l.confidence_score ?? 0).toFixed(2)} — {conf.label}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2">
+                          <span className={`px-2 py-0.5 text-xs font-medium rounded ${LESSON_STATUS_BADGE[l.status] || 'bg-gray-100 text-gray-500'}`}>
+                            {l.status}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2 text-slate-500">{formatDate(l.created_at)}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+              {expandedLesson && (() => {
+                const l = lessons.find((x) => x.lesson_id === expandedLesson)
+                if (!l) return null
+                return (
+                  <div className="border-t border-slate-200 bg-slate-50 px-6 py-4 space-y-2 text-sm">
+                    <p><span className="font-medium text-slate-700">Title:</span> {l.title}</p>
+                    <p><span className="font-medium text-slate-700">Gevonden:</span> {l.gevonden}</p>
+                    <p><span className="font-medium text-slate-700">Oorzaak:</span> {l.oorzaak}</p>
+                    <p><span className="font-medium text-slate-700">Fix:</span> {l.fix}</p>
+                  </div>
+                )
+              })()}
             </div>
           )}
         </div>

@@ -454,6 +454,63 @@ async def governance_audit(
     ]
 
 
+@router.get("/governance/lessons")
+async def governance_lessons(
+    current_user: TokenPayload = Depends(get_current_user),
+    status: Optional[str] = Query(None),
+    min_confidence: float = Query(0, ge=0, le=1),
+):
+    """Lessons overview for governance tab."""
+    pool = await get_db()
+    conditions = []
+    params: list[Any] = []
+    idx = 1
+
+    if status:
+        conditions.append(f"l.status = ${idx}")
+        params.append(status)
+        idx += 1
+    if min_confidence > 0:
+        conditions.append(f"l.confidence_score >= ${idx}")
+        params.append(min_confidence)
+        idx += 1
+
+    where = (" AND " + " AND ".join(conditions)) if conditions else ""
+
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            f"""
+            SELECT l.lesson_id, l.title, l.agent_id,
+                   l.confidence_score, l.status,
+                   l.gevonden, l.oorzaak, l.fix,
+                   l.created_at,
+                   a.specialization AS domain
+            FROM lessons l
+            LEFT JOIN agents a ON l.agent_id = a.agent_id
+            WHERE 1=1 {where}
+            ORDER BY l.confidence_score DESC, l.created_at DESC
+            LIMIT 100
+            """,
+            *params,
+        )
+
+    return [
+        {
+            "lesson_id": r["lesson_id"],
+            "title": r["title"],
+            "agent_id": r["agent_id"],
+            "confidence_score": float(r["confidence_score"]) if r["confidence_score"] is not None else 0.0,
+            "status": r["status"],
+            "gevonden": r["gevonden"],
+            "oorzaak": r["oorzaak"],
+            "fix": r["fix"],
+            "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+            "domain": r["domain"],
+        }
+        for r in rows
+    ]
+
+
 class PermissionCreate(BaseModel):
     agent_id: Optional[str] = None
     role: Optional[str] = None
