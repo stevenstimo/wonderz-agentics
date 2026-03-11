@@ -5,6 +5,11 @@ import { apiUrl, apiFetch } from './apiClient'
 
 import { VALID_TOOLS, VALID_CATEGORIES } from './agentConstants'
 
+const ROLE_OPTIONS = [
+  'copywriter', 'seo', 'hr-manager', 'support',
+  'frontend-engineer', 'backend-engineer', 'custom',
+]
+
 const initialForm = {
   agent_name: '',
   role: '',
@@ -12,6 +17,7 @@ const initialForm = {
   goal: '',
   system_prompt: '',
   tool_whitelist: [],
+  knowledge_sources: [],
 }
 
 export default function NewCrewMember() {
@@ -23,6 +29,7 @@ export default function NewCrewMember() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [fieldErrors, setFieldErrors] = useState({})
+  const [knowledgeUrlInput, setKnowledgeUrlInput] = useState('')
 
   const isValid = useMemo(() => {
     return (
@@ -67,6 +74,7 @@ export default function NewCrewMember() {
       goal: preset.goal || '',
       system_prompt: preset.system_prompt || '',
       tool_whitelist: tools,
+      knowledge_sources: [],
     })
   }
 
@@ -100,6 +108,7 @@ export default function NewCrewMember() {
         goal: form.goal.trim(),
         system_prompt: form.system_prompt.trim(),
         tool_whitelist: form.tool_whitelist,
+        knowledge_sources: form.knowledge_sources,
       }
       const res = await apiFetch('/api/agents', {
         method: 'POST',
@@ -210,12 +219,16 @@ export default function NewCrewMember() {
 
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Rol *</label>
-            <input
+            <select
               className={`w-full rounded-lg border px-3 py-2 ${fieldErrors.role ? 'border-red-500' : 'border-slate-300'}`}
               value={form.role}
               onChange={(e) => setForm({ ...form, role: e.target.value })}
-              placeholder="seo"
-            />
+            >
+              <option value="">— Selecteer rol —</option>
+              {ROLE_OPTIONS.map((r) => (
+                <option key={r} value={r}>{r}</option>
+              ))}
+            </select>
             {fieldErrors.role && (
               <p className="mt-1 text-xs text-red-600">{fieldErrors.role.join(', ')}</p>
             )}
@@ -275,6 +288,60 @@ export default function NewCrewMember() {
                 </label>
               ))}
             </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-2">Knowledge Base Sources</label>
+            <div className="flex gap-2">
+              <input
+                type="url"
+                className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                placeholder="https://example.com/docs"
+                value={knowledgeUrlInput}
+                onChange={(e) => setKnowledgeUrlInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    const url = knowledgeUrlInput.trim()
+                    if (url && !form.knowledge_sources.some((s) => s.url === url)) {
+                      setForm((f) => ({ ...f, knowledge_sources: [...f.knowledge_sources, { url, status: 'pending' }] }))
+                      setKnowledgeUrlInput('')
+                    }
+                  }
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  const url = knowledgeUrlInput.trim()
+                  if (url && !form.knowledge_sources.some((s) => s.url === url)) {
+                    setForm((f) => ({ ...f, knowledge_sources: [...f.knowledge_sources, { url, status: 'pending' }] }))
+                    setKnowledgeUrlInput('')
+                  }
+                }}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Toevoegen
+              </button>
+            </div>
+            {form.knowledge_sources.length > 0 && (
+              <ul className="mt-2 space-y-1">
+                {form.knowledge_sources.map((s, i) => (
+                  <li key={i} className="flex items-center gap-2 rounded-lg bg-slate-50 border border-slate-200 px-3 py-1.5 text-sm">
+                    <span className="flex-1 truncate text-slate-700">{s.url}</span>
+                    <span className="text-xs text-slate-400">pending</span>
+                    <button
+                      type="button"
+                      onClick={() => setForm((f) => ({ ...f, knowledge_sources: f.knowledge_sources.filter((_, j) => j !== i) }))}
+                      className="text-red-500 hover:text-red-700 text-xs font-medium"
+                    >
+                      &times;
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p className="mt-1 text-xs text-slate-400">URLs worden opgeslagen. Training start apart via agent detail.</p>
           </div>
 
           <button

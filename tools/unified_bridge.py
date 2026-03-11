@@ -2,11 +2,12 @@
 UnifiedToolBridge: Translates unified tool calls to platform-specific adapters.
 
 Agents never know about Shopify, WordPress, etc. The bridge handles that translation.
+Uses AdapterFactory by default to lazily create stub adapters for any platform.
 """
 
 from typing import Dict, Any, Optional, Callable
 from models.unified import UnifiedProduct
-from tools.adapters import BaseAdapter
+from tools.adapters import BaseAdapter, AdapterFactory
 
 
 class UnifiedToolBridge:
@@ -14,33 +15,21 @@ class UnifiedToolBridge:
     Provides a unified interface for agents to interact with any platform.
     
     Internally routes calls to the correct adapter based on the platform.
+    By default uses AdapterFactory to create adapters on demand.
     """
 
     def __init__(
         self,
         adapters: Optional[Dict[str, BaseAdapter]] = None,
-        adapter_factory: Optional[Callable[[str], BaseAdapter]] = None
+        adapter_factory: Optional[Callable[[str], BaseAdapter]] = None,
     ):
-        """
-        Initialize with a mapping of platform -> adapter.
-        
-        Args:
-            adapters: Dict like {"shopify": ShopifyAdapter(...), "wordpress": WordPressAdapter(...)}
-                      If None, will attempt to auto-instantiate based on platform name
-        """
         self.adapters = adapters or {}
-        self.adapter_factory = adapter_factory
+        self.adapter_factory = adapter_factory or AdapterFactory.get
 
     def _get_adapter(self, platform: str) -> BaseAdapter:
-        """Get the adapter for a given platform."""
+        """Get or create the adapter for a given platform."""
         if platform not in self.adapters:
-            if self.adapter_factory:
-                self.adapters[platform] = self.adapter_factory(platform)
-            else:
-                raise ValueError(
-                    "No adapter registered for platform. "
-                    "Provide adapters or an adapter_factory when creating UnifiedToolBridge."
-                )
+            self.adapters[platform] = self.adapter_factory(platform)
         return self.adapters[platform]
 
     async def read_product(

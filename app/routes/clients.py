@@ -138,10 +138,13 @@ async def get_ga4_properties(
         raise HTTPException(status_code=401, detail="token_expired")
     try:
         props = await list_ga4_properties(access_token)
-    except RuntimeError as e:
-        raise HTTPException(status_code=503, detail=str(e))
-    except PermissionError:
-        raise HTTPException(status_code=401, detail="token_expired")
+    except Exception as e:
+        err_str = str(e)
+        if "403" in err_str or "has not been used" in err_str or "API not enabled" in err_str:
+            raise HTTPException(status_code=403, detail="google_api_not_enabled")
+        elif "401" in err_str or "invalid_grant" in err_str or "Token has been expired" in err_str:
+            raise HTTPException(status_code=401, detail="token_expired")
+        raise HTTPException(status_code=500, detail=str(e))
     return props
 
 
@@ -176,10 +179,13 @@ async def get_ads_accounts(
         raise HTTPException(status_code=401, detail="token_expired")
     try:
         accounts = await list_google_ads_accounts(refresh)
-    except PermissionError:
-        raise HTTPException(status_code=401, detail="token_expired")
-    except RuntimeError as e:
-        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        err_str = str(e)
+        if "403" in err_str or "has not been used" in err_str or "API not enabled" in err_str:
+            raise HTTPException(status_code=403, detail="google_api_not_enabled")
+        elif "401" in err_str or "invalid_grant" in err_str or "Token has been expired" in err_str:
+            raise HTTPException(status_code=401, detail="token_expired")
+        raise HTTPException(status_code=500, detail=str(e))
     return accounts
 
 
@@ -205,10 +211,13 @@ async def get_gsc_sites(
         raise HTTPException(status_code=401, detail="token_expired")
     try:
         sites = await list_gsc_sites(access_token)
-    except RuntimeError as e:
-        raise HTTPException(status_code=503, detail=str(e))
-    except PermissionError:
-        raise HTTPException(status_code=401, detail="token_expired")
+    except Exception as e:
+        err_str = str(e)
+        if "403" in err_str or "has not been used" in err_str or "API not enabled" in err_str:
+            raise HTTPException(status_code=403, detail="google_api_not_enabled")
+        elif "401" in err_str or "invalid_grant" in err_str or "Token has been expired" in err_str:
+            raise HTTPException(status_code=401, detail="token_expired")
+        raise HTTPException(status_code=500, detail=str(e))
     return sites
 
 

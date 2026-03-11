@@ -760,6 +760,31 @@ export default function JobSplitView() {
                       <div className="bg-indigo-600 h-3 rounded-full transition-all duration-500" style={{ width: `${progressPct}%` }} />
                     </div>
                   </div>
+                  {(() => {
+                    const budget = context?.token_budget ?? job?.token_budget
+                    const used = context?.tokens_used ?? job?.tokens_used ?? 0
+                    if (!budget || budget <= 0) return null
+                    const pct = Math.min((used / budget) * 100, 100)
+                    const exceeded = context?.token_budget_exceeded
+                    const barColor = exceeded ? 'bg-red-500' : pct >= 80 ? 'bg-orange-500' : 'bg-green-500'
+                    return (
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                          <span className="text-sm font-medium text-slate-700">Token Budget</span>
+                          <span className="text-xs text-slate-500">
+                            {exceeded ? 'Budget overschreden' : `${Math.round(pct)}%`}{' '}
+                            ({used.toLocaleString()} / {budget.toLocaleString()})
+                          </span>
+                        </div>
+                        <div className="w-full bg-slate-200 rounded-full h-3 overflow-hidden">
+                          <div className={`${barColor} h-3 rounded-full transition-all duration-500`} style={{ width: `${pct}%` }} />
+                        </div>
+                        {exceeded && (
+                          <p className="text-xs text-red-600 mt-1 font-medium">Token budget overschreden — job gestopt.</p>
+                        )}
+                      </div>
+                    )
+                  })()}
                   <ul className="space-y-2">
                     {stepList.map((s, idx) => {
                       const status = s.status || 'pending'
@@ -969,6 +994,22 @@ export default function JobSplitView() {
                     ? `Token budget exceeded: ${context.tokens_used ?? job?.tokens_used ?? '?'} / ${context.token_budget ?? job?.token_budget ?? 50000} tokens used.`
                     : 'Job Failed'}
                 </div>
+                {context?.token_budget_exceeded && (() => {
+                  const budget = context?.token_budget ?? job?.token_budget ?? 50000
+                  const used = context?.tokens_used ?? job?.tokens_used ?? 0
+                  const pct = Math.min((used / budget) * 100, 100)
+                  return (
+                    <div className="rounded-xl border border-red-200 bg-red-50 p-4">
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <span className="text-sm font-medium text-red-700">Token Budget</span>
+                        <span className="text-xs text-red-600">{used.toLocaleString()} / {budget.toLocaleString()}</span>
+                      </div>
+                      <div className="w-full bg-red-200 rounded-full h-3 overflow-hidden">
+                        <div className="bg-red-500 h-3 rounded-full" style={{ width: `${pct}%` }} />
+                      </div>
+                    </div>
+                  )
+                })()}
                 {(context.execution_error || context.error || context.message) && (
                   <div className="rounded-xl border border-red-200 bg-red-50 p-4">
                     <h4 className="text-sm font-semibold text-red-800 mb-2">Error log</h4>
