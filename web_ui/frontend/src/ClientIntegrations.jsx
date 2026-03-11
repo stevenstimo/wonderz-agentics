@@ -175,16 +175,32 @@ export default function ClientIntegrations() {
               forms[pc.platform] = { ...pc.config }
             }
             setPlatformForms(forms)
+            // Direct properties/accounts/sites laden na OAuth callback
+            fetchGoogleOptions('ga4')
+            fetchGoogleOptions('google_ads')
+            fetchGoogleOptions('gsc')
           }
         } catch (_) {}
       }
       refetch()
     }
-  }, [searchParams, slug])
+  }, [searchParams, slug, fetchGoogleOptions])
 
   const getConfigForPlatform = (platform) => {
     const pc = client?.platform_configs?.find((p) => p.platform === platform)
     return pc?.config || {}
+  }
+
+  const getDisplayNameForPlatform = (platform) => {
+    const cfg = GOOGLE_DROPDOWN_CONFIG[platform]
+    if (!cfg) return null
+    const config = getConfigForPlatform(platform)
+    const val = config[cfg.configKey]
+    if (!val) return null
+    const opts = googleOptions[platform] || []
+    const found = opts.find((o) => o[cfg.valueKey] === val)
+    if (found) return found[cfg.labelKey] || val
+    return val
   }
 
   const isConfigured = (platform) => {
@@ -391,7 +407,11 @@ export default function ClientIntegrations() {
                   {(isGoogle ? isGoogleConnected : configured) ? (
                     <>
                       <CheckCircle className="w-4 h-4" />
-                      {isGoogle ? 'Verbonden' : 'Geconfigureerd'}
+                      {isGoogle
+                        ? (getDisplayNameForPlatform(platform)
+                          ? `Verbonden — ${getDisplayNameForPlatform(platform)}`
+                          : 'Verbonden')
+                        : 'Geconfigureerd'}
                     </>
                   ) : canConfigure ? (
                     <>
@@ -416,7 +436,9 @@ export default function ClientIntegrations() {
                       <div className="flex items-center gap-3">
                         <span className="inline-flex items-center gap-1.5 text-emerald-700 font-medium">
                           <CheckCircle className="w-5 h-5" />
-                          Verbonden
+                          {getDisplayNameForPlatform(platform)
+                            ? `Verbonden — ${getDisplayNameForPlatform(platform)}`
+                            : 'Verbonden'}
                         </span>
                         <button
                           type="button"

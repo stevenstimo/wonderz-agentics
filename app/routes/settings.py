@@ -11,11 +11,12 @@ import subprocess
 from pathlib import Path
 
 from dotenv import dotenv_values
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from typing import Optional
 
 from app.database import get_db
+from app.middleware.auth import TokenPayload, get_current_user
 
 logger = logging.getLogger(__name__)
 
@@ -248,9 +249,8 @@ def _write_systemd_override(env_vars: dict[str, str]) -> None:
 
 
 @router.get("/api/settings/env-vars")
-async def get_env_vars(request: Request):
+async def get_env_vars(current_user: TokenPayload = Depends(get_current_user)):
     """Read from systemd override and .env, return which keys are configured. Preview: first 3 + ... + last 3."""
-    await _check_admin(request)
 
     merged = _get_merged_env_vars()
     out = []
@@ -270,9 +270,8 @@ async def get_env_vars(request: Request):
 
 
 @router.post("/api/settings/env-vars")
-async def save_env_var(request: Request, body: EnvVarUpdate):
+async def save_env_var(body: EnvVarUpdate, current_user: TokenPayload = Depends(get_current_user)):
     """Save env var to systemd override and reload/restart wonderz-backend."""
-    await _check_admin(request)
 
     if body.key not in ENV_VAR_SPEC:
         raise HTTPException(status_code=400, detail=f"Unknown key: {body.key}")

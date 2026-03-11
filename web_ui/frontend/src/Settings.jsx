@@ -189,7 +189,6 @@ export default function Settings() {
 function ServerConfigSection() {
   const [envVars, setEnvVars] = useState([])
   const [loading, setLoading] = useState(true)
-  const [forbidden, setForbidden] = useState(false)
   const [editingKey, setEditingKey] = useState(null)
   const [editValue, setEditValue] = useState('')
   const [savingKey, setSavingKey] = useState(null)
@@ -197,14 +196,13 @@ function ServerConfigSection() {
 
   const fetchEnvVars = async () => {
     setLoading(true)
-    setForbidden(false)
     try {
       const res = await apiFetch('/api/settings/env-vars')
       if (res.ok) {
         const data = await res.json()
         setEnvVars(data)
-      } else if (res.status === 401 || res.status === 403) {
-        setForbidden(true)
+      } else {
+        setEnvVars([])
       }
     } catch {
       setEnvVars([])
@@ -264,15 +262,6 @@ function ServerConfigSection() {
         <div className="flex items-center justify-center py-8">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600" />
         </div>
-      </div>
-    )
-  }
-
-  if (forbidden) {
-    return (
-      <div className="mt-8 bg-white rounded-lg shadow-lg p-8">
-        <h2 className="text-2xl font-semibold mb-6 text-gray-800">Server Configuratie</h2>
-        <p className="text-amber-600">Alleen super admin kan server configuratie bekijken en bewerken.</p>
       </div>
     )
   }
