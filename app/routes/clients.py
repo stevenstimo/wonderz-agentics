@@ -19,10 +19,10 @@ from app.services.dashboard import (
     _get_first_google_ads_customer,
     _get_first_gsc_site,
     _get_refresh_token,
-    _refresh_access_token,
     fetch_ga4,
     fetch_gsc,
     fetch_google_ads_via_gaql,
+    get_valid_access_token,
     list_ga4_properties,
     list_google_ads_accounts,
     list_gsc_sites,
@@ -47,6 +47,13 @@ class ClientCreateBody(BaseModel):
 class PlatformConfigBody(BaseModel):
     platform: str = Field(..., min_length=1)
     config: dict[str, Any] = Field(default_factory=dict)
+
+
+class IntegrationConfigBody(BaseModel):
+    """Config for Google integration: property_id (ga4), site_url (gsc), customer_id (google_ads)."""
+    property_id: Optional[str] = None
+    site_url: Optional[str] = None
+    customer_id: Optional[str] = None
 
 
 # --- Endpoints ---
@@ -124,21 +131,9 @@ async def get_ga4_properties(
         )
         if not client:
             raise HTTPException(status_code=404, detail="Client not found")
-        row = await conn.fetchrow(
-            """
-            SELECT api_key_encrypted, extra_config
-            FROM client_integrations
-            WHERE user_id = $1 AND client_slug = $2 AND integration_type = 'ga4'
-            """,
-            current_user.user_id,
-            slug,
+        access_token = await get_valid_access_token(
+            conn, current_user.user_id, slug, "ga4"
         )
-    if not row:
-        raise HTTPException(status_code=404, detail="GA4 not connected for this client")
-    refresh = _get_refresh_token(row["api_key_encrypted"], row["extra_config"])
-    if not refresh:
-        raise HTTPException(status_code=400, detail="No refresh token")
-    access_token = await _refresh_access_token(refresh)
     if not access_token:
         raise HTTPException(status_code=401, detail="Token refresh failed")
     try:
@@ -201,21 +196,9 @@ async def get_gsc_sites(
         )
         if not client:
             raise HTTPException(status_code=404, detail="Client not found")
-        row = await conn.fetchrow(
-            """
-            SELECT api_key_encrypted, extra_config
-            FROM client_integrations
-            WHERE user_id = $1 AND client_slug = $2 AND integration_type = 'google_search_console'
-            """,
-            current_user.user_id,
-            slug,
+        access_token = await get_valid_access_token(
+            conn, current_user.user_id, slug, "google_search_console"
         )
-    if not row:
-        raise HTTPException(status_code=404, detail="Search Console not connected for this client")
-    refresh = _get_refresh_token(row["api_key_encrypted"], row["extra_config"])
-    if not refresh:
-        raise HTTPException(status_code=400, detail="No refresh token")
-    access_token = await _refresh_access_token(refresh)
     if not access_token:
         raise HTTPException(status_code=401, detail="Token refresh failed")
     try:
@@ -298,27 +281,26 @@ async def get_client_dashboard(
     if not ga4_int:
         result["ga4"] = {"not_connected": True}
     else:
-        refresh = _get_refresh_token(ga4_int["api_key_encrypted"], ga4_int["extra_config"])
-        if not refresh:
-            result["ga4"] = {"not_connected": True}
+        async with pool.acquire() as conn:
+            access_token = await get_valid_access_token(
+                conn, current_user.user_id, slug, "ga4"
+            )
+        if not access_token:
+            result["ga4"] = {"not_connected": True, "error": "Token refresh failed"}
         else:
-            access_token = await _refresh_access_token(refresh)
-            if not access_token:
-                result["ga4"] = {"not_connected": True, "error": "Token refresh failed"}
+            if not property_id:
+                property_id = await _get_first_ga4_property(access_token)
+            if not property_id:
+                result["ga4"] = {"not_connected": True, "error": "No GA4 property found"}
             else:
-                if not property_id:
-                    property_id = await _get_first_ga4_property(access_token)
-                if not property_id:
-                    result["ga4"] = {"not_connected": True, "error": "No GA4 property found"}
-                else:
-                    try:
-                        ga4_data = await fetch_ga4(
-                            access_token, property_id, start_str, end_str, channel, device
-                        )
-                        result["ga4"] = ga4_data
-                    except Exception as e:
-                        logger.exception("GA4 fetch failed")
-                        result["ga4"] = {"not_connected": False, "error": str(e)}
+                try:
+                    ga4_data = await fetch_ga4(
+                        access_token, property_id, start_str, end_str, channel, device
+                    )
+                    result["ga4"] = ga4_data
+                except Exception as e:
+                    logger.exception("GA4 fetch failed")
+                    result["ga4"] = {"not_connected": False, "error": str(e)}
 
     # --- Google Ads ---
     ads_int = int_by_type.get("google_ads")
@@ -357,25 +339,24 @@ async def get_client_dashboard(
     if not gsc_int:
         result["gsc"] = {"not_connected": True}
     else:
-        refresh = _get_refresh_token(gsc_int["api_key_encrypted"], gsc_int["extra_config"])
-        if not refresh:
-            result["gsc"] = {"not_connected": True}
+        async with pool.acquire() as conn:
+            access_token = await get_valid_access_token(
+                conn, current_user.user_id, slug, "google_search_console"
+            )
+        if not access_token:
+            result["gsc"] = {"not_connected": True, "error": "Token refresh failed"}
         else:
-            access_token = await _refresh_access_token(refresh)
-            if not access_token:
-                result["gsc"] = {"not_connected": True, "error": "Token refresh failed"}
+            if not site_url:
+                site_url = await _get_first_gsc_site(access_token)
+            if not site_url:
+                result["gsc"] = {"not_connected": True, "error": "Configure site_url in platform config (e.g. https://example.com/)"}
             else:
-                if not site_url:
-                    site_url = await _get_first_gsc_site(access_token)
-                if not site_url:
-                    result["gsc"] = {"not_connected": True, "error": "Configure site_url in platform config (e.g. https://example.com/)"}
-                else:
-                    try:
-                        gsc_data = await fetch_gsc(access_token, site_url, start_str, end_str)
-                        result["gsc"] = gsc_data
-                    except Exception as e:
-                        logger.exception("GSC fetch failed")
-                        result["gsc"] = {"not_connected": False, "error": str(e)}
+                try:
+                    gsc_data = await fetch_gsc(access_token, site_url, start_str, end_str)
+                    result["gsc"] = gsc_data
+                except Exception as e:
+                    logger.exception("GSC fetch failed")
+                    result["gsc"] = {"not_connected": False, "error": str(e)}
 
     # --- Overview (GA4 for users/sessions/conversions, Ads for cost) ---
     total_cost = 0.0
@@ -402,6 +383,94 @@ async def get_client_dashboard(
     }
 
     return result
+
+
+# service_type -> (platform for client_platform_configs, config keys to allow)
+SERVICE_CONFIG_PLATFORM = {
+    "ga4": ("ga4", ["property_id"]),
+    "google_search_console": ("gsc", ["site_url"]),
+    "google_ads": ("google_ads", ["customer_id"]),
+}
+
+
+@router.patch("/{slug}/integrations/{service_type}/config")
+async def save_integration_config(
+    slug: str,
+    service_type: str,
+    body: IntegrationConfigBody,
+    current_user: TokenPayload = Depends(get_current_user),
+):
+    """Sla geselecteerde property/account op in extra_config en client_platform_configs."""
+    if service_type not in SERVICE_CONFIG_PLATFORM:
+        raise HTTPException(status_code=400, detail="Invalid service_type")
+    platform, allowed_keys = SERVICE_CONFIG_PLATFORM[service_type]
+    config_dict = body.model_dump(exclude_none=True)
+    config_dict = {k: v for k, v in config_dict.items() if k in allowed_keys}
+    if not config_dict:
+        raise HTTPException(status_code=400, detail="No valid config provided")
+
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        client = await conn.fetchrow(
+            "SELECT slug, client_name FROM clients WHERE user_id = $1 AND slug = $2",
+            current_user.user_id,
+            slug,
+        )
+        if not client:
+            raise HTTPException(status_code=404, detail="Client not found")
+
+        row = await conn.fetchrow(
+            """
+            SELECT integration_id, extra_config
+            FROM client_integrations
+            WHERE user_id = $1 AND client_slug = $2 AND integration_type = $3
+            """,
+            current_user.user_id,
+            slug,
+            service_type,
+        )
+        if not row:
+            raise HTTPException(status_code=404, detail="Integration not found")
+
+        extra = row["extra_config"] or {}
+        if isinstance(extra, str):
+            try:
+                extra = json.loads(extra)
+            except Exception:
+                extra = {}
+        extra = dict(extra)
+        extra.update(config_dict)
+        extra_json = json.dumps(extra)
+
+        await conn.execute(
+            """
+            UPDATE client_integrations
+            SET extra_config = $1::jsonb, updated_at = now()
+            WHERE user_id = $2 AND client_slug = $3 AND integration_type = $4
+            """,
+            extra_json,
+            current_user.user_id,
+            slug,
+            service_type,
+        )
+        config_id = f"cfg:{slug}:{platform}"
+        config_json = json.dumps(config_dict)
+        await conn.execute(
+            """
+            INSERT INTO client_platform_configs
+                (config_id, user_id, client_slug, client_name, platform, config, is_active)
+            VALUES ($1, $2, $3, $4, $5, $6::jsonb, true)
+            ON CONFLICT (user_id, client_slug, platform)
+            DO UPDATE SET config = client_platform_configs.config || $6::jsonb, is_active = true
+            """,
+            config_id,
+            current_user.user_id,
+            slug,
+            client["client_name"],
+            platform,
+            config_json,
+        )
+    return {"status": "ok", "extra_config": extra}
 
 
 @router.get("/{slug}")

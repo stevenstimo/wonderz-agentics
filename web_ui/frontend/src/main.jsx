@@ -36,7 +36,6 @@ import MyAccount from './MyAccount.jsx'
 import HiringHall from './HiringHall.jsx'
 import JobSplitView from './JobSplitView.jsx'
 import NewJob from './NewJob.jsx'
-import SkillsLibrary from './SkillsLibrary.jsx'
 import MissionControl from './MissionControl.jsx'
 import HRDashboard from './HRDashboard.jsx'
 import PersonalProjects from './PersonalProjects.jsx'
@@ -46,6 +45,10 @@ import ProductManagement from './ProductManagement.jsx'
 import AgentInbox from './AgentInbox.jsx'
 import SEOTool from './SEOTool.jsx'
 import SEOLanding from './SEOLanding.jsx'
+import KnowledgeLibrary from './KnowledgeLibrary.jsx'
+import KnowledgeDetail from './KnowledgeDetail.jsx'
+import KnowledgeUpload from './KnowledgeUpload.jsx'
+import SkillFactory from './SkillFactory.jsx'
 
 import './index.css'
 
@@ -80,7 +83,12 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <Route path="/agents/:agentId/edit" element={<AgentDetail />} />
           <Route path="/training" element={<TrainingManagement />} />
           <Route path="/training/management" element={<TrainingManagement />} />
-          <Route path="/skills-library" element={<SkillsLibrary />} />
+          <Route path="/skills-library" element={<Navigate to="/knowledge/skills" replace />} />
+          <Route path="/skills" element={<Navigate to="/knowledge/skills" replace />} />
+          <Route path="/knowledge" element={<KnowledgeLibrary />} />
+          <Route path="/knowledge/upload" element={<KnowledgeUpload />} />
+          <Route path="/knowledge/skills" element={<SkillFactory />} />
+          <Route path="/knowledge/:id" element={<KnowledgeDetail />} />
           <Route path="/approvals" element={<ApprovalDashboard />} />
           <Route path="/hr-feedback" element={<HRDashboard />} />
           <Route path="/hr/improvements" element={<HRImprovements />} />

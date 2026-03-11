@@ -3,7 +3,7 @@
 import json
 import logging
 import os
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any, Optional
 
 import httpx
@@ -208,6 +208,83 @@ def _get_refresh_token(api_key_encrypted: Optional[str], extra_config: Optional[
         return refresh
     # Fallback: api_key_encrypted may store refresh_token when no extra_config
     return api_key_encrypted
+
+
+async def get_valid_access_token(
+    conn, user_id: str, client_slug: str, integration_type: str
+) -> Optional[str]:
+    """
+    Haalt access_token op. Als verlopen: vernieuwt via refresh_token en slaat op.
+    Returns None als token niet beschikbaar of refresh mislukt.
+    Backward compatible: als expires_at ontbreekt in extra_config, refresh altijd.
+    """
+    row = await conn.fetchrow(
+        """
+        SELECT extra_config, api_key_encrypted
+        FROM client_integrations
+        WHERE user_id = $1 AND client_slug = $2 AND integration_type = $3
+        """,
+        user_id,
+        client_slug,
+        integration_type,
+    )
+    if not row:
+        return None
+
+    extra = row["extra_config"] or {}
+    if isinstance(extra, str):
+        try:
+            extra = json.loads(extra)
+        except Exception:
+            extra = {}
+    extra = dict(extra or {})
+
+    access_token = extra.get("access_token")
+    refresh_token = extra.get("refresh_token") or row.get("api_key_encrypted")
+
+    # Check of access_token nog geldig is (60s marge)
+    expires_at = extra.get("expires_at")
+    now_ts = int(datetime.utcnow().timestamp())
+    if expires_at and now_ts < expires_at - 60:
+        return access_token
+
+    # Refresh nodig (of expires_at ontbreekt — backward compatible)
+    if not refresh_token:
+        logger.warning(
+            "get_valid_access_token: no refresh_token for user_id=%s client_slug=%s integration_type=%s",
+            user_id,
+            client_slug,
+            integration_type,
+        )
+        return None
+
+    new_access_token = await _refresh_access_token(refresh_token)
+    if not new_access_token:
+        logger.warning(
+            "get_valid_access_token: refresh failed for user_id=%s client_slug=%s integration_type=%s",
+            user_id,
+            client_slug,
+            integration_type,
+        )
+        return None
+
+    # Sla nieuw access_token en expires_at op
+    new_expires_at = now_ts + 3600
+    extra["access_token"] = new_access_token
+    extra["expires_at"] = new_expires_at
+    extra["oauth_connected"] = True
+    await conn.execute(
+        """
+        UPDATE client_integrations
+        SET extra_config = $1::jsonb, updated_at = now()
+        WHERE user_id = $2 AND client_slug = $3 AND integration_type = $4
+        """,
+        json.dumps(extra),
+        user_id,
+        client_slug,
+        integration_type,
+    )
+    return new_access_token
 
 
 async def fetch_ga4(

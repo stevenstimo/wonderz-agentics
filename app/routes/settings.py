@@ -27,8 +27,10 @@ SUPER_ADMIN_EMAIL = "stevenstimo@gmail.com"
 # Env vars the app needs — key -> (label, required, description)
 ENV_VAR_SPEC = {
     "ANTHROPIC_API_KEY": ("Anthropic API Key", True, "Vereist voor Claude AI"),
+    "GEMINI_API_KEY": ("Gemini API Key", False, "Optioneel voor Gemini AI"),
     "GOOGLE_CLIENT_ID": ("Google Client ID", True, "Vereist voor Google OAuth"),
     "GOOGLE_CLIENT_SECRET": ("Google Client Secret", True, "Vereist voor Google OAuth"),
+    "GOOGLE_REDIRECT_URI": ("Google Redirect URI", True, "OAuth callback URL voor Google (bijv. https://wonderz-agentic.exe.xyz/api/integrations/google/callback)"),
     "GOOGLE_ADS_DEVELOPER_TOKEN": ("Google Ads Developer Token", True, "Vereist voor Google Ads campagne data"),
     "SUPABASE_URL": ("Supabase URL", True, "Vereist voor database en auth"),
     "SUPABASE_KEY": ("Supabase Key", True, "Vereist voor Supabase API"),

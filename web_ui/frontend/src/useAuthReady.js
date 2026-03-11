@@ -5,13 +5,12 @@ export function useAuthReady() {
   const [ready, setReady] = useState(false)
 
   useEffect(() => {
-    // Check of sessie al beschikbaar is
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) setReady(true)
-    })
-    // Of wacht op auth state change
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (session) setReady(true)
+    // Zodra we weten of er een sessie is, kunnen we fetchen (401 wordt afgehandeld)
+    supabase.auth.getSession()
+      .then(({ data: { session } }) => { setReady(true) })
+      .catch(() => { setReady(true) })
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(() => {
+      setReady(true)
     })
     return () => subscription.unsubscribe()
   }, [])

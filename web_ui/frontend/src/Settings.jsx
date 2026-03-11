@@ -8,6 +8,7 @@ import { useAuthReady } from './useAuthReady'
 const apiBase = (import.meta.env.VITE_API_URL || 'http://localhost:8090').replace(/\/$/, '')
 
 export default function Settings() {
+  const authReady = useAuthReady()
   const [settings, setSettings] = useState({
     gemini_api_key: '',
     anthropic_api_key: '',
@@ -25,12 +26,11 @@ export default function Settings() {
   const [message, setMessage] = useState({ type: '', text: '' })
 
   useEffect(() => {
+    if (!authReady) return
     const fetchSettings = async () => {
       setLoading(true)
       try {
-        const response = await fetch(`${apiBase}/api/settings`, {
-          method: 'GET',
-        })
+        const response = await apiFetch('/api/settings')
 
         if (response.ok) {
           const data = await response.json()
@@ -48,7 +48,7 @@ export default function Settings() {
     }
 
     fetchSettings()
-  }, [])
+  }, [authReady])
 
   const handleChange = (field, value) => {
     setSettings((prev) => ({ ...prev, [field]: value }))
@@ -59,8 +59,9 @@ export default function Settings() {
     setMessage({ type: '', text: '' })
 
     try {
-      const response = await fetch(`${apiBase}/api/settings`, {
+      const response = await apiFetch('/api/settings', {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(settings),
       })
 
@@ -106,80 +107,7 @@ export default function Settings() {
         </div>
       )}
 
-      <div className="bg-white rounded-lg shadow-lg p-8">
-        <h2 className="text-2xl font-semibold mb-6 text-gray-800">API Keys & Configuration</h2>
 
-        <div className="space-y-6">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Gemini API Key</label>
-            <div className="flex gap-2">
-              <input
-                type={showKeys.gemini_api_key ? 'text' : 'password'}
-                value={settings.gemini_api_key}
-                onChange={(e) => handleChange('gemini_api_key', e.target.value)}
-                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg"
-                placeholder="Enter your Gemini API key"
-              />
-              <button type="button" onClick={() => toggleShowKey('gemini_api_key')} className="px-3 py-2 text-gray-600 hover:text-gray-800">
-                {showKeys.gemini_api_key ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-              </button>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Anthropic API Key</label>
-            <div className="flex gap-2">
-              <input
-                type={showKeys.anthropic_api_key ? 'text' : 'password'}
-                value={settings.anthropic_api_key}
-                onChange={(e) => handleChange('anthropic_api_key', e.target.value)}
-                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg"
-                placeholder="Enter your Anthropic API key"
-              />
-              <button type="button" onClick={() => toggleShowKey('anthropic_api_key')} className="px-3 py-2 text-gray-600 hover:text-gray-800">
-                {showKeys.anthropic_api_key ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-              </button>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Supabase URL</label>
-            <input
-              type="text"
-              value={settings.supabase_url}
-              onChange={(e) => handleChange('supabase_url', e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-              placeholder="https://your-project.supabase.co"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Supabase API Key</label>
-            <div className="flex gap-2">
-              <input
-                type={showKeys.supabase_key ? 'text' : 'password'}
-                value={settings.supabase_key}
-                onChange={(e) => handleChange('supabase_key', e.target.value)}
-                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg"
-                placeholder="Enter your Supabase anon key"
-              />
-              <button type="button" onClick={() => toggleShowKey('supabase_key')} className="px-3 py-2 text-gray-600 hover:text-gray-800">
-                {showKeys.supabase_key ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={saving}
-          className="mt-8 w-full bg-indigo-600 text-white py-3 px-6 rounded-lg font-semibold hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-2"
-        >
-          <Save className="w-5 h-5" />
-          {saving ? 'Saving...' : 'Save Settings'}
-        </button>
-      </div>
 
       {/* Server Configuratie — env vars */}
       <ServerConfigSection />
@@ -245,6 +173,7 @@ function ServerConfigSection() {
         setEditValue('')
         setSavedKey(editingKey)
         setTimeout(() => setSavedKey(null), 2000)
+        fetchEnvVars()
       }
     } catch {
       setSavedKey(null)
@@ -315,11 +244,12 @@ function ServerConfigSection() {
                   {editingKey === item.key ? (
                     <div className="flex flex-col gap-2">
                       <input
-                        type="password"
+                        type="text"
                         value={editValue}
                         onChange={(e) => setEditValue(e.target.value)}
                         placeholder="Nieuwe waarde..."
                         className="px-3 py-1.5 border border-gray-300 rounded text-sm"
+                        autoComplete="off"
                         autoFocus
                       />
                       <div className="flex gap-2">

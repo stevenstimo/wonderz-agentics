@@ -26,19 +26,30 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/integrations", tags=["integrations"])
 
-# Google OAuth scopes for GA4, Google Ads, GSC (one flow for all three)
-GOOGLE_OAUTH_SCOPES = [
-    "https://www.googleapis.com/auth/analytics.readonly",  # GA4
-    "https://www.googleapis.com/auth/adwords",  # Google Ads
-    "https://www.googleapis.com/auth/webmasters.readonly",  # GSC
-]
+# Google OAuth scopes per service — elk platform apart verbinden met eigen account
+GOOGLE_SCOPES_PER_SERVICE = {
+    "ga4": [
+        "https://www.googleapis.com/auth/analytics.readonly",
+        "https://www.googleapis.com/auth/analytics.edit",
+    ],
+    "google_search_console": [
+        "https://www.googleapis.com/auth/webmasters.readonly",
+    ],
+    "google_ads": [
+        "https://www.googleapis.com/auth/adwords",
+    ],
+}
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_INTEGRATION_TYPES = ["ga4", "google_ads", "google_search_console"]
 
 
 def _create_oauth_state(
-    user_id: str, secret: str, return_to: Optional[str] = None, client_slug: Optional[str] = None
+    user_id: str,
+    secret: str,
+    return_to: Optional[str] = None,
+    client_slug: Optional[str] = None,
+    service_type: Optional[str] = None,
 ) -> str:
     """Create signed state for CSRF protection. Expires in 10 min."""
     payload = {"user_id": user_id, "exp": int(time.time()) + 600}
@@ -46,6 +57,8 @@ def _create_oauth_state(
         payload["return_to"] = return_to
     if client_slug:
         payload["client_slug"] = client_slug
+    if service_type:
+        payload["service_type"] = service_type
     payload = json.dumps(payload)
     payload_b64 = base64.urlsafe_b64encode(payload.encode()).decode().rstrip("=")
     sig = hmac.new(
@@ -56,39 +69,49 @@ def _create_oauth_state(
     return f"{payload_b64}.{sig}"
 
 
-def _verify_oauth_state(state: str, secret: str) -> tuple[Optional[str], Optional[str], Optional[str]]:
-    """Verify state and return (user_id, return_to, client_slug) or (None, None, None)."""
+def _verify_oauth_state(
+    state: str, secret: str
+) -> tuple[Optional[str], Optional[str], Optional[str], Optional[str]]:
+    """Verify state and return (user_id, return_to, client_slug, service_type)
+    or (None, None, None, None)."""
     try:
         parts = state.split(".")
         if len(parts) != 2:
-            return (None, None, None)
+            return (None, None, None, None)
         payload_b64, sig = parts
         pad = 4 - len(payload_b64) % 4
         if pad != 4:
             payload_b64 += "=" * pad
         payload = json.loads(base64.urlsafe_b64decode(payload_b64).decode())
         if payload.get("exp", 0) < time.time():
-            return (None, None, None)
+            return (None, None, None, None)
         expected = hmac.new(
             secret.encode() if isinstance(secret, str) else secret,
             parts[0].encode(),
             hashlib.sha256,
         ).hexdigest()
         if not hmac.compare_digest(expected, sig):
-            return (None, None, None)
-        return (payload.get("user_id"), payload.get("return_to"), payload.get("client_slug"))
+            return (None, None, None, None)
+        return (
+            payload.get("user_id"),
+            payload.get("return_to"),
+            payload.get("client_slug"),
+            payload.get("service_type"),
+        )
     except Exception as e:
         logger.warning(f"State verification failed: {e}")
-        return (None, None, None)
+        return (None, None, None, None)
 
 
 class GoogleAuthUrlRequest(BaseModel):
     return_to: Optional[str] = None
     client_slug: Optional[str] = None
+    service_type: str = Field(..., pattern="^(ga4|google_search_console|google_ads)$")
 
 
 class GoogleRefreshRequest(BaseModel):
     client_slug: str = Field(..., min_length=1)
+    service_type: Optional[str] = Field(None, pattern="^(ga4|google_search_console|google_ads)$")
 
 
 async def _refresh_google_token(refresh_token: str) -> Optional[str]:
@@ -120,7 +143,8 @@ async def google_refresh(
     body: GoogleRefreshRequest,
     current_user: TokenPayload = Depends(get_current_user),
 ):
-    """Refresh Google OAuth tokens for a client. Returns ok if at least one token refreshed."""
+    """Refresh Google OAuth tokens for a client. Returns ok if at least one token refreshed.
+    needs_reauth=True when refresh_token is missing or invalid — frontend should start full OAuth flow."""
     pool = await get_db()
 
     def get_refresh_token(row):
@@ -135,23 +159,31 @@ async def google_refresh(
             return refresh
         return row["api_key_encrypted"]
 
+    types_filter = (
+        [body.service_type]
+        if body.service_type
+        else ["ga4", "google_ads", "google_search_console"]
+    )
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             """
             SELECT integration_type, api_key_encrypted, extra_config
             FROM client_integrations
-            WHERE user_id = $1 AND client_slug = $2 AND integration_type IN ('ga4', 'google_ads', 'google_search_console')
+            WHERE user_id = $1 AND client_slug = $2 AND integration_type = ANY($3)
             """,
             current_user.user_id,
             body.client_slug,
+            types_filter,
         )
     if not rows:
         raise HTTPException(status_code=404, detail="No Google integrations for this client")
 
     refreshed = 0
+    needs_reauth = False
     for row in rows:
         refresh = get_refresh_token(row)
         if not refresh:
+            needs_reauth = True
             continue
         access_token = await _refresh_google_token(refresh)
         if access_token:
@@ -163,11 +195,13 @@ async def google_refresh(
                     extra = {}
             extra = dict(extra or {})
             extra["access_token"] = access_token
+            extra["expires_at"] = int(time.time()) + 3600
+            extra["oauth_connected"] = True
             async with pool.acquire() as conn:
                 await conn.execute(
                     """
                     UPDATE client_integrations
-                    SET extra_config = $4, updated_at = now()
+                    SET extra_config = $4::jsonb, updated_at = now()
                     WHERE user_id = $1 AND client_slug = $2 AND integration_type = $3
                     """,
                     current_user.user_id,
@@ -176,36 +210,46 @@ async def google_refresh(
                     json.dumps(extra),
                 )
             refreshed += 1
+        else:
+            needs_reauth = True
 
     if refreshed == 0:
-        raise HTTPException(status_code=400, detail="Token refresh failed for all integrations")
-    return {"ok": True, "refreshed": refreshed}
+        # Frontend should start full OAuth flow via POST /google/auth-url
+        return {
+            "ok": False,
+            "refreshed": 0,
+            "needs_reauth": True,
+        }
+    return {"ok": True, "refreshed": refreshed, "needs_reauth": needs_reauth}
 
 
 @router.post("/google/auth-url")
 async def google_auth_url(
-    body: Optional[GoogleAuthUrlRequest] = Body(None),
+    body: GoogleAuthUrlRequest,
     current_user: TokenPayload = Depends(get_current_user),
 ):
-    """Generate Google OAuth URL with GA4, Google Ads, GSC scopes. Redirect user to this URL."""
+    """Generate Google OAuth URL for a specific service (ga4, google_search_console, google_ads)."""
     client_id = os.getenv("GOOGLE_CLIENT_ID")
-    client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
     redirect_uri = os.getenv("GOOGLE_REDIRECT_URI")
     if not client_id or not redirect_uri:
         raise HTTPException(
             status_code=503,
             detail="Google OAuth not configured (GOOGLE_CLIENT_ID, GOOGLE_REDIRECT_URI)",
         )
+    scopes = GOOGLE_SCOPES_PER_SERVICE.get(body.service_type)
+    if not scopes:
+        raise HTTPException(status_code=400, detail="Invalid service_type")
     secret = os.getenv("SUPABASE_JWT_SECRET", "fallback-secret-change-me")
-    return_to = body.return_to if body and body.return_to else None
-    client_slug = body.client_slug if body and body.client_slug else None
-    state = _create_oauth_state(current_user.user_id, secret, return_to, client_slug)
-    scopes = " ".join(GOOGLE_OAUTH_SCOPES)
+    return_to = body.return_to if body.return_to else None
+    client_slug = body.client_slug if body.client_slug else None
+    state = _create_oauth_state(
+        current_user.user_id, secret, return_to, client_slug, body.service_type
+    )
     params = {
         "client_id": client_id,
         "redirect_uri": redirect_uri,
         "response_type": "code",
-        "scope": scopes,
+        "scope": " ".join(scopes),
         "state": state,
         "access_type": "offline",
         "prompt": "consent",
@@ -215,34 +259,52 @@ async def google_auth_url(
     return {"url": url}
 
 
+def _oauth_redirect_url(
+    frontend_base: str,
+    client_slug: Optional[str],
+    success: bool,
+    param: str = "",
+    connected: str = "google",
+) -> str:
+    """Build redirect URL: client-specific /clients/{slug}/integrations or fallback /integrations."""
+    base = frontend_base.rstrip("/")
+    if client_slug:
+        path = f"/clients/{client_slug}/integrations"
+    else:
+        path = "/integrations"
+    if success:
+        return f"{base}{path}?connected={connected}"
+    return f"{base}{path}?error={param}" if param else f"{base}{path}"
+
+
 @router.get("/google/callback")
 async def google_oauth_callback(code: Optional[str] = None, state: Optional[str] = None):
-    """OAuth callback from Google. Exchange code for tokens, store for ga4/google_ads/gsc, redirect to /integrations."""
+    """OAuth callback from Google. Exchange code for tokens, store for ga4/google_ads/gsc, redirect to client-specific integrations page."""
     frontend_base = os.getenv("FRONTEND_BASE_URL", "https://wonderz-agentic.exe.xyz")
-    integrations_url = f"{frontend_base.rstrip('/')}/integrations"
 
     if not code or not state:
         logger.warning("Google callback missing code or state")
-        return RedirectResponse(url=f"{integrations_url}?error=missing_params", status_code=302)
+        return RedirectResponse(url=_oauth_redirect_url(frontend_base, None, False, "missing_params"), status_code=302)
 
     secret = os.getenv("SUPABASE_JWT_SECRET", "fallback-secret-change-me")
-    user_id, return_to, client_slug = _verify_oauth_state(state, secret)
+    user_id, return_to, client_slug, service_type = _verify_oauth_state(state, secret)
     logger.info(
-        "Google OAuth callback: state parsed user_id=%s return_to=%s client_slug=%s",
+        "Google OAuth callback: state parsed user_id=%s return_to=%s client_slug=%s service_type=%s",
         user_id,
         return_to,
         client_slug,
+        service_type,
     )
     if not user_id:
         logger.warning("Google callback invalid state")
-        return RedirectResponse(url=f"{integrations_url}?error=invalid_state", status_code=302)
+        return RedirectResponse(url=_oauth_redirect_url(frontend_base, client_slug, False, "invalid_state"), status_code=302)
 
     client_id = os.getenv("GOOGLE_CLIENT_ID")
     client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
     redirect_uri = os.getenv("GOOGLE_REDIRECT_URI")
     if not client_id or not client_secret or not redirect_uri:
         logger.error("Google OAuth not configured")
-        return RedirectResponse(url=f"{integrations_url}?error=config", status_code=302)
+        return RedirectResponse(url=_oauth_redirect_url(frontend_base, client_slug, False, "config"), status_code=302)
 
     async with httpx.AsyncClient() as client:
         resp = await client.post(
@@ -258,7 +320,7 @@ async def google_oauth_callback(code: Optional[str] = None, state: Optional[str]
         )
     if resp.status_code != 200:
         logger.warning(f"Google token exchange failed: {resp.status_code} {resp.text}")
-        return RedirectResponse(url=f"{integrations_url}?error=token_exchange", status_code=302)
+        return RedirectResponse(url=_oauth_redirect_url(frontend_base, client_slug, False, "token_exchange"), status_code=302)
 
     data = resp.json()
     access_token = data.get("access_token")
@@ -268,7 +330,24 @@ async def google_oauth_callback(code: Optional[str] = None, state: Optional[str]
     # Store refresh_token as main credential; use it for all three integration types
     token_to_store = refresh_token or access_token
     if not token_to_store:
-        return RedirectResponse(url=f"{integrations_url}?error=no_tokens", status_code=302)
+        return RedirectResponse(url=_oauth_redirect_url(frontend_base, client_slug, False, "no_tokens"), status_code=302)
+
+    expires_in = data.get("expires_in", 3600)
+    expires_at = int(time.time()) + expires_in
+
+    # Extract google_email from id_token for display
+    google_email = None
+    id_token = data.get("id_token", "")
+    if id_token:
+        try:
+            payload_part = id_token.split(".")[1]
+            pad = 4 - len(payload_part) % 4
+            if pad != 4:
+                payload_part += "=" * pad
+            id_payload = json.loads(base64.urlsafe_b64decode(payload_part).decode())
+            google_email = id_payload.get("email")
+        except Exception:
+            pass
 
     logger.info(
         "Google OAuth callback: token exchange ok, has_refresh=%s scope=%s",
@@ -276,14 +355,19 @@ async def google_oauth_callback(code: Optional[str] = None, state: Optional[str]
         data.get("scope", "")[:80],
     )
 
-    # Build extra_config: always set access_token; use COALESCE for refresh_token on reconnection
-    extra_config = {"access_token": access_token}
+    # Backward compat: als service_type ontbreekt, sla op voor alle drie
+    integration_types = [service_type] if service_type else GOOGLE_INTEGRATION_TYPES
+
+    # Build extra_config: access_token, expires_at, refresh_token, google_email
+    extra_config = {"access_token": access_token, "expires_at": expires_at, "oauth_connected": True}
     if refresh_token:
         extra_config["refresh_token"] = refresh_token
+    if google_email:
+        extra_config["google_email"] = google_email
 
     pool = await get_db()
     async with pool.acquire() as conn:
-        for integration_type in GOOGLE_INTEGRATION_TYPES:
+        for integration_type in integration_types:
             integration_id = (
                 f"int:{user_id}:{client_slug}:{integration_type}"
                 if client_slug
@@ -301,7 +385,10 @@ async def google_oauth_callback(code: Optional[str] = None, state: Optional[str]
                         api_key_encrypted = COALESCE(NULLIF($7, ''), client_integrations.api_key_encrypted),
                         extra_config = jsonb_build_object(
                             'access_token', EXCLUDED.extra_config->>'access_token',
-                            'refresh_token', COALESCE(NULLIF(EXCLUDED.extra_config->>'refresh_token', ''), client_integrations.extra_config->>'refresh_token')
+                            'expires_at', COALESCE((EXCLUDED.extra_config->>'expires_at')::int, (EXTRACT(EPOCH FROM now())::int + 3600)),
+                            'oauth_connected', true,
+                            'refresh_token', COALESCE(NULLIF(EXCLUDED.extra_config->>'refresh_token', ''), client_integrations.extra_config->>'refresh_token'),
+                            'google_email', COALESCE(EXCLUDED.extra_config->>'google_email', client_integrations.extra_config->>'google_email')
                         ),
                         updated_at = now()
                     """,
@@ -331,9 +418,11 @@ async def google_oauth_callback(code: Optional[str] = None, state: Optional[str]
                         except Exception:
                             old_extra = {}
                     merged_refresh = refresh_token or old_extra.get("refresh_token") or existing["api_key_encrypted"]
-                    merged_extra = {"access_token": access_token}
+                    merged_extra = {"access_token": access_token, "expires_at": expires_at, "oauth_connected": True}
                     if merged_refresh:
                         merged_extra["refresh_token"] = merged_refresh
+                    if google_email:
+                        merged_extra["google_email"] = google_email
                     token_final = refresh_token or existing["api_key_encrypted"] or token_to_store
                     await conn.execute(
                         """
@@ -391,10 +480,12 @@ async def google_oauth_callback(code: Optional[str] = None, state: Optional[str]
         [(r["integration_id"], r["integration_type"]) for r in saved],
     )
 
+    # Prefer return_to from state, else client-specific or generic integrations
+    connected_param = service_type or "google"
     if return_to:
-        redirect_url = f"{frontend_base.rstrip('/')}{return_to}?connected=google"
+        redirect_url = f"{frontend_base.rstrip('/')}{return_to}?connected={connected_param}"
     else:
-        redirect_url = f"{integrations_url}?connected=google"
+        redirect_url = _oauth_redirect_url(frontend_base, client_slug, True, connected=connected_param)
     logger.info("Google OAuth callback: redirecting to %s", redirect_url)
     return RedirectResponse(url=redirect_url, status_code=302)
 

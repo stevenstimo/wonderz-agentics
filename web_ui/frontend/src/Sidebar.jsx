@@ -28,6 +28,9 @@ import {
   X,
   Inbox,
   BarChart3,
+  Database,
+  Upload,
+  Cpu,
 } from 'lucide-react'
 import { supabase } from './supabase'
 import { getCurrentUserRole, isSuperAdmin } from './authz'
@@ -45,7 +48,6 @@ const MANAGEMENT = [
   { label: 'Agents', icon: Users, path: '/agents' },
   { label: 'Newbies', icon: Star, path: '/newbies' },
   { label: 'Training Hub', icon: GraduationCap, path: '/training' },
-  { label: 'Skills Library', icon: BookOpen, path: '/skills-library' },
   { label: 'Improvements', icon: TrendingUp, path: '/hr/improvements' },
   { label: 'Hiring Hall', icon: UserPlus, path: '/hiring' },
 ]
@@ -273,6 +275,10 @@ export default function Sidebar() {
               />
             ))}
 
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 px-3 mt-4 mb-2">Knowledge Centre</div>
+            <NavItem item={{ label: 'Library', icon: Database, path: '/knowledge' }} />
+            <NavItem item={{ label: 'Upload', icon: Upload, path: '/knowledge/upload' }} />
+            <NavItem item={{ label: 'Skill Factory', icon: Cpu, path: '/knowledge/skills' }} />
             <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 px-3 mt-4 mb-2">Knowledge</div>
             <NavItemWithChildren item={KNOWLEDGE_EXPLAINER} />
             {KNOWLEDGE_ITEMS.map((item) => (
