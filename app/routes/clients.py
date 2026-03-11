@@ -135,11 +135,11 @@ async def get_ga4_properties(
             conn, current_user.user_id, slug, "ga4"
         )
     if not access_token:
-        raise HTTPException(status_code=401, detail="Token refresh failed")
+        raise HTTPException(status_code=401, detail="token_expired")
     try:
         props = await list_ga4_properties(access_token)
-    except PermissionError as e:
-        raise HTTPException(status_code=401, detail=str(e))
+    except PermissionError:
+        raise HTTPException(status_code=401, detail="token_expired")
     return props
 
 
@@ -171,11 +171,11 @@ async def get_ads_accounts(
         raise HTTPException(status_code=404, detail="Google Ads not connected for this client")
     refresh = _get_refresh_token(row["api_key_encrypted"], row["extra_config"])
     if not refresh:
-        raise HTTPException(status_code=400, detail="No refresh token")
+        raise HTTPException(status_code=401, detail="token_expired")
     try:
         accounts = await list_google_ads_accounts(refresh)
-    except PermissionError as e:
-        raise HTTPException(status_code=401, detail=str(e))
+    except PermissionError:
+        raise HTTPException(status_code=401, detail="token_expired")
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
     return accounts
@@ -200,11 +200,11 @@ async def get_gsc_sites(
             conn, current_user.user_id, slug, "google_search_console"
         )
     if not access_token:
-        raise HTTPException(status_code=401, detail="Token refresh failed")
+        raise HTTPException(status_code=401, detail="token_expired")
     try:
         sites = await list_gsc_sites(access_token)
-    except PermissionError as e:
-        raise HTTPException(status_code=401, detail=str(e))
+    except PermissionError:
+        raise HTTPException(status_code=401, detail="token_expired")
     return sites
 
 

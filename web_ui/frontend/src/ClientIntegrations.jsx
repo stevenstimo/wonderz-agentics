@@ -138,7 +138,7 @@ export default function ClientIntegrations() {
 
   const allPlatforms = Object.keys(PLATFORM_LABELS)
 
-  const fetchGoogleOptions = useCallback(async (platform) => {
+  const fetchGoogleOptions = useCallback(async (platform, _retried = false) => {
     const cfg = GOOGLE_DROPDOWN_CONFIG[platform]
     if (!cfg) return Promise.resolve()
     setGoogleLoading((prev) => ({ ...prev, [platform]: true }))
@@ -146,6 +146,19 @@ export default function ClientIntegrations() {
     try {
       const res = await apiFetch(`/api/clients/${slug}/google/${cfg.endpoint}`)
       if (res.status === 401) {
+        const body = await res.json().catch(() => ({}))
+        if (body.detail === 'token_expired' && !_retried) {
+          const refreshRes = await apiFetch('/api/integrations/google/refresh', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ client_slug: slug, service_type: PLATFORM_TO_SERVICE_TYPE[platform] }),
+          })
+          const refreshData = await refreshRes.json().catch(() => ({}))
+          if (refreshData.ok) {
+            setGoogleLoading((prev) => ({ ...prev, [platform]: false }))
+            return fetchGoogleOptions(platform, true)
+          }
+        }
         setGoogleError((prev) => ({ ...prev, [platform]: 'token_expired' }))
         return
       }
