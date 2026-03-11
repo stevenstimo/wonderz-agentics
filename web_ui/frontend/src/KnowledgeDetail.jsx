@@ -185,11 +185,17 @@ export default function KnowledgeDetail() {
   return (
     <PageLayout size="medium" padded>
       <Link
-        to={doc.doc_type === 'skill_spec' ? '/knowledge/skills' : '/knowledge'}
+        to={location.state?.from || (doc.doc_type === 'skill_spec' ? '/knowledge/skills' : doc.doc_type === 'client_context' ? '/knowledge/clients' : '/knowledge')}
         className="inline-flex items-center gap-1 text-slate-600 hover:text-indigo-600 mb-6"
       >
         <ArrowLeft className="w-4 h-4" />
-        {doc.doc_type === 'skill_spec' ? 'Terug naar Skill Factory' : 'Terug naar Library'}
+        {location.state?.from
+          ? 'Terug'
+          : doc.doc_type === 'skill_spec'
+            ? 'Terug naar Skill Factory'
+            : doc.doc_type === 'client_context'
+              ? 'Terug naar Client Intelligence'
+              : 'Terug naar Library'}
       </Link>
 
       {/* Stale banner */}

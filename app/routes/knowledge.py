@@ -338,7 +338,228 @@ async def patch_document(
     }
 
 
-# ─── DEEL B: GET endpoints voor Library UI ───────────────────────────────
+# ─── DEEL B: Governance endpoints ────────────────────────────────────────
+
+
+@router.post("/governance/run-stale-detection")
+async def run_stale_detection(
+    current_user: TokenPayload = Depends(get_current_user),
+):
+    """Manually trigger stale detection. Returns marked_stale + already_stale + duration."""
+    import time
+
+    from app.services.stale_detection import StaleDetectionService
+
+    pool = await get_db()
+    t0 = time.monotonic()
+    result = await StaleDetectionService().run(pool)
+    duration_ms = int((time.monotonic() - t0) * 1000)
+    return {**result, "duration_ms": duration_ms}
+
+
+@router.get("/governance/queue")
+async def governance_queue(
+    current_user: TokenPayload = Depends(get_current_user),
+):
+    """Draft + stale documents for approval queue. Sorted by updated_at ASC."""
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        draft_rows = await conn.fetch(
+            """
+            SELECT document_id, title, doc_type, domain, status, access_level,
+                   client_slug, version, created_at, updated_at, approved_at,
+                   summary, last_reviewed, review_interval_days
+            FROM knowledge_documents
+            WHERE status IN ('draft', 'stale')
+            ORDER BY updated_at ASC
+            LIMIT 200
+            """
+        )
+        draft_count = await conn.fetchval(
+            "SELECT COUNT(*) FROM knowledge_documents WHERE status = 'draft'"
+        )
+        stale_count = await conn.fetchval(
+            "SELECT COUNT(*) FROM knowledge_documents WHERE status = 'stale'"
+        )
+
+    def _row(r):
+        return {
+            "document_id": str(r["document_id"]),
+            "title": r["title"],
+            "doc_type": r["doc_type"],
+            "domain": r["domain"],
+            "status": r["status"],
+            "access_level": r["access_level"],
+            "client_slug": r["client_slug"],
+            "version": r["version"],
+            "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+            "updated_at": r["updated_at"].isoformat() if r["updated_at"] else None,
+            "approved_at": r["approved_at"].isoformat() if r["approved_at"] else None,
+            "summary": r["summary"],
+            "last_reviewed": r["last_reviewed"].isoformat() if r.get("last_reviewed") else None,
+            "review_interval_days": r.get("review_interval_days"),
+        }
+
+    return {
+        "total": len(draft_rows),
+        "draft": draft_count or 0,
+        "stale": stale_count or 0,
+        "documents": [_row(r) for r in draft_rows],
+    }
+
+
+@router.get("/governance/audit")
+async def governance_audit(
+    current_user: TokenPayload = Depends(get_current_user),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+):
+    """Audit log from knowledge_versions."""
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT
+                kv.version_id,
+                kv.document_id,
+                kd.title,
+                kd.doc_type,
+                kv.version,
+                kv.change_note,
+                kv.created_by,
+                kv.approved_by,
+                kv.created_at
+            FROM knowledge_versions kv
+            JOIN knowledge_documents kd ON kv.document_id = kd.document_id
+            ORDER BY kv.created_at DESC
+            LIMIT $1 OFFSET $2
+            """,
+            limit,
+            offset,
+        )
+
+    return [
+        {
+            "version_id": str(r["version_id"]),
+            "document_id": str(r["document_id"]),
+            "title": r["title"],
+            "doc_type": r["doc_type"],
+            "version": r["version"],
+            "change_note": r["change_note"],
+            "created_by": r["created_by"],
+            "approved_by": r["approved_by"],
+            "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+        }
+        for r in rows
+    ]
+
+
+class PermissionCreate(BaseModel):
+    agent_id: Optional[str] = None
+    role: Optional[str] = None
+    domain: Optional[str] = None
+    document_id: Optional[str] = None
+    permission_level: str = Field(..., description="read|write|admin|none")
+    valid_until: Optional[str] = None
+
+
+@router.get("/permissions")
+async def list_permissions(
+    current_user: TokenPayload = Depends(get_current_user),
+):
+    """List all knowledge_permissions with optional doc title."""
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT kp.permission_id, kp.agent_id, kp.role, kp.domain, kp.document_id,
+                   kp.permission_level, kp.granted_by, kp.valid_until, kp.created_at,
+                   kd.title AS doc_title
+            FROM knowledge_permissions kp
+            LEFT JOIN knowledge_documents kd ON kp.document_id = kd.document_id
+            ORDER BY kp.created_at DESC
+            """
+        )
+
+    return [
+        {
+            "permission_id": str(r["permission_id"]),
+            "agent_id": r["agent_id"],
+            "role": r["role"],
+            "domain": r["domain"],
+            "document_id": str(r["document_id"]) if r["document_id"] else None,
+            "doc_title": r["doc_title"],
+            "permission_level": r["permission_level"],
+            "granted_by": r["granted_by"],
+            "valid_until": r["valid_until"].isoformat() if r.get("valid_until") else None,
+            "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+        }
+        for r in rows
+    ]
+
+
+@router.post("/permissions")
+async def create_permission(
+    body: PermissionCreate,
+    current_user: TokenPayload = Depends(get_current_user),
+):
+    """Create a new permission rule. agent_id or role required."""
+    if not body.agent_id and not body.role:
+        raise HTTPException(status_code=400, detail="agent_id or role required")
+
+    if body.permission_level not in ("read", "write", "admin", "none"):
+        raise HTTPException(status_code=400, detail="permission_level must be read|write|admin|none")
+
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        agent_id_val = body.agent_id
+        if body.agent_id:
+            exists = await conn.fetchval(
+                "SELECT 1 FROM hired_agents WHERE agent_id = $1",
+                body.agent_id,
+            )
+            if not exists:
+                raise HTTPException(status_code=400, detail="agent_id not found")
+        else:
+            agent_id_val = None
+
+        await conn.execute(
+            """
+            INSERT INTO knowledge_permissions
+                (agent_id, role, domain, document_id, permission_level, granted_by, valid_until)
+            VALUES ($1, $2, $3, $4::uuid, $5, $6, $7::timestamptz)
+            """,
+            agent_id_val,
+            body.role or None,
+            body.domain or None,
+            body.document_id or None,
+            body.permission_level,
+            current_user.email or str(current_user.user_id),
+            body.valid_until or None,
+        )
+
+    return {"status": "created"}
+
+
+@router.delete("/permissions/{permission_id}")
+async def delete_permission(
+    permission_id: str,
+    current_user: TokenPayload = Depends(get_current_user),
+):
+    """Delete a permission rule."""
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        r = await conn.execute(
+            "DELETE FROM knowledge_permissions WHERE permission_id = $1::uuid RETURNING 1",
+            permission_id,
+        )
+        if r == "DELETE 0":
+            raise HTTPException(status_code=404, detail="Permission not found")
+
+    return {"status": "deleted"}
+
+
+# ─── DEEL C: GET endpoints voor Library UI ───────────────────────────────
 
 
 @router.get("")
@@ -403,7 +624,7 @@ async def list_documents(
             f"""
             SELECT document_id, title, doc_type, domain, status, access_level,
                    client_slug, version, created_at, updated_at, approved_at,
-                   summary, keywords, function_tag,
+                   summary, keywords, function_tag, last_reviewed, review_interval_days,
                    CASE WHEN client_slug IS NOT NULL THEN 'client_specific' ELSE 'agency_wide' END AS scope
             FROM knowledge_documents
             WHERE {where}
@@ -430,6 +651,8 @@ async def list_documents(
             "keywords": r["keywords"] or [],
             "function_tag": r["function_tag"],
             "scope": r["scope"] or ("client_specific" if r["client_slug"] else "agency_wide"),
+            "last_reviewed": r["last_reviewed"].isoformat() if r.get("last_reviewed") else None,
+            "review_interval_days": r.get("review_interval_days"),
         }
         for r in rows
     ]

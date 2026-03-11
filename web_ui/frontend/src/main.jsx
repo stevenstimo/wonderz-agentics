@@ -49,6 +49,8 @@ import KnowledgeLibrary from './KnowledgeLibrary.jsx'
 import KnowledgeDetail from './KnowledgeDetail.jsx'
 import KnowledgeUpload from './KnowledgeUpload.jsx'
 import SkillFactory from './SkillFactory.jsx'
+import ClientIntelligence from './ClientIntelligence.jsx'
+import KnowledgeGovernance from './KnowledgeGovernance.jsx'
 
 import './index.css'
 
@@ -88,6 +90,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <Route path="/knowledge" element={<KnowledgeLibrary />} />
           <Route path="/knowledge/upload" element={<KnowledgeUpload />} />
           <Route path="/knowledge/skills" element={<SkillFactory />} />
+          <Route path="/knowledge/clients" element={<ClientIntelligence />} />
+          <Route path="/knowledge/clients/:client_slug" element={<ClientIntelligence />} />
+          <Route path="/knowledge/governance" element={<KnowledgeGovernance />} />
           <Route path="/knowledge/:id" element={<KnowledgeDetail />} />
           <Route path="/approvals" element={<ApprovalDashboard />} />
           <Route path="/hr-feedback" element={<HRDashboard />} />

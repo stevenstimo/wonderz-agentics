@@ -279,6 +279,8 @@ export default function Sidebar() {
             <NavItem item={{ label: 'Library', icon: Database, path: '/knowledge' }} />
             <NavItem item={{ label: 'Upload', icon: Upload, path: '/knowledge/upload' }} />
             <NavItem item={{ label: 'Skill Factory', icon: Cpu, path: '/knowledge/skills' }} />
+            <NavItem item={{ label: 'Client Intelligence', icon: Users, path: '/knowledge/clients' }} />
+            <NavItem item={{ label: 'Governance', icon: Shield, path: '/knowledge/governance' }} />
             <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 px-3 mt-4 mb-2">Knowledge</div>
             <NavItemWithChildren item={KNOWLEDGE_EXPLAINER} />
             {KNOWLEDGE_ITEMS.map((item) => (

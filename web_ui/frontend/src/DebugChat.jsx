@@ -37,22 +37,61 @@ export default function DebugChat() {
 
     const conversation_history = [...messages, userMsg]
 
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 90000) // 90s timeout
+
+    // #region agent log
+    console.log('[DBG-c78650] handleSend start', { msgLen: msg.length, apiBase: import.meta.env.VITE_API_URL });
+    // #endregion
+
     try {
+      // #region agent log
+      console.log('[DBG-c78650] calling apiFetch...');
+      // #endregion
       const res = await apiFetch('/api/debug/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: msg, conversation_history }),
+        signal: controller.signal,
       })
+      clearTimeout(timeoutId)
+      // #region agent log
+      console.log('[DBG-c78650] fetch completed', { status: res.status, ok: res.ok });
+      // #endregion
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        throw new Error(data.detail || data.message || `Request failed (${res.status})`)
+        const detail = data.detail
+        const errMsg = typeof detail === 'string'
+          ? detail
+          : Array.isArray(detail) && detail[0]?.msg
+            ? detail.map((d) => d.msg).join('; ')
+            : data.message || `Request failed (${res.status})`
+        throw new Error(errMsg)
       }
-      setMessages((prev) => [...prev, { role: 'assistant', content: data.response || '' }])
+      const responseText = data.response ?? ''
+      const content = responseText.trim()
+        ? responseText
+        : 'Geen antwoord ontvangen van de AI. Controleer of ANTHROPIC_API_KEY correct is geconfigureerd op de backend.'
+      // #region agent log
+      console.log('[DBG-c78650] success', { responseLen: responseText.length, contentLen: content.length });
+      // #endregion
+      setMessages((prev) => [...prev, { role: 'assistant', content }])
     } catch (err) {
+      clearTimeout(timeoutId)
+      // #region agent log
+      console.log('[DBG-c78650] catch block', { errName: err.name, errMsg: err.message });
+      // #endregion
+      let msg = err.message || 'Onbekende fout'
+      if (err.name === 'AbortError') {
+        msg = 'Timeout: de AI reageerde niet binnen 90 seconden. Probeer opnieuw.'
+      } else if (msg === 'Failed to fetch' || msg.includes('NetworkError')) {
+        msg = 'Geen verbinding met de backend. Controleer of de backend draait (lokaal: localhost:8090).'
+      }
       setMessages((prev) => [
         ...prev,
-        { role: 'assistant', content: `Error: ${err.message}` },
+        { role: 'assistant', content: `Error: ${msg}` },
       ])
+      console.error('[DebugChat]', err)
     } finally {
       setLoading(false)
     }

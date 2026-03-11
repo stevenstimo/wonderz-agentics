@@ -277,17 +277,33 @@ async def _gather_context(conn, message: str) -> tuple[dict, dict]:
     return "", query_results
 
 
+def _agent_log(location: str, message: str, data: dict, hypothesis_id: str) -> None:
+    import json as _j
+    try:
+        with open("/home/exedev/wonderz-agentics/.cursor/debug-c78650.log", "a") as f:
+            f.write(_j.dumps({"sessionId": "c78650", "location": location, "message": message, "data": data, "hypothesisId": hypothesis_id, "timestamp": __import__("time").time() * 1000}) + "\n")
+    except Exception:
+        pass
+
+
 @router.post("/chat")
 async def debug_chat(req: DebugChatRequest):
     """
     AI debug assistant that can query the database and diagnose issues.
     """
+    # #region agent log
+    _agent_log("debug_chat.py:entry", "request received", {"msgLen": len(req.message)}, "H2")
+    # #endregion
+    logger.info("debug_chat request received: %s", req.message[:80] + "..." if len(req.message) > 80 else req.message)
     try:
         pool = await get_db()
     except Exception as e:
         logger.exception("get_db failed in debug_chat")
         raise HTTPException(status_code=503, detail="Database unavailable")
 
+    # #region agent log
+    _agent_log("debug_chat.py:after_get_db", "pool acquired", {}, "H2")
+    # #endregion
     async with pool.acquire() as conn:
         try:
             db_context, query_results = await _gather_context(conn, req.message)
@@ -324,11 +340,20 @@ async def debug_chat(req: DebugChatRequest):
             messages=[{"role": "user", "content": user_content}],
         )
         text = response.content[0].text if response.content else ""
+        # #region agent log
+        _agent_log("debug_chat.py:after_claude", "claude success", {"textLen": len(text)}, "H3")
+        # #endregion
     except Exception as e:
-        logger.exception("Claude API failed in debug_chat")
+        # #region agent log
+        _agent_log("debug_chat.py:claude_error", "claude failed", {"err": str(e)[:200]}, "H3")
+        # #endregion
+        logger.exception("Claude API failed in debug_chat: %s", e)
         raise HTTPException(
             status_code=500,
             detail="AI service error",
         )
 
+    # #region agent log
+    _agent_log("debug_chat.py:return", "returning response", {"textLen": len(text)}, "H2")
+    # #endregion
     return {"response": text, "query_results": query_results}

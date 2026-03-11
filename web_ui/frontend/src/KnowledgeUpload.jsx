@@ -52,6 +52,11 @@ export default function KnowledgeUpload() {
 
   useEffect(() => {
     const dt = searchParams.get('doc_type')
+    const cs = searchParams.get('client_slug')
+    if (cs) {
+      setClientSlug(cs)
+      if (!dt || !DOC_TYPES.includes(dt)) setDocType('client_context')
+    }
     if (dt && DOC_TYPES.includes(dt)) {
       setDocType(dt)
       if (dt === 'skill_spec') setDomain('ai_systems')

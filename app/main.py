@@ -51,17 +51,22 @@ app.include_router(jobs_router)
 
 @app.on_event("startup")
 async def on_startup():
-    await init_db_pool()
+    pool = await init_db_pool()
     if not os.getenv("SUPABASE_URL"):
         import logging
         logging.getLogger(__name__).warning(
             "SUPABASE_URL not set — /api/clients and other auth routes will return 503 'Auth not configured'. "
             "Set it in systemd Environment or .env (e.g. https://your-project.supabase.co)."
         )
+    if pool:
+        from app.services.scheduler import start_scheduler
+        start_scheduler(pool)
 
 
 @app.on_event("shutdown")
 async def on_shutdown():
+    from app.services.scheduler import stop_scheduler
+    stop_scheduler()
     await close_db_pool()
 
 

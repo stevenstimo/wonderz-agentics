@@ -8,6 +8,7 @@ export default function LoginPage() {
   const navigate = useNavigate()
   const location = useLocation()
   const from = location.state?.from?.pathname ?? location.state?.from ?? '/'
+  const fromLabel = from === '/job-center' ? 'Job Center' : from === '/clients' ? 'Clients' : from.startsWith('/clients/') ? 'Clients' : null
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -85,7 +86,8 @@ export default function LoginPage() {
           <div>
             <h1 className="page-title">Inloggen</h1>
             <p className="page-subtitle">
-              {mode === 'login' && 'Log in met je e-mail en wachtwoord.'}
+              {fromLabel && mode === 'login' && `Log in om ${fromLabel} te bekijken.`}
+              {(!fromLabel || mode !== 'login') && mode === 'login' && 'Log in met je e-mail en wachtwoord.'}
               {mode === 'register' && 'Maak een nieuw account aan.'}
               {mode === 'magic' && 'Ontvang een inloglink via e-mail.'}
             </p>

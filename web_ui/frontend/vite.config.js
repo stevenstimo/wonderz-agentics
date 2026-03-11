@@ -6,6 +6,7 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 3000,
+    allowedHosts: ['wonderz-agentic.exe.xyz'],
     proxy: {
       '/api': {
         target: 'http://localhost:8090',
