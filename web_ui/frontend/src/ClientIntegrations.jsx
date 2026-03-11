@@ -116,6 +116,31 @@ export default function ClientIntegrations() {
 
   const allPlatforms = Object.keys(PLATFORM_LABELS)
 
+  const fetchGoogleOptions = useCallback(async (platform) => {
+    const cfg = GOOGLE_DROPDOWN_CONFIG[platform]
+    if (!cfg) return
+    setGoogleLoading((prev) => ({ ...prev, [platform]: true }))
+    setGoogleError((prev) => ({ ...prev, [platform]: null }))
+    try {
+      const res = await apiFetch(`/api/clients/${slug}/google/${cfg.endpoint}`)
+      if (res.status === 401) {
+        setGoogleError((prev) => ({ ...prev, [platform]: 'token_expired' }))
+        return
+      }
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}))
+        setGoogleError((prev) => ({ ...prev, [platform]: j.detail || 'Laden mislukt' }))
+        return
+      }
+      const data = await res.json()
+      setGoogleOptions((prev) => ({ ...prev, [platform]: Array.isArray(data) ? data : [] }))
+    } catch (err) {
+      setGoogleError((prev) => ({ ...prev, [platform]: err.message || 'Laden mislukt' }))
+    } finally {
+      setGoogleLoading((prev) => ({ ...prev, [platform]: false }))
+    }
+  }, [slug])
+
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true)
@@ -252,31 +277,6 @@ export default function ClientIntegrations() {
       setSaving(null)
     }
   }
-
-  const fetchGoogleOptions = useCallback(async (platform) => {
-    const cfg = GOOGLE_DROPDOWN_CONFIG[platform]
-    if (!cfg) return
-    setGoogleLoading((prev) => ({ ...prev, [platform]: true }))
-    setGoogleError((prev) => ({ ...prev, [platform]: null }))
-    try {
-      const res = await apiFetch(`/api/clients/${slug}/google/${cfg.endpoint}`)
-      if (res.status === 401) {
-        setGoogleError((prev) => ({ ...prev, [platform]: 'token_expired' }))
-        return
-      }
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}))
-        setGoogleError((prev) => ({ ...prev, [platform]: j.detail || 'Laden mislukt' }))
-        return
-      }
-      const data = await res.json()
-      setGoogleOptions((prev) => ({ ...prev, [platform]: Array.isArray(data) ? data : [] }))
-    } catch (err) {
-      setGoogleError((prev) => ({ ...prev, [platform]: err.message || 'Laden mislukt' }))
-    } finally {
-      setGoogleLoading((prev) => ({ ...prev, [platform]: false }))
-    }
-  }, [slug])
 
   useEffect(() => {
     if (!client || !integrations.length) return
