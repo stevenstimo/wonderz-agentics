@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import PageLayout from './PageLayout'
 import { Save, Eye, EyeOff, AlertCircle, Pencil, Check } from 'lucide-react'
 import { apiFetch } from './apiClient'
+import { useAuthReady } from './useAuthReady'
 
 
 const apiBase = (import.meta.env.VITE_API_URL || 'http://localhost:8090').replace(/\/$/, '')
@@ -187,6 +188,7 @@ export default function Settings() {
 }
 
 function ServerConfigSection() {
+  const authReady = useAuthReady()
   const [envVars, setEnvVars] = useState([])
   const [loading, setLoading] = useState(true)
   const [editingKey, setEditingKey] = useState(null)
@@ -212,8 +214,9 @@ function ServerConfigSection() {
   }
 
   useEffect(() => {
+    if (!authReady) return
     fetchEnvVars()
-  }, [])
+  }, [authReady])
 
   const handleEdit = (item) => {
     setEditingKey(item.key)

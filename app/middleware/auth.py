@@ -8,8 +8,10 @@ and cache keys to avoid HTTP calls per request.
 - require_super_admin: raises 403 if role != 'super_admin'
 """
 
+import json
 import logging
 import os
+import time
 from typing import Annotated
 from uuid import UUID
 
@@ -63,6 +65,15 @@ async def _get_current_user_impl(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(http_bearer)],
 ) -> TokenPayload:
     """Validate Supabase Bearer JWT (ES256 via JWKS) and return user_id + role."""
+    # #region agent log
+    auth_raw = request.headers.get("authorization") or request.headers.get("Authorization") or ""
+    _log_data = {"path": getattr(request, "url", None) and str(request.url.path), "hasAuthRaw": bool(auth_raw), "authPrefix": auth_raw[:12] if auth_raw else "none", "hasCredentials": bool(credentials), "credLen": len(credentials.credentials) if credentials and credentials.credentials else 0}
+    try:
+        with open("/home/exedev/wonderz-agentics/.cursor/debug-4539c6.log", "a") as _f:
+            _f.write(json.dumps({"sessionId": "4539c6", "location": "auth.py:_get_current_user_impl", "message": "auth check", "data": _log_data, "timestamp": time.time() * 1000, "hypothesisId": "H3"}) + "\n")
+    except Exception:
+        pass
+    # #endregion
     if not credentials or not credentials.credentials:
         logger.warning("[auth] 401: Bearer token missing (no credentials or empty)")
         raise HTTPException(status_code=401, detail="Unauthorized: Bearer token required")
@@ -84,12 +95,27 @@ async def _get_current_user_impl(
         )
     except PyJWKClientError as e:
         logger.warning(f"[auth] JWKS error: {e}")
+        try:
+            with open("/home/exedev/wonderz-agentics/.cursor/debug-4539c6.log", "a") as _f:
+                _f.write(json.dumps({"sessionId": "4539c6", "location": "auth.py:JWKS", "message": "JWKS error", "data": {"err": str(e)[:50]}, "timestamp": time.time() * 1000, "hypothesisId": "H4"}) + "\n")
+        except Exception:
+            pass
         raise HTTPException(status_code=503, detail="Auth service unavailable")
     except jwt.ExpiredSignatureError as e:
         logger.warning(f"[auth] 401: Token expired - {e}")
+        try:
+            with open("/home/exedev/wonderz-agentics/.cursor/debug-4539c6.log", "a") as _f:
+                _f.write(json.dumps({"sessionId": "4539c6", "location": "auth.py:Expired", "message": "Token expired", "data": {}, "timestamp": time.time() * 1000, "hypothesisId": "H4"}) + "\n")
+        except Exception:
+            pass
         raise HTTPException(status_code=401, detail="Token expired")
     except jwt.InvalidTokenError as e:
         logger.warning(f"[auth] 401: Invalid token - {type(e).__name__}: {e}")
+        try:
+            with open("/home/exedev/wonderz-agentics/.cursor/debug-4539c6.log", "a") as _f:
+                _f.write(json.dumps({"sessionId": "4539c6", "location": "auth.py:InvalidToken", "message": "Invalid token", "data": {"errType": type(e).__name__, "err": str(e)[:80]}, "timestamp": time.time() * 1000, "hypothesisId": "H4"}) + "\n")
+        except Exception:
+            pass
         raise HTTPException(status_code=401, detail="Invalid token")
 
     sub = payload.get("sub")
