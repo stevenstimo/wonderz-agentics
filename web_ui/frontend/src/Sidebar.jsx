@@ -55,6 +55,7 @@ const OPERATIONS = [
   { label: 'Developer Bot', icon: Code, path: '/devbot' },
   { label: 'HR Feedback', icon: MessageSquare, path: '/hr-feedback' },
   { label: 'Safety Gate', icon: Shield, path: '/approvals' },
+  { label: 'Settings', icon: Settings, path: '/settings' },
 ]
 
 const KNOWLEDGE_EXPLAINER = {
@@ -79,7 +80,6 @@ const SYSTEM = [
   { label: 'Integrations', icon: Zap, path: '/integrations' },
   { label: 'Clients', icon: Building2, path: '/clients' },
   { label: 'API Keys', icon: Key, path: '/settings/api-keys' },
-  { label: 'Settings', icon: Settings, path: '/settings' },
 ]
 
 function displayName(user) {
