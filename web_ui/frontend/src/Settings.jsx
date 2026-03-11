@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import PageLayout from './PageLayout'
 import { Save, Eye, EyeOff, AlertCircle, Pencil, Check } from 'lucide-react'
-import { apiFetch } from './apiClient'
+import { supabase } from './supabase'
 
 
 const apiBase = (import.meta.env.VITE_API_URL || 'http://localhost:8090').replace(/\/$/, '')
@@ -197,9 +197,14 @@ function ServerConfigSection() {
   const fetchEnvVars = async () => {
     setLoading(true)
     try {
-      const res = await apiFetch('/api/settings/env-vars')
-      if (res.ok) {
-        const data = await res.json()
+      const { data: { session } } = await supabase.auth.getSession()
+      const response = await fetch(`${apiBase}/api/settings/env-vars`, {
+        headers: {
+          Authorization: `Bearer ${session?.access_token}`,
+        },
+      })
+      if (response.ok) {
+        const data = await response.json()
         setEnvVars(data)
       } else {
         setEnvVars([])
@@ -224,9 +229,13 @@ function ServerConfigSection() {
     if (!editingKey || !editValue.trim()) return
     setSavingKey(editingKey)
     try {
-      const res = await apiFetch('/api/settings/env-vars', {
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch(`${apiBase}/api/settings/env-vars`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session?.access_token}`,
+        },
         body: JSON.stringify({ key: editingKey, value: editValue.trim() }),
       })
       if (res.ok) {
