@@ -138,6 +138,8 @@ async def get_ga4_properties(
         raise HTTPException(status_code=401, detail="token_expired")
     try:
         props = await list_ga4_properties(access_token)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
     except PermissionError:
         raise HTTPException(status_code=401, detail="token_expired")
     return props
@@ -203,6 +205,8 @@ async def get_gsc_sites(
         raise HTTPException(status_code=401, detail="token_expired")
     try:
         sites = await list_gsc_sites(access_token)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
     except PermissionError:
         raise HTTPException(status_code=401, detail="token_expired")
     return sites

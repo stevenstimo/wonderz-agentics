@@ -54,12 +54,10 @@ async def list_ga4_properties(access_token: str) -> list[dict[str, str]]:
         r = await client.get(url, headers=headers)
     if r.status_code != 200:
         err_body = r.text[:500] if r.text else ""
-        logger.warning(
-            "GA4 properties API error: status=%s body=%s",
-            r.status_code,
-            err_body,
-        )
-        raise PermissionError(f"GA4 API error: {r.status_code} — {err_body}")
+        logger.warning("GA4 properties API error: status=%s body=%s", r.status_code, err_body)
+        if r.status_code == 403 and "has not been used in project" in err_body:
+            raise RuntimeError("Google Analytics Admin API is niet ingeschakeld in je Google Cloud project. Schakel deze in via de Google Cloud Console.")
+        raise PermissionError(f"GA4 API error: {r.status_code}")
     data = r.json()
     for acc in data.get("accountSummaries", []):
         for prop in acc.get("propertySummaries", []):
@@ -81,7 +79,9 @@ async def list_gsc_sites(access_token: str) -> list[dict[str, str]]:
     if r.status_code != 200:
         err_body = r.text[:500] if r.text else ""
         logger.warning("GSC sites API error: status=%s body=%s", r.status_code, err_body)
-        raise PermissionError(f"GSC API error: {r.status_code} — {err_body}")
+        if r.status_code == 403 and "has not been used in project" in err_body:
+            raise RuntimeError("Google Search Console API is niet ingeschakeld in je Google Cloud project. Schakel deze in via de Google Cloud Console.")
+        raise PermissionError(f"GSC API error: {r.status_code}")
     data = r.json()
     for entry in data.get("siteEntry", []):
         site_url = entry.get("siteUrl")
@@ -113,6 +113,7 @@ async def list_google_ads_accounts(refresh_token: str) -> list[dict[str, str]]:
         "client_id": GOOGLE_CLIENT_ID,
         "client_secret": GOOGLE_CLIENT_SECRET,
         "refresh_token": refresh_token,
+        "use_proto_plus": True,
     }
     try:
         client = GoogleAdsClient.load_from_dict(config)
@@ -182,6 +183,7 @@ async def _get_first_google_ads_customer(refresh_token: str) -> Optional[str]:
         "client_id": GOOGLE_CLIENT_ID,
         "client_secret": GOOGLE_CLIENT_SECRET,
         "refresh_token": refresh_token,
+        "use_proto_plus": True,
     }
     try:
         client = GoogleAdsClient.load_from_dict(config)
@@ -447,6 +449,7 @@ async def fetch_google_ads_via_gaql(
         "client_id": GOOGLE_CLIENT_ID,
         "client_secret": GOOGLE_CLIENT_SECRET,
         "refresh_token": refresh_token,
+        "use_proto_plus": True,
     }
     try:
         client = GoogleAdsClient.load_from_dict(config)
