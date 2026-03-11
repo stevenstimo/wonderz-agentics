@@ -17,11 +17,6 @@ export async function apiFetch(path, options = {}) {
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...(extraHeaders || {}),
   }
-  // #region agent log
-  if (path.includes('env-vars')) {
-    fetch('http://localhost:7847/ingest/23ca0604-c25a-4b22-97c6-80c0acce04c4', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '4539c6' }, body: JSON.stringify({ sessionId: '4539c6', location: 'apiClient.js:apiFetch', message: 'env-vars request', data: { path, hasToken: !!token, authHeaderSent: !!headers.Authorization, tokenLen: token ? token.length : 0 }, timestamp: Date.now(), hypothesisId: 'H1' }) }).catch(() => {});
-  }
-  // #endregion
   return fetch(apiUrl(path), { ...rest, headers })
 }
 
