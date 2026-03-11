@@ -59,7 +59,7 @@ def _fallback_copy(job_post: str, objective: str, target_audience: str, platform
     )
 
 
-async def _generate_copy_with_anthropic(job_post: str, objective: str, target_audience: str, platform: str) -> str:
+async def _generate_copy_with_anthropic(job_post: str, objective: str, target_audience: str, platform: str, knowledge_block: str = "") -> str:
     api_key = os.getenv('ANTHROPIC_API_KEY', '').strip()
 
     if not api_key or api_key in {'dummy_key', 'VULL_HIER_JE_KEY_IN', 'MIJNKEY'}:
@@ -69,6 +69,8 @@ async def _generate_copy_with_anthropic(job_post: str, objective: str, target_au
         'You are a senior Dutch copywriter. Write fluent Dutch copy tailored to the request. '
         'Never use generic filler text. Make it specific to the subject, objective, audience, and channel.'
     )
+    if knowledge_block:
+        system_prompt += "\n\n" + knowledge_block
     user_prompt = (
         f"Schrijf één sterke Nederlandse tekst op basis van:\n"
         f"- Oorspronkelijke aanvraag: {job_post}\n"
@@ -112,12 +114,31 @@ async def run(payload: Dict[str, Any]) -> Dict[str, Any]:
     )
     fields = _extract_brief_fields(context)
 
+    knowledge_block = ""
+    try:
+        from app.database import get_db
+        from app.services.knowledge_context import KnowledgeContextBuilder
+        pool = await get_db()
+        if pool:
+            kb = KnowledgeContextBuilder()
+            kb_result = await kb.build(
+                pool=pool,
+                agent_id="agent:copywriter",
+                query=job_post,
+                domain="gtm",
+                client_slug=context.get('client_slug'),
+            )
+            knowledge_block = kb_result.get("prompt_block", "")
+    except Exception:
+        pass
+
     try:
         content = await _generate_copy_with_anthropic(
             job_post=job_post,
             objective=fields['objective'],
             target_audience=fields['target_audience'],
             platform=fields['platform'],
+            knowledge_block=knowledge_block,
         )
     except Exception:
         # Assumption-based: deterministic local fallback keeps workflow alive without external model access.

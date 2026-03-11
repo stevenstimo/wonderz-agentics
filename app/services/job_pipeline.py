@@ -421,7 +421,9 @@ def _run_step_agent(
             "✓ Correcte spelling\n"
             "**Status:** GOEDGEKEURD"
         )
-        # For revision: only objective, word_count, focus, and user_feedback — NEVER previous/final_content
+        knowledge_block = context.get("_knowledge_block") or ""
+        if knowledge_block:
+            system += "\n\n" + knowledge_block
         user = f"Write an article of approximately {word_count} words about: {objective}. Focus: {focus}."
         user_feedback = context.get("user_feedback") or context.get("feedback") or ""
         if user_feedback and isinstance(user_feedback, str):
@@ -459,6 +461,9 @@ def _run_step_agent(
             "You are a content reviewer. Check quality, grammar, and tone consistency. Reply in the same language as the content. Keep the reply concise. End with APPROVED or CHANGES NEEDED. "
             "If the content looks like a plan or outline instead of actual article text, mark it as NOT APPROVED and explain that actual content is needed, not a plan."
         )
+        knowledge_block = context.get("_knowledge_block") or ""
+        if knowledge_block:
+            system += "\n\n" + knowledge_block
         user = f"Review this content:\n\n{previous_content[:12000]}"
         try:
             response = client.messages.create(
@@ -480,6 +485,9 @@ def _run_step_agent(
 
     # Generic: one Claude call
     system = f"You are a helpful assistant. Write in {language}. Tone: {tone}."
+    knowledge_block = context.get("_knowledge_block") or ""
+    if knowledge_block:
+        system += "\n\n" + knowledge_block
     user = f"Task: {step_desc}. Context: {objective}. Produce the requested output (no meta-commentary)."
     try:
         response = client.messages.create(
@@ -712,6 +720,30 @@ async def run_job_inline(job_id: str, context_extra: Optional[dict] = None):
 
             logger.info("run_job_inline: job %s with %s steps", job_id, num_steps)
 
+            # Fetch knowledge context for injection into agent prompts (defensive)
+            knowledge_context = {"prompt_block": "", "sources_used": [], "total_chunks": 0, "total_lessons": 0}
+            try:
+                from app.services.knowledge_context import KnowledgeContextBuilder
+                _kb = KnowledgeContextBuilder()
+                _job_post = context.get("job_post") or job.get("job_post") or ""
+                _brief = context.get("brief") or {}
+                _domain = None
+                if isinstance(_brief, dict):
+                    _domain = _brief.get("domain") or _brief.get("focus")
+                _client_slug = context.get("client_slug") or (isinstance(_brief, dict) and _brief.get("client_slug"))
+                knowledge_context = await _kb.build(
+                    pool=pool,
+                    agent_id=f"pipeline:{job_id}",
+                    query=_job_post,
+                    domain=str(_domain) if _domain else None,
+                    client_slug=str(_client_slug) if _client_slug else None,
+                )
+            except Exception as _kb_err:
+                logger.warning("Knowledge retrieval failed for job %s: %s", job_id, _kb_err)
+
+            if knowledge_context.get("prompt_block"):
+                context["_knowledge_block"] = knowledge_context["prompt_block"]
+
             token_guard = TokenGuard(db_pool=pool)
             last_content: Optional[str] = None
             previous_content: Optional[str] = None
@@ -784,6 +816,19 @@ async def run_job_inline(job_id: str, context_extra: Optional[dict] = None):
                     step_id,
                 )
                 await _update_step_progress(conn, step_id, 100)
+
+                if knowledge_context.get("sources_used"):
+                    try:
+                        from app.services.knowledge_context import log_knowledge_usage
+                        await log_knowledge_usage(
+                            pool=pool,
+                            job_id=str(job_id),
+                            step_id=str(step_id),
+                            agent_id=agent_role or f"pipeline:{job_id}",
+                            sources=knowledge_context["sources_used"],
+                        )
+                    except Exception as _log_err:
+                        logger.warning("Knowledge usage logging failed: %s", _log_err)
 
                 await token_guard.register_usage(job_id, tokens_used, step_id)
                 if output.get("image_url"):

@@ -7,7 +7,7 @@ ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
 ANTHROPIC_MODEL = "claude-3-haiku-20240307"
 
 
-async def _review_with_anthropic(copy_text: str, objective: str, target_audience: str) -> Dict[str, str]:
+async def _review_with_anthropic(copy_text: str, objective: str, target_audience: str, knowledge_block: str = "") -> Dict[str, str]:
     api_key = os.getenv('ANTHROPIC_API_KEY', '').strip()
 
     # Assumption-based: fallback heuristic keeps pipeline operational without external API.
@@ -25,6 +25,8 @@ async def _review_with_anthropic(copy_text: str, objective: str, target_audience
         'Return only valid JSON with keys: status, feedback. '
         'status must be APPROVED or NEEDS_CHANGES.'
     )
+    if knowledge_block:
+        system_prompt += "\n\n" + knowledge_block
     user_prompt = (
         f"Beoordeel deze Nederlandse tekst.\n"
         f"Doel: {objective}\n"
@@ -91,8 +93,26 @@ async def run(payload: Dict[str, Any]) -> Dict[str, Any]:
     objective = str(brief_context.get('objective') or context.get('objective') or 'Doel niet gespecificeerd')
     target_audience = str(brief_context.get('target_audience') or context.get('target_audience') or 'Doelgroep niet gespecificeerd')
 
+    knowledge_block = ""
     try:
-        verdict = await _review_with_anthropic(copy_text, objective, target_audience)
+        from app.database import get_db
+        from app.services.knowledge_context import KnowledgeContextBuilder
+        pool = await get_db()
+        if pool:
+            kb = KnowledgeContextBuilder()
+            kb_result = await kb.build(
+                pool=pool,
+                agent_id="agent:reviewer",
+                query="review criteria " + objective,
+                client_slug=context.get('client_slug'),
+                client_context_mode="optional",
+            )
+            knowledge_block = kb_result.get("prompt_block", "")
+    except Exception:
+        pass
+
+    try:
+        verdict = await _review_with_anthropic(copy_text, objective, target_audience, knowledge_block=knowledge_block)
     except Exception:
         # Assumption-based: treat transient reviewer model failures as APPROVED with explicit fallback note.
         verdict = {

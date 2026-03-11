@@ -511,6 +511,52 @@ async def governance_lessons(
     ]
 
 
+@router.get("/governance/usage")
+async def governance_usage(
+    current_user: TokenPayload = Depends(get_current_user),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+):
+    """Knowledge usage log — which agents used which knowledge."""
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT
+                kul.log_id,
+                kul.created_at,
+                kul.agent_id,
+                kul.chunks_used,
+                kul.lessons_used,
+                kul.document_ids,
+                kul.lesson_ids,
+                kul.job_id,
+                j.job_post AS job_title
+            FROM knowledge_usage_log kul
+            LEFT JOIN jobs j ON kul.job_id = j.id
+            ORDER BY kul.created_at DESC
+            LIMIT $1 OFFSET $2
+            """,
+            limit,
+            offset,
+        )
+
+    return [
+        {
+            "log_id": str(r["log_id"]),
+            "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+            "agent_id": r["agent_id"],
+            "chunks_used": r["chunks_used"] or 0,
+            "lessons_used": r["lessons_used"] or 0,
+            "document_ids": r["document_ids"] or [],
+            "lesson_ids": r["lesson_ids"] or [],
+            "job_id": str(r["job_id"]) if r["job_id"] else None,
+            "job_title": (r["job_title"] or "")[:100],
+        }
+        for r in rows
+    ]
+
+
 class PermissionCreate(BaseModel):
     agent_id: Optional[str] = None
     role: Optional[str] = None

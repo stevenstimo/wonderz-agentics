@@ -38,16 +38,9 @@ export default function DebugChat() {
     const conversation_history = [...messages, userMsg]
 
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 90000) // 90s timeout
-
-    // #region agent log
-    console.log('[DBG-c78650] handleSend start', { msgLen: msg.length, apiBase: import.meta.env.VITE_API_URL });
-    // #endregion
+    const timeoutId = setTimeout(() => controller.abort(), 90000)
 
     try {
-      // #region agent log
-      console.log('[DBG-c78650] calling fetch (no auth)...');
-      // #endregion
       const res = await fetch(apiUrl('/api/debug/chat'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -55,9 +48,6 @@ export default function DebugChat() {
         signal: controller.signal,
       })
       clearTimeout(timeoutId)
-      // #region agent log
-      console.log('[DBG-c78650] fetch completed', { status: res.status, ok: res.ok });
-      // #endregion
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
         const detail = data.detail
@@ -72,26 +62,19 @@ export default function DebugChat() {
       const content = responseText.trim()
         ? responseText
         : 'Geen antwoord ontvangen van de AI. Controleer of ANTHROPIC_API_KEY correct is geconfigureerd op de backend.'
-      // #region agent log
-      console.log('[DBG-c78650] success', { responseLen: responseText.length, contentLen: content.length });
-      // #endregion
       setMessages((prev) => [...prev, { role: 'assistant', content }])
     } catch (err) {
       clearTimeout(timeoutId)
-      // #region agent log
-      console.log('[DBG-c78650] catch block', { errName: err.name, errMsg: err.message });
-      // #endregion
       let msg = err.message || 'Onbekende fout'
       if (err.name === 'AbortError') {
         msg = 'Timeout: de AI reageerde niet binnen 90 seconden. Probeer opnieuw.'
       } else if (msg === 'Failed to fetch' || msg.includes('NetworkError')) {
-        msg = 'Geen verbinding met de backend. Controleer of de backend draait (lokaal: localhost:8090).'
+        msg = 'Geen verbinding met de backend. Controleer of de backend draait.'
       }
       setMessages((prev) => [
         ...prev,
         { role: 'assistant', content: `Error: ${msg}` },
       ])
-      console.error('[DebugChat]', err)
     } finally {
       setLoading(false)
     }

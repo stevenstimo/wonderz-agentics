@@ -114,12 +114,12 @@ class GoogleRefreshRequest(BaseModel):
     service_type: Optional[str] = Field(None, pattern="^(ga4|google_search_console|google_ads)$")
 
 
-async def _refresh_google_token(refresh_token: str) -> Optional[str]:
-    """Exchange refresh_token for access_token."""
+async def _refresh_google_token(refresh_token: str) -> tuple[Optional[str], int]:
+    """Exchange refresh_token for access_token. Returns (access_token, expires_in)."""
     client_id = os.getenv("GOOGLE_CLIENT_ID")
     client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
     if not client_id or not client_secret:
-        return None
+        return None, 0
     async with httpx.AsyncClient() as client:
         resp = await client.post(
             GOOGLE_TOKEN_URL,
@@ -132,10 +132,10 @@ async def _refresh_google_token(refresh_token: str) -> Optional[str]:
             headers={"Content-Type": "application/x-www-form-urlencoded"},
         )
     if resp.status_code != 200:
-        logger.warning(f"Token refresh failed: {resp.status_code}")
-        return None
+        logger.warning("Token refresh failed: status=%s body=%s", resp.status_code, resp.text[:300])
+        return None, 0
     data = resp.json()
-    return data.get("access_token")
+    return data.get("access_token"), data.get("expires_in", 3600)
 
 
 @router.post("/google/refresh")
@@ -185,7 +185,7 @@ async def google_refresh(
         if not refresh:
             needs_reauth = True
             continue
-        access_token = await _refresh_google_token(refresh)
+        access_token, expires_in = await _refresh_google_token(refresh)
         if access_token:
             extra = row["extra_config"]
             if isinstance(extra, str):
@@ -195,7 +195,7 @@ async def google_refresh(
                     extra = {}
             extra = dict(extra or {})
             extra["access_token"] = access_token
-            extra["expires_at"] = int(time.time()) + 3600
+            extra["expires_at"] = int(time.time()) + expires_in
             extra["oauth_connected"] = True
             async with pool.acquire() as conn:
                 await conn.execute(

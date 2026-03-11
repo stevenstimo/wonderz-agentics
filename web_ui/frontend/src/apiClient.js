@@ -8,21 +8,22 @@ export function apiUrl(path) {
   return `${base}${normalized}`
 }
 
+// Centrale auth fetch — injecteert automatisch de Bearer token
 export async function apiFetch(path, options = {}) {
-  const url = apiUrl(path)
-  let token = null
+  let session = null
   try {
-    const { data: { session } } = await supabase.auth.getSession()
-    token = session?.access_token
-  } catch (e) {
+    const result = await supabase.auth.getSession()
+    session = result?.data?.session
+  } catch (_) {
     // auth unavailable — proceed without token
   }
+  const token = session?.access_token
   const { headers: extraHeaders, ...rest } = options
   const headers = {
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...(extraHeaders || {}),
   }
-  return fetch(url, { ...rest, headers })
+  return fetch(apiUrl(path), { ...rest, headers })
 }
 
 // JSON helper met auth

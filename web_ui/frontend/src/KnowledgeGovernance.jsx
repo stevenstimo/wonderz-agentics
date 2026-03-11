@@ -33,6 +33,7 @@ const TABS = [
   { id: 'permissions', label: 'Permissions' },
   { id: 'audit', label: 'Audit Log' },
   { id: 'lessons', label: 'Lessons' },
+  { id: 'usage', label: 'Gebruik' },
 ]
 
 const CONFIDENCE_BADGE = (score) => {
@@ -99,6 +100,7 @@ export default function KnowledgeGovernance() {
   const [lessonsStatusFilter, setLessonsStatusFilter] = useState('all')
   const [lessonsMinConf, setLessonsMinConf] = useState(0)
   const [expandedLesson, setExpandedLesson] = useState(null)
+  const [usageLog, setUsageLog] = useState([])
 
   const fetchQueue = useCallback(async () => {
     setLoading(true)
@@ -243,6 +245,29 @@ export default function KnowledgeGovernance() {
     }
   }, [navigate, location, lessonsStatusFilter, lessonsMinConf])
 
+  const fetchUsage = useCallback(async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const res = await apiFetch('/api/knowledge/governance/usage?limit=50')
+      if (res.status === 401) {
+        navigate('/login', { state: { from: location } })
+        return
+      }
+      if (res.ok) {
+        const data = await res.json()
+        setUsageLog(data)
+      } else {
+        const j = await res.json().catch(() => ({}))
+        setError(j.detail || 'Laden mislukt')
+      }
+    } catch (err) {
+      setError(err.message || 'Laden mislukt')
+    } finally {
+      setLoading(false)
+    }
+  }, [navigate, location])
+
   useEffect(() => {
     if (!authReady) return
     if (tab === 'queue') fetchQueue()
@@ -254,7 +279,8 @@ export default function KnowledgeGovernance() {
     }
     else if (tab === 'audit') fetchAudit()
     else if (tab === 'lessons') fetchLessons()
-  }, [authReady, tab, fetchQueue, fetchStale, fetchPermissions, fetchAudit, fetchAgents, fetchDocuments, fetchLessons])
+    else if (tab === 'usage') fetchUsage()
+  }, [authReady, tab, fetchQueue, fetchStale, fetchPermissions, fetchAudit, fetchAgents, fetchDocuments, fetchLessons, fetchUsage])
 
   const handleDeletePermission = async () => {
     if (!deleteModal) return
@@ -665,6 +691,53 @@ export default function KnowledgeGovernance() {
                   </div>
                 )
               })()}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Tab 6: Gebruik (Knowledge Usage) */}
+      {tab === 'usage' && (
+        <div>
+          {loading ? (
+            <p className="text-slate-500">Laden...</p>
+          ) : usageLog.length === 0 ? (
+            <div className="p-8 rounded-xl border border-slate-200 bg-slate-50 text-center">
+              <p className="text-slate-600">Nog geen gebruik geregistreerd.</p>
+              <p className="text-slate-400 text-sm mt-1">Knowledge Centre wordt gebruikt zodra agents taken uitvoeren.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto rounded-lg border border-slate-200">
+              <table className="min-w-full text-sm">
+                <thead className="bg-slate-50">
+                  <tr>
+                    <th className="px-4 py-2 text-left font-medium text-slate-700">Datum</th>
+                    <th className="px-4 py-2 text-left font-medium text-slate-700">Agent</th>
+                    <th className="px-4 py-2 text-left font-medium text-slate-700">Job</th>
+                    <th className="px-4 py-2 text-left font-medium text-slate-700">Chunks gebruikt</th>
+                    <th className="px-4 py-2 text-left font-medium text-slate-700">Lessons gebruikt</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {usageLog.map((r) => (
+                    <tr key={r.log_id} className="hover:bg-slate-50">
+                      <td className="px-4 py-2 text-slate-500">{formatDate(r.created_at)}</td>
+                      <td className="px-4 py-2">{r.agent_id || '—'}</td>
+                      <td className="px-4 py-2 max-w-xs truncate" title={r.job_title || ''}>{r.job_title || '—'}</td>
+                      <td className="px-4 py-2">
+                        <span className={`px-2 py-0.5 text-xs font-medium rounded ${r.chunks_used > 0 ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500'}`}>
+                          {r.chunks_used}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2">
+                        <span className={`px-2 py-0.5 text-xs font-medium rounded ${r.lessons_used > 0 ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                          {r.lessons_used}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </div>

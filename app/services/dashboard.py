@@ -22,27 +22,27 @@ GA4_ADMIN_URL = "https://analyticsadmin.googleapis.com/v1beta"
 GSC_BASE_URL = "https://www.googleapis.com/webmasters/v3"
 
 
-async def _refresh_access_token(refresh_token: str) -> Optional[str]:
-    """Exchange refresh_token for access_token."""
+async def _refresh_access_token(refresh_token: str) -> tuple[Optional[str], int]:
+    """Exchange refresh_token for access_token. Returns (access_token, expires_in)."""
     if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
-        logger.warning("Google OAuth not configured")
-        return None
+        logger.warning("Google OAuth not configured (GOOGLE_CLIENT_ID/SECRET missing)")
+        return None, 0
     async with httpx.AsyncClient() as client:
         resp = await client.post(
             GOOGLE_TOKEN_URL,
-        data={
-            "grant_type": "refresh_token",
-            "refresh_token": refresh_token,
-            "client_id": GOOGLE_CLIENT_ID,
-            "client_secret": GOOGLE_CLIENT_SECRET,
-        },
+            data={
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token,
+                "client_id": GOOGLE_CLIENT_ID,
+                "client_secret": GOOGLE_CLIENT_SECRET,
+            },
             headers={"Content-Type": "application/x-www-form-urlencoded"},
         )
     if resp.status_code != 200:
-        logger.warning(f"Token refresh failed: {resp.status_code} {resp.text}")
-        return None
+        logger.warning("Token refresh failed: status=%s body=%s", resp.status_code, resp.text[:300])
+        return None, 0
     data = resp.json()
-    return data.get("access_token")
+    return data.get("access_token"), data.get("expires_in", 3600)
 
 
 async def list_ga4_properties(access_token: str) -> list[dict[str, str]]:
@@ -258,7 +258,7 @@ async def get_valid_access_token(
         )
         return None
 
-    new_access_token = await _refresh_access_token(refresh_token)
+    new_access_token, expires_in = await _refresh_access_token(refresh_token)
     if not new_access_token:
         logger.warning(
             "get_valid_access_token: refresh failed for user_id=%s client_slug=%s integration_type=%s",
@@ -268,8 +268,7 @@ async def get_valid_access_token(
         )
         return None
 
-    # Sla nieuw access_token en expires_at op
-    new_expires_at = now_ts + 3600
+    new_expires_at = now_ts + expires_in
     extra["access_token"] = new_access_token
     extra["expires_at"] = new_expires_at
     extra["oauth_connected"] = True
