@@ -34,6 +34,10 @@ cd ~/wonderz-agentics/web_ui/frontend && npm run build
 |----------|--------------|
 | `SUPABASE_URL` | Supabase project URL (bijv. `https://your-project.supabase.co`). Gebruikt voor JWT-validatie via JWKS (ES256). Zonder dit krijg je "Auth not configured" op /api/clients en andere auth-routes. |
 | `DATABASE_URL` | PostgreSQL connection string |
+| `GOOGLE_CLIENT_ID` | Google OAuth client ID (GA4, Ads, GSC) |
+| `GOOGLE_CLIENT_SECRET` | Google OAuth client secret |
+| `GOOGLE_REDIRECT_URI` | OAuth redirect URI (bijv. `https://wonderz-agentic.exe.xyz/api/integrations/google/callback`) |
+| `GOOGLE_ADS_DEVELOPER_TOKEN` | Google Ads API developer token (vereist voor ads-accounts dropdown). Zet in systemd `Environment=GOOGLE_ADS_DEVELOPER_TOKEN=...` |
 
 **Deploy:**
 ```bash

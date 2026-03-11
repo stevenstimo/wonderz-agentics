@@ -8,6 +8,12 @@ from typing import Any, Optional
 
 import httpx
 
+from app.core.config import (
+    GOOGLE_ADS_DEVELOPER_TOKEN,
+    GOOGLE_CLIENT_ID,
+    GOOGLE_CLIENT_SECRET,
+)
+
 logger = logging.getLogger(__name__)
 
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
@@ -18,20 +24,18 @@ GSC_BASE_URL = "https://www.googleapis.com/webmasters/v3"
 
 async def _refresh_access_token(refresh_token: str) -> Optional[str]:
     """Exchange refresh_token for access_token."""
-    client_id = os.getenv("GOOGLE_CLIENT_ID")
-    client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
-    if not client_id or not client_secret:
+    if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
         logger.warning("Google OAuth not configured")
         return None
     async with httpx.AsyncClient() as client:
         resp = await client.post(
             GOOGLE_TOKEN_URL,
-            data={
-                "grant_type": "refresh_token",
-                "refresh_token": refresh_token,
-                "client_id": client_id,
-                "client_secret": client_secret,
-            },
+        data={
+            "grant_type": "refresh_token",
+            "refresh_token": refresh_token,
+            "client_id": GOOGLE_CLIENT_ID,
+            "client_secret": GOOGLE_CLIENT_SECRET,
+        },
             headers={"Content-Type": "application/x-www-form-urlencoded"},
         )
     if resp.status_code != 200:
@@ -49,7 +53,13 @@ async def list_ga4_properties(access_token: str) -> list[dict[str, str]]:
     async with httpx.AsyncClient(timeout=15.0) as client:
         r = await client.get(url, headers=headers)
     if r.status_code != 200:
-        raise PermissionError(f"GA4 API error: {r.status_code}")
+        err_body = r.text[:500] if r.text else ""
+        logger.warning(
+            "GA4 properties API error: status=%s body=%s",
+            r.status_code,
+            err_body,
+        )
+        raise PermissionError(f"GA4 API error: {r.status_code} — {err_body}")
     data = r.json()
     for acc in data.get("accountSummaries", []):
         for prop in acc.get("propertySummaries", []):
@@ -69,7 +79,9 @@ async def list_gsc_sites(access_token: str) -> list[dict[str, str]]:
     async with httpx.AsyncClient(timeout=15.0) as client:
         r = await client.get(url, headers=headers)
     if r.status_code != 200:
-        raise PermissionError(f"GSC API error: {r.status_code}")
+        err_body = r.text[:500] if r.text else ""
+        logger.warning("GSC sites API error: status=%s body=%s", r.status_code, err_body)
+        raise PermissionError(f"GSC API error: {r.status_code} — {err_body}")
     data = r.json()
     for entry in data.get("siteEntry", []):
         site_url = entry.get("siteUrl")
@@ -94,15 +106,12 @@ async def list_google_ads_accounts(refresh_token: str) -> list[dict[str, str]]:
         from google.ads.googleads.errors import GoogleAdsException
     except ImportError:
         raise RuntimeError("google-ads package not installed")
-    client_id = os.getenv("GOOGLE_CLIENT_ID")
-    client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
-    developer_token = os.getenv("GOOGLE_ADS_DEVELOPER_TOKEN")
-    if not all([client_id, client_secret, developer_token]):
+    if not all([GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_ADS_DEVELOPER_TOKEN]):
         raise RuntimeError("GOOGLE_ADS_DEVELOPER_TOKEN not configured")
     config = {
-        "developer_token": developer_token,
-        "client_id": client_id,
-        "client_secret": client_secret,
+        "developer_token": GOOGLE_ADS_DEVELOPER_TOKEN,
+        "client_id": GOOGLE_CLIENT_ID,
+        "client_secret": GOOGLE_CLIENT_SECRET,
         "refresh_token": refresh_token,
     }
     try:
@@ -166,15 +175,12 @@ async def _get_first_google_ads_customer(refresh_token: str) -> Optional[str]:
         from google.ads.googleads.client import GoogleAdsClient
     except ImportError:
         return None
-    client_id = os.getenv("GOOGLE_CLIENT_ID")
-    client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
-    developer_token = os.getenv("GOOGLE_ADS_DEVELOPER_TOKEN")
-    if not all([client_id, client_secret, developer_token]):
+    if not all([GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_ADS_DEVELOPER_TOKEN]):
         return None
     config = {
-        "developer_token": developer_token,
-        "client_id": client_id,
-        "client_secret": client_secret,
+        "developer_token": GOOGLE_ADS_DEVELOPER_TOKEN,
+        "client_id": GOOGLE_CLIENT_ID,
+        "client_secret": GOOGLE_CLIENT_SECRET,
         "refresh_token": refresh_token,
     }
     try:
@@ -357,16 +363,13 @@ async def fetch_google_ads_via_gaql(
     except ImportError:
         return {"not_implemented": True, "campaigns": [], "timeseries": []}
 
-    client_id = os.getenv("GOOGLE_CLIENT_ID")
-    client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
-    developer_token = os.getenv("GOOGLE_ADS_DEVELOPER_TOKEN")
-    if not all([client_id, client_secret, developer_token]):
+    if not all([GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_ADS_DEVELOPER_TOKEN]):
         return {"not_configured": True, "campaigns": [], "timeseries": []}
 
     config = {
-        "developer_token": developer_token,
-        "client_id": client_id,
-        "client_secret": client_secret,
+        "developer_token": GOOGLE_ADS_DEVELOPER_TOKEN,
+        "client_id": GOOGLE_CLIENT_ID,
+        "client_secret": GOOGLE_CLIENT_SECRET,
         "refresh_token": refresh_token,
     }
     try:

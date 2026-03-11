@@ -5,8 +5,11 @@ Only super_admin (stevenstimo@gmail.com) can read/write.
 """
 
 import logging
+import os
+import re
+import subprocess
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 
 from app.database import get_db
@@ -17,6 +20,21 @@ router = APIRouter()
 
 SUPER_ADMIN_EMAIL = "stevenstimo@gmail.com"
 
+# Env vars the app needs — key -> (label, required, description)
+ENV_VAR_SPEC = {
+    "ANTHROPIC_API_KEY": ("Anthropic API Key", True, "Vereist voor Claude AI"),
+    "GOOGLE_CLIENT_ID": ("Google Client ID", True, "Vereist voor Google OAuth"),
+    "GOOGLE_CLIENT_SECRET": ("Google Client Secret", True, "Vereist voor Google OAuth"),
+    "GOOGLE_ADS_DEVELOPER_TOKEN": ("Google Ads Developer Token", True, "Vereist voor Google Ads campagne data"),
+    "SUPABASE_URL": ("Supabase URL", True, "Vereist voor database en auth"),
+    "SUPABASE_KEY": ("Supabase Key", True, "Vereist voor Supabase API"),
+    "SUPABASE_JWT_SECRET": ("Supabase JWT Secret", True, "Vereist voor JWT verificatie"),
+    "CREDENTIAL_ENCRYPTION_KEY": ("Credential Encryption Key", True, "Vereist voor encryptie van credentials"),
+}
+
+SYSTEMD_OVERRIDE_DIR = "/etc/systemd/system/wonderz-backend.service.d"
+SYSTEMD_OVERRIDE_FILE = f"{SYSTEMD_OVERRIDE_DIR}/override.conf"
+
 
 def _mask_key(key: Optional[str]) -> str:
     """Return masked version of a key for display."""
@@ -25,6 +43,13 @@ def _mask_key(key: Optional[str]) -> str:
     if len(key) <= 8:
         return "*" * len(key)
     return key[:4] + "*" * (len(key) - 8) + key[-4:]
+
+
+def _env_preview(value: Optional[str]) -> Optional[str]:
+    """Preview: first 3 + ... + last 3 chars. Never return full value."""
+    if not value or len(value) < 7:
+        return None
+    return value[:3] + "..." + value[-3:]
 
 
 async def _check_admin(request: Request):

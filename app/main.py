@@ -4,6 +4,9 @@ from dotenv import load_dotenv
 load_dotenv()  # load .env before any app code uses os.getenv (e.g. SUPABASE_URL)
 load_dotenv(".env.vm")  # exe.dev VM config (overrides .env)
 
+# Load config early so GOOGLE_ADS_DEVELOPER_TOKEN etc. are available from systemd Environment
+import app.core.config  # noqa: F401
+
 import json
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field

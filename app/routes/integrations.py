@@ -227,6 +227,12 @@ async def google_oauth_callback(code: Optional[str] = None, state: Optional[str]
 
     secret = os.getenv("SUPABASE_JWT_SECRET", "fallback-secret-change-me")
     user_id, return_to, client_slug = _verify_oauth_state(state, secret)
+    logger.info(
+        "Google OAuth callback: state parsed user_id=%s return_to=%s client_slug=%s",
+        user_id,
+        return_to,
+        client_slug,
+    )
     if not user_id:
         logger.warning("Google callback invalid state")
         return RedirectResponse(url=f"{integrations_url}?error=invalid_state", status_code=302)
@@ -264,6 +270,13 @@ async def google_oauth_callback(code: Optional[str] = None, state: Optional[str]
     if not token_to_store:
         return RedirectResponse(url=f"{integrations_url}?error=no_tokens", status_code=302)
 
+    logger.info(
+        "Google OAuth callback: token exchange ok, has_refresh=%s scope=%s",
+        bool(refresh_token),
+        data.get("scope", "")[:80],
+    )
+
+    # Build extra_config: always set access_token; use COALESCE for refresh_token on reconnection
     extra_config = {"access_token": access_token}
     if refresh_token:
         extra_config["refresh_token"] = refresh_token
@@ -276,16 +289,20 @@ async def google_oauth_callback(code: Optional[str] = None, state: Optional[str]
                 if client_slug
                 else f"int:{user_id}:{integration_type}"
             )
-            # For client_slug: use ON CONFLICT. For agency (client_slug=None): PostgreSQL treats NULLs as distinct in UNIQUE, so we upsert manually.
+            # Upsert with COALESCE for refresh_token — Google may not return new refresh_token on reconnection
             if client_slug:
+                refresh_to_store = refresh_token or ""
                 await conn.execute(
                     """
                     INSERT INTO client_integrations
                         (integration_id, user_id, client_slug, integration_type, api_key_encrypted, extra_config, updated_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, now())
+                    VALUES ($1, $2, $3, $4, $5, $6::jsonb, now())
                     ON CONFLICT (user_id, client_slug, integration_type) DO UPDATE SET
-                        api_key_encrypted = EXCLUDED.api_key_encrypted,
-                        extra_config = EXCLUDED.extra_config,
+                        api_key_encrypted = COALESCE(NULLIF($7, ''), client_integrations.api_key_encrypted),
+                        extra_config = jsonb_build_object(
+                            'access_token', EXCLUDED.extra_config->>'access_token',
+                            'refresh_token', COALESCE(NULLIF(EXCLUDED.extra_config->>'refresh_token', ''), client_integrations.extra_config->>'refresh_token')
+                        ),
                         updated_at = now()
                     """,
                     integration_id,
@@ -294,34 +311,47 @@ async def google_oauth_callback(code: Optional[str] = None, state: Optional[str]
                     integration_type,
                     token_to_store,
                     json.dumps(extra_config),
+                    refresh_to_store,
                 )
             else:
                 existing = await conn.fetchrow(
                     """
-                    SELECT integration_id FROM client_integrations
+                    SELECT integration_id, api_key_encrypted, extra_config FROM client_integrations
                     WHERE user_id = $1 AND client_slug IS NULL AND integration_type = $2
                     """,
                     user_id,
                     integration_type,
                 )
                 if existing:
+                    # COALESCE: keep existing refresh_token when Google didn't return new one
+                    old_extra = existing["extra_config"] or {}
+                    if isinstance(old_extra, str):
+                        try:
+                            old_extra = json.loads(old_extra)
+                        except Exception:
+                            old_extra = {}
+                    merged_refresh = refresh_token or old_extra.get("refresh_token") or existing["api_key_encrypted"]
+                    merged_extra = {"access_token": access_token}
+                    if merged_refresh:
+                        merged_extra["refresh_token"] = merged_refresh
+                    token_final = refresh_token or existing["api_key_encrypted"] or token_to_store
                     await conn.execute(
                         """
                         UPDATE client_integrations
-                        SET api_key_encrypted = $3, extra_config = $4, updated_at = now()
+                        SET api_key_encrypted = $3, extra_config = $4::jsonb, updated_at = now()
                         WHERE user_id = $1 AND client_slug IS NULL AND integration_type = $2
                         """,
                         user_id,
                         integration_type,
-                        token_to_store,
-                        json.dumps(extra_config),
+                        token_final,
+                        json.dumps(merged_extra),
                     )
                 else:
                     await conn.execute(
                         """
                         INSERT INTO client_integrations
                             (integration_id, user_id, client_slug, integration_type, api_key_encrypted, extra_config, updated_at)
-                        VALUES ($1, $2, NULL, $3, $4, $5, now())
+                        VALUES ($1, $2, NULL, $3, $4, $5::jsonb, now())
                         """,
                         integration_id,
                         user_id,
@@ -330,10 +360,42 @@ async def google_oauth_callback(code: Optional[str] = None, state: Optional[str]
                         json.dumps(extra_config),
                     )
 
+    # Log what was saved: verify client_integrations records for this user+client
+    async with pool.acquire() as conn:
+        if client_slug:
+            saved = await conn.fetch(
+                """
+                SELECT integration_id, user_id, client_slug, integration_type, updated_at
+                FROM client_integrations
+                WHERE user_id = $1 AND client_slug = $2 AND integration_type IN ('ga4', 'google_ads', 'google_search_console')
+                ORDER BY integration_type
+                """,
+                user_id,
+                client_slug,
+            )
+        else:
+            saved = await conn.fetch(
+                """
+                SELECT integration_id, user_id, client_slug, integration_type, updated_at
+                FROM client_integrations
+                WHERE user_id = $1 AND client_slug IS NULL AND integration_type IN ('ga4', 'google_ads', 'google_search_console')
+                ORDER BY integration_type
+                """,
+                user_id,
+            )
+    logger.info(
+        "Google OAuth callback: saved %d records for user_id=%s client_slug=%s: %s",
+        len(saved),
+        user_id,
+        client_slug,
+        [(r["integration_id"], r["integration_type"]) for r in saved],
+    )
+
     if return_to:
         redirect_url = f"{frontend_base.rstrip('/')}{return_to}?connected=google"
     else:
         redirect_url = f"{integrations_url}?connected=google"
+    logger.info("Google OAuth callback: redirecting to %s", redirect_url)
     return RedirectResponse(url=redirect_url, status_code=302)
 
 
