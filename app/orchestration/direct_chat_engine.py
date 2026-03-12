@@ -10,6 +10,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from anthropic import Anthropic
+from anthropic import AsyncAnthropic
 from app.database import get_db
 from app.services.job_pipeline import CLAUDE_MODEL
 from app.services.training import generate_embedding
@@ -87,10 +88,11 @@ class DirectChatEngine:
             knowledge_chunks = await self._retrieve_context(conn, chat["agent_id"], user_message)
             system_msg = self._build_system_message(agent, knowledge_chunks, client_context_block)
 
-            # 6. Fetch history (FIFO, last 20)
+            # 6. Fetch history (FIFO, last 20) — map DB roles to Anthropic: agent→assistant, human→user
             history = await self._get_messages(conn, chat_id, limit=MAX_HISTORY)
+            role_map = {"agent": "assistant", "human": "user", "user": "user", "assistant": "assistant"}
             messages = [
-                {"role": h["role"], "content": h["content"]}
+                {"role": role_map.get(h["role"], "user"), "content": h["content"]}
                 for h in history
             ]
             messages.append({"role": "user", "content": user_message})
@@ -122,14 +124,23 @@ class DirectChatEngine:
             new_token_used = token_used + total_tokens
             await self._update_chat_tokens(conn, chat_id, new_token_used)
 
-            # 11. Auto-title on first response
-            if (chat.get("message_count") or 0) == 0:
-                title = self._generate_title(user_message)
-                await conn.execute(
-                    "UPDATE direct_chats SET title = $1 WHERE chat_id = $2",
-                    title,
-                    chat_id,
-                )
+            # 11. Auto-title on first response (Claude, max 5 woorden)
+            # chat.message_count is from start of request; 0 = first exchange
+            chat_title = None
+            msg_count_at_start = chat.get("message_count") or 0
+            if msg_count_at_start == 0:
+                try:
+                    chat_title = await self._generate_chat_title(user_message)
+                    await conn.execute(
+                        "UPDATE direct_chats SET title = $1 WHERE chat_id = $2",
+                        chat_title,
+                        chat_id,
+                    )
+                    logger.info("Direct Chat: title generated for chat_id=%s title=%s", chat_id, chat_title)
+                except Exception as e:
+                    logger.warning("Direct Chat: title generation failed chat_id=%s: %s", chat_id, e)
+            else:
+                logger.debug("Direct Chat: skip title (message_count=%s)", msg_count_at_start)
 
             # 12. Warning check
             warning = None
@@ -137,7 +148,7 @@ class DirectChatEngine:
                 pct = int(new_token_used / SOFT_TOKEN_LIMIT * 100)
                 warning = f"Sessie op {pct}% van soft limit"
 
-            return {
+            result = {
                 "chat_id": chat_id,
                 "message_id": msg_row["message_id"],
                 "agent_response": text,
@@ -146,6 +157,9 @@ class DirectChatEngine:
                 "soft_limit": SOFT_TOKEN_LIMIT,
                 "warning": warning,
             }
+            if chat_title is not None:
+                result["chat_title"] = chat_title
+            return result
 
     def _build_system_message(
         self,
@@ -212,11 +226,48 @@ Geen response contract vereist. Wees direct, behulpzaam en authentiek."""
             return []
 
     def _generate_title(self, first_message: str) -> str:
-        """Auto-title from first user message — truncate to ~60 chars."""
+        """Auto-title from first user message — truncate to ~60 chars (fallback)."""
         if not first_message or not isinstance(first_message, str):
             return "Direct Chat"
         cleaned = first_message.strip()[:60]
         return cleaned + "…" if len(first_message.strip()) > 60 else cleaned
+
+    async def _generate_chat_title(self, user_message: str) -> str:
+        """
+        Genereer een chat titel van max 5 woorden via Claude.
+        Wordt alleen aangeroepen na het eerste bericht in een chat.
+        Strip @client context prefix voor een schone titel.
+        """
+        clean_message = user_message
+        if "Gebruikersvraag:" in user_message:
+            clean_message = user_message.split("Gebruikersvraag:")[-1].strip()
+        if not clean_message or not isinstance(clean_message, str):
+            return "Direct Chat"
+        try:
+            client = AsyncAnthropic()
+            response = await client.messages.create(
+                model=self.model,
+                max_tokens=20,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": (
+                            "Geef een titel van maximaal 5 woorden voor dit gesprek. "
+                            "Alleen de titel, geen aanhalingstekens, geen uitleg, geen punt aan het einde.\n"
+                            f"Vraag: {clean_message}"
+                        ),
+                    }
+                ],
+            )
+            title = (response.content[0].text if response.content else "").strip().strip('"').strip("'")
+            words = title.split()
+            if len(words) > 6:
+                title = " ".join(words[:5])
+            return title or "Direct Chat"
+        except Exception as e:
+            logger.warning("Chat title generation failed: %s", e)
+            words = clean_message.split()[:5]
+            return " ".join(words).strip().capitalize() or "Direct Chat"
 
     async def _get_chat(self, conn, chat_id: str) -> Optional[Dict[str, Any]]:
         row = await conn.fetchrow(

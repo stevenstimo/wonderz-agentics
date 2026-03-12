@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { MessageCircle, Send, Loader2, Bookmark } from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
+import remarkBreaks from 'remark-breaks'
 import { apiUrl, apiFetch } from '../apiClient'
 
 const SOFT_LIMIT = 10000
@@ -204,15 +206,32 @@ export default function AgentDirectChat({ agentId, agent }) {
           }
         )
         const data = await res.json().catch(() => ({}))
+        if (process.env.NODE_ENV === 'development') {
+          console.log('API response na send:', JSON.stringify(data, null, 2))
+        }
         if (res.ok && !data.error) {
           const replyText = typeof data.agent_response === 'string' ? data.agent_response : (data.agent_response ? String(data.agent_response) : '')
-          setMessages((prev) => [
-            ...prev,
-            { role: 'agent', content: replyText, created_at: new Date().toISOString(), message_id: data.message_id },
-          ])
+          const agentMsg = {
+            role: 'agent',
+            content: replyText,
+            created_at: new Date().toISOString(),
+            message_id: data.message_id,
+          }
+          setMessages((prev) => {
+            const rest = prev.filter((m) => m.id !== userMsg.id)
+            return [...rest, { ...userMsg, id: userMsg.id }, agentMsg]
+          })
           setSessionTokens(data.session_tokens_used || 0)
           setWarning(data.warning || null)
           setBlocked((data.session_tokens_used || 0) >= HARD_BLOCK)
+          if (data.chat_title) {
+            setChats((prev) =>
+              prev.map((c) => (c.chat_id === chatId ? { ...c, title: data.chat_title } : c))
+            )
+            setSelectedChat((prev) =>
+              prev?.chat_id === chatId ? { ...prev, title: data.chat_title } : prev
+            )
+          }
           await loadChats()
         } else {
           setMessages((prev) => prev.filter((m) => m.id !== userMsg.id))
@@ -324,7 +343,7 @@ export default function AgentDirectChat({ agentId, agent }) {
   const agentGoal = agent?.goal || ''
 
   return (
-    <div className="flex flex-col h-[600px] bg-white rounded-xl border border-slate-200 overflow-hidden">
+    <div className="flex flex-col h-[calc(100vh-180px)] bg-white rounded-xl border border-slate-200 overflow-hidden">
       <div className="flex flex-1 min-h-0">
         {/* ChatHistoryPanel */}
         <div className="w-56 border-r border-slate-200 flex flex-col bg-slate-50/50">
@@ -398,18 +417,18 @@ export default function AgentDirectChat({ agentId, agent }) {
               </p>
             </div>
           ) : (
-            <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-4">
+            <div ref={scrollRef} className="flex-1 overflow-y-auto min-h-0 px-6 py-4 space-y-4">
               {messages.map((msg) => (
                 <div
                   key={msg.id || msg.message_id || `${msg.role}-${msg.created_at}-${msg.content?.slice(0, 20)}`}
                   className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
                 >
                   <div
-                    className={`max-w-[80%] rounded-xl px-4 py-2.5 ${
+                    className={
                       msg.role === 'user'
-                        ? 'bg-[var(--color-direct-chat-user)] text-white'
-                        : 'bg-slate-100 text-slate-800'
-                    }`}
+                        ? 'bg-indigo-600 text-white rounded-2xl rounded-br-sm px-4 py-3 max-w-[75%]'
+                        : 'bg-gray-100 text-gray-800 rounded-2xl rounded-bl-sm px-4 py-3 max-w-[75%]'
+                    }
                   >
                     {msg.role === 'agent' && (
                       <div className="flex items-center justify-between gap-2 mb-1.5">
@@ -429,7 +448,29 @@ export default function AgentDirectChat({ agentId, agent }) {
                         </button>
                       </div>
                     )}
-                    <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                    {msg.role === 'user' ? (
+                      <div className="text-sm whitespace-pre-wrap">{msg.content}</div>
+                    ) : (
+                      <ReactMarkdown
+                        remarkPlugins={[remarkBreaks]}
+                        className="prose prose-sm max-w-none text-sm"
+                        components={{
+                          strong: ({ children }) => <em className="italic">{children}</em>,
+                          em: ({ children }) => <strong className="font-semibold">{children}</strong>,
+                          p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                          ul: ({ children }) => <ul className="list-disc pl-4 mb-2">{children}</ul>,
+                          li: ({ children }) => <li className="mb-1">{children}</li>,
+                          h1: ({ children }) => <h1 className="text-lg font-bold not-italic mt-3 mb-2">{children}</h1>,
+                          h2: ({ children }) => <h2 className="text-base font-bold not-italic mt-3 mb-1.5">{children}</h2>,
+                          h3: ({ children }) => <h3 className="text-sm font-bold not-italic mt-2 mb-1">{children}</h3>,
+                          h4: ({ children }) => <h4 className="text-sm font-bold not-italic mt-2 mb-1">{children}</h4>,
+                          h5: ({ children }) => <h5 className="text-sm font-bold not-italic mt-1 mb-0.5">{children}</h5>,
+                          h6: ({ children }) => <h6 className="text-sm font-bold not-italic mt-1 mb-0.5">{children}</h6>,
+                        }}
+                      >
+                        {msg.content}
+                      </ReactMarkdown>
+                    )}
                     <span className={`text-xs block mt-1 ${msg.role === 'user' ? 'text-slate-300' : 'text-slate-500'}`}>
                       {formatTime(msg.created_at)}
                     </span>
@@ -441,7 +482,7 @@ export default function AgentDirectChat({ agentId, agent }) {
           )}
 
           {/* TokenIndicator + ChatInput */}
-          <div className="border-t border-slate-200 p-3 bg-white">
+          <div className="flex-shrink-0 border-t border-gray-100 px-4 py-3 bg-white">
             <div className={`text-xs mb-2 ${tokenIndicatorClass}`}>
               {blocked ? (
                 'Sessielimiet bereikt. Start een nieuwe sessie.'

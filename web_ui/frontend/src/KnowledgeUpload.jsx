@@ -47,6 +47,7 @@ export default function KnowledgeUpload() {
   const [uploading, setUploading] = useState(false)
   const [progressStep, setProgressStep] = useState(0)
   const [result, setResult] = useState(null)
+  const [embeddingStatus, setEmbeddingStatus] = useState(null) // 'processing' | 'complete' | 'failed'
   const [error, setError] = useState('')
   const [fieldErrors, setFieldErrors] = useState({})
 
@@ -62,6 +63,29 @@ export default function KnowledgeUpload() {
       if (dt === 'skill_spec') setDomain('ai_systems')
     }
   }, [searchParams])
+
+  // Poll embedding_status when document is created with status processing (202)
+  useEffect(() => {
+    if (!result?.document_id || result.status !== 'processing') return
+    const id = result.document_id
+    const interval = setInterval(async () => {
+      try {
+        const res = await apiFetch(`/api/knowledge/${id}`)
+        if (!res.ok) return
+        const doc = await res.json()
+        const status = doc.embedding_status
+        setEmbeddingStatus(status)
+        if (status === 'complete') {
+          setResult((r) => (r ? { ...r, status: 'complete' } : r))
+          navigate(`/knowledge/${id}`)
+        }
+        if (status === 'failed') {
+          setError('Embeddings genereren mislukt. Bekijk het document voor details.')
+        }
+      } catch (_) {}
+    }, 3000)
+    return () => clearInterval(interval)
+  }, [result?.document_id, result?.status, navigate])
 
   const addKeyword = useCallback(() => {
     const v = keywordInput.trim()
@@ -104,6 +128,7 @@ export default function KnowledgeUpload() {
     setUrl('')
     setFile(null)
     setResult(null)
+    setEmbeddingStatus(null)
     setError('')
     setFieldErrors({})
     setUploading(false)
@@ -176,6 +201,9 @@ export default function KnowledgeUpload() {
       const data = await res.json()
       setResult(data)
       setUploading(false)
+      if (res.status === 202) {
+        setEmbeddingStatus('processing')
+      }
     } catch (err) {
       clearInterval(stepInterval)
       setError(err.message || 'Upload mislukt')
@@ -189,6 +217,21 @@ export default function KnowledgeUpload() {
   if (!authReady) return null
 
   if (result) {
+    if (result.status === 'processing') {
+      return (
+        <PageLayout size="medium" padded>
+          <div className="mb-6 p-4 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 flex items-center gap-3">
+            <Loader2 className="w-6 h-6 flex-shrink-0 animate-spin" />
+            <div>
+              <p className="font-medium">Embeddings genereren...</p>
+              <p className="text-sm mt-1">
+                Document opgeslagen ({result.chunks_stored ?? 0} chunks). Wacht tot de embeddings klaar zijn; je wordt doorgestuurd.
+              </p>
+            </div>
+          </div>
+        </PageLayout>
+      )
+    }
     return (
       <PageLayout size="medium" padded>
         <div className="mb-6 p-4 rounded-lg bg-green-50 border border-green-200 text-green-800">

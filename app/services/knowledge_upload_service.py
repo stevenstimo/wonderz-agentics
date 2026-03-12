@@ -11,7 +11,13 @@ import json
 import logging
 from typing import Any, Optional
 
-from app.services.training import chunk_text, generate_embedding, TrainingError
+from app.services.training import (
+    chunk_text,
+    extract_text,
+    generate_embedding,
+    scrape_url,
+    TrainingError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +32,160 @@ DOC_TYPES = (
     "client_context",
     "skill_spec",
 )
+
+
+async def create_document_with_chunks(
+    pool,
+    text: str,
+    *,
+    source_url: Optional[str] = None,
+    source_type: str = "file",
+    title: Optional[str] = None,
+    doc_type: str = "sop",
+    domain: str = "general",
+    function_tag: str = "general",
+    client_slug: Optional[str] = None,
+    approved_by: str,
+    access_level: str = "reference",
+    summary: Optional[str] = None,
+    keywords: Optional[list[str]] = None,
+    chunk_size: int = 500,
+    overlap: int = 50,
+) -> dict[str, Any]:
+    """
+    Create document and chunks without embeddings. Sets embedding_status='pending'.
+    Returns: {document_id, chunks_stored, status: "draft"} for 202 response.
+    """
+    if not text or len(text.strip()) < 50:
+        raise TrainingError("Text too short for ingestion (min 50 chars)")
+
+    chunks_tuples = chunk_text(text, chunk_size=chunk_size, overlap=overlap)
+    if not chunks_tuples:
+        raise TrainingError("No chunks generated")
+
+    chunks = [c[0] for c in chunks_tuples]
+    al = access_level if access_level in ("reference", "approved", "restricted") else "reference"
+    kw = keywords if keywords else []
+
+    async with pool.acquire() as conn:
+        document_id = await conn.fetchval(
+            """
+            INSERT INTO knowledge_documents (
+                source_url, source_type, title, client_slug,
+                approved_by, doc_type, domain, function_tag, owner,
+                status, access_level, summary, keywords, embedding_status
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'draft', $10, $11, $12, 'pending')
+            RETURNING document_id
+            """,
+            source_url,
+            source_type,
+            title or (source_url or "upload"),
+            client_slug,
+            approved_by,
+            doc_type,
+            domain,
+            function_tag,
+            approved_by,
+            al,
+            summary,
+            kw,
+        )
+
+        for idx, chunk_text_val in enumerate(chunks):
+            await conn.execute(
+                """
+                INSERT INTO knowledge_chunks
+                    (document_id, chunk_text, chunk_index, embedding, is_active)
+                VALUES ($1, $2, $3, NULL, true)
+                """,
+                document_id,
+                chunk_text_val,
+                idx,
+            )
+
+    logger.info(
+        "Knowledge document created (pending embeddings): document_id=%s chunks=%s",
+        document_id,
+        len(chunks),
+    )
+    return {
+        "document_id": str(document_id),
+        "chunks_stored": len(chunks),
+        "status": "draft",
+    }
+
+
+async def run_embedding_task(pool, document_id: str) -> None:
+    """
+    Background task: set embedding_status to processing, generate embeddings for all
+    chunks of the document, update chunks and set embedding_status to complete or failed.
+    """
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """
+            UPDATE knowledge_documents
+            SET embedding_status = 'processing'
+            WHERE document_id = $1 AND embedding_status = 'pending'
+            """,
+            document_id,
+        )
+        rows = await conn.fetch(
+            """
+            SELECT chunk_id, chunk_text
+            FROM knowledge_chunks
+            WHERE document_id = $1::uuid AND is_active = true
+            ORDER BY chunk_index ASC
+            """,
+            document_id,
+        )
+
+    if not rows:
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE knowledge_documents SET embedding_status = 'failed' WHERE document_id = $1",
+                document_id,
+            )
+        logger.warning("run_embedding_task: no chunks for document_id=%s", document_id)
+        return
+
+    try:
+        for row in rows:
+            chunk_id = row["chunk_id"]
+            chunk_text_val = (row["chunk_text"] or "")[:8000]
+            embedding = await generate_embedding(chunk_text_val)
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    """
+                    UPDATE knowledge_chunks
+                    SET embedding = $1::vector
+                    WHERE chunk_id = $2
+                    """,
+                    json.dumps(embedding),
+                    chunk_id,
+                )
+
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                UPDATE knowledge_documents
+                SET embedding_status = 'complete'
+                WHERE document_id = $1
+                """,
+                document_id,
+            )
+        logger.info("run_embedding_task: complete document_id=%s chunks=%s", document_id, len(rows))
+    except Exception as exc:
+        logger.exception("run_embedding_task failed document_id=%s: %s", document_id, exc)
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                UPDATE knowledge_documents
+                SET embedding_status = 'failed'
+                WHERE document_id = $1
+                """,
+                document_id,
+            )
 
 
 async def upload_document_from_text(
@@ -47,48 +207,74 @@ async def upload_document_from_text(
     overlap: int = 50,
 ) -> dict[str, Any]:
     """
-    Parse text, chunk, embed, store in knowledge_documents + knowledge_chunks.
-    approved_by: user identifier (nooit agent).
+    Parse text, chunk, embed, store (synchronous). For small docs or backward compatibility.
+    Prefer create_document_with_chunks + run_embedding_task for uploads.
     Returns: {document_id, chunks_stored, status}
     """
-    if not text or len(text.strip()) < 50:
-        raise TrainingError("Text too short for ingestion (min 50 chars)")
+    created = await create_document_with_chunks(
+        pool,
+        text,
+        source_url=source_url,
+        source_type=source_type,
+        title=title,
+        doc_type=doc_type,
+        domain=domain,
+        function_tag=function_tag,
+        client_slug=client_slug,
+        approved_by=approved_by,
+        access_level=access_level,
+        summary=summary,
+        keywords=keywords,
+        chunk_size=chunk_size,
+        overlap=overlap,
+    )
+    await run_embedding_task(pool, created["document_id"])
+    return {**created, "status": "draft"}
 
-    chunks_tuples = chunk_text(text, chunk_size=chunk_size, overlap=overlap)
-    if not chunks_tuples:
-        raise TrainingError("No chunks generated")
 
-    chunks = [c[0] for c in chunks_tuples]
-
-    al = access_level if access_level in ("reference", "approved", "restricted") else "reference"
-    kw = keywords if keywords else []
-
+async def reindex_document(
+    pool,
+    document_id: str,
+    *,
+    chunk_size: int = 500,
+    overlap: int = 50,
+) -> dict[str, Any]:
+    """
+    Re-fetch (URL only), re-chunk and re-embed a document. Deactivates existing chunks
+    and inserts new ones. Only supported for source_type='url' with source_url set.
+    Returns: {chunks_created: int}
+    """
     async with pool.acquire() as conn:
-        document_id = await conn.fetchval(
+        row = await conn.fetchrow(
             """
-            INSERT INTO knowledge_documents (
-                source_url, source_type, title, client_slug,
-                approved_by, doc_type, domain, function_tag, owner,
-                status, access_level, summary, keywords
-            )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'draft', $10, $11, $12)
-            RETURNING document_id
+            SELECT document_id, source_url, source_type
+            FROM knowledge_documents
+            WHERE document_id = $1
             """,
-            source_url,
-            source_type,
-            title or (source_url or "upload"),
-            client_slug,
-            approved_by,
-            doc_type,
-            domain,
-            function_tag,
-            approved_by,
-            al,
-            summary,
-            kw,
+            document_id,
+        )
+        if not row:
+            raise TrainingError("Document not found")
+        if row["source_type"] != "url" or not row["source_url"]:
+            raise TrainingError(
+                "Reindex only supported for URL-sourced documents; re-upload file documents to re-chunk."
+            )
+
+        html = await scrape_url(row["source_url"])
+        text = extract_text(html)
+        if not text or len(text.strip()) < 50:
+            raise TrainingError("Could not extract enough text from URL")
+
+        await conn.execute(
+            "UPDATE knowledge_chunks SET is_active = false WHERE document_id = $1",
+            document_id,
         )
 
-        stored = 0
+        chunks_tuples = chunk_text(text, chunk_size=chunk_size, overlap=overlap)
+        if not chunks_tuples:
+            raise TrainingError("No chunks generated")
+        chunks = [c[0] for c in chunks_tuples]
+
         for idx, chunk_text_val in enumerate(chunks):
             embedding = await generate_embedding((chunk_text_val or "")[:8000])
             await conn.execute(
@@ -102,16 +288,6 @@ async def upload_document_from_text(
                 idx,
                 json.dumps(embedding),
             )
-            stored += 1
 
-    logger.info(
-        "Knowledge upload: document_id=%s chunks=%s approved_by=%s",
-        document_id,
-        stored,
-        approved_by,
-    )
-    return {
-        "document_id": str(document_id),
-        "chunks_stored": stored,
-        "status": "draft",
-    }
+    logger.info("Knowledge reindex: document_id=%s chunks_created=%s", document_id, len(chunks))
+    return {"chunks_created": len(chunks)}

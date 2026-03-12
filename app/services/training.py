@@ -95,12 +95,7 @@ def extract_text(html: str) -> str:
     # Collapse multiple newlines to double, single spaces within lines
     text = re.sub(r"\n{3,}", "\n\n", text)
     text = re.sub(r"[ \t]+", " ", text)
-    text = text.strip()
-    # [DEBUG] pre-flight check for chunk pipeline
-    print(f"[DEBUG] raw text length: {len(text)}")
-    print(f"[DEBUG] double-newline count: {text.count(chr(10) + chr(10))}")
-    print(f"[DEBUG] first 500 chars: {repr(text[:500])}")
-    return text
+    return text.strip()
 
 
 def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> List[Tuple[str, int]]:
@@ -123,9 +118,6 @@ def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> List[Tupl
     if not paragraphs:
         # No double newlines: treat whole text as one paragraph
         paragraphs = [raw]
-
-    logger.debug("chunk_text chunk_size=%d overlap=%d", chunk_size, overlap)
-    logger.debug("paragraph count: %d", len(paragraphs))
 
     chunks: List[Tuple[str, int]] = []
     current_chunk: List[str] = []
@@ -162,9 +154,22 @@ def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> List[Tupl
     if not chunks:
         return [(raw, 0)]
 
-    chunk_word_counts = [len(c[0].split()) for c in chunks]
-    logger.debug("chunks produced: %d; word counts: %s", len(chunks), chunk_word_counts)
-    return chunks
+    # Safety net: split any chunk exceeding chunk_size * 1.5 words by word count
+    max_words_per_chunk = int(chunk_size * 1.5)
+    step = chunk_size - overlap
+    expanded: List[Tuple[str, int]] = []
+    for chunk_str, start_idx in chunks:
+        words = chunk_str.split()
+        if len(words) <= max_words_per_chunk:
+            expanded.append((chunk_str, start_idx))
+        else:
+            i = 0
+            while i < len(words):
+                segment = words[i : i + chunk_size]
+                if segment:
+                    expanded.append((" ".join(segment), start_idx + i))
+                i += step
+    return expanded
 
 
 EMBEDDING_DIM = 1024  # agent_knowledge.embedding vector size (BGE-M3)

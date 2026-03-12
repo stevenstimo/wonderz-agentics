@@ -8,16 +8,27 @@ export function apiUrl(path) {
   return `${base}${normalized}`
 }
 
-// Centrale auth fetch — injecteert automatisch de Bearer token
-export async function apiFetch(path, options = {}) {
-  let session = null
+// Korte cache voor access token om lock-contention met Supabase Gotrue te verminderen
+const SESSION_CACHE_MS = 20_000
+let cachedToken = null
+let cachedAt = 0
+
+async function getAccessToken() {
+  if (cachedToken && Date.now() - cachedAt < SESSION_CACHE_MS) return cachedToken
   try {
     const result = await supabase.auth.getSession()
-    session = result?.data?.session
+    const token = result?.data?.session?.access_token ?? null
+    cachedToken = token
+    cachedAt = Date.now()
+    return token
   } catch (_) {
-    // auth unavailable — proceed without token
+    return cachedToken
   }
-  const token = session?.access_token
+}
+
+// Centrale auth fetch — injecteert automatisch de Bearer token
+export async function apiFetch(path, options = {}) {
+  const token = await getAccessToken()
   const { headers: extraHeaders, ...rest } = options
   const headers = {
     ...(token ? { Authorization: `Bearer ${token}` } : {}),

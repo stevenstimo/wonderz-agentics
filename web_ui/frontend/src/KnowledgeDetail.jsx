@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate, useLocation, Link } from 'react-router-dom'
 import PageLayout from './PageLayout'
-import { ArrowLeft, Check, Archive, AlertTriangle, Lock } from 'lucide-react'
+import { ArrowLeft, Check, Archive, AlertTriangle, Lock, ChevronDown, ChevronRight } from 'lucide-react'
 
 import { apiFetch } from './apiClient'
 import { useAuthReady } from './useAuthReady'
@@ -45,6 +45,8 @@ export default function KnowledgeDetail() {
   const [secondApprover, setSecondApprover] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [relatedDocs, setRelatedDocs] = useState([])
+  const [chunksExpanded, setChunksExpanded] = useState(false)
+  const [chunkShowMore, setChunkShowMore] = useState({})
 
   const fetchDocument = async () => {
     setLoading(true)
@@ -264,9 +266,50 @@ export default function KnowledgeDetail() {
             </div>
           )}
 
-          <p className="text-sm text-slate-500">
-            {doc.chunk_count ?? 0} chunks geïndexeerd
-          </p>
+          <div className="mt-4">
+            <button
+              type="button"
+              onClick={(ev) => { ev.preventDefault(); ev.stopPropagation(); setChunksExpanded((prev) => !prev); }}
+              className="inline-flex items-center gap-2 text-sm text-slate-600 hover:text-indigo-600 font-medium cursor-pointer select-none py-1 pr-2 rounded hover:bg-slate-100"
+              aria-expanded={chunksExpanded}
+            >
+              {chunksExpanded ? <ChevronDown className="w-4 h-4 flex-shrink-0" /> : <ChevronRight className="w-4 h-4 flex-shrink-0" />}
+              <span>{(doc.chunk_count ?? 0)} chunks geïndexeerd</span>
+            </button>
+            {chunksExpanded && (
+              <div className="mt-3 space-y-3">
+                {(doc.chunks ?? []).length > 0 ? (
+                  (doc.chunks ?? []).map((chunk, idx) => {
+                    const text = chunk.chunk_text || ''
+                    const maxVisible = 300
+                    const showMore = chunkShowMore[idx]
+                    const visible = showMore ? text : text.slice(0, maxVisible)
+                    const hasMore = text.length > maxVisible
+                    return (
+                      <div key={chunk.chunk_index ?? idx} className="rounded-lg bg-slate-100 p-3 border border-slate-200">
+                        <div className="text-xs font-medium text-slate-500 mb-2">Chunk {chunk.chunk_index ?? idx + 1}</div>
+                        <pre className="text-sm text-slate-700 whitespace-pre-wrap font-mono break-words">
+                          {visible}
+                          {hasMore && !showMore && '…'}
+                        </pre>
+                        {hasMore && !showMore && (
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setChunkShowMore((prev) => ({ ...prev, [idx]: true })); }}
+                            className="mt-2 text-xs text-indigo-600 hover:underline"
+                          >
+                            Toon meer
+                          </button>
+                        )}
+                      </div>
+                    )
+                  })
+                ) : (
+                  <p className="text-sm text-slate-500">Geen chunk-inhoud beschikbaar.</p>
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Sectie B — Acties */}
