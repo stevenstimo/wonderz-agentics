@@ -1,0 +1,40 @@
+{
+  "plugins": {
+    "supabase": {
+      "enabled": true
+    },
+    "context7-plugin": {
+      "enabled": true
+    },
+    "compound-engineering": {
+      "enabled": true
+    },
+    "linear": {
+      "enabled": true
+    },
+    "convex": {
+      "enabled": true
+    },
+    "stripe": {
+      "enabled": true
+    },
+    "sentry": {
+      "enabled": true
+    },
+    "vercel": {
+      "enabled": true
+    },
+    "neon-postgres": {
+      "enabled": true
+    },
+    "slack": {
+      "enabled": true
+    },
+    "parallel": {
+      "enabled": true
+    },
+    "snyk-secure-development": {
+      "enabled": true
+    }
+  }
+}
