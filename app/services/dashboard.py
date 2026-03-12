@@ -485,11 +485,14 @@ async def fetch_ga4(
                 dims = row.get("dimensionValues", [])
                 metrics = row.get("metricValues", [])
                 if dims and metrics:
+                    sess = int(metrics[1].get("value", 0)) if len(metrics) > 1 else 0
+                    conv = float(metrics[2].get("value", 0)) if len(metrics) > 2 else 0
                     result["traffic_by_channel"].append({
                         "channel": dims[0].get("value", "(not set)"),
                         "users": int(metrics[0].get("value", 0)) if len(metrics) > 0 else 0,
-                        "sessions": int(metrics[1].get("value", 0)) if len(metrics) > 1 else 0,
-                        "conversions": float(metrics[2].get("value", 0)) if len(metrics) > 2 else 0,
+                        "sessions": sess,
+                        "conversions": conv,
+                        "conversion_rate": (conv / sess * 100) if sess else 0.0,
                     })
 
     return result

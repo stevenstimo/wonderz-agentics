@@ -291,10 +291,16 @@ export default function ClientDashboard({
         ) : !adsConnected ? (
           <EmptyState
             title="Google Ads niet verbonden"
-            description="Koppel Google Ads om campagne- en kosten data te zien."
+            description={googleAds?.error || 'Koppel Google Ads om campagne- en kosten data te zien.'}
             buttonText="Verbind Google Ads"
             href={integrationsUrl}
           />
+        ) : googleAds?.error ? (
+          <div className="panel-card bg-amber-50 border border-amber-200 rounded-xl p-6">
+            <p className="font-medium text-amber-800">Google Ads-fout</p>
+            <p className="text-sm text-amber-700 mt-1">{googleAds.error}</p>
+            <Link to={integrationsUrl} className="inline-block mt-3 text-sm font-medium text-indigo-600 hover:underline">Controleer integratie →</Link>
+          </div>
         ) : (!campaigns || campaigns.length === 0) ? (
           <div className="text-center py-12 text-gray-400">
             <p>Geen Google Ads account geselecteerd.</p>
@@ -469,10 +475,16 @@ export default function ClientDashboard({
         ) : !ga4Connected ? (
           <EmptyState
             title="GA4 niet verbonden"
-            description="Koppel Google Analytics 4 om verkeer en gedrag te analyseren."
+            description={ga4?.error || 'Koppel Google Analytics 4 om verkeer en gedrag te analyseren.'}
             buttonText="Verbind GA4"
             href={integrationsUrl}
           />
+        ) : ga4?.error ? (
+          <div className="panel-card bg-amber-50 border border-amber-200 rounded-xl p-6">
+            <p className="font-medium text-amber-800">GA4-fout</p>
+            <p className="text-sm text-amber-700 mt-1">{ga4.error}</p>
+            <Link to={integrationsUrl} className="inline-block mt-3 text-sm font-medium text-indigo-600 hover:underline">Controleer integratie →</Link>
+          </div>
         ) : (
           <>
             {ga4?._used_first_property && (
