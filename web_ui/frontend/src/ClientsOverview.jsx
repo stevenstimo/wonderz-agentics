@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import PageLayout from './PageLayout'
-import { Building, Plus, Zap } from 'lucide-react'
+import { Building, Plus } from 'lucide-react'
 
 import { apiUrl, apiFetch } from './apiClient'
 import { useAuthReady } from './useAuthReady'
@@ -13,8 +13,6 @@ export default function ClientsOverview() {
   const [clients, setClients] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [creatingVitbliss, setCreatingVitbliss] = useState(false)
-
   const fetchClients = async () => {
     setLoading(true)
     setError('')
@@ -30,11 +28,20 @@ export default function ClientsOverview() {
         setClients(data)
       } else {
         const j = await res.json().catch(() => ({}))
-        setError(j.detail || 'Laden mislukt')
+        const detail = j.detail
+        if (typeof detail === 'string') {
+          setError(detail)
+        } else if (Array.isArray(detail)) {
+          setError(detail.map(d => d.msg || JSON.stringify(d)).join(', '))
+        } else if (detail && typeof detail === 'object') {
+          setError(JSON.stringify(detail))
+        } else {
+          setError('Laden mislukt')
+        }
       }
     } catch (err) {
       console.error('Failed to load clients:', err)
-      setError(err.message || 'Laden mislukt')
+      setError(typeof err?.message === 'string' ? err.message : 'Laden mislukt')
     } finally {
       setLoading(false)
     }
@@ -51,6 +58,7 @@ export default function ClientsOverview() {
     try {
       const res = await apiFetch('/api/clients', {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ client_name: 'Vitbliss' }),
       })
       if (res.status === 401) {
@@ -62,11 +70,20 @@ export default function ClientsOverview() {
         navigate(`/clients/${data.slug}`)
       } else {
         const j = await res.json().catch(() => ({}))
-        setError(j.detail || 'Aanmaken mislukt')
+        const detail = j.detail
+        if (typeof detail === 'string') {
+          setError(detail)
+        } else if (Array.isArray(detail)) {
+          setError(detail.map(d => d.msg || JSON.stringify(d)).join(', '))
+        } else if (detail && typeof detail === 'object') {
+          setError(JSON.stringify(detail))
+        } else {
+          setError('Aanmaken mislukt')
+        }
       }
     } catch (err) {
       console.error('Failed to create Vitbliss:', err)
-      setError(err.message || 'Aanmaken mislukt')
+      setError(typeof err?.message === 'string' ? err.message : 'Aanmaken mislukt')
     } finally {
       setCreatingVitbliss(false)
     }
@@ -88,7 +105,7 @@ export default function ClientsOverview() {
     <PageLayout size="narrow" padded>
       {error && (
         <div className="mb-4 p-4 rounded-lg bg-red-50 text-red-700 border border-red-200 text-sm">
-          {error}
+          {typeof error === 'string' ? error : JSON.stringify(error)}
         </div>
       )}
       <h1 className="page-title flex items-center gap-2">
@@ -107,17 +124,6 @@ export default function ClientsOverview() {
           <Plus className="w-4 h-4" />
           Nieuwe client
         </Link>
-        {!hasVitbliss && (
-          <button
-            type="button"
-            onClick={handleCreateVitbliss}
-            disabled={creatingVitbliss}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-emerald-600 text-white font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            <Zap className="w-4 h-4" />
-            {creatingVitbliss ? 'Aanmaken...' : 'Maak Vitbliss aan'}
-          </button>
-        )}
       </div>
 
       {clients.length === 0 ? (
