@@ -300,7 +300,15 @@ async def get_client_dashboard(
     # --- GA4 ---
     ga4_int = int_by_type.get("ga4")
     ga4_cfg = config_by_platform.get("ga4", {})
-    property_id = ga4_cfg.get("property_id") if isinstance(ga4_cfg, dict) else None
+    # Primary: client_integrations.extra_config; fallback: client_platform_configs.config
+    ga4_extra = ga4_int.get("extra_config") if ga4_int else None
+    if isinstance(ga4_extra, str):
+        try:
+            ga4_extra = json.loads(ga4_extra) if ga4_extra else {}
+        except Exception:
+            ga4_extra = {}
+    ga4_extra = ga4_extra or {}
+    property_id = ga4_extra.get("property_id") or (ga4_cfg.get("property_id") if isinstance(ga4_cfg, dict) else None)
     ga4_used_fallback = False
 
     if not ga4_int:
