@@ -1,3 +1,4 @@
+import { useRef, useState } from 'react'
 import { useParams, useLocation, Link } from 'react-router-dom'
 import {
   LineChart,
@@ -12,8 +13,10 @@ import {
   Legend,
   ComposedChart,
 } from 'recharts'
+import html2canvas from 'html2canvas'
+import { jsPDF } from 'jspdf'
 import PageLayout from './PageLayout'
-import { BarChart3, TrendingUp, DollarSign, MousePointer, Search, Globe, Plug, RefreshCw } from 'lucide-react'
+import { BarChart3, TrendingUp, DollarSign, MousePointer, Search, Globe, Plug, RefreshCw, FileDown } from 'lucide-react'
 
 // Formatters: kosten € met 2 decimalen, percentages %, grote aantallen met duizendscheiding
 const fmtNum = (v) => (v == null ? '0' : Number(v).toLocaleString('nl-NL'))
@@ -92,7 +95,48 @@ export default function ClientDashboard({
 }) {
   const { slug } = useParams()
   const location = useLocation()
+  const dashboardRef = useRef(null)
+  const [exporting, setExporting] = useState(false)
   const integrationsUrl = `/clients/${slug}/integrations`
+
+  const handleExportPdf = async () => {
+    if (!dashboardRef.current || exporting) return
+    setExporting(true)
+    try {
+      const canvas = await html2canvas(dashboardRef.current, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff',
+      })
+      const imgData = canvas.toDataURL('image/png')
+      const pdf = new jsPDF('l', 'mm', 'a4')
+      const pageW = pdf.internal.pageSize.getWidth()
+      const pageH = pdf.internal.pageSize.getHeight()
+      const margin = 10
+      const headerH = 14
+      const clientLabel = liveData?.client_name || `@${slug}`
+      pdf.setFontSize(10)
+      pdf.text(clientLabel, margin, 10)
+      pdf.text(`Gegenereerd op: ${new Date().toLocaleDateString('nl-NL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`, pageW - margin, 10, { align: 'right' })
+      pdf.setDrawColor(200, 200, 200)
+      pdf.line(margin, headerH, pageW - margin, headerH)
+      const contentW = pageW - 2 * margin
+      const contentH = pageH - headerH - 2 * margin
+      const imgW = canvas.width
+      const imgH = canvas.height
+      const ratio = Math.min(contentW / imgW, contentH / imgH)
+      const w = imgW * ratio
+      const h = imgH * ratio
+      const x = margin + (contentW - w) / 2
+      const y = headerH + margin
+      pdf.addImage(imgData, 'PNG', x, y, w, h)
+      const filename = `${slug}-dashboard-${new Date().toISOString().slice(0, 10)}.pdf`
+      pdf.save(filename)
+    } finally {
+      setExporting(false)
+    }
+  }
 
   const overview = liveData?.overview || {}
   const ga4 = liveData?.ga4
@@ -205,6 +249,7 @@ export default function ClientDashboard({
         </div>
       )}
 
+      <div ref={dashboardRef}>
       {/* Block 1 — Overzicht */}
       <div className="mb-8">
         <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
@@ -243,6 +288,16 @@ export default function ClientDashboard({
                 <option key={d || 'all'} value={d}>{d || 'Alle devices'}</option>
               ))}
             </select>
+            <button
+              type="button"
+              onClick={handleExportPdf}
+              disabled={exporting}
+              style={exporting ? { visibility: 'hidden' } : undefined}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 transition disabled:opacity-50 text-sm"
+            >
+              <FileDown className="w-4 h-4" />
+              {exporting ? 'Exporteren...' : 'Export PDF'}
+            </button>
           </div>
         </div>
 
@@ -526,6 +581,7 @@ export default function ClientDashboard({
             </div>
           </>
         )}
+      </div>
       </div>
     </PageLayout>
   )
