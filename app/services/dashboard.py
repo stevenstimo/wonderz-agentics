@@ -160,16 +160,24 @@ async def list_google_ads_accounts(
             mcc_ids = [login_customer_id]
         elif accessible_ids:
             for aid in accessible_ids:
+                logger.info("GA Ads testing customer as MCC: %s", aid)
+                child_count = 0
                 try:
                     test_config = {**base_config, "login_customer_id": aid}
                     test_client = GoogleAdsClient.load_from_dict(test_config)
                     ga = test_client.get_service("GoogleAdsService")
                     stream = ga.search_stream(customer_id=aid, query=_CUSTOMER_CLIENT_QUERY)
                     for batch in stream:
-                        if batch.results:
-                            mcc_ids.append(aid)
-                            logger.info("Google Ads MCC found: %s", aid)
-                            break
+                        for row in batch.results:
+                            level = getattr(row.customer_client, "level", 0)
+                            if level > 0:
+                                child_count += 1
+                    logger.info(
+                        "GA Ads customer %s has %s children, treating as MCC: %s",
+                        aid, child_count, child_count > 0,
+                    )
+                    if child_count > 0:
+                        mcc_ids.append(aid)
                 except (GoogleAdsException, Exception):
                     continue
             if mcc_ids and not login_customer_id:
