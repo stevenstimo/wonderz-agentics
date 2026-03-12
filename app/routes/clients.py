@@ -265,8 +265,6 @@ async def get_meta_auth_url(
         "redirect_uri": redirect_uri,
         "scope": ",".join([
             "ads_read",
-            "instagram_basic",
-            "instagram_manage_insights",
             "pages_read_engagement",
             "pages_show_list",
         ]),
