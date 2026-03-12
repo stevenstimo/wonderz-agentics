@@ -57,6 +57,7 @@ from app.routes import (
     clients,
     debug_chat,
     email as email_routes,
+    email_inbox,
     ceo,
     crew,
     events,
@@ -82,6 +83,7 @@ from app.routes import (
 
 app.include_router(agents.router)
 app.include_router(agent_inbox.router)
+app.include_router(email_inbox.router)
 app.include_router(clients.router)
 app.include_router(debug_chat.router)
 app.include_router(email_routes.router)

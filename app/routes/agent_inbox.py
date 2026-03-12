@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from app.database import get_db
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/inbox", tags=["inbox"])
+router = APIRouter(prefix="/api/agent-inbox", tags=["agent-inbox"])
 
 
 # --- Pydantic models ---

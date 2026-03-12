@@ -724,7 +724,7 @@ export default function JobSplitView() {
               value={chatInput}
               onChange={(e) => setChatInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={jobId ? 'Type your message...' : 'Beschrijf je opdracht...'}
+              placeholder={jobId ? 'Type your message...' : 'Beschrijf je opdracht... Gebruik @client (bijv. @asured) voor context.'}
               className="flex-1 px-4 py-2.5 border border-slate-300 rounded-xl text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none min-h-[44px] max-h-32"
               disabled={inputDisabled || uploadingFile}
               rows={1}

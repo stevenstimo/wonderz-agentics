@@ -12,7 +12,7 @@ import os
 from typing import List, Tuple
 
 from app.services.email_parser import EmailParser
-from app.services.email_intake_processor import EmailIntakeProcessor
+from app.services.inbox_engine import InboxEngine
 
 logger = logging.getLogger(__name__)
 
@@ -105,7 +105,7 @@ class EmailPoller:
             try:
                 msg = email.message_from_bytes(raw)
                 parsed = EmailParser.parse(msg)
-                await EmailIntakeProcessor.process(parsed)
+                await InboxEngine.process(parsed)
                 to_mark_seen.append(uid)
             except Exception as e:
                 logger.warning(

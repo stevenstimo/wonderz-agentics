@@ -1,5 +1,7 @@
 """
 Email Intake Channel §4.4 & §5: Orchestrator from ParsedEmail to job INSERT.
+DEPRECATED: Replaced by InboxEngine (app/services/inbox_engine.py) which uses
+allowlist (inbox_allowed_senders) and CEO direct chat. Do not remove — kept for reference.
 Full flow: duplicate check → INSERT inbound_emails (pending) → sender check → CEO intake
 → INSERT job → INSERT job_steps → UPDATE inbound_emails (accepted).
 On error after first INSERT: UPDATE inbound_emails status=error, error_detail=traceback.
