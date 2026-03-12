@@ -84,48 +84,86 @@ async def scrape_url(url: str) -> str:
 
 
 def extract_text(html: str) -> str:
-    """Extract readable text from HTML."""
+    """Extract readable text from HTML. Preserves paragraph structure via separator."""
     soup = BeautifulSoup(html or "", "html.parser")
 
     for element in soup(["script", "style", "noscript", "header", "footer", "nav"]):
         element.decompose()
 
-    text = soup.get_text(separator=" ", strip=True)
-    text = re.sub(r"\s+", " ", text).strip()
+    # separator="\n\n" keeps block-level breaks so chunking can split on paragraphs
+    text = soup.get_text(separator="\n\n", strip=True)
+    # Collapse multiple newlines to double, single spaces within lines
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    text = re.sub(r"[ \t]+", " ", text)
+    text = text.strip()
+    # [DEBUG] pre-flight check for chunk pipeline
+    print(f"[DEBUG] raw text length: {len(text)}")
+    print(f"[DEBUG] double-newline count: {text.count(chr(10) + chr(10))}")
+    print(f"[DEBUG] first 500 chars: {repr(text[:500])}")
     return text
 
 
 def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> List[Tuple[str, int]]:
-    """Split text into overlapping word chunks.
+    """Split text into overlapping chunks, respecting paragraph boundaries (\n\n).
 
-    Returns list of (chunk_text, start_word_index).
+    Splits first on double newlines, then builds chunks up to chunk_size words
+    (with overlap). Returns list of (chunk_text, start_word_index).
     """
     if chunk_size <= 0:
         raise TrainingError("chunk_size must be > 0")
     if overlap < 0 or overlap >= chunk_size:
         raise TrainingError("overlap must be >= 0 and < chunk_size")
 
-    clean_text = re.sub(r"\s+", " ", text or "").strip()
-    if not clean_text:
+    raw = (text or "").strip()
+    if not raw:
         return []
 
-    words = clean_text.split(" ")
-    if not words:
-        return []
+    # Split on paragraph boundaries first
+    paragraphs = [p.strip() for p in raw.split("\n\n") if p.strip()]
+    if not paragraphs:
+        # No double newlines: treat whole text as one paragraph
+        paragraphs = [raw]
+
+    logger.debug("chunk_text chunk_size=%d overlap=%d", chunk_size, overlap)
+    logger.debug("paragraph count: %d", len(paragraphs))
 
     chunks: List[Tuple[str, int]] = []
-    step = chunk_size - overlap
-    start = 0
-    while start < len(words):
-        end = min(start + chunk_size, len(words))
-        chunk_words = words[start:end]
-        chunk = " ".join(chunk_words).strip()
-        if chunk:
-            chunks.append((chunk, start))
-        if end >= len(words):
-            break
-        start += step
+    current_chunk: List[str] = []
+    current_words = 0
+    word_index = 0
 
+    for para in paragraphs:
+        para_words = len(para.split())
+        if para_words == 0:
+            continue
+
+        if current_words + para_words > chunk_size and current_chunk:
+            # Flush current chunk
+            chunk_str = "\n\n".join(current_chunk).strip()
+            if chunk_str:
+                chunks.append((chunk_str, word_index))
+            words_in_chunk = sum(len(p.split()) for p in current_chunk)
+            # Overlap: last `overlap` words from current chunk start the next chunk
+            all_words = " ".join(current_chunk).split()
+            overlap_words = all_words[-overlap:] if len(all_words) >= overlap else all_words
+            overlap_text = " ".join(overlap_words)
+            word_index += words_in_chunk - len(overlap_words)
+            current_chunk = [overlap_text, para] if overlap_text else [para]
+            current_words = len(" ".join(current_chunk).split())
+        else:
+            current_chunk.append(para)
+            current_words += para_words
+
+    if current_chunk:
+        chunk_str = "\n\n".join(current_chunk).strip()
+        if chunk_str:
+            chunks.append((chunk_str, word_index))
+
+    if not chunks:
+        return [(raw, 0)]
+
+    chunk_word_counts = [len(c[0].split()) for c in chunks]
+    logger.debug("chunks produced: %d; word counts: %s", len(chunks), chunk_word_counts)
     return chunks
 
 

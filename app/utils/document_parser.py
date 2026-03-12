@@ -1,5 +1,10 @@
 """Extract text from uploaded documents. Used by jobs and skills."""
 
+import logging
+import re
+
+logger = logging.getLogger(__name__)
+
 ALLOWED_EXTENSIONS = {"pdf", "xlsx", "xls", "csv", "docx", "txt", "md", "skill", "png", "jpg", "jpeg"}
 
 
@@ -19,7 +24,13 @@ def extract_text_from_file(filename: str, raw: bytes) -> str:
                 tmp.flush()
             try:
                 with pdfplumber.open(tmp.name) as pdf:
-                    return "\n".join((p.extract_text() or "") for p in pdf.pages)
+                    parts = []
+                    for page in pdf.pages:
+                        # layout=True preserves more structure (paragraph/line breaks)
+                        page_text = (page.extract_text(layout=True) or "").strip()
+                        if page_text:
+                            parts.append(page_text)
+                    return "\n\n".join(parts)
             finally:
                 _os.unlink(tmp.name)
         except ImportError:
@@ -39,7 +50,22 @@ def extract_text_from_file(filename: str, raw: bytes) -> str:
             import docx
             import io
             doc = docx.Document(io.BytesIO(raw))
-            return "\n".join(p.text for p in doc.paragraphs)
+            parts = []
+            for p in doc.paragraphs:
+                s = (p.text or "").strip()
+                if not s:
+                    continue
+                style_name = (getattr(getattr(p, "style", None), "name", None) or "") or ""
+                is_heading = style_name.startswith("Heading")
+                parts.append(s + "\n\n" if is_heading else s)
+            text = "\n\n".join(parts)
+            text = re.sub(r"\n{3,}", "\n\n", text).strip()
+            logger.debug("DOCX parsed: paragraphs=%d, headings=%d, text_len=%d",
+                         len(doc.paragraphs),
+                         sum(1 for p in doc.paragraphs
+                             if (getattr(getattr(p, 'style', None), 'name', '') or '').startswith('Heading')),
+                         len(text))
+            return text
         except ImportError:
             return raw.decode("utf-8", errors="replace")
     if ext in ("xlsx", "xls"):
