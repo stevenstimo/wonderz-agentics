@@ -25,6 +25,7 @@ from app.services.knowledge_upload_service import (
     DOC_TYPES,
     create_document_with_chunks,
     reindex_document,
+    replace_document_content_from_text,
     run_embedding_task,
 )
 from app.services.training import TrainingError, extract_text, scrape_url
@@ -181,6 +182,7 @@ class PatchDocumentBody(BaseModel):
     keywords: Optional[list[str]] = None
     access_level: Optional[str] = None
     client_slug: Optional[str] = None
+    source_url: Optional[str] = None
 
 
 @router.post("/{document_id}/approve")
@@ -321,9 +323,10 @@ async def reindex_knowledge_document(
 async def patch_document(
     document_id: str,
     body: PatchDocumentBody,
+    background_tasks: BackgroundTasks,
     current_user: TokenPayload = Depends(get_current_user),
 ):
-    """Update document metadata. If approved → reset to draft, version+1, chunks inactive."""
+    """Update document metadata. If source_url changed (URL docs): trigger reindex. Returns full document."""
     pool = await get_db()
     async with pool.acquire() as conn:
         doc = await conn.fetchrow(
@@ -347,11 +350,18 @@ async def patch_document(
                 document_id,
             )
 
-        for field, val in body.model_dump(exclude_unset=True).items():
+        dump = body.model_dump(exclude_unset=True)
+        source_url_new = dump.pop("source_url", None)
+        for field, val in dump.items():
             if val is not None:
                 updates.append(f"{field} = ${idx}")
                 values.append(val)
                 idx += 1
+
+        if source_url_new is not None:
+            updates.append("source_url = ${idx}")
+            values.append(source_url_new)
+            idx += 1
 
         if updates:
             updates.append("updated_at = NOW()")
@@ -362,15 +372,148 @@ async def patch_document(
                 *values,
             )
 
+    # If source_url was changed and doc is URL-sourced, trigger reindex in background
+    trigger_reindex = (
+        source_url_new is not None
+        and doc["source_type"] == "url"
+        and (doc["source_url"] or "") != (source_url_new or "")
+    )
+    if trigger_reindex:
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE knowledge_chunks SET is_active = false WHERE document_id = $1",
+                document_id,
+            )
+            await conn.execute(
+                "UPDATE knowledge_documents SET embedding_status = 'pending' WHERE document_id = $1",
+                document_id,
+            )
+        try:
+            background_tasks.add_task(reindex_document, pool, document_id)
+        except Exception:
+            pass
+
+    # Return full document (including embedding_status)
+    async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            "SELECT document_id, version, status FROM knowledge_documents WHERE document_id = $1",
+            "SELECT * FROM knowledge_documents WHERE document_id = $1",
             document_id,
         )
-    return {
-        "document_id": str(row["document_id"]),
-        "version": row["version"],
-        "status": row["status"],
-    }
+    return _document_response(row)
+
+
+@router.post("/{document_id}/replace-content")
+async def replace_content(
+    document_id: str,
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    title: Optional[str] = Form(None),
+    doc_type: Optional[str] = Form(None),
+    domain: Optional[str] = Form(None),
+    function_tag: Optional[str] = Form(None),
+    access_level: Optional[str] = Form(None),
+    summary: Optional[str] = Form(None),
+    keywords: Optional[str] = Form(None),
+    client_slug: Optional[str] = Form(None),
+    current_user: TokenPayload = Depends(get_current_user),
+):
+    """Replace document content from uploaded file; update metadata; run embeddings in background. Returns 200 with document."""
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        doc = await conn.fetchrow(
+            "SELECT * FROM knowledge_documents WHERE document_id = $1",
+            document_id,
+        )
+        if not doc:
+            raise HTTPException(status_code=404, detail="Document not found")
+        if doc["status"] == "archived":
+            raise HTTPException(status_code=400, detail="Cannot replace content of archived document")
+
+    filename = file.filename or "document"
+    try:
+        raw = await file.read()
+        text = extract_text_from_file(filename, raw)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception("Replace content read failed: %s", e)
+        raise HTTPException(status_code=400, detail="Failed to read file")
+
+    try:
+        chunks_stored = await replace_document_content_from_text(pool, document_id, text)
+    except TrainingError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # Optional metadata update
+    updates = []
+    values = []
+    idx = 1
+    if title is not None:
+        updates.append("title = $%d" % idx)
+        values.append(title)
+        idx += 1
+    if doc_type is not None:
+        updates.append("doc_type = $%d" % idx)
+        values.append(doc_type)
+        idx += 1
+    if domain is not None:
+        updates.append("domain = $%d" % idx)
+        values.append(domain)
+        idx += 1
+    if function_tag is not None:
+        updates.append("function_tag = $%d" % idx)
+        values.append(function_tag)
+        idx += 1
+    if access_level is not None:
+        updates.append("access_level = $%d" % idx)
+        values.append(access_level)
+        idx += 1
+    if summary is not None:
+        updates.append("summary = $%d" % idx)
+        values.append(summary)
+        idx += 1
+    if keywords is not None:
+        kw_list = json.loads(keywords) if isinstance(keywords, str) and keywords.strip() else []
+        updates.append("keywords = $%d" % idx)
+        values.append(kw_list)
+        idx += 1
+    if client_slug is not None:
+        updates.append("client_slug = $%d" % idx)
+        values.append(client_slug or None)
+        idx += 1
+    if updates:
+        values.append(document_id)
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE knowledge_documents SET " + ", ".join(updates) + ", updated_at = NOW() WHERE document_id = $%d" % idx,
+                *values,
+            )
+
+    background_tasks.add_task(run_embedding_task, pool, document_id)
+
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT * FROM knowledge_documents WHERE document_id = $1",
+            document_id,
+        )
+    return _document_response(row)
+
+
+def _document_response(row: Any) -> dict:
+    """Build full document response with serializable values."""
+    if not row:
+        return {}
+    result = dict(row)
+    for k in list(result.keys()):
+        v = result[k]
+        if v is None:
+            continue
+        if hasattr(v, "isoformat"):
+            result[k] = v.isoformat()
+        elif hasattr(v, "hex"):
+            result[k] = str(v)
+    result["document_id"] = str(result.get("document_id"))
+    return result
 
 
 # ─── DEEL B: Governance endpoints ────────────────────────────────────────
