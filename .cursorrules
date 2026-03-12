@@ -31,6 +31,9 @@ alwaysApply: true
 - Database: altijd asyncpg, parameters via %s placeholders (nooit f-strings in queries)
 - JSON in database: altijd json.dumps() voor dict params
 - Errors: altijd loggen naar job_steps.error_log bij agent failures
+- DRY: geen code duplicatie — hergebruik functies, modules en utilities
+- Extracteer herhaalde logica altijd naar een aparte functie of helper
+- Nooit dezelfde query of logica op meerdere plekken schrijven
 
 ## Agent architectuur
 - Worker agents: voeren taken uit, produceren evidence-based output

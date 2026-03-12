@@ -81,6 +81,13 @@ async def extract_client_context(message: str, user_id: str) -> str:
                     lines.append(f"  GSC site_url: {cfg['site_url']}")
                 elif itype == "google_ads" and cfg.get("customer_id"):
                     lines.append(f"  Google Ads customer_id: {cfg['customer_id']}")
+                elif itype == "meta_ads":
+                    if cfg.get("ad_account_id"):
+                        lines.append(f"  Meta Ad account_id: {cfg['ad_account_id']}")
+                    if cfg.get("instagram_business_id"):
+                        lines.append(f"  Instagram business_id: {cfg['instagram_business_id']}")
+                    if cfg.get("meta_user_name"):
+                        lines.append(f"  Meta gebruiker: {cfg['meta_user_name']}")
 
             lines.append(
                 "  De agent kan deze client-data ophalen via de beschikbare tools."

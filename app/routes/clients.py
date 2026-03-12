@@ -5,12 +5,17 @@ Uses clients.slug as identifier. client_platform_configs stores platform-specifi
 
 import json
 import logging
+import os
 import re
+import secrets
 from datetime import date, timedelta
 from typing import Any, Optional
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
+
+import httpx
 
 from app.database import get_db
 from app.middleware.auth import TokenPayload, get_current_user
@@ -22,6 +27,8 @@ from app.services.dashboard import (
     fetch_ga4,
     fetch_gsc,
     fetch_google_ads_via_gaql,
+    fetch_instagram_insights,
+    fetch_meta_ads,
     get_valid_access_token,
     list_ga4_properties,
     list_google_ads_accounts,
@@ -50,11 +57,12 @@ class PlatformConfigBody(BaseModel):
 
 
 class IntegrationConfigBody(BaseModel):
-    """Config for Google integration: property_id (ga4), site_url (gsc), customer_id + login_customer_id (google_ads)."""
+    """Config for Google/Meta: property_id (ga4), site_url (gsc), customer_id + login_customer_id (google_ads), ad_account_id (meta_ads)."""
     property_id: Optional[str] = None
     site_url: Optional[str] = None
     customer_id: Optional[str] = None
     login_customer_id: Optional[str] = None
+    ad_account_id: Optional[str] = None
 
 
 # --- Endpoints ---
@@ -230,6 +238,137 @@ async def get_gsc_sites(
             raise HTTPException(status_code=401, detail="token_expired")
         raise HTTPException(status_code=500, detail=str(e))
     return sites
+
+
+@router.get("/{slug}/meta/auth-url")
+async def get_meta_auth_url(
+    slug: str,
+    current_user: TokenPayload = Depends(get_current_user),
+):
+    """Generate Meta OAuth URL for this client."""
+    app_id = os.getenv("META_APP_ID")
+    redirect_uri = os.getenv("META_REDIRECT_URI")
+    if not app_id or not redirect_uri:
+        raise HTTPException(status_code=503, detail="Meta app not configured")
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT slug FROM clients WHERE user_id = $1 AND slug = $2",
+            current_user.user_id,
+            slug,
+        )
+    if not row:
+        raise HTTPException(status_code=404, detail="Client not found")
+    state = f"{slug}:{secrets.token_urlsafe(16)}"
+    params = {
+        "client_id": app_id,
+        "redirect_uri": redirect_uri,
+        "scope": ",".join([
+            "ads_read",
+            "instagram_basic",
+            "instagram_manage_insights",
+            "pages_read_engagement",
+            "pages_show_list",
+        ]),
+        "response_type": "code",
+        "state": state,
+    }
+    auth_url = f"https://www.facebook.com/v19.0/dialog/oauth?{urlencode(params)}"
+    return {"auth_url": auth_url, "state": state}
+
+
+@router.get("/{slug}/meta/ad-accounts")
+async def get_meta_ad_accounts(
+    slug: str,
+    current_user: TokenPayload = Depends(get_current_user),
+):
+    """List Meta Ad Accounts accessible via the client's token."""
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT extra_config FROM client_integrations
+            WHERE user_id = $1 AND client_slug = $2 AND integration_type = 'meta_ads'
+            """,
+            current_user.user_id,
+            slug,
+        )
+    if not row:
+        raise HTTPException(status_code=404, detail="Meta not connected for this client")
+    cfg = row["extra_config"]
+    if isinstance(cfg, str):
+        cfg = json.loads(cfg) if cfg else {}
+    if not isinstance(cfg, dict):
+        cfg = {}
+    access_token = cfg.get("access_token")
+    if not access_token:
+        raise HTTPException(status_code=401, detail="token_expired")
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            "https://graph.facebook.com/v19.0/me/adaccounts",
+            params={
+                "fields": "id,name,account_id,currency,account_status",
+                "access_token": access_token,
+            },
+        )
+    if resp.status_code != 200:
+        raise HTTPException(status_code=401, detail="token_expired")
+    data = resp.json().get("data", [])
+    return {
+        "accounts": [
+            {"id": acc["id"], "name": acc.get("name", acc["id"]), "account_id": acc.get("account_id")}
+            for acc in data
+        ]
+    }
+
+
+@router.get("/{slug}/meta/pages")
+async def get_meta_pages(
+    slug: str,
+    current_user: TokenPayload = Depends(get_current_user),
+):
+    """List Facebook Pages for the connected Meta account."""
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT extra_config FROM client_integrations
+            WHERE user_id = $1 AND client_slug = $2 AND integration_type = 'meta_ads'
+            """,
+            current_user.user_id,
+            slug,
+        )
+    if not row:
+        raise HTTPException(status_code=404, detail="Meta not connected")
+    cfg = row["extra_config"]
+    if isinstance(cfg, str):
+        cfg = json.loads(cfg) if cfg else {}
+    if not isinstance(cfg, dict):
+        cfg = {}
+    access_token = cfg.get("access_token")
+    if not access_token:
+        raise HTTPException(status_code=401, detail="token_expired")
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            "https://graph.facebook.com/v19.0/me/accounts",
+            params={
+                "fields": "id,name,access_token,instagram_business_account",
+                "access_token": access_token,
+            },
+        )
+    if resp.status_code != 200:
+        raise HTTPException(status_code=401, detail="token_expired")
+    data = resp.json().get("data", [])
+    pages = []
+    for p in data:
+        ig = p.get("instagram_business_account") or {}
+        pages.append({
+            "id": p["id"],
+            "name": p.get("name"),
+            "has_instagram": bool(ig),
+            "instagram_id": ig.get("id") if isinstance(ig, dict) else None,
+        })
+    return {"pages": pages}
 
 
 @router.get("/{slug}/dashboard")
@@ -511,11 +650,55 @@ async def get_client_dashboard(
     return result
 
 
+@router.get("/{slug}/dashboard/meta")
+async def get_meta_dashboard(
+    slug: str,
+    days: int = Query(30, ge=1, le=90),
+    current_user: TokenPayload = Depends(get_current_user),
+):
+    """Meta dashboard: Ads and optional Instagram/Page data for this client."""
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT extra_config FROM client_integrations
+            WHERE user_id = $1 AND client_slug = $2 AND integration_type = 'meta_ads'
+            """,
+            current_user.user_id,
+            slug,
+        )
+    if not row:
+        raise HTTPException(status_code=404, detail="Meta not connected")
+    cfg = row["extra_config"]
+    if isinstance(cfg, str):
+        cfg = json.loads(cfg) if cfg else {}
+    if not isinstance(cfg, dict):
+        cfg = {}
+    access_token = cfg.get("access_token")
+    ad_account_id = cfg.get("ad_account_id")
+    page_access_token = cfg.get("page_access_token")
+    instagram_id = cfg.get("instagram_business_id")
+
+    result: dict[str, Any] = {}
+    if ad_account_id and access_token:
+        result["ads"] = await fetch_meta_ads(access_token, ad_account_id, days)
+    else:
+        result["ads"] = {"error": "no_ad_account_selected"}
+
+    if page_access_token and instagram_id:
+        result["instagram"] = await fetch_instagram_insights(page_access_token, instagram_id, days)
+    else:
+        result["instagram"] = {"error": "no_instagram_selected"}
+
+    return result
+
+
 # service_type -> (platform for client_platform_configs, config keys to allow)
 SERVICE_CONFIG_PLATFORM = {
     "ga4": ("ga4", ["property_id"]),
     "google_search_console": ("gsc", ["site_url"]),
     "google_ads": ("google_ads", ["customer_id", "login_customer_id"]),
+    "meta_ads": ("meta_ads", ["ad_account_id"]),
 }
 
 

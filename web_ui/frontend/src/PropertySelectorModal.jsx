@@ -30,6 +30,13 @@ const SERVICE_CONFIG = {
     optionValue: (opt) => opt.customer_id,
     configKey: 'customer_id',
   },
+  meta_ads: {
+    label: 'Meta Ad Account',
+    endpoint: (slug) => `/api/clients/${slug}/meta/ad-accounts`,
+    optionLabel: (opt) => `${opt.name ?? opt.id} (${opt.id})`,
+    optionValue: (opt) => opt.id,
+    configKey: 'ad_account_id',
+  },
 }
 
 export function PropertySelectorModal({ slug, serviceType, onSaved, onClose }) {

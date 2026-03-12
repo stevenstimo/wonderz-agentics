@@ -36,6 +36,7 @@ app.add_middleware(
 from app.routes import (
     agents,
     agent_inbox,
+    auth,
     clients,
     ceo,
     crew,
@@ -83,6 +84,7 @@ app.include_router(gtm.router)
 app.include_router(seo_upload.router)
 app.include_router(alex_dev.router)
 app.include_router(admin.router)
+app.include_router(auth.router)
 app.include_router(skills.router)
 
 

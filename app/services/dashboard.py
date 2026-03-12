@@ -767,6 +767,94 @@ async def fetch_gsc(
     return result
 
 
+async def fetch_meta_ads(
+    access_token: str,
+    ad_account_id: str,
+    days: int = 30,
+) -> dict[str, Any]:
+    """
+    Fetch Facebook Ads performance via Graph API Insights.
+    Returns spend, clicks, impressions, conversions per campaign.
+    """
+    date_to = date.today().isoformat()
+    date_from = (date.today() - timedelta(days=days)).isoformat()
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.get(
+            f"https://graph.facebook.com/v19.0/{ad_account_id}/insights",
+            params={
+                "fields": "campaign_name,impressions,clicks,spend,actions,ctr,cpm,reach",
+                "time_range": json.dumps({"since": date_from, "until": date_to}),
+                "level": "campaign",
+                "access_token": access_token,
+            },
+        )
+    if resp.status_code != 200:
+        logger.error("Meta Ads API error: %s %s", resp.status_code, resp.text[:300])
+        return {"error": "meta_api_error", "campaigns": []}
+    data = resp.json().get("data", [])
+    campaigns = []
+    for c in data:
+        conversions = 0
+        for action in c.get("actions") or []:
+            if action.get("action_type") in ("purchase", "lead", "complete_registration"):
+                conversions += int(action.get("value", 0))
+        campaigns.append({
+            "name": c.get("campaign_name"),
+            "impressions": int(c.get("impressions", 0)),
+            "clicks": int(c.get("clicks", 0)),
+            "spend": float(c.get("spend", 0)),
+            "conversions": conversions,
+            "ctr": float(c.get("ctr", 0)),
+            "cpm": float(c.get("cpm", 0)),
+            "reach": int(c.get("reach", 0)),
+        })
+    total_spend = sum(c["spend"] for c in campaigns)
+    total_clicks = sum(c["clicks"] for c in campaigns)
+    total_conversions = sum(c["conversions"] for c in campaigns)
+    return {
+        "period_days": days,
+        "total_spend": round(total_spend, 2),
+        "total_clicks": total_clicks,
+        "total_conversions": total_conversions,
+        "campaigns": campaigns,
+    }
+
+
+async def fetch_instagram_insights(
+    page_access_token: str,
+    instagram_business_id: str,
+    days: int = 30,
+) -> dict[str, Any]:
+    """Fetch Instagram Business Insights: reach, impressions, profile_views, follower_count."""
+    since_ts = int((datetime.utcnow() - timedelta(days=days)).timestamp())
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.get(
+            f"https://graph.facebook.com/v19.0/{instagram_business_id}/insights",
+            params={
+                "metric": "reach,impressions,profile_views,follower_count",
+                "period": "day",
+                "since": since_ts,
+                "access_token": page_access_token,
+            },
+        )
+    if resp.status_code != 200:
+        logger.warning("Instagram Insights API error: %s %s", resp.status_code, resp.text[:200])
+        return {"error": "instagram_api_error"}
+    metrics = {}
+    for item in resp.json().get("data", []):
+        name = item.get("name")
+        values = item.get("values", [])
+        total = sum(v.get("value", 0) for v in values)
+        metrics[name] = total
+    return {
+        "period_days": days,
+        "reach": metrics.get("reach", 0),
+        "impressions": metrics.get("impressions", 0),
+        "profile_views": metrics.get("profile_views", 0),
+        "follower_count": metrics.get("follower_count", 0),
+    }
+
+
 async def get_client_seo_summary_for_agent(pool, user_id: str, client_slug: str) -> Optional[str]:
     """
     Build a short text summary of GSC data for a client, for injection into agent/Direct Chat context.

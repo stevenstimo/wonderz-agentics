@@ -9,6 +9,7 @@ const INTEGRATION_TO_PLATFORM = {
   ga4: 'ga4',
   google_search_console: 'gsc',
   google_ads: 'google_ads',
+  meta_ads: 'meta_ads',
   shopify: 'shopify',
   klaviyo: 'klaviyo',
 }
@@ -17,6 +18,7 @@ const PLATFORM_LABELS = {
   ga4: 'GA4',
   gsc: 'Google Search Console',
   google_ads: 'Google Ads',
+  meta_ads: 'Meta Business',
   shopify: 'Shopify',
   klaviyo: 'Klaviyo',
 }
@@ -72,6 +74,7 @@ const PLATFORM_TO_SERVICE_TYPE = {
   ga4: 'ga4',
   gsc: 'google_search_console',
   google_ads: 'google_ads',
+  meta_ads: 'meta_ads',
 }
 
 export default function ClientIntegrations() {
@@ -138,6 +141,30 @@ export default function ClientIntegrations() {
     } catch (err) {
       console.error('Google connect failed:', err)
       setError(err.message || 'Verbinden mislukt')
+    } finally {
+      setConnecting(null)
+    }
+  }
+
+  const handleMetaConnect = async () => {
+    setConnecting('meta_ads')
+    setError('')
+    try {
+      const res = await apiFetch(`/api/clients/${slug}/meta/auth-url`)
+      if (res.status === 401) {
+        navigate('/login', { state: { from: location } })
+        return
+      }
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}))
+        setError(j.detail || 'Kon auth URL niet ophalen')
+        return
+      }
+      const data = await res.json()
+      if (data.auth_url) window.location.href = data.auth_url
+    } catch (err) {
+      console.error('Meta OAuth fout:', err)
+      setError(err?.message || 'Verbinden mislukt')
     } finally {
       setConnecting(null)
     }
@@ -272,6 +299,24 @@ export default function ClientIntegrations() {
   useEffect(() => {
     const connected = searchParams.get('connected')
     const errorParam = searchParams.get('error')
+    const metaError = searchParams.get('meta_error')
+
+    if (metaError) {
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev)
+        next.delete('meta_error')
+        return next
+      }, { replace: true })
+      const metaErrorMessages = {
+        auth_failed: 'Meta OAuth mislukt of geannuleerd.',
+        invalid_state: 'Beveiligingscheck mislukt. Probeer opnieuw.',
+        token_exchange: 'Kon geen tokens ophalen van Meta. Probeer opnieuw.',
+        client_not_found: 'Client niet gevonden.',
+        config: 'Meta app niet geconfigureerd op de server.',
+      }
+      setError(metaErrorMessages[metaError] || `Meta verbinding mislukt (${metaError})`)
+      return
+    }
 
     if (errorParam) {
       setSearchParams({}, { replace: true })
@@ -286,7 +331,7 @@ export default function ClientIntegrations() {
       return
     }
 
-    const connectedValues = ['google', 'ga4', 'google_search_console', 'google_ads']
+    const connectedValues = ['google', 'ga4', 'google_search_console', 'google_ads', 'meta_ads']
     if (connectedValues.includes(connected)) {
       setSearchParams({}, { replace: true })
       setError('')
@@ -321,7 +366,7 @@ export default function ClientIntegrations() {
               fetchGoogleOptions('google_ads'),
               fetchGoogleOptions('gsc'),
             ])
-            if (['ga4', 'google_search_console', 'google_ads'].includes(connectedService)) {
+            if (['ga4', 'google_search_console', 'google_ads', 'meta_ads'].includes(connectedService)) {
               setSelectorModal({ serviceType: connectedService })
             }
           }
@@ -738,6 +783,51 @@ export default function ClientIntegrations() {
             </div>
           )
         })}
+      </div>
+
+      <div className="mt-4 panel-card rounded-xl border border-slate-200 p-5 bg-white">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <span className="text-xl">📘</span>
+            <div>
+              <div className="font-semibold text-slate-800">Meta Business</div>
+              <div className="text-xs text-slate-500">Facebook Ads · Instagram · Pages</div>
+            </div>
+          </div>
+          {isPlatformConnected('meta_ads') ? (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-sm font-medium bg-emerald-100 text-emerald-800">
+              <CheckCircle className="w-4 h-4" />
+              Verbonden
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={handleMetaConnect}
+              disabled={connecting === 'meta_ads'}
+              className="text-sm bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+            >
+              {connecting === 'meta_ads' ? 'Bezig...' : 'Verbind Meta'}
+            </button>
+          )}
+        </div>
+        {isPlatformConnected('meta_ads') && (
+          <div className="text-xs text-slate-500 mt-2 space-y-1">
+            {getIntegrationForPlatform('meta_ads')?.extra_config?.meta_user_name && (
+              <div>👤 {getIntegrationForPlatform('meta_ads').extra_config.meta_user_name}</div>
+            )}
+            {getIntegrationForPlatform('meta_ads')?.extra_config?.ad_account_id ? (
+              <div>📊 Ad account: {getIntegrationForPlatform('meta_ads').extra_config.ad_account_id}</div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setSelectorModal({ serviceType: 'meta_ads' })}
+                className="text-indigo-600 hover:underline"
+              >
+                Selecteer Ad Account
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {selectorModal && (
