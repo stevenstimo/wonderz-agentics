@@ -108,8 +108,15 @@ async def _process_seo_job(
         logger.info("SEO job %s completed: %s", job_id, output_path)
 
     except Exception as e:
-        logger.exception("SEO job %s failed: %s", job_id, e)
-        await _mark_failed(job_id, str(e))
+        import traceback
+        error_detail = traceback.format_exc()
+        print(f"[SEO ERROR] job {job_id}: {error_detail}")
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE seo_jobs SET status='failed', error_log=$1, completed_at=now() WHERE job_id=$2",
+                error_detail[:2000],
+                job_id,
+            )
 
 
 async def _mark_failed(job_id: str, error: str):

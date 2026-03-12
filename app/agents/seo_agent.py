@@ -7,7 +7,7 @@ import asyncio
 import json
 import logging
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from anthropic import Anthropic
 
@@ -158,7 +158,7 @@ async def run_seo_agent(
     domain: str,
     audience: str,
     language: str,
-    progress_callback: Optional[callable] = None,
+    progress_callback: Optional[Callable[..., Awaitable[None]]] = None,
 ) -> List[Dict[str, Any]]:
     """
     Run SEO Agent on all keywords in batches. Calls progress_callback(processed, total, current_silo)
@@ -179,5 +179,5 @@ async def run_seo_agent(
         all_enriched.extend(enriched)
         current_silo = enriched[-1].get("silo", "") if enriched else ""
         if progress_callback:
-            progress_callback(len(all_enriched), total, current_silo)
+            await progress_callback(len(all_enriched), total, current_silo)
     return all_enriched
