@@ -6,6 +6,7 @@ GET /api/knowledge — list documents (Library UI)
 GET /api/knowledge/{document_id} — document detail + versions + chunk_count
 POST /api/knowledge/{document_id}/approve — approve draft/stale
 POST /api/knowledge/{document_id}/archive — archive document
+POST /api/knowledge/{document_id}/reindex — re-fetch URL, re-chunk (URL-sourced only)
 PATCH /api/knowledge/{document_id} — update metadata
 """
 
@@ -14,14 +15,17 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, HttpUrl
 
 from app.database import get_db
 from app.middleware.auth import TokenPayload, get_current_user
 from app.services.knowledge_upload_service import (
     DOC_TYPES,
-    upload_document_from_text,
+    create_document_with_chunks,
+    reindex_document,
+    run_embedding_task,
 )
 from app.services.training import TrainingError, extract_text, scrape_url
 from app.utils.document_parser import extract_text_from_file
@@ -51,9 +55,10 @@ class UploadUrlBody(BaseModel):
 @router.post("/upload/url")
 async def upload_url(
     body: UploadUrlBody,
+    background_tasks: BackgroundTasks,
     current_user: TokenPayload = Depends(get_current_user),
 ):
-    """Ingest document from URL. Scrape, chunk, embed, store."""
+    """Ingest document from URL. Store doc + chunks, start embeddings in background. Returns 202."""
     if body.doc_type not in DOC_TYPES:
         raise HTTPException(status_code=400, detail=f"doc_type must be one of: {DOC_TYPES}")
     if body.domain == "general":
@@ -70,7 +75,7 @@ async def upload_url(
 
     pool = await get_db()
     try:
-        result = await upload_document_from_text(
+        result = await create_document_with_chunks(
             pool,
             text,
             source_url=str(body.url),
@@ -88,11 +93,16 @@ async def upload_url(
     except TrainingError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    return result
+    background_tasks.add_task(run_embedding_task, pool, result["document_id"])
+    return JSONResponse(
+        status_code=202,
+        content={"document_id": result["document_id"], "status": "processing", "chunks_stored": result["chunks_stored"]},
+    )
 
 
 @router.post("/upload")
 async def upload_file(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     title: Optional[str] = Form(None),
     doc_type: str = Form("sop"),
@@ -104,7 +114,7 @@ async def upload_file(
     keywords: Optional[str] = Form(None),
     current_user: TokenPayload = Depends(get_current_user),
 ):
-    """Upload document (PDF, docx, txt, md, csv, xlsx). Chunk, embed, store."""
+    """Upload document (PDF, docx, txt, md, csv, xlsx). Store doc + chunks, start embeddings in background. Returns 202."""
     pool = await get_db()
     filename = file.filename or "document"
     try:
@@ -129,7 +139,7 @@ async def upload_file(
             kw_list = [k.strip() for k in keywords.split(",") if k.strip()] if isinstance(keywords, str) else []
 
     try:
-        result = await upload_document_from_text(
+        result = await create_document_with_chunks(
             pool,
             text,
             source_url=None,
@@ -147,7 +157,11 @@ async def upload_file(
     except TrainingError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    return result
+    background_tasks.add_task(run_embedding_task, pool, result["document_id"])
+    return JSONResponse(
+        status_code=202,
+        content={"document_id": result["document_id"], "status": "processing", "chunks_stored": result["chunks_stored"]},
+    )
 
 
 # ─── DEEL A: Approval flow ───────────────────────────────────────────────
@@ -206,7 +220,7 @@ async def approve_document(
                 )
 
         now = datetime.now(timezone.utc)
-        approved_by = current_user.user_id
+        approved_by = current_user.email or str(current_user.user_id)
         await conn.execute(
             """
             UPDATE knowledge_documents
@@ -228,9 +242,13 @@ async def approve_document(
             document_id,
         )
         snapshot = dict(doc_after) if doc_after else {}
-        for k, v in list(snapshot.items()):
-            if hasattr(v, "isoformat"):
-                snapshot[k] = v.isoformat() if v else None
+
+        def _json_serial_default(o: Any) -> Any:
+            if hasattr(o, "isoformat"):
+                return o.isoformat()
+            if hasattr(o, "hex"):
+                return str(o)
+            raise TypeError(f"Object of type {type(o).__name__} is not JSON serializable")
 
         await conn.execute(
             """
@@ -243,7 +261,7 @@ async def approve_document(
             body.change_note or "approved",
             approved_by,
             approved_by,
-            json.dumps(snapshot),
+            json.dumps(snapshot, default=_json_serial_default),
         )
 
     return {
@@ -280,6 +298,23 @@ async def archive_document(
         )
 
     return {"document_id": document_id, "status": "archived"}
+
+
+@router.post("/{document_id}/reindex")
+async def reindex_knowledge_document(
+    document_id: str,
+    current_user: TokenPayload = Depends(get_current_user),
+):
+    """Re-fetch URL, re-parse, deactivate old chunks, create new chunks. URL-sourced docs only."""
+    pool = await get_db()
+    try:
+        result = await reindex_document(pool, document_id)
+    except TrainingError as e:
+        msg = str(e)
+        if "not found" in msg.lower():
+            raise HTTPException(status_code=404, detail=msg)
+        raise HTTPException(status_code=400, detail=msg)
+    return result
 
 
 @router.patch("/{document_id}")
@@ -788,7 +823,16 @@ async def get_document(
             document_id,
         )
         chunk_count = await conn.fetchval(
-            "SELECT COUNT(*) FROM knowledge_chunks WHERE document_id = $1 AND is_active = true",
+            "SELECT COUNT(*) FROM knowledge_chunks WHERE document_id = $1::uuid AND is_active = true",
+            document_id,
+        )
+        chunk_rows = await conn.fetch(
+            """
+            SELECT chunk_text, chunk_index
+            FROM knowledge_chunks
+            WHERE document_id = $1::uuid AND is_active = true
+            ORDER BY chunk_index ASC
+            """,
             document_id,
         )
 
@@ -824,4 +868,8 @@ async def get_document(
             "created_at": v["created_at"].isoformat() if v["created_at"] else None,
         })
     result["chunk_count"] = chunk_count or 0
+    result["chunks"] = [
+        {"chunk_index": int(r["chunk_index"]), "chunk_text": r["chunk_text"] or ""}
+        for r in chunk_rows
+    ]
     return result
