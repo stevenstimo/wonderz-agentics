@@ -152,6 +152,7 @@ async def list_google_ads_accounts(
         client = GoogleAdsClient.load_from_dict(base_config)
         customer_service = client.get_service("CustomerService")
         response = customer_service.list_accessible_customers()
+        logger.info("GA Ads accessible resource_names: %s", response.resource_names)
 
         accessible_ids = [r.replace("customers/", "") for r in response.resource_names if r.startswith("customers/")]
         mcc_ids: list[str] = []
@@ -178,6 +179,7 @@ async def list_google_ads_accounts(
         mcc_data: dict[str, dict] = {}
         to_process: list[str] = list(mcc_ids)
         seen_children: set[str] = set()
+        logger.info("GA Ads MCC ids to process: %s", list(to_process))
 
         while to_process:
             mcc_id = to_process.pop(0)
@@ -195,6 +197,13 @@ async def list_google_ads_accounts(
                         is_manager = getattr(customer, "manager", False)
                         descriptive_name = getattr(customer, "descriptive_name", None) or ""
                         cid = _format_customer_id(raw_id)
+                        logger.info(
+                            "GA Ads row: id=%s manager=%s level=%s name=%s",
+                            getattr(customer, "id", raw_id),
+                            getattr(customer, "manager", None),
+                            getattr(customer, "level", None),
+                            getattr(customer, "descriptive_name", "") or "",
+                        )
 
                         if raw_id == mcc_id:
                             mcc_data[mcc_id]["mcc_name"] = descriptive_name or cid
@@ -218,6 +227,11 @@ async def list_google_ads_accounts(
             except (GoogleAdsException, Exception) as e:
                 logger.debug("customer_client query for MCC %s failed: %s", mcc_id, e)
 
+        logger.info(
+            "GA Ads result: mccs=%s total_children=%s",
+            len(mcc_data),
+            sum(len(v["children"]) for v in mcc_data.values()),
+        )
         mcc_accounts = [
             {
                 "mcc_id": _format_customer_id(mid),
