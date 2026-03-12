@@ -111,7 +111,7 @@ async def create_client(
                 slug,
             )
         except Exception as e:
-            if "agency_clients_user_id_slug_key" in str(e) or "unique" in str(e).lower():
+            if "clients_user_id_slug_key" in str(e) or "unique" in str(e).lower():
                 raise HTTPException(status_code=409, detail="Client with this slug already exists")
             raise
     return {"status": "ok", "slug": slug, "client_id": client_id}

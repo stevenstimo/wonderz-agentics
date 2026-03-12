@@ -29,12 +29,16 @@ async function getAccessToken() {
 // Centrale auth fetch — injecteert automatisch de Bearer token
 export async function apiFetch(path, options = {}) {
   const token = await getAccessToken()
-  const { headers: extraHeaders, ...rest } = options
+  const { headers: extraHeaders, body, ...rest } = options
   const headers = {
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...(extraHeaders || {}),
   }
-  return fetch(apiUrl(path), { ...rest, headers })
+  // Ensure JSON body is sent with correct Content-Type so backend parses it
+  if (body !== undefined && typeof body === 'string' && !headers['Content-Type']) {
+    headers['Content-Type'] = 'application/json'
+  }
+  return fetch(apiUrl(path), { ...rest, body, headers })
 }
 
 // JSON helper met auth

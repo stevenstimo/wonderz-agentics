@@ -28,6 +28,7 @@ export default function ClientsNew() {
     try {
       const res = await apiFetch('/api/clients', {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ client_name: clientName.trim() }),
       })
       if (res.status === 401) {
@@ -40,9 +41,6 @@ export default function ClientsNew() {
       } else {
         const j = await res.json().catch(() => ({}))
         const detail = j.detail
-        // #region agent log
-        fetch('http://localhost:7847/ingest/23ca0604-c25a-4b22-97c6-80c0acce04c4',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'5fbc5b'},body:JSON.stringify({sessionId:'5fbc5b',location:'ClientsNew.jsx:API_error',message:'POST /api/clients non-ok',data:{status:res.status,detailType:typeof detail,isArray:Array.isArray(detail),detailKeys:detail&&typeof detail==='object'&&!Array.isArray(detail)?Object.keys(detail):null,firstItemKeys:Array.isArray(detail)&&detail[0]?Object.keys(detail[0]):null},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{})
-        // #endregion
         const errMsg = typeof detail === 'string'
           ? detail
           : Array.isArray(detail)
