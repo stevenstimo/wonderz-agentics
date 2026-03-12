@@ -39,7 +39,20 @@ export default function ClientsNew() {
         navigate(`/clients/${data.slug}`)
       } else {
         const j = await res.json().catch(() => ({}))
-        setError(j.detail || 'Aanmaken mislukt')
+        const detail = j.detail
+        // #region agent log
+        fetch('http://localhost:7847/ingest/23ca0604-c25a-4b22-97c6-80c0acce04c4',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'5fbc5b'},body:JSON.stringify({sessionId:'5fbc5b',location:'ClientsNew.jsx:API_error',message:'POST /api/clients non-ok',data:{status:res.status,detailType:typeof detail,isArray:Array.isArray(detail),detailKeys:detail&&typeof detail==='object'&&!Array.isArray(detail)?Object.keys(detail):null,firstItemKeys:Array.isArray(detail)&&detail[0]?Object.keys(detail[0]):null},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{})
+        // #endregion
+        const errMsg = typeof detail === 'string'
+          ? detail
+          : Array.isArray(detail)
+            ? detail.map((d) => (d && typeof d === 'object' && 'msg' in d ? d.msg : String(d))).join(', ')
+            : detail && typeof detail === 'object' && 'msg' in detail
+              ? detail.msg
+              : detail != null
+                ? JSON.stringify(detail)
+                : 'Aanmaken mislukt'
+        setError(errMsg)
       }
     } catch (err) {
       console.error('Failed to create client:', err)

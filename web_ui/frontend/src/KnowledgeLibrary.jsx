@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import PageLayout from './PageLayout'
-import { Search, Plus, Lock, LockKeyhole } from 'lucide-react'
+import { Search, Plus, Lock, LockKeyhole, Pencil } from 'lucide-react'
 
 import { apiFetch } from './apiClient'
 import { useAuthReady } from './useAuthReady'
@@ -195,10 +195,13 @@ export default function KnowledgeLibrary() {
                 <Link
                   key={doc.document_id}
                   to={`/knowledge/${doc.document_id}`}
-                  className="block p-4 rounded-xl border border-slate-200 bg-white hover:border-indigo-300 hover:shadow-md transition-all"
+                  className="block relative p-4 rounded-xl border border-slate-200 bg-white hover:border-indigo-300 hover:shadow-md transition-all"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
+                      <span className="absolute top-3 right-3 p-1.5 rounded-md text-slate-400 hover:text-indigo-600 hover:bg-indigo-50" aria-label="Bekijken / bewerken">
+                        <Pencil className="w-4 h-4" />
+                      </span>
                       <h3 className="font-semibold text-slate-900 truncate">{doc.title || 'Untitled'}</h3>
                       <div className="flex flex-wrap gap-1.5 mt-2">
                         <span className={`px-2 py-0.5 text-xs font-medium rounded ${DOC_TYPE_BADGE[doc.doc_type] || 'bg-gray-100 text-gray-700'}`}>

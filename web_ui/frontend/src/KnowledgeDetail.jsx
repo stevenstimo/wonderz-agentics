@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate, useLocation, Link } from 'react-router-dom'
 import PageLayout from './PageLayout'
-import { ArrowLeft, Check, Archive, AlertTriangle, Lock, Trash2, X } from 'lucide-react'
+import { ArrowLeft, Check, Archive, AlertTriangle, Lock, Trash2, X, Pencil } from 'lucide-react'
 
 import { apiFetch } from './apiClient'
 import { useAuthReady } from './useAuthReady'
@@ -213,21 +213,44 @@ export default function KnowledgeDetail() {
   const showArchive = doc.status === 'approved'
   const showReapprove = doc.status === 'stale'
 
+  const backTo = location.state?.from || (doc.doc_type === 'skill_spec' ? '/knowledge/skills' : doc.doc_type === 'client_context' ? '/knowledge/clients' : '/knowledge')
+  const editUrl = `/knowledge/upload?doc_type=${encodeURIComponent(doc.doc_type || '')}&domain=${encodeURIComponent(doc.domain || '')}`
+
   return (
     <PageLayout size="medium" padded>
-      <Link
-        to={location.state?.from || (doc.doc_type === 'skill_spec' ? '/knowledge/skills' : doc.doc_type === 'client_context' ? '/knowledge/clients' : '/knowledge')}
-        className="inline-flex items-center gap-1 text-slate-600 hover:text-indigo-600 mb-6"
-      >
-        <ArrowLeft className="w-4 h-4" />
-        {location.state?.from
-          ? 'Terug'
-          : doc.doc_type === 'skill_spec'
-            ? 'Terug naar Skill Factory'
-            : doc.doc_type === 'client_context'
-              ? 'Terug naar Client Intelligence'
-              : 'Terug naar Library'}
-      </Link>
+      <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+        <Link
+          to={backTo}
+          className="inline-flex items-center gap-1 text-slate-600 hover:text-indigo-600"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          {location.state?.from
+            ? 'Terug'
+            : doc.doc_type === 'skill_spec'
+              ? 'Terug naar Skill Factory'
+              : doc.doc_type === 'client_context'
+                ? 'Terug naar Client Intelligence'
+                : 'Terug naar Library'}
+        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            to={editUrl}
+            state={{ from: location.pathname }}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 font-medium text-sm"
+          >
+            <Pencil className="w-4 h-4" />
+            Edit
+          </Link>
+          <button
+            type="button"
+            onClick={() => { setDeleteOverlayOpen(true); setDeleteConfirmInput(''); setActionError('') }}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 font-medium text-sm"
+          >
+            <Trash2 className="w-4 h-4" />
+            Delete book
+          </button>
+        </div>
+      </div>
 
       {/* Stale banner */}
       {doc.status === 'stale' && (
@@ -322,14 +345,6 @@ export default function KnowledgeDetail() {
               Archive
             </button>
           )}
-          <button
-            type="button"
-            onClick={() => { setDeleteOverlayOpen(true); setDeleteConfirmInput(''); setActionError('') }}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-red-200 bg-red-50 text-red-700 font-medium hover:bg-red-100"
-          >
-            <Trash2 className="w-4 h-4" />
-            Delete book
-          </button>
         </div>
       </div>
 
