@@ -51,6 +51,7 @@ export default function AgentDirectChat({ agentId, agent }) {
   const [loadingMessages, setLoadingMessages] = useState(false)
   const [saveModal, setSaveModal] = useState(null)
   const [savingToMemory, setSavingToMemory] = useState(false)
+  const [chatError, setChatError] = useState(null)
   const messagesEndRef = useRef(null)
   const scrollRef = useRef(null)
 
@@ -59,6 +60,7 @@ export default function AgentDirectChat({ agentId, agent }) {
   const loadChats = useCallback(async () => {
     if (!agentId) return
     setLoadingChats(true)
+    setChatError(null)
     try {
       const res = await fetchWithAuth(`/api/agents/${encodeURIComponent(agentId)}/chats`)
       if (res.ok) {
@@ -66,9 +68,12 @@ export default function AgentDirectChat({ agentId, agent }) {
         setChats(Array.isArray(data) ? data : [])
       } else {
         setChats([])
+        if (res.status === 401) setChatError('Niet ingelogd. Log opnieuw in.')
+        else if (res.status === 403) setChatError('Geen rechten om chats te zien.')
       }
     } catch {
       setChats([])
+      setChatError('Kon chats niet laden.')
     } finally {
       setLoadingChats(false)
     }
@@ -102,6 +107,7 @@ export default function AgentDirectChat({ agentId, agent }) {
 
   const createChat = useCallback(async () => {
     if (!agentId) return
+    setChatError(null)
     setSending(true)
     try {
       const res = await fetchWithAuth(`/api/agents/${encodeURIComponent(agentId)}/chats`, {
@@ -115,9 +121,22 @@ export default function AgentDirectChat({ agentId, agent }) {
         setSessionTokens(0)
         setBlocked(false)
         setWarning(null)
+      } else {
+        const contentType = res.headers.get('content-type') || ''
+        let detail = `Fout ${res.status}`
+        if (contentType.includes('application/json')) {
+          try {
+            const body = await res.json()
+            detail = body.detail || body.message || detail
+          } catch (_) {}
+        }
+        if (res.status === 401) detail = 'Niet ingelogd. Log opnieuw in.'
+        if (res.status === 403) detail = 'Geen rechten om een chat te starten.'
+        setChatError(detail)
       }
     } catch (err) {
       console.error('Create chat failed:', err)
+      setChatError(err.message || 'Kon geen chat starten. Controleer je verbinding.')
     } finally {
       setSending(false)
     }
@@ -222,13 +241,25 @@ export default function AgentDirectChat({ agentId, agent }) {
         {/* ChatHistoryPanel */}
         <div className="w-56 border-r border-slate-200 flex flex-col bg-slate-50/50">
           <div className="p-2 border-b border-slate-200">
+            {chatError && (
+              <div className="mb-2 px-2 py-1.5 rounded bg-red-50 text-red-700 text-xs" role="alert">
+                {chatError}
+              </div>
+            )}
             <button
               type="button"
               onClick={createChat}
               disabled={sending}
-              className="w-full py-2 px-3 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
+              className="w-full py-2 px-3 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-1.5"
             >
-              Nieuwe chat
+              {sending ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Bezig…
+                </>
+              ) : (
+                'Nieuwe chat'
+              )}
             </button>
           </div>
           <div className="flex-1 overflow-y-auto p-2">
