@@ -3,7 +3,7 @@
 import os
 
 # Default Claude model for agents and pipelines (single place for upgrades)
-DEFAULT_MODEL = os.getenv("CLAUDE_DEFAULT_MODEL", "claude-sonnet-4-5-20251001")
+DEFAULT_MODEL = os.getenv("CLAUDE_DEFAULT_MODEL", "claude-sonnet-4-5-20250929")
 
 # Google OAuth & APIs — ensure these are in systemd Environment or .env
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")

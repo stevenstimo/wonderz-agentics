@@ -52,10 +52,20 @@ export default function AgentDirectChat({ agentId, agent }) {
   const [saveModal, setSaveModal] = useState(null)
   const [savingToMemory, setSavingToMemory] = useState(false)
   const [chatError, setChatError] = useState(null)
+  const [clients, setClients] = useState([])
+  const [mentionSuggestions, setMentionSuggestions] = useState([])
+  const skipLoadForChatIdRef = useRef(null)
   const messagesEndRef = useRef(null)
   const scrollRef = useRef(null)
 
   const fetchWithAuth = useCallback((url, options = {}) => apiFetch(url, options), [])
+
+  useEffect(() => {
+    fetchWithAuth('/api/clients')
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data) => setClients(Array.isArray(data) ? data : (data?.clients ?? data ?? [])))
+      .catch(() => setClients([]))
+  }, [fetchWithAuth])
 
   const loadChats = useCallback(async () => {
     if (!agentId) return
@@ -142,54 +152,104 @@ export default function AgentDirectChat({ agentId, agent }) {
     }
   }, [agentId, fetchWithAuth, loadChats])
 
-  const sendMessage = useCallback(async () => {
-    const text = input.trim()
-    if (!text || !selectedChat || !agentId || sending || blocked) return
-
-    setSending(true)
-    setInput('')
-    const userMsg = { role: 'user', content: text, created_at: new Date().toISOString() }
-    setMessages((prev) => [...prev, userMsg])
-
+  /** Ensure we have an active chat; create one if none selected. Returns chat_id or null on error. */
+  const ensureActiveChat = useCallback(async () => {
+    if (selectedChat?.chat_id) return selectedChat.chat_id
+    if (!agentId) return null
+    setChatError(null)
     try {
-      const res = await fetchWithAuth(
-        `/api/agents/${encodeURIComponent(agentId)}/chats/${encodeURIComponent(selectedChat.chat_id)}/message`,
-        {
-          method: 'POST',
-          body: JSON.stringify({ message: text }),
-        }
-      )
+      const res = await fetchWithAuth(`/api/agents/${encodeURIComponent(agentId)}/chats`, { method: 'POST' })
       const data = await res.json().catch(() => ({}))
-      if (res.ok && !data.error) {
-        setMessages((prev) => [
-          ...prev,
-          { role: 'agent', content: data.agent_response || '', created_at: new Date().toISOString(), message_id: data.message_id },
-        ])
-        setSessionTokens(data.session_tokens_used || 0)
-        setWarning(data.warning || null)
-        setBlocked((data.session_tokens_used || 0) >= HARD_BLOCK)
-        await loadChats()
-      } else {
-        setMessages((prev) => prev.filter((m) => m !== userMsg))
-        if (data.error === 'session_token_limit_reached') {
-          setBlocked(true)
-        }
-        alert(data.detail || 'Failed to send message')
+      if (!res.ok) {
+        if (res.status === 401) setChatError('Niet ingelogd. Log opnieuw in.')
+        else if (res.status === 403) setChatError('Geen rechten om een chat te starten.')
+        else setChatError(data.detail || data.message || `Fout ${res.status}`)
+        return null
       }
+      const chatId = data.chat_id ?? data.id
+      const newChat = { chat_id: chatId, agent_id: data.agent_id || agentId, title: null, message_count: 0, token_used: 0 }
+      setSelectedChat(newChat)
+      setMessages([])
+      setSessionTokens(0)
+      setBlocked(false)
+      setWarning(null)
+      skipLoadForChatIdRef.current = chatId
+      await loadChats()
+      return chatId
     } catch (err) {
-      setMessages((prev) => prev.filter((m) => m !== userMsg))
-      alert(err.message || 'Failed to send message')
-    } finally {
-      setSending(false)
+      console.error('Chat aanmaken mislukt:', err)
+      setChatError(err.message || 'Kon geen chat starten.')
+      return null
     }
-  }, [input, selectedChat, agentId, sending, blocked, fetchWithAuth, loadChats])
+  }, [agentId, selectedChat?.chat_id, fetchWithAuth, loadChats])
+
+  const doSendMessage = useCallback(
+    async (chatId, text) => {
+      if (!chatId || !text?.trim() || !agentId || sending || blocked) return
+      setSending(true)
+      const userMsg = {
+        id: `temp-${Date.now()}`,
+        role: 'user',
+        content: text.trim(),
+        created_at: new Date().toISOString(),
+      }
+      setMessages((prev) => [...prev, userMsg])
+      try {
+        const res = await fetchWithAuth(
+          `/api/agents/${encodeURIComponent(agentId)}/chats/${encodeURIComponent(chatId)}/message`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: text.trim() }),
+          }
+        )
+        const data = await res.json().catch(() => ({}))
+        if (res.ok && !data.error) {
+          const replyText = typeof data.agent_response === 'string' ? data.agent_response : (data.agent_response ? String(data.agent_response) : '')
+          setMessages((prev) => [
+            ...prev,
+            { role: 'agent', content: replyText, created_at: new Date().toISOString(), message_id: data.message_id },
+          ])
+          setSessionTokens(data.session_tokens_used || 0)
+          setWarning(data.warning || null)
+          setBlocked((data.session_tokens_used || 0) >= HARD_BLOCK)
+          await loadChats()
+        } else {
+          setMessages((prev) => prev.filter((m) => m.id !== userMsg.id))
+          if (data.error === 'session_token_limit_reached') setBlocked(true)
+          const msg = typeof data.detail === 'string' ? data.detail : Array.isArray(data.detail) ? (data.detail[0]?.msg || JSON.stringify(data.detail)) : (data.detail && typeof data.detail === 'object' ? JSON.stringify(data.detail) : 'Bericht verzenden mislukt.')
+          setChatError(msg)
+        }
+      } catch (err) {
+        setMessages((prev) => prev.filter((m) => m.id !== userMsg.id))
+        setChatError(err.message || 'Bericht verzenden mislukt.')
+      } finally {
+        setSending(false)
+      }
+    },
+    [agentId, sending, blocked, fetchWithAuth, loadChats]
+  )
+
+  const handleSend = useCallback(async () => {
+    const text = input.trim()
+    if (!text) return
+    const activeChatId = await ensureActiveChat()
+    if (!activeChatId) return
+    setInput('')
+    await doSendMessage(activeChatId, text)
+  }, [input, ensureActiveChat, doSendMessage])
 
   useEffect(() => {
     loadChats()
   }, [loadChats])
 
   useEffect(() => {
-    if (selectedChat) loadChat(selectedChat)
+    if (!selectedChat) return
+    if (skipLoadForChatIdRef.current === selectedChat.chat_id) {
+      skipLoadForChatIdRef.current = null
+      return
+    }
+    loadChat(selectedChat)
   }, [selectedChat?.chat_id])
 
   useEffect(() => {
@@ -199,8 +259,31 @@ export default function AgentDirectChat({ agentId, agent }) {
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      sendMessage()
+      handleSend()
     }
+  }
+
+  const handleInputChange = (e) => {
+    const val = e.target.value
+    setInput(val)
+    const match = val.match(/@([a-zA-Z0-9_-]*)$/)
+    if (match) {
+      const query = (match[1] || '').toLowerCase()
+      const filtered = clients.filter(
+        (c) =>
+          (c.slug || '').toLowerCase().includes(query) ||
+          (c.client_name || c.name || '').toLowerCase().includes(query)
+      )
+      setMentionSuggestions(filtered.slice(0, 5))
+    } else {
+      setMentionSuggestions([])
+    }
+  }
+
+  const handleMentionSelect = (client) => {
+    const slug = client.slug || client.client_name || ''
+    setInput((prev) => prev.replace(/@([a-zA-Z0-9_-]*)$/, `@${slug} `))
+    setMentionSuggestions([])
   }
 
   const openSaveModal = (msg) => {
@@ -218,10 +301,15 @@ export default function AgentDirectChat({ agentId, agent }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ chat_id: selectedChat.chat_id, message_id: saveModal.message_id, label: label || null }),
       })
-      if (!res.ok) throw new Error((await res.json()).detail || 'Save failed')
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        const d = body.detail
+        const msg = typeof d === 'string' ? d : Array.isArray(d) ? (d[0]?.msg || 'Opslaan mislukt') : 'Opslaan mislukt'
+        throw new Error(msg)
+      }
       closeSaveModal()
     } catch (err) {
-      alert(err.message || 'Opslaan mislukt')
+      setChatError(err.message || 'Opslaan mislukt')
     } finally {
       setSavingToMemory(false)
     }
@@ -296,7 +384,7 @@ export default function AgentDirectChat({ agentId, agent }) {
                 Stel {agentName} een vraag over {agentGoal || 'hun expertise'}
               </p>
               <p className="text-sm text-slate-500 mt-2">
-                Klik op &quot;Nieuwe chat&quot; om te beginnen
+                Typ je bericht hieronder en druk op Enter of klik Verstuur — een chat wordt automatisch aangemaakt
               </p>
             </div>
           ) : emptyState && selectedChat ? (
@@ -313,7 +401,7 @@ export default function AgentDirectChat({ agentId, agent }) {
             <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-4">
               {messages.map((msg) => (
                 <div
-                  key={msg.message_id || `${msg.role}-${msg.created_at}-${msg.content?.slice(0, 20)}`}
+                  key={msg.id || msg.message_id || `${msg.role}-${msg.created_at}-${msg.content?.slice(0, 20)}`}
                   className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
                 >
                   <div
@@ -361,21 +449,46 @@ export default function AgentDirectChat({ agentId, agent }) {
                 <>Sessie: {sessionTokens.toLocaleString()} / {SOFT_LIMIT.toLocaleString()} tokens</>
               )}
             </div>
-            <div className="flex gap-2">
-              <textarea
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="Typ je bericht..."
-                rows={2}
-                disabled={blocked || sending}
-                className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm resize-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 disabled:bg-slate-100"
-              />
+            <div className="flex gap-2 relative">
+              <div className="flex-1 relative">
+                {mentionSuggestions.length > 0 && (
+                  <div
+                    className="absolute bottom-full left-0 right-0 mb-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-[200px] overflow-y-auto z-50"
+                    role="listbox"
+                    aria-label="Client vermelden"
+                  >
+                    {mentionSuggestions.map((c) => (
+                      <button
+                        key={c.slug || c.client_id}
+                        type="button"
+                        onClick={() => handleMentionSelect(c)}
+                        className="mention-option w-full flex justify-between px-3 py-2 text-left text-sm border-none bg-transparent cursor-pointer hover:bg-slate-100"
+                        role="option"
+                      >
+                        <span className="mention-name font-medium text-slate-800">
+                          {c.client_name || c.name || c.slug}
+                        </span>
+                        <span className="mention-slug text-slate-500 text-xs">@{c.slug}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <textarea
+                  value={input}
+                  onChange={handleInputChange}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Typ je bericht... Gebruik @client voor context"
+                  rows={2}
+                  disabled={blocked || sending}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm resize-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 disabled:bg-slate-100"
+                />
+              </div>
               <button
                 type="button"
-                onClick={sendMessage}
+                onClick={handleSend}
                 disabled={!input.trim() || blocked || sending}
                 className="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
+                aria-label="Verstuur bericht"
               >
                 {sending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
               </button>

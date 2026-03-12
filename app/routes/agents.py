@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from app.database import get_db
 from app.orchestration.direct_chat_engine import DirectChatEngine
+from app.services.client_context import extract_client_context
 from app.services.training import generate_embedding
 from app.services.training_workflow import TrainingWorkflow
 from app.data.agent_presets import AGENT_PRESETS
@@ -407,8 +408,15 @@ async def send_direct_chat_message(
         if not chat:
             raise HTTPException(status_code=404, detail="Chat not found")
 
+    user_message = body.message
+    client_context = await extract_client_context(user_message, str(current_user.user_id))
+    if client_context:
+        enriched_message = f"{client_context}\n\nGebruikersvraag: {user_message}"
+    else:
+        enriched_message = user_message
+
     engine = DirectChatEngine()
-    result = await engine.send_message(chat_id, body.message)
+    result = await engine.send_message(chat_id, enriched_message)
 
     if "error" in result:
         if result["error"] == "chat_not_found":

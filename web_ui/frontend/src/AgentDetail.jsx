@@ -451,35 +451,51 @@ export default function AgentDetail() {
         </Link>
       </div>
 
-      <div className="flex gap-2 border-b border-slate-200 mb-4">
-        <button
-          type="button"
-          onClick={() => setTab(TAB_PROFIEL)}
-          className={`px-6 py-3 font-semibold rounded-t-xl transition-colors ${tabClass(TAB_PROFIEL)}`}
-        >
-          Profiel
-        </button>
-        <button
-          type="button"
-          onClick={() => setTab(TAB_KENNIS)}
-          className={`px-6 py-3 font-semibold rounded-t-xl transition-colors ${tabClass(TAB_KENNIS)}`}
-        >
-          Kennis
-        </button>
-        <button
-          type="button"
-          onClick={() => setTab(TAB_PRESTATIES)}
-          className={`px-6 py-3 font-semibold rounded-t-xl transition-colors ${tabClass(TAB_PRESTATIES)}`}
-        >
-          Prestaties
-        </button>
-        <button
-          type="button"
-          onClick={() => setTab(TAB_CHAT)}
-          className={`px-6 py-3 font-semibold rounded-t-xl transition-colors flex items-center gap-2 ${tabClass(TAB_CHAT)}`}
-        >
-          <MessageCircle className="w-4 h-4" /> Chat
-        </button>
+      {/* Sticky agent header — altijd zichtbaar boven de tabs */}
+      <div className="sticky top-0 z-10 bg-white border-b border-slate-200 shadow-sm mb-4">
+        <div className="px-6 py-3 flex items-center gap-3">
+          <div className="w-9 h-9 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-semibold text-sm flex-shrink-0">
+            {initials(agent?.name || agent?.agent_name)}
+          </div>
+          <div>
+            <div className="font-semibold text-slate-900 leading-tight">
+              {agent?.name || agent?.agent_name || '—'}
+            </div>
+            <div className="text-xs text-slate-500 leading-tight">
+              {agent?.role ?? agent?.specialization ?? 'Agent'}
+            </div>
+          </div>
+        </div>
+        <div className="flex gap-2 border-t border-slate-100 px-6">
+          <button
+            type="button"
+            onClick={() => setTab(TAB_PROFIEL)}
+            className={`px-6 py-3 font-semibold rounded-t-xl transition-colors ${tabClass(TAB_PROFIEL)}`}
+          >
+            Profiel
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab(TAB_KENNIS)}
+            className={`px-6 py-3 font-semibold rounded-t-xl transition-colors ${tabClass(TAB_KENNIS)}`}
+          >
+            Kennis
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab(TAB_PRESTATIES)}
+            className={`px-6 py-3 font-semibold rounded-t-xl transition-colors ${tabClass(TAB_PRESTATIES)}`}
+          >
+            Prestaties
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab(TAB_CHAT)}
+            className={`px-6 py-3 font-semibold rounded-t-xl transition-colors flex items-center gap-2 ${tabClass(TAB_CHAT)}`}
+          >
+            <MessageCircle className="w-4 h-4" /> Chat
+          </button>
+        </div>
       </div>
 
       {tab === TAB_CHAT && (
