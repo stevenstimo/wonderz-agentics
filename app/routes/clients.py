@@ -258,6 +258,7 @@ async def get_client_dashboard(
             pass
     start_str = start_date.isoformat()
     end_str = end_date.isoformat()
+    logger.info("Dashboard date range: slug=%s start=%s end=%s", slug, start_str, end_str)
 
     async with pool.acquire() as conn:
         client = await conn.fetchrow(

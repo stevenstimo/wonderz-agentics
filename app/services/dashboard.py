@@ -156,6 +156,7 @@ async def list_google_ads_accounts(
 
         accessible_ids = [r.replace("customers/", "") for r in response.resource_names if r.startswith("customers/")]
         mcc_ids: list[str] = []
+        logger.info("GA Ads login_customer_id=%r (from env GOOGLE_ADS_LOGIN_CUSTOMER_ID=%r)", login_customer_id, GOOGLE_ADS_LOGIN_CUSTOMER_ID)
         if login_customer_id:
             mcc_ids = [login_customer_id]
         elif accessible_ids:
@@ -513,7 +514,7 @@ async def fetch_ga4(
             else:
                 result["kpis"]["conversion_rate"] = 0.0
 
-        # Time series
+        # Time series (GA4 API returns date dimension as YYYYMMDD; normalize to YYYY-MM-DD for frontend merge with Ads)
         r = await client.post(url, headers=headers, json=timeseries_body)
         if r.status_code == 200:
             data = r.json()
@@ -521,8 +522,13 @@ async def fetch_ga4(
                 dims = row.get("dimensionValues", [])
                 metrics = row.get("metricValues", [])
                 if dims and metrics:
+                    raw_date = dims[0].get("value", "")
+                    if len(raw_date) == 8 and raw_date.isdigit():
+                        date_val = f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:8]}"
+                    else:
+                        date_val = raw_date
                     result["timeseries"].append({
-                        "date": dims[0].get("value", ""),
+                        "date": date_val,
                         "users": int(metrics[0].get("value", 0)) if len(metrics) > 0 else 0,
                         "sessions": int(metrics[1].get("value", 0)) if len(metrics) > 1 else 0,
                         "conversions": float(metrics[2].get("value", 0)) if len(metrics) > 2 else 0,
