@@ -59,6 +59,21 @@ def _row_to_out(r: Any) -> dict:
     return d
 
 
+@router.get("/summary")
+async def inbox_summary(
+    current_user: Annotated[TokenPayload, Depends(get_current_user)],
+) -> dict[str, Any]:
+    """Return unread count for sidebar badge."""
+    pool = await get_db()
+    user_id = str(current_user.user_id)
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT count(*) AS cnt FROM inbound_emails WHERE user_id = $1::uuid AND status = 'pending'",
+            user_id,
+        )
+    return {"total_unread": row["cnt"] if row else 0}
+
+
 @router.get("")
 async def list_inbox(
     current_user: Annotated[TokenPayload, Depends(get_current_user)],
