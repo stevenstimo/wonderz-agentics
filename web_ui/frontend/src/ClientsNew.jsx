@@ -39,7 +39,16 @@ export default function ClientsNew() {
         navigate(`/clients/${data.slug}`)
       } else {
         const j = await res.json().catch(() => ({}))
-        setError(j.detail || 'Aanmaken mislukt')
+        const detail = j.detail
+        if (typeof detail === 'string') {
+          setError(detail)
+        } else if (Array.isArray(detail)) {
+          setError(detail.map(d => d.msg || JSON.stringify(d)).join(', '))
+        } else if (detail && typeof detail === 'object') {
+          setError(JSON.stringify(detail))
+        } else {
+          setError('Aanmaken mislukt')
+        }
       }
     } catch (err) {
       console.error('Failed to create client:', err)
