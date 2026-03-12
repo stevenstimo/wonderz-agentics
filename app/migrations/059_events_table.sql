@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS events (
   agent_id    TEXT,
   task_id     TEXT,
   lesson_id   TEXT,
-  job_id      TEXT REFERENCES jobs(id) ON DELETE SET NULL,
+  job_id      UUID REFERENCES jobs(id) ON DELETE SET NULL,
   confidence_score FLOAT,
   payload     JSONB DEFAULT '{}',
   created_at  TIMESTAMPTZ DEFAULT now()
