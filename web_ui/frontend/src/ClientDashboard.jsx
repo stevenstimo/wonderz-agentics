@@ -329,7 +329,7 @@ export default function ClientDashboard({
           <KpiCard label="Users" value={overview.users} icon={TrendingUp} />
           <KpiCard label="Sessions" value={overview.sessions} icon={BarChart3} />
           <KpiCard label="Conversions" value={overview.conversions} icon={MousePointer} />
-          <KpiCard label="Conversion Value" value={overview.conversion_value} formatter={fmtEur} icon={DollarSign} />
+          <KpiCard label="Conv. Value" value={overview.conversion_value} formatter={fmtEur} icon={DollarSign} />
           <KpiCard label="Total Cost" value={overview.total_cost} formatter={fmtEur} icon={DollarSign} />
           <KpiCard label="CPA" value={overview.cpa} formatter={fmtEur} icon={DollarSign} />
         </div>
