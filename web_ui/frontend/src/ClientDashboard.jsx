@@ -291,17 +291,20 @@ export default function ClientDashboard({
             Marketing overzicht
           </h2>
           <div className="flex flex-wrap items-center gap-3">
+            <span className="text-sm text-slate-500 hidden sm:inline">Periode (alle blokken):</span>
             <input
               type="date"
               value={filters?.start || ''}
               onChange={(e) => onFilterChange?.({ start: e.target.value })}
               className="px-3 py-2 border border-slate-300 rounded-lg text-sm"
+              aria-label="Startdatum"
             />
             <input
               type="date"
               value={filters?.end || ''}
               onChange={(e) => onFilterChange?.({ end: e.target.value })}
               className="px-3 py-2 border border-slate-300 rounded-lg text-sm"
+              aria-label="Einddatum"
             />
             <select
               value={filters?.channel || ''}

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate, useLocation, Link } from 'react-router-dom'
 import PageLayout from './PageLayout'
-import { ArrowLeft, Check, Archive, AlertTriangle, Lock, ChevronDown, ChevronRight } from 'lucide-react'
+import { ArrowLeft, Check, Archive, AlertTriangle, Lock, ChevronDown, ChevronRight, Pencil } from 'lucide-react'
 
 import { apiFetch } from './apiClient'
 import { useAuthReady } from './useAuthReady'
@@ -231,7 +231,19 @@ export default function KnowledgeDetail() {
             </span>
           </div>
 
-          <h1 className="text-2xl font-bold text-slate-900 mb-6">{doc.title || 'Untitled'}</h1>
+          <div className="flex items-center gap-3 mb-6">
+            <h1 className="text-2xl font-bold text-slate-900">{doc.title || 'Untitled'}</h1>
+            {doc.status !== 'archived' && (
+              <Link
+                to={`/knowledge/${id}/edit`}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-slate-600 bg-slate-100 hover:bg-indigo-100 hover:text-indigo-700 font-medium text-sm transition-colors"
+                title="Bewerken"
+              >
+                <Pencil className="w-4 h-4" />
+                Bewerken
+              </Link>
+            )}
+          </div>
 
           <div className="overflow-x-auto mb-6">
             <table className="min-w-full text-sm">

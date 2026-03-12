@@ -29,6 +29,7 @@ export default function ClientDashboardPage() {
   const [blockErrors, setBlockErrors] = useState({ ga4: null, google_ads: null, gsc: null })
   const [retryingBlock, setRetryingBlock] = useState(null)
 
+  // Eén dashboard-call met start/end; backend gebruikt deze periode voor alle 4 blokken (Marketing overzicht, Google Ads, SEO, Website gedrag).
   const loadData = useCallback(async () => {
     setLoading(true)
     setError(null)

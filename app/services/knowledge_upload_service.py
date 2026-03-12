@@ -116,6 +116,54 @@ async def create_document_with_chunks(
     }
 
 
+async def replace_document_content_from_text(
+    pool,
+    document_id: str,
+    text: str,
+    *,
+    chunk_size: int = 500,
+    overlap: int = 50,
+) -> int:
+    """
+    Replace chunks for an existing document: set embedding_status pending, deactivate old chunks,
+    insert new chunks from text. Caller should then run_embedding_task in background.
+    Returns number of chunks stored.
+    """
+    if not text or len(text.strip()) < 50:
+        raise TrainingError("Text too short for ingestion (min 50 chars)")
+    chunks_tuples = chunk_text(text, chunk_size=chunk_size, overlap=overlap)
+    if not chunks_tuples:
+        raise TrainingError("No chunks generated")
+    chunks = [c[0] for c in chunks_tuples]
+
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """
+            UPDATE knowledge_documents
+            SET embedding_status = 'pending', updated_at = NOW()
+            WHERE document_id = $1
+            """,
+            document_id,
+        )
+        await conn.execute(
+            "UPDATE knowledge_chunks SET is_active = false WHERE document_id = $1",
+            document_id,
+        )
+        for idx, chunk_text_val in enumerate(chunks):
+            await conn.execute(
+                """
+                INSERT INTO knowledge_chunks
+                    (document_id, chunk_text, chunk_index, embedding, is_active)
+                VALUES ($1, $2, $3, NULL, true)
+                """,
+                document_id,
+                chunk_text_val,
+                idx,
+            )
+    logger.info("replace_document_content: document_id=%s chunks=%s", document_id, len(chunks))
+    return len(chunks)
+
+
 async def run_embedding_task(pool, document_id: str) -> None:
     """
     Background task: set embedding_status to processing, generate embeddings for all
@@ -241,7 +289,8 @@ async def reindex_document(
 ) -> dict[str, Any]:
     """
     Re-fetch (URL only), re-chunk and re-embed a document. Deactivates existing chunks
-    and inserts new ones. Only supported for source_type='url' with source_url set.
+    and inserts new ones. Sets embedding_status to processing/complete/failed for polling.
+    Only supported for source_type='url' with source_url set.
     Returns: {chunks_created: int}
     """
     async with pool.acquire() as conn:
@@ -260,9 +309,18 @@ async def reindex_document(
                 "Reindex only supported for URL-sourced documents; re-upload file documents to re-chunk."
             )
 
+        await conn.execute(
+            "UPDATE knowledge_documents SET embedding_status = 'processing' WHERE document_id = $1",
+            document_id,
+        )
+
         html = await scrape_url(row["source_url"])
         text = extract_text(html)
         if not text or len(text.strip()) < 50:
+            await conn.execute(
+                "UPDATE knowledge_documents SET embedding_status = 'failed' WHERE document_id = $1",
+                document_id,
+            )
             raise TrainingError("Could not extract enough text from URL")
 
         await conn.execute(
@@ -272,22 +330,38 @@ async def reindex_document(
 
         chunks_tuples = chunk_text(text, chunk_size=chunk_size, overlap=overlap)
         if not chunks_tuples:
+            await conn.execute(
+                "UPDATE knowledge_documents SET embedding_status = 'failed' WHERE document_id = $1",
+                document_id,
+            )
             raise TrainingError("No chunks generated")
         chunks = [c[0] for c in chunks_tuples]
 
-        for idx, chunk_text_val in enumerate(chunks):
-            embedding = await generate_embedding((chunk_text_val or "")[:8000])
+        try:
+            for idx, chunk_text_val in enumerate(chunks):
+                embedding = await generate_embedding((chunk_text_val or "")[:8000])
+                await conn.execute(
+                    """
+                    INSERT INTO knowledge_chunks
+                        (document_id, chunk_text, chunk_index, embedding, is_active)
+                    VALUES ($1, $2, $3, $4::vector, true)
+                    """,
+                    document_id,
+                    chunk_text_val,
+                    idx,
+                    json.dumps(embedding),
+                )
             await conn.execute(
-                """
-                INSERT INTO knowledge_chunks
-                    (document_id, chunk_text, chunk_index, embedding, is_active)
-                VALUES ($1, $2, $3, $4::vector, true)
-                """,
+                "UPDATE knowledge_documents SET embedding_status = 'complete' WHERE document_id = $1",
                 document_id,
-                chunk_text_val,
-                idx,
-                json.dumps(embedding),
             )
+        except Exception as exc:
+            logger.exception("reindex_document failed: %s", exc)
+            await conn.execute(
+                "UPDATE knowledge_documents SET embedding_status = 'failed' WHERE document_id = $1",
+                document_id,
+            )
+            raise
 
     logger.info("Knowledge reindex: document_id=%s chunks_created=%s", document_id, len(chunks))
     return {"chunks_created": len(chunks)}

@@ -46,6 +46,7 @@ import SEOTool from './SEOTool.jsx'
 import SEOLanding from './SEOLanding.jsx'
 import KnowledgeLibrary from './KnowledgeLibrary.jsx'
 import KnowledgeDetail from './KnowledgeDetail.jsx'
+import KnowledgeEdit from './KnowledgeEdit.jsx'
 import KnowledgeUpload from './KnowledgeUpload.jsx'
 import SkillFactory from './SkillFactory.jsx'
 import ClientIntelligence from './ClientIntelligence.jsx'
@@ -97,6 +98,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <Route path="/knowledge/clients/:client_slug" element={<ClientIntelligence />} />
           <Route path="/knowledge/governance" element={<KnowledgeGovernance />} />
           <Route path="/knowledge/:id" element={<KnowledgeDetail />} />
+          <Route path="/knowledge/:id/edit" element={<KnowledgeEdit />} />
           <Route path="/approvals" element={<ApprovalDashboard />} />
           <Route path="/hr" element={<HRDashboard />} />
           <Route path="/hr-feedback" element={<HRDashboard />} />
