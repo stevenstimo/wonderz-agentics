@@ -34,6 +34,7 @@ const TABS = [
   { id: 'audit', label: 'Audit Log' },
   { id: 'lessons', label: 'Lessons' },
   { id: 'usage', label: 'Gebruik' },
+  { id: 'agent-health', label: 'Agent Health' },
 ]
 
 const CONFIDENCE_BADGE = (score) => {
@@ -101,6 +102,11 @@ export default function KnowledgeGovernance() {
   const [lessonsMinConf, setLessonsMinConf] = useState(0)
   const [expandedLesson, setExpandedLesson] = useState(null)
   const [usageLog, setUsageLog] = useState([])
+  const [governanceMetrics, setGovernanceMetrics] = useState({ agents: [] })
+  const [suspendedAgents, setSuspendedAgents] = useState([])
+  const [breachHistory, setBreachHistory] = useState([])
+  const [governanceCheckResult, setGovernanceCheckResult] = useState(null)
+  const [releaseModal, setReleaseModal] = useState({ agentId: null, approvedBy: '' })
 
   const fetchQueue = useCallback(async () => {
     setLoading(true)
@@ -268,6 +274,77 @@ export default function KnowledgeGovernance() {
     }
   }, [navigate, location])
 
+  const fetchGovernanceMetrics = useCallback(async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const res = await apiFetch('/api/governance/metrics')
+      if (res.status === 401) {
+        navigate('/login', { state: { from: location } })
+        return
+      }
+      if (res.ok) {
+        const data = await res.json()
+        setGovernanceMetrics(data)
+      } else {
+        const j = await res.json().catch(() => ({}))
+        setError(j.detail || 'Laden mislukt')
+      }
+    } catch (err) {
+      setError(err.message || 'Laden mislukt')
+    } finally {
+      setLoading(false)
+    }
+  }, [navigate, location])
+
+  const fetchSuspendedAgents = useCallback(async () => {
+    try {
+      const res = await apiFetch('/api/governance/suspended')
+      if (res.ok) {
+        const data = await res.json()
+        setSuspendedAgents(Array.isArray(data) ? data : [])
+      }
+    } catch {
+      setSuspendedAgents([])
+    }
+  }, [])
+
+  const fetchBreachHistory = useCallback(async () => {
+    try {
+      const res = await apiFetch('/api/governance/breaches?limit=20')
+      if (res.ok) {
+        const data = await res.json()
+        setBreachHistory(Array.isArray(data) ? data : [])
+      }
+    } catch {
+      setBreachHistory([])
+    }
+  }, [])
+
+  const runGovernanceCheck = useCallback(async () => {
+    setError('')
+    setGovernanceCheckResult(null)
+    try {
+      const res = await apiFetch('/api/governance/run-check', { method: 'POST' })
+      if (res.status === 401) {
+        navigate('/login', { state: { from: location } })
+        return
+      }
+      if (res.ok) {
+        const data = await res.json()
+        setGovernanceCheckResult(data)
+        fetchGovernanceMetrics()
+        fetchSuspendedAgents()
+        fetchBreachHistory()
+      } else {
+        const j = await res.json().catch(() => ({}))
+        setError(j.detail || 'Run check mislukt')
+      }
+    } catch (err) {
+      setError(err.message || 'Run check mislukt')
+    }
+  }, [navigate, location, fetchGovernanceMetrics, fetchSuspendedAgents, fetchBreachHistory])
+
   useEffect(() => {
     if (!authReady) return
     if (tab === 'queue') fetchQueue()
@@ -280,7 +357,12 @@ export default function KnowledgeGovernance() {
     else if (tab === 'audit') fetchAudit()
     else if (tab === 'lessons') fetchLessons()
     else if (tab === 'usage') fetchUsage()
-  }, [authReady, tab, fetchQueue, fetchStale, fetchPermissions, fetchAudit, fetchAgents, fetchDocuments, fetchLessons, fetchUsage])
+    else if (tab === 'agent-health') {
+      fetchGovernanceMetrics()
+      fetchSuspendedAgents()
+      fetchBreachHistory()
+    }
+  }, [authReady, tab, fetchQueue, fetchStale, fetchPermissions, fetchAudit, fetchAgents, fetchDocuments, fetchLessons, fetchUsage, fetchGovernanceMetrics, fetchSuspendedAgents, fetchBreachHistory])
 
   const handleDeletePermission = async () => {
     if (!deleteModal) return
@@ -301,6 +383,30 @@ export default function KnowledgeGovernance() {
       }
     } catch (err) {
       setError(err.message || 'Verwijderen mislukt')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handleReleaseSuspension = async () => {
+    if (!releaseModal.agentId || !releaseModal.approvedBy.trim()) return
+    setSubmitting(true)
+    setError('')
+    try {
+      const res = await apiFetch(`/api/governance/release/${encodeURIComponent(releaseModal.agentId)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ approved_by: releaseModal.approvedBy.trim() }),
+      })
+      if (res.ok) {
+        setReleaseModal({ agentId: null, approvedBy: '' })
+        fetchSuspendedAgents()
+      } else {
+        const j = await res.json().catch(() => ({}))
+        setError(j.detail || 'Vrijgeven mislukt')
+      }
+    } catch (err) {
+      setError(err.message || 'Vrijgeven mislukt')
     } finally {
       setSubmitting(false)
     }
@@ -740,6 +846,199 @@ export default function KnowledgeGovernance() {
               </table>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Tab 7: Agent Health */}
+      {tab === 'agent-health' && (
+        <div className="space-y-8">
+          {/* Sectie A: Talent Agent Metrics + Run Check */}
+          <section>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-slate-800">Talent Agent Metrics</h2>
+              <button
+                type="button"
+                onClick={runGovernanceCheck}
+                className="px-4 py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700"
+              >
+                Run Governance Check
+              </button>
+            </div>
+            {governanceCheckResult && (
+              <div className="mb-4 p-3 rounded-lg bg-indigo-50 text-indigo-800 text-sm">
+                Check voltooid: {governanceCheckResult.breaches_found} breach(es), {governanceCheckResult.agents_suspended} gesuspendeerd
+                {governanceCheckResult.tasks_blocked > 0 && `, ${governanceCheckResult.tasks_blocked} tasks geblokkeerd`}
+                {governanceCheckResult.duration_ms != null && ` (${governanceCheckResult.duration_ms} ms)`}
+              </div>
+            )}
+            {loading ? (
+              <p className="text-slate-500">Laden...</p>
+            ) : (
+              <div className="overflow-x-auto rounded-lg border border-slate-200">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-slate-50">
+                    <tr>
+                      <th className="px-4 py-2 text-left font-medium text-slate-700">Agent</th>
+                      <th className="px-4 py-2 text-left font-medium text-slate-700">Reviews</th>
+                      <th className="px-4 py-2 text-left font-medium text-slate-700">Approval Rate</th>
+                      <th className="px-4 py-2 text-left font-medium text-slate-700">Evidence Rate</th>
+                      <th className="px-4 py-2 text-left font-medium text-slate-700">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {(governanceMetrics.agents || []).map((a) => {
+                      const approvalPct = a.approval_rate != null ? Math.round(a.approval_rate * 100) : null
+                      const evidencePct = a.evidence_verification_rate != null ? Math.round(a.evidence_verification_rate * 100) : null
+                      const statusBadge = a.monitoring_status === 'HIGH_RISK_RUBBER_STAMP'
+                        ? { cls: 'bg-red-100 text-red-700', label: 'Rubber Stamp Risico' }
+                        : { cls: 'bg-green-100 text-green-700', label: 'Normaal' }
+                      const approvalRed = approvalPct != null && approvalPct > 85
+                      const evidenceRed = evidencePct != null && evidencePct < 70
+                      return (
+                        <tr key={a.talent_agent_id || ''} className="hover:bg-slate-50">
+                          <td className="px-4 py-2 font-medium">{a.talent_agent_id || '—'}</td>
+                          <td className="px-4 py-2">{a.total_reviews ?? '—'}</td>
+                          <td className={`px-4 py-2 ${approvalRed ? 'text-red-600 font-medium' : ''}`}>
+                            {approvalPct != null ? `${approvalPct}%` : '—'}
+                          </td>
+                          <td className={`px-4 py-2 ${evidenceRed ? 'text-red-600 font-medium' : ''}`}>
+                            {evidencePct != null ? `${evidencePct}%` : '—'}
+                          </td>
+                          <td className="px-4 py-2">
+                            <span className={`px-2 py-0.5 text-xs font-medium rounded ${statusBadge.cls}`}>
+                              {statusBadge.label}
+                            </span>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+                {(governanceMetrics.agents || []).length === 0 && (
+                  <p className="px-4 py-4 text-slate-500">Geen metrics (min. 5 reviews per agent).</p>
+                )}
+              </div>
+            )}
+          </section>
+
+          {/* Sectie B: Gesuspendeerde Agents */}
+          <section>
+            <h2 className="text-lg font-semibold text-slate-800 mb-4">Gesuspendeerde Agents</h2>
+            {suspendedAgents.length === 0 ? (
+              <div className="p-6 rounded-xl border border-slate-200 bg-green-50 text-center">
+                <Check className="w-10 h-10 text-green-600 mx-auto mb-2" />
+                <p className="text-green-800 font-medium">Geen gesuspendeerde agents</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded-lg border border-slate-200">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-slate-50">
+                    <tr>
+                      <th className="px-4 py-2 text-left font-medium text-slate-700">Agent</th>
+                      <th className="px-4 py-2 text-left font-medium text-slate-700">Gesuspendeerd op</th>
+                      <th className="px-4 py-2 text-left font-medium text-slate-700">Reden</th>
+                      <th className="px-4 py-2 text-left font-medium text-slate-700"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {suspendedAgents.map((s) => (
+                      <tr key={s.agent_id} className="hover:bg-slate-50">
+                        <td className="px-4 py-2 font-medium">{s.agent_id}</td>
+                        <td className="px-4 py-2 text-slate-600">{formatDate(s.suspended_at)}</td>
+                        <td className="px-4 py-2 text-slate-600 max-w-md truncate" title={s.suspension_reason}>{s.suspension_reason || '—'}</td>
+                        <td className="px-4 py-2">
+                          <button
+                            type="button"
+                            onClick={() => setReleaseModal({ agentId: s.agent_id, approvedBy: '' })}
+                            className="text-indigo-600 hover:underline font-medium"
+                          >
+                            Vrijgeven
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+
+          {/* Sectie C: Breach History */}
+          <section>
+            <h2 className="text-lg font-semibold text-slate-800 mb-4">Breach History</h2>
+            <div className="overflow-x-auto rounded-lg border border-slate-200">
+              <table className="min-w-full text-sm">
+                <thead className="bg-slate-50">
+                  <tr>
+                    <th className="px-4 py-2 text-left font-medium text-slate-700">Datum</th>
+                    <th className="px-4 py-2 text-left font-medium text-slate-700">Agent</th>
+                    <th className="px-4 py-2 text-left font-medium text-slate-700">Type</th>
+                    <th className="px-4 py-2 text-left font-medium text-slate-700">Approval Rate</th>
+                    <th className="px-4 py-2 text-left font-medium text-slate-700">Evidence Rate</th>
+                    <th className="px-4 py-2 text-left font-medium text-slate-700">Actie</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {breachHistory.map((b) => {
+                    const typeBadge = b.breach_type === 'HIGH_RISK_RUBBER_STAMP'
+                      ? { cls: 'bg-red-100 text-red-700', label: b.breach_type }
+                      : { cls: 'bg-orange-100 text-orange-700', label: b.breach_type }
+                    return (
+                      <tr key={b.breach_id} className="hover:bg-slate-50">
+                        <td className="px-4 py-2 text-slate-600">{formatDate(b.created_at)}</td>
+                        <td className="px-4 py-2">{b.talent_agent_id || '—'}</td>
+                        <td className="px-4 py-2">
+                          <span className={`px-2 py-0.5 text-xs font-medium rounded ${typeBadge.cls}`}>
+                            {typeBadge.label}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2">{b.approval_rate != null ? `${Math.round(b.approval_rate * 100)}%` : '—'}</td>
+                        <td className="px-4 py-2">{b.evidence_verification_rate != null ? `${Math.round(b.evidence_verification_rate * 100)}%` : '—'}</td>
+                        <td className="px-4 py-2">{b.action_taken || '—'}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+              {breachHistory.length === 0 && (
+                <p className="px-4 py-4 text-slate-500">Geen breach history.</p>
+              )}
+            </div>
+          </section>
+        </div>
+      )}
+
+      {/* Release suspension modal */}
+      {releaseModal.agentId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-semibold mb-4">Vrijgeven: {releaseModal.agentId}</h3>
+            <label className="block text-sm font-medium text-slate-700 mb-2">Vrijgegeven door *</label>
+            <input
+              type="text"
+              value={releaseModal.approvedBy}
+              onChange={(e) => setReleaseModal((m) => ({ ...m, approvedBy: e.target.value }))}
+              placeholder="Naam"
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg mb-4"
+            />
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setReleaseModal({ agentId: null, approvedBy: '' })}
+                className="flex-1 px-4 py-2.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
+              >
+                Annuleren
+              </button>
+              <button
+                type="button"
+                onClick={handleReleaseSuspension}
+                disabled={submitting || !releaseModal.approvedBy.trim()}
+                className="flex-1 px-4 py-2.5 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 disabled:opacity-50"
+              >
+                {submitting ? 'Bezig...' : 'Vrijgeven'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

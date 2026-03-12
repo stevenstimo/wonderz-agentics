@@ -3,8 +3,10 @@ import os
 import httpx
 from typing import Any, Dict
 
+from app.core.config import DEFAULT_MODEL
+
 ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
-ANTHROPIC_MODEL = "claude-3-haiku-20240307"
+ANTHROPIC_MODEL = DEFAULT_MODEL
 
 
 async def _review_with_anthropic(copy_text: str, objective: str, target_audience: str, knowledge_block: str = "") -> Dict[str, str]:

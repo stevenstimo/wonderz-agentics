@@ -32,7 +32,7 @@ def main() -> None:
     client = Anthropic()
     try:
         response = client.messages.create(
-            model="claude-3-haiku-20240307",
+            model=__import__("app.core.config", fromlist=["DEFAULT_MODEL"]).DEFAULT_MODEL,
             max_tokens=256,
             system="Genereer een korte system_prompt voor een AI agent. Schrijf in de tweede persoon (Jij bent...).",
             messages=[{"role": "user", "content": "Naam: The Dude\nRol: custom\nPersona: Ontspannen levensfilosoof die weigert mee te gaan in stress.\nOutput alleen de system_prompt."}],

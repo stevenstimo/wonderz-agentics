@@ -50,10 +50,11 @@ class PlatformConfigBody(BaseModel):
 
 
 class IntegrationConfigBody(BaseModel):
-    """Config for Google integration: property_id (ga4), site_url (gsc), customer_id (google_ads)."""
+    """Config for Google integration: property_id (ga4), site_url (gsc), customer_id + login_customer_id (google_ads)."""
     property_id: Optional[str] = None
     site_url: Optional[str] = None
     customer_id: Optional[str] = None
+    login_customer_id: Optional[str] = None
 
 
 # --- Endpoints ---
@@ -178,7 +179,7 @@ async def get_ads_accounts(
     if not refresh:
         raise HTTPException(status_code=401, detail="token_expired")
     try:
-        accounts = await list_google_ads_accounts(refresh)
+        accounts, login_customer_id = await list_google_ads_accounts(refresh)
     except Exception as e:
         err_str = str(e)
         if "403" in err_str or "has not been used" in err_str or "API not enabled" in err_str:
@@ -186,7 +187,7 @@ async def get_ads_accounts(
         elif "401" in err_str or "invalid_grant" in err_str or "Token has been expired" in err_str:
             raise HTTPException(status_code=401, detail="token_expired")
         raise HTTPException(status_code=500, detail=str(e))
-    return {"accounts": accounts}
+    return {"accounts": accounts, "login_customer_id": login_customer_id or None}
 
 
 @router.get("/{slug}/google/gsc-sites")
@@ -375,8 +376,11 @@ async def get_client_dashboard(
                     "total_impressions": 0,
                 }
         if customer_id:
+            login_cid = extra_config.get("login_customer_id") if isinstance(extra_config, dict) else None
             try:
-                ads_data = await fetch_google_ads_via_gaql(refresh, customer_id, start_str, end_str)
+                ads_data = await fetch_google_ads_via_gaql(
+                    refresh, customer_id, start_str, end_str, login_customer_id=login_cid
+                )
                 if ads_data.get("not_implemented") or ads_data.get("not_configured"):
                     result["google_ads"] = {"not_connected": True, "error": ads_data.get("error", "Google Ads not configured")}
                 elif ads_data.get("error"):
@@ -385,6 +389,14 @@ async def get_client_dashboard(
                     result["google_ads"] = ads_data
                     if ads_used_fallback:
                         result["google_ads"]["_used_first_account"] = True
+                        fallback_extra = {"customer_id": customer_id}
+                        if not (extra_config.get("login_customer_id") if isinstance(extra_config, dict) else None):
+                            try:
+                                _, mcc_id = await list_google_ads_accounts(refresh)
+                                if mcc_id:
+                                    fallback_extra["login_customer_id"] = mcc_id
+                            except Exception:
+                                pass
                         async with pool.acquire() as conn:
                             await conn.execute(
                                 """
@@ -392,7 +404,7 @@ async def get_client_dashboard(
                                 SET extra_config = extra_config || $1::jsonb, updated_at = now()
                                 WHERE user_id = $2 AND client_slug = $3 AND integration_type = 'google_ads'
                                 """,
-                                json.dumps({"customer_id": customer_id}),
+                                json.dumps(fallback_extra),
                                 current_user.user_id,
                                 slug,
                             )
@@ -408,7 +420,7 @@ async def get_client_dashboard(
                                 current_user.user_id,
                                 slug,
                                 client["client_name"],
-                                json.dumps({"customer_id": customer_id}),
+                                json.dumps(fallback_extra),
                             )
             except Exception as e:
                 logger.exception("Google Ads fetch failed")
@@ -484,7 +496,7 @@ async def get_client_dashboard(
 SERVICE_CONFIG_PLATFORM = {
     "ga4": ("ga4", ["property_id"]),
     "google_search_console": ("gsc", ["site_url"]),
-    "google_ads": ("google_ads", ["customer_id"]),
+    "google_ads": ("google_ads", ["customer_id", "login_customer_id"]),
 }
 
 

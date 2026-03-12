@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import quote
 from typing import Any, Dict, List, Optional, Tuple
 
+from app.core.config import DEFAULT_MODEL
 from app.db import init_db_pool
 from app.database import get_db
 from app.services.token_guard import TokenGuard
@@ -20,7 +21,7 @@ from models.unified import JobStatus, ExecutionPlan
 logger = logging.getLogger(__name__)
 
 # Model for pipeline agent calls (copywriter, reviewer)
-CLAUDE_MODEL = "claude-sonnet-4-5-20250929"
+CLAUDE_MODEL = DEFAULT_MODEL
 
 # Per-step timeouts (seconds)
 TIMEOUT_CONTENT_STEP = 120
@@ -580,20 +581,48 @@ async def run_intake_inline(job_id: str, job_post: str):
 
     intake = IntakeEngine()
     strategy = StrategyRoom()
+    client_slug = None
+    client_context = None
 
     try:
-        brief = intake.analyze_job_post(job_post)
-        chat_history = []
-        chat_history.append({"role": "ceo", "content": brief.message or ""})
+        # Resolve client and GSC summary before intake so Mr. Klein can use Search Console data in his reply
         async with pool.acquire() as conn:
+            job_row = await conn.fetchrow("SELECT user_id, context FROM jobs WHERE id = $1", job_id)
+            existing_ctx = _coerce_context(job_row["context"] if job_row else None) if job_row else {}
+            client_slug = existing_ctx.get("client_slug")
+            if not client_slug and job_row and job_post:
+                from app.services.client_mention import resolve_first_mention
+                client_slug = await resolve_first_mention(pool, str(job_row["user_id"]), job_post)
+            if client_slug and job_row:
+                from app.services.dashboard import get_client_seo_summary_for_agent
+                client_context = await get_client_seo_summary_for_agent(pool, str(job_row["user_id"]), client_slug)
+
+        brief = intake.analyze_job_post(job_post, client_context=client_context)
+        if client_slug:
+            brief.context = dict(brief.context or {})
+            brief.context["client_slug"] = client_slug
+
+        chat_history = []
+        ceo_content = brief.message or ""
+        if not brief.is_complete and brief.clarifications:
+            questions_text = "\n\n".join(
+                f"{i + 1}. {q.question}" for i, q in enumerate(brief.clarifications)
+            )
+            if questions_text and questions_text not in ceo_content:
+                ceo_content = (ceo_content.rstrip() + "\n\n" + questions_text).strip()
+        chat_history.append({"role": "ceo", "content": ceo_content})
+        async with pool.acquire() as conn:
+            updates = {
+                "brief": brief.model_dump(),
+                "previous_answers": {},
+                "chat_history": chat_history,
+            }
+            if client_slug:
+                updates["client_slug"] = client_slug
             await _update_job_context(
                 conn,
                 job_id,
-                {
-                    "brief": brief.model_dump(),
-                    "previous_answers": {},
-                    "chat_history": chat_history,
-                },
+                updates,
             )
 
             if not brief.is_complete:
@@ -608,6 +637,23 @@ async def run_intake_inline(job_id: str, job_post: str):
             available_agents = await _fetch_available_agents(conn)
             plan = strategy.generate_execution_plan(brief, available_agents)
             await _insert_plan_steps(conn, job_id, plan)
+            # V4: Event model — TASK_CREATED per step (fire-and-forget)
+            try:
+                from app.services.event_emitter import EventEmitter, EventType
+                emitter = EventEmitter()
+                job_title = (job_post or "")[:80] if job_post else ""
+                for step in plan.steps:
+                    step_name = step.description or f"step_{step.step_index}"
+                    await emitter.emit(
+                        pool,
+                        EventType.TASK_CREATED,
+                        agent_id=step.agent_role,
+                        task_id=job_id,
+                        job_id=job_id,
+                        payload={"step_name": step_name, "title": job_title},
+                    )
+            except Exception as _ev:
+                logger.warning("Event TASK_CREATED failed: %s", _ev)
             await _update_job_context(
                 conn,
                 job_id,
@@ -647,23 +693,40 @@ async def run_intake_answers_inline(job_id: str, answers: dict):
             merged_answers = {**previous_answers, **(answers or {})}
             job_post = job.get("job_post") or context.get("job_post") or ""
             chat_history = list(context.get("chat_history") or [])
+            # Inject GSC/client data so Mr. Klein can answer questions about zoektermen, Search Console, etc.
+            client_context = None
+            user_id = str(job.get("user_id") or "")
+            client_slug = context.get("client_slug")
+            if not client_slug and job_post:
+                from app.services.client_mention import resolve_first_mention
+                client_slug = await resolve_first_mention(pool, user_id, job_post)
+            if client_slug and user_id:
+                from app.services.dashboard import get_client_seo_summary_for_agent
+                client_context = await get_client_seo_summary_for_agent(pool, user_id, client_slug)
 
             brief = intake.analyze_job_post(
                 job_post,
                 previous_answers=merged_answers,
                 chat_history=chat_history if chat_history else None,
+                client_context=client_context,
             )
             chat_history = list(chat_history)
-            chat_history.append({"role": "ceo", "content": brief.message or ""})
-            await _update_job_context(
-                conn,
-                job_id,
-                {
-                    "brief": brief.model_dump(),
-                    "previous_answers": merged_answers,
-                    "chat_history": chat_history,
-                },
-            )
+            ceo_content = brief.message or ""
+            if not brief.is_complete and brief.clarifications:
+                questions_text = "\n\n".join(
+                    f"{i + 1}. {q.question}" for i, q in enumerate(brief.clarifications)
+                )
+                if questions_text and questions_text not in ceo_content:
+                    ceo_content = (ceo_content.rstrip() + "\n\n" + questions_text).strip()
+            chat_history.append({"role": "ceo", "content": ceo_content})
+            updates = {
+                "brief": brief.model_dump(),
+                "previous_answers": merged_answers,
+                "chat_history": chat_history,
+            }
+            if client_slug:
+                updates["client_slug"] = client_slug
+            await _update_job_context(conn, job_id, updates)
 
             if not brief.is_complete:
                 round_number = await _next_clarification_round(conn, job_id)
@@ -768,6 +831,32 @@ async def run_job_inline(job_id: str, context_extra: Optional[dict] = None):
             if knowledge_context.get("prompt_block"):
                 context["_knowledge_block"] = knowledge_context["prompt_block"]
 
+            # V6: TASK_EVIDENCE_COLLECTED — eenmalig na retrieval-cyclus (sectie 7)
+            total_chunks = knowledge_context.get("total_chunks") or 0
+            total_lessons = knowledge_context.get("total_lessons") or 0
+            if total_chunks > 0 or total_lessons > 0:
+                try:
+                    from app.services.event_emitter import EventEmitter, EventType
+                    emitter = EventEmitter()
+                    sources = [
+                        s.get("type", "unknown")
+                        for s in knowledge_context.get("sources_used", [])
+                    ]
+                    await emitter.emit(
+                        pool,
+                        EventType.TASK_EVIDENCE_COLLECTED,
+                        agent_id=f"pipeline:{job_id}",
+                        task_id=job_id,
+                        job_id=job_id,
+                        payload={
+                            "chunks_retrieved": total_chunks,
+                            "lessons_retrieved": total_lessons,
+                            "sources": sources,
+                        },
+                    )
+                except Exception as _ev:
+                    logger.warning("Event TASK_EVIDENCE_COLLECTED failed: %s", _ev)
+
             token_guard = TokenGuard(db_pool=pool)
             last_content: Optional[str] = None
             previous_content: Optional[str] = None
@@ -863,6 +952,52 @@ async def run_job_inline(job_id: str, context_extra: Optional[dict] = None):
                     )
                     await _update_step_progress(conn, step_id, 100)
 
+                    # V4: Event model — TASK_FIX_PROPOSED na worker output (fire-and-forget)
+                    if output.get("worker_output"):
+                        try:
+                            from app.services.event_emitter import EventEmitter, EventType
+                            emitter = EventEmitter()
+                            await emitter.emit(
+                                pool,
+                                EventType.TASK_FIX_PROPOSED,
+                                agent_id=agent_role,
+                                task_id=job_id,
+                                job_id=job_id,
+                                payload={"validation_status": output.get("validation_status") or "pending"},
+                            )
+                        except Exception as _ev:
+                            logger.warning("Event TASK_FIX_PROPOSED failed: %s", _ev)
+
+                    # V6: Artifact tracking — evidence uit worker_output als citations + TASK_CITED edges
+                    evidence = (output.get("worker_output") or {}).get("evidence") or []
+                    if evidence:
+                        try:
+                            from app.services.artifact_tracker import ArtifactTracker
+                            from app.services.knowledge_graph import KnowledgeGraph
+                            tracker = ArtifactTracker()
+                            citation_ids = await tracker.save_citations(
+                                pool,
+                                task_id=str(job_id),
+                                job_id=str(job_id),
+                                evidence_list=evidence,
+                            )
+                            artifact_ids = []
+                            for e in evidence:
+                                if not isinstance(e, dict):
+                                    continue
+                                locator = e.get("file_path") or e.get("source_id") or e.get("locator") or ""
+                                if not locator:
+                                    continue
+                                at = e.get("artifact_type") or e.get("type") or "repo_file"
+                                artifact_ids.append(tracker.build_artifact_id(at, locator))
+                            if artifact_ids:
+                                graph = KnowledgeGraph()
+                                await tracker.add_task_cited_edges(
+                                    pool, graph, str(job_id), artifact_ids
+                                )
+                        except Exception as _art_err:
+                            logger.warning("Artifact tracking failed: %s", _art_err)
+
                     if knowledge_context.get("sources_used"):
                         try:
                             from app.services.knowledge_context import log_knowledge_usage
@@ -954,6 +1089,20 @@ async def run_job_inline(job_id: str, context_extra: Optional[dict] = None):
                                 ceo_msg,
                                 step_id,
                             )
+                            # V4: Event model — TASK_REJECTED na 3 pogingen (fire-and-forget)
+                            try:
+                                from app.services.event_emitter import EventEmitter, EventType
+                                emitter = EventEmitter()
+                                await emitter.emit(
+                                    pool,
+                                    EventType.TASK_REJECTED,
+                                    agent_id="agent:talent",
+                                    task_id=job_id,
+                                    job_id=job_id,
+                                    payload={"blocking_issues": talent_result.get("blocking_issues") or []},
+                                )
+                            except Exception as _ev:
+                                logger.warning("Event TASK_REJECTED failed: %s", _ev)
                             break
                     if talent_result and talent_result.get("status") == "approved_with_changes" and step_retries == 0:
                         step_retries += 1
@@ -968,6 +1117,41 @@ async def run_job_inline(job_id: str, context_extra: Optional[dict] = None):
                             + (talent_result.get("delta") or "")
                         )
                         continue
+                    # V3: Lessons lifecycle when talent approved
+                    if talent_result and talent_result.get("status") == "approved" and output.get("worker_output"):
+                        try:
+                            from app.services.lessons_lifecycle import LessonsLifecycle
+                            lifecycle = LessonsLifecycle()
+                            lesson_id = await lifecycle.propose(
+                                pool, output["worker_output"], str(job_id), agent_role or f"pipeline:{job_id}"
+                            )
+                            await lifecycle.approve(
+                                pool,
+                                lesson_id,
+                                float(talent_result.get("confidence_score") or 0),
+                                "agent:talent",
+                                talent_result.get("confidence_breakdown") or {},
+                                task_id=str(job_id),
+                                agent_id=agent_role or f"pipeline:{job_id}",
+                                worker_output=output.get("worker_output"),
+                            )
+                            # V4: Event model — TASK_VALIDATED (fire-and-forget)
+                            try:
+                                from app.services.event_emitter import EventEmitter, EventType
+                                emitter = EventEmitter()
+                                await emitter.emit(
+                                    pool,
+                                    EventType.TASK_VALIDATED,
+                                    agent_id="agent:talent",
+                                    task_id=job_id,
+                                    job_id=job_id,
+                                    confidence_score=float(talent_result.get("confidence_score") or 0),
+                                    payload={"talent_status": "approved"},
+                                )
+                            except Exception as _ev:
+                                logger.warning("Event TASK_VALIDATED failed: %s", _ev)
+                        except Exception as _lifecycle_err:
+                            logger.warning("Lessons lifecycle failed: %s", _lifecycle_err)
                     break
 
                 if output.get("image_url"):

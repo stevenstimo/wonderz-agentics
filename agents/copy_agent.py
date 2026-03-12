@@ -3,8 +3,10 @@ import os
 import httpx
 from typing import Any, Dict
 
+from app.core.config import DEFAULT_MODEL
+
 ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
-ANTHROPIC_MODEL = "claude-3-haiku-20240307"
+ANTHROPIC_MODEL = DEFAULT_MODEL
 
 
 def _extract_brief_fields(context: Dict[str, Any]) -> Dict[str, str]:

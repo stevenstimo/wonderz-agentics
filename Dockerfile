@@ -35,5 +35,5 @@ ENV PORT=8090
 ENV PYTHONPATH=/app
 ENV WEB_CONCURRENCY=1
 
-# Start FastAPI with Gunicorn/Uvicorn
-CMD gunicorn -w ${WEB_CONCURRENCY} -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT --chdir /app/web_ui/backend api_main:app
+# Start FastAPI (app.main = full stack: GTM, knowledge, governance, events, etc.)
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8090"]

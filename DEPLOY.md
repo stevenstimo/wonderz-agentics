@@ -38,6 +38,7 @@ cd ~/wonderz-agentics/web_ui/frontend && npm run build
 | `GOOGLE_CLIENT_SECRET` | Google OAuth client secret |
 | `GOOGLE_REDIRECT_URI` | OAuth redirect URI (bijv. `https://wonderz-agentic.exe.xyz/api/integrations/google/callback`) |
 | `GOOGLE_ADS_DEVELOPER_TOKEN` | Google Ads API developer token (vereist voor ads-accounts dropdown). Zet in systemd `Environment=GOOGLE_ADS_DEVELOPER_TOKEN=...` |
+| `GOOGLE_ADS_LOGIN_CUSTOMER_ID` | MCC (Manager) customer ID — verplicht als klant-accounts onder een Manager vallen. Zet op het 10-cijferige MCC-ID (bijv. `1234567890`). Zonder dit krijg je PERMISSION_DENIED op het dashboard en ontbreken sub-accounts in de dropdown. |
 
 **Deploy:**
 ```bash

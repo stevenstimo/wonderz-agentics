@@ -4,6 +4,7 @@ Tests all endpoints for proper error handling, input validation, and response fo
 """
 
 import json
+import os
 from typing import Dict, List, Tuple, Any
 from dataclasses import dataclass
 from datetime import datetime
@@ -409,5 +410,7 @@ if __name__ == "__main__":
     tester.print_test_summary()
     
     # Export for use with pytest or similar
-    output_file = "/Users/timo/Documents/Claude/output/api_test_cases.json"
+    output_dir = os.getenv("TEST_OUTPUT_DIR", os.path.join(os.path.dirname(os.path.abspath(__file__)), "output"))
+    os.makedirs(output_dir, exist_ok=True)
+    output_file = os.path.join(output_dir, "api_test_cases.json")
     tester.export_test_cases_to_json(output_file)

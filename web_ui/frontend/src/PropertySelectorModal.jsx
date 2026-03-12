@@ -35,6 +35,7 @@ const SERVICE_CONFIG = {
 export function PropertySelectorModal({ slug, serviceType, onSaved, onClose }) {
   const [options, setOptions] = useState([])
   const [selected, setSelected] = useState('')
+  const [loginCustomerId, setLoginCustomerId] = useState(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
@@ -51,6 +52,8 @@ export function PropertySelectorModal({ slug, serviceType, onSaved, onClose }) {
       .then((data) => {
         const list = data?.accounts ?? (Array.isArray(data) ? data : [])
         setOptions(list)
+        if (serviceType === 'google_ads') setLoginCustomerId(data?.login_customer_id ?? null)
+        else setLoginCustomerId(null)
         if (list.length === 1) setSelected(cfg.optionValue(list[0]))
       })
       .catch(() => setError('Kon opties niet laden.'))
@@ -61,13 +64,19 @@ export function PropertySelectorModal({ slug, serviceType, onSaved, onClose }) {
     if (!selected || !config) return
     setSaving(true)
     setError(null)
+    const body = { [config.configKey]: selected }
+    if (serviceType === 'google_ads') {
+      const chosen = options.find((o) => (config.optionValue(o) || '').toString() === (selected || '').toString())
+      body.login_customer_id = chosen?.login_customer_id ?? loginCustomerId ?? undefined
+      if (body.login_customer_id === undefined) delete body.login_customer_id
+    }
     try {
       const res = await apiFetch(
         `/api/clients/${slug}/integrations/${serviceType}/config`,
         {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ [config.configKey]: selected }),
+          body: JSON.stringify(body),
         }
       )
       if (!res.ok) throw new Error('Opslaan mislukt')

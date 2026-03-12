@@ -11,12 +11,13 @@ from typing import Any, Dict, List, Optional
 
 from anthropic import Anthropic
 
+from app.core.config import DEFAULT_MODEL
 from app.database import get_db
 from app.utils.seo_skills_fetcher import fetch_seo_skills
 
 logger = logging.getLogger(__name__)
 
-SEO_MODEL = "claude-sonnet-4-5-20250929"
+SEO_MODEL = DEFAULT_MODEL
 BATCH_SIZE = 50
 
 

@@ -337,10 +337,26 @@ export default function JobDetail() {
 
       {error && <div className="panel-card text-red-500">{error}</div>}
 
-      {/* INTAKE_CLARIFICATION: chat UI with chat_history */}
+      {/* INTAKE_CLARIFICATION: chat UI with chat_history + visible clarification questions */}
       {job?.status === 'INTAKE_CLARIFICATION' && (
         <div className="panel-card flex flex-col rounded-xl border border-slate-200 overflow-hidden max-h-[32rem] w-full min-w-0">
           <h3 className="text-lg font-semibold text-slate-900 mb-3 px-1">Clarify your request</h3>
+          {(() => {
+            const unanswered = (clarifications || []).filter((c) => !c.user_answer);
+            if (unanswered.length > 0) {
+              return (
+                <div className="mb-4 p-3 rounded-lg bg-amber-50 border border-amber-200">
+                  <p className="text-sm font-medium text-amber-900 mb-2">Mr. Klein vraagt het volgende — beantwoord in het chatveld hieronder:</p>
+                  <ul className="list-decimal list-inside space-y-1 text-sm text-amber-800">
+                    {unanswered.map((c, i) => (
+                      <li key={c.question_id || i}>{c.question}</li>
+                    ))}
+                  </ul>
+                </div>
+              );
+            }
+            return null;
+          })()}
           <div className="flex-1 overflow-y-auto space-y-4 min-h-[10rem] px-1 pb-2 transition-all">
             {chatHistory.length === 0 && !ceoTyping && (
               <p className="text-slate-500 text-sm">Mr. Klein is thinking…</p>

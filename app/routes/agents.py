@@ -8,7 +8,7 @@ from typing import Any, Annotated, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status, Body
 
-from app.middleware.auth import require_super_admin, TokenPayload
+from app.middleware.auth import get_current_user, require_super_admin, TokenPayload
 from pydantic import BaseModel, Field
 
 from app.database import get_db
@@ -37,7 +37,7 @@ def _json_default(obj: Any) -> Any:
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/agents", tags=["agents"], dependencies=[Depends(require_super_admin)])
+router = APIRouter(prefix="/api/agents", tags=["agents"])
 
 
 def _to_json_compat(value: Any) -> Any:
@@ -169,7 +169,9 @@ class AgentResponse(BaseModel):
 
 
 @router.get("")
-async def list_agents() -> Dict[str, Any]:
+async def list_agents(
+    current_user: Annotated[TokenPayload, Depends(get_current_user)],
+) -> Dict[str, Any]:
     """Returns {agents: [...], count: N}. Spec v1.1."""
     pool = await get_db()
     async with pool.acquire() as conn:
@@ -189,7 +191,9 @@ async def list_agents() -> Dict[str, Any]:
 
 
 @router.get("/presets")
-async def list_agent_presets() -> Dict[str, Any]:
+async def list_agent_presets(
+    current_user: Annotated[TokenPayload, Depends(require_super_admin)],
+) -> Dict[str, Any]:
     """Beschikbare agent presets voor het NewCrewMember formulier."""
     return {
         "presets": AGENT_PRESETS,
@@ -198,7 +202,10 @@ async def list_agent_presets() -> Dict[str, Any]:
 
 
 @router.get("/{agent_id}/detail")
-async def get_agent_detail(agent_id: str) -> Dict[str, Any]:
+async def get_agent_detail(
+    agent_id: str,
+    current_user: Annotated[TokenPayload, Depends(get_current_user)],
+) -> Dict[str, Any]:
     """Get agent plus related data: recent work, development points, applicable skills."""
     pool = await get_db()
     async with pool.acquire() as conn:
@@ -254,7 +261,7 @@ async def get_agent_detail(agent_id: str) -> Dict[str, Any]:
 @router.post("/{agent_id}/chats", status_code=status.HTTP_201_CREATED)
 async def create_direct_chat(
     agent_id: str,
-    current_user: Annotated[TokenPayload, Depends(require_super_admin)],
+    current_user: Annotated[TokenPayload, Depends(get_current_user)],
 ) -> Dict[str, Any]:
     """Create new Direct Chat session for agent. Chat ID format: DC-YYYY-MM-###."""
     pool = await get_db()
@@ -295,7 +302,7 @@ async def create_direct_chat(
 @router.get("/{agent_id}/chats")
 async def list_direct_chats(
     agent_id: str,
-    current_user: Annotated[TokenPayload, Depends(require_super_admin)],
+    current_user: Annotated[TokenPayload, Depends(get_current_user)],
 ) -> List[Dict[str, Any]]:
     """List Direct Chat sessions for this agent, sorted by last_message_at DESC."""
     pool = await get_db()
@@ -332,7 +339,7 @@ async def list_direct_chats(
 async def get_direct_chat(
     agent_id: str,
     chat_id: str,
-    current_user: Annotated[TokenPayload, Depends(require_super_admin)],
+    current_user: Annotated[TokenPayload, Depends(get_current_user)],
 ) -> Dict[str, Any]:
     """Get full Direct Chat session with all messages."""
     pool = await get_db()
@@ -383,7 +390,7 @@ async def send_direct_chat_message(
     agent_id: str,
     chat_id: str,
     body: DirectChatMessageRequest,
-    current_user: Annotated[TokenPayload, Depends(require_super_admin)],
+    current_user: Annotated[TokenPayload, Depends(get_current_user)],
 ) -> Dict[str, Any]:
     """Send message to agent; returns agent response."""
     pool = await get_db()
@@ -436,7 +443,7 @@ class KnowledgeSaveRequest(BaseModel):
 async def save_to_memory(
     agent_id: str,
     body: KnowledgeSaveRequest,
-    current_user: Annotated[TokenPayload, Depends(require_super_admin)],
+    current_user: Annotated[TokenPayload, Depends(get_current_user)],
 ) -> Dict[str, Any]:
     """Save agent message from Direct Chat as knowledge chunk. Spec §8.3."""
     pool = await get_db()
@@ -497,7 +504,7 @@ async def save_to_memory(
 async def delete_direct_chat(
     agent_id: str,
     chat_id: str,
-    current_user: Annotated[TokenPayload, Depends(require_super_admin)],
+    current_user: Annotated[TokenPayload, Depends(get_current_user)],
 ) -> Dict[str, Any]:
     """Delete Direct Chat session (CASCADE removes messages)."""
     pool = await get_db()
@@ -521,7 +528,11 @@ async def delete_direct_chat(
 
 
 @router.patch("/{agent_id}/avatar")
-async def update_agent_avatar(agent_id: str, req: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+async def update_agent_avatar(
+    agent_id: str,
+    current_user: Annotated[TokenPayload, Depends(require_super_admin)],
+    req: Dict[str, Any] = Body(...),
+) -> Dict[str, Any]:
     """Store avatar config in permissions.avatar."""
     pool = await get_db()
     merge = {"avatar": req}
@@ -540,7 +551,11 @@ async def update_agent_avatar(agent_id: str, req: Dict[str, Any] = Body(...)) ->
 
 
 @router.post("/{agent_id}/train")
-async def train_agent(agent_id: str, body: TrainAgentBody) -> Dict[str, Any]:
+async def train_agent(
+    agent_id: str,
+    body: TrainAgentBody,
+    current_user: Annotated[TokenPayload, Depends(require_super_admin)],
+) -> Dict[str, Any]:
     """Start training voor een agent met een URL. Spec sectie 5.2."""
     pool = await get_db()
     async with pool.acquire() as conn:
@@ -569,6 +584,7 @@ async def train_agent(agent_id: str, body: TrainAgentBody) -> Dict[str, Any]:
 @router.get("/{agent_id}/context")
 async def get_agent_context(
     agent_id: str,
+    current_user: Annotated[TokenPayload, Depends(require_super_admin)],
     query: str = Query(..., description="Query voor context retrieval"),
     top_k: int = Query(default=5, ge=1, le=20),
 ) -> Dict[str, Any]:
@@ -580,7 +596,10 @@ async def get_agent_context(
 
 
 @router.get("/{agent_id}", response_model=AgentResponse)
-async def get_agent(agent_id: str) -> Dict[str, Any]:
+async def get_agent(
+    agent_id: str,
+    current_user: Annotated[TokenPayload, Depends(get_current_user)],
+) -> Dict[str, Any]:
     pool = await get_db()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
@@ -621,7 +640,10 @@ def _is_hiring_hall_payload(body: Dict[str, Any]) -> bool:
 
 
 @router.post("", response_model=AgentResponse, status_code=status.HTTP_201_CREATED)
-async def create_agent(body: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+async def create_agent(
+    current_user: Annotated[TokenPayload, Depends(require_super_admin)],
+    body: Dict[str, Any] = Body(...),
+) -> Dict[str, Any]:
     """
     Maakt een nieuwe agent aan.
     Ondersteunt twee payload-vormen:
@@ -740,7 +762,11 @@ async def create_agent(body: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
 
 
 @router.patch("/{agent_id}", response_model=AgentResponse)
-async def update_agent(agent_id: str, body: AgentUpdate) -> Dict[str, Any]:
+async def update_agent(
+    agent_id: str,
+    body: AgentUpdate,
+    current_user: Annotated[TokenPayload, Depends(require_super_admin)],
+) -> Dict[str, Any]:
     data = body.model_dump(exclude_unset=True)
     if not data:
         raise HTTPException(status_code=400, detail="No fields provided for update")
@@ -801,7 +827,10 @@ async def update_agent(agent_id: str, body: AgentUpdate) -> Dict[str, Any]:
 
 
 @router.delete("/{agent_id}")
-async def delete_agent(agent_id: str) -> Dict[str, Any]:
+async def delete_agent(
+    agent_id: str,
+    current_user: Annotated[TokenPayload, Depends(require_super_admin)],
+) -> Dict[str, Any]:
     """Soft delete: zet is_active op false. Agent blijft zichtbaar maar grijs."""
     pool = await get_db()
     async with pool.acquire() as conn:

@@ -4,6 +4,7 @@ import json
 import logging
 from typing import Any, Dict, List, Optional
 
+from app.core.config import DEFAULT_MODEL
 from app.utils.skills_triggers import get_fallback_skills
 
 logger = logging.getLogger(__name__)
@@ -102,7 +103,7 @@ No explanation. JSON only.
 Available skills: {json.dumps(summary)}
 """
             response = client.messages.create(
-                model="claude-haiku-4-5-20251001",
+                model=DEFAULT_MODEL,
                 max_tokens=500,
                 messages=[{"role": "user", "content": user_message}],
             )

@@ -86,6 +86,7 @@ export default function ClientIntegrations() {
   const [error, setError] = useState('')
   const [platformForms, setPlatformForms] = useState({})
   const [googleOptions, setGoogleOptions] = useState({ ga4: [], google_ads: [], gsc: [] })
+  const [googleLoginCustomerId, setGoogleLoginCustomerId] = useState(null)
   const [googleLoading, setGoogleLoading] = useState({ ga4: false, google_ads: false, gsc: false })
   const [googleError, setGoogleError] = useState({ ga4: null, google_ads: null, gsc: null })
   const [connecting, setConnecting] = useState(null)
@@ -210,6 +211,8 @@ export default function ClientIntegrations() {
       const data = await res.json()
       const list = data?.accounts ?? (Array.isArray(data) ? data : [])
       setGoogleOptions((prev) => ({ ...prev, [platform]: list }))
+      if (platform === 'google_ads' && data?.login_customer_id) setGoogleLoginCustomerId(data.login_customer_id)
+      else if (platform === 'google_ads') setGoogleLoginCustomerId(null)
     } catch (err) {
       setGoogleError((prev) => ({ ...prev, [platform]: err.message || 'Laden mislukt' }))
     } finally {
@@ -416,13 +419,19 @@ export default function ClientIntegrations() {
     if (!serviceType || !cfg) return
     setSaving(platform)
     setError('')
+    const body = { [cfg.configKey]: value }
+    if (platform === 'google_ads') {
+      const account = (googleOptions.google_ads || []).find((a) => String(a.customer_id || a.id) === String(value))
+      const mcc = account?.login_customer_id ?? googleLoginCustomerId
+      if (mcc) body.login_customer_id = mcc
+    }
     try {
       const res = await apiFetch(
         `/api/clients/${slug}/integrations/${serviceType}/config`,
         {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ [cfg.configKey]: value }),
+          body: JSON.stringify(body),
         }
       )
       if (res.status === 401) {

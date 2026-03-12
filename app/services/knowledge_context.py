@@ -44,9 +44,17 @@ class KnowledgeContextBuilder:
         lessons_text = result.get("lessons_text", "")
         lessons = result.get("lessons", [])
 
-        sources_used: list[dict[str, str]] = []
-        for chunk_text in chunks:
-            sources_used.append({"type": "chunk", "text_preview": chunk_text[:80]})
+        sources_used: list[dict[str, Any]] = []
+        for c in chunks:
+            if isinstance(c, dict):
+                text = (c.get("chunk_text") or "")[:80]
+                doc_id = c.get("document_id")
+                src: dict[str, Any] = {"type": "chunk", "text_preview": text}
+                if doc_id is not None:
+                    src["document_id"] = str(doc_id)
+                sources_used.append(src)
+            else:
+                sources_used.append({"type": "chunk", "text_preview": str(c)[:80]})
         for lesson in lessons:
             sources_used.append({
                 "type": "lesson",
@@ -79,14 +87,23 @@ class KnowledgeContextBuilder:
             "total_lessons": total_lessons,
         }
 
-    def _format_chunks(self, chunks: list[str]) -> str:
+    def _format_chunks(self, chunks: list[Any]) -> str:
+        """Format chunks for prompt. chunks is list[dict] with chunk_text, doc_type, title."""
         parts: list[str] = []
         total_tokens = 0
-        for chunk_text in chunks:
+        for c in chunks:
+            if isinstance(c, dict):
+                chunk_text = c.get("chunk_text", "")
+                doc_type = c.get("doc_type", "")
+                title = c.get("title", "")
+                line = f"[{doc_type}] {title}\n{chunk_text}" if (doc_type or title) else chunk_text
+            else:
+                chunk_text = str(c)
+                line = chunk_text
             tokens = _estimate_tokens(chunk_text)
             if total_tokens + tokens > MAX_CHUNK_TOKENS:
                 break
-            parts.append(chunk_text)
+            parts.append(line)
             total_tokens += tokens
         return "\n\n---\n\n".join(parts)
 
@@ -96,16 +113,16 @@ async def log_knowledge_usage(
     job_id: Optional[str],
     step_id: Optional[str],
     agent_id: str,
-    sources: list[dict[str, str]],
+    sources: list[dict[str, Any]],
 ) -> None:
     """Write a row to knowledge_usage_log for audit purposes."""
-    document_ids = []
-    lesson_ids = []
+    document_ids: list[str] = []
+    lesson_ids: list[str] = []
     for s in sources:
         if s.get("type") == "chunk" and s.get("document_id"):
-            document_ids.append(s["document_id"])
+            document_ids.append(str(s["document_id"]))
         elif s.get("type") == "lesson" and s.get("lesson_id"):
-            lesson_ids.append(s["lesson_id"])
+            lesson_ids.append(str(s["lesson_id"]))
 
     chunks_used = sum(1 for s in sources if s.get("type") == "chunk")
     lessons_used = sum(1 for s in sources if s.get("type") == "lesson")

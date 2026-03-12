@@ -138,8 +138,9 @@ class KnowledgeService:
             if domain:
                 agency_rows = await conn.fetch(
                     """
-                    SELECT kc.chunk_text, kd.doc_type, kd.access_level,
-                           kd.document_id, kd.client_slug,
+                    SELECT kc.chunk_text, kc.chunk_index,
+                           kd.document_id, kd.title, kd.doc_type, kd.domain,
+                           kd.access_level, kd.client_slug,
                            1 - (kc.embedding <=> $1::vector) AS similarity
                     FROM knowledge_chunks kc
                     JOIN knowledge_documents kd ON kd.document_id = kc.document_id
@@ -160,8 +161,9 @@ class KnowledgeService:
             else:
                 agency_rows = await conn.fetch(
                     """
-                    SELECT kc.chunk_text, kd.doc_type, kd.access_level,
-                           kd.document_id, kd.client_slug,
+                    SELECT kc.chunk_text, kc.chunk_index,
+                           kd.document_id, kd.title, kd.doc_type, kd.domain,
+                           kd.access_level, kd.client_slug,
                            1 - (kc.embedding <=> $1::vector) AS similarity
                     FROM knowledge_chunks kc
                     JOIN knowledge_documents kd ON kd.document_id = kc.document_id
@@ -191,7 +193,10 @@ class KnowledgeService:
                     continue
                 agency_chunks.append({
                     "chunk_text": r["chunk_text"],
+                    "document_id": r.get("document_id"),
+                    "title": r.get("title") or "",
                     "doc_type": r["doc_type"] or "sop",
+                    "domain": r.get("domain"),
                     "access_level": r["access_level"] or "reference",
                     "similarity": float(r["similarity"]),
                 })
@@ -209,7 +214,10 @@ class KnowledgeService:
                         continue
                     client_chunks.append({
                         "chunk_text": c["chunk_text"],
+                        "document_id": c.get("document_id"),
+                        "title": "",
                         "doc_type": "client_context",
+                        "domain": None,
                         "access_level": "approved",
                         "similarity": c["similarity"],
                     })
@@ -296,13 +304,14 @@ class KnowledgeService:
 
     def _apply_token_budget(
         self, chunks: list[dict[str, Any]]
-    ) -> list[str]:
+    ) -> list[dict[str, Any]]:
         """
         Truncate per doc_type volgens budget. Totaal max 6000 tokens.
+        Returns list of chunk dicts (chunk_text, document_id, title, doc_type, domain, similarity).
         """
         budget_used_by_type: dict[str, int] = {}
         total_used = 0
-        result: list[str] = []
+        result: list[dict[str, Any]] = []
 
         for c in chunks:
             chunk_text = c.get("chunk_text", "")
@@ -320,17 +329,25 @@ class KnowledgeService:
 
             tokens = _estimate_tokens(chunk_text)
             if tokens <= cap:
-                result.append(chunk_text)
-                budget_used_by_type[doc_type] = used + tokens
-                total_used += tokens
+                text_used = chunk_text
+                tokens_used = tokens
             else:
                 words = chunk_text.split()
                 take_words = int(cap / 1.3)
-                truncated = " ".join(words[:take_words])
-                if truncated.strip():
-                    result.append(truncated)
-                    budget_used_by_type[doc_type] = used + cap
-                    total_used += cap
+                text_used = " ".join(words[:take_words]) if take_words else ""
+                tokens_used = cap
+
+            if text_used.strip():
+                result.append({
+                    "chunk_text": text_used,
+                    "document_id": c.get("document_id"),
+                    "title": c.get("title") or "",
+                    "doc_type": doc_type,
+                    "domain": c.get("domain"),
+                    "similarity": c.get("similarity", 0.0),
+                })
+                budget_used_by_type[doc_type] = used + tokens_used
+                total_used += tokens_used
 
             if total_used >= TOKEN_BUDGET_TOTAL_MAX:
                 break

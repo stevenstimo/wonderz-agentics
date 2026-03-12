@@ -5,6 +5,7 @@ Tests the entire end-to-end crew workflow: hiring → training → approval → 
 
 import asyncio
 import json
+import os
 from typing import Dict, List, Optional
 from dataclasses import dataclass
 from datetime import datetime
@@ -522,7 +523,9 @@ if __name__ == "__main__":
     validator.print_report(report)
     
     # Write report to JSON
-    output_file = "/Users/timo/Documents/Claude/output/workflow_test_report.json"
+    output_dir = os.getenv("TEST_OUTPUT_DIR", os.path.join(os.path.dirname(os.path.abspath(__file__)), "output"))
+    os.makedirs(output_dir, exist_ok=True)
+    output_file = os.path.join(output_dir, "workflow_test_report.json")
     with open(output_file, "w") as f:
         # Convert datetime objects to strings for JSON serialization
         def serialize_report(obj):

@@ -12,7 +12,6 @@ import TrainingManagement from './TrainingManagement.jsx'
 import ApprovalDashboard from './ApprovalDashboard.jsx'
 import JobCenter from './JobCenter.jsx'
 import AgentsOverview from './AgentsOverview.jsx'
-import AgentsPage from './AgentsPage.jsx'
 import AgentDetail from './AgentDetail.jsx'
 import NewCrewMember from './NewCrewMember.jsx'
 import ExplainerHowItWorks from './ExplainerHowItWorks.jsx'
@@ -79,7 +78,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <Route path="/jobs/:jobId" element={<JobSplitView />} />
           <Route path="/crew" element={<CrewManagement />} />
           <Route path="/crew/management" element={<CrewManagement />} />
-          <Route path="/agents" element={<AgentsPage />} />
+          <Route path="/agents" element={<AgentsOverview />} />
           <Route path="/agents/new" element={<NewCrewMember />} />
           <Route path="/agents/:agentId" element={<AgentDetail />} />
           <Route path="/agents/:agentId/edit" element={<AgentDetail />} />

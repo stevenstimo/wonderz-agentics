@@ -21,31 +21,30 @@ def _normalized_database_url(url: Optional[str]) -> Optional[str]:
 
 
 async def run_migrations():
-    """Run pending database migrations. Uses alembic when app.migrations.runner is absent."""
+    """Run pending database migrations. SQL files in app/migrations/ are run manually or via a runner.
+    If app.migrations.runner exists, use it; else try alembic; else skip (no ModuleNotFoundError)."""
     env = {**os.environ, "DATABASE_URL": DATABASE_URL or ""}
-    # Try app.migrations.runner first; fallback to alembic
+    # Only run app.migrations.runner if the module exists (avoids subprocess ModuleNotFoundError on stderr)
     try:
-        result = subprocess.run(
-            [sys.executable, "-m", "app.migrations.runner"],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            env=env,
-        )
-        if result.returncode == 0:
-            logger.info("✓ Database migrations completed")
-            return
-        if "No module named" in (result.stderr or ""):
-            logger.info("app.migrations.runner not found, trying alembic")
-        else:
-            logger.error(f"Migration failed: {result.stderr}")
+        import importlib.util
+        spec = importlib.util.find_spec("app.migrations.runner")
+        if spec is not None:
+            result = subprocess.run(
+                [sys.executable, "-m", "app.migrations.runner"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                env=env,
+            )
+            if result.returncode == 0:
+                logger.info("✓ Database migrations completed")
+                return
+            logger.error("Migration failed: %s", result.stderr)
             raise RuntimeError("Database migrations failed")
-    except Exception as e:
-        if "No module named" in str(e):
-            logger.info("app.migrations.runner not found, trying alembic")
-        else:
-            logger.warning(f"Could not run migrations: {e}")
-            raise
+    except ImportError:
+        pass
+    except RuntimeError:
+        raise
 
     # Fallback: alembic upgrade head
     try:

@@ -24,6 +24,10 @@ from app.routes.seo_upload import router as seo_router
 from app.routes.integrations import router as integrations_router
 from app.routes.clients import router as clients_router
 from app.routes.knowledge import router as knowledge_router
+from app.routes.lessons import router as lessons_router
+from app.routes.events import router as events_router
+from app.routes.graph import router as graph_router
+from app.routes.governance import router as governance_router
 
 
 def register_routers(app):
@@ -51,3 +55,7 @@ def register_routers(app):
     app.include_router(integrations_router)
     app.include_router(clients_router)
     app.include_router(knowledge_router)
+    app.include_router(lessons_router)
+    app.include_router(events_router)
+    app.include_router(graph_router)
+    app.include_router(governance_router)

@@ -35,6 +35,7 @@ from app.services.job_pipeline import (
     run_job_inline,
     _update_job_context,
 )
+from app.services.client_mention import resolve_first_mention
 from app.models.requests import (
     CreateJobRequest,
     SubmitAnswersRequest,
@@ -164,12 +165,18 @@ async def create_job(req: CreateJobRequest, background_tasks: BackgroundTasks):
         )
     try:
         logger.info(f"Creating job {job_id} for user {req.user_id}")
-        
+
+        # Parse @client mention so pipeline and agents get client context
+        client_slug = await resolve_first_mention(pool, str(req.user_id), req.job_post)
+        context = {
+            "job_post": req.job_post,
+            "source_platform": source_platform,
+        }
+        if client_slug:
+            context["client_slug"] = client_slug
+            logger.info("Job %s: client_slug=%s from @mention", job_id, client_slug)
+
         async with pool.acquire() as conn:
-            context = {
-                "job_post": req.job_post,
-                "source_platform": source_platform,
-            }
             token_budget = get_token_budget(req.job_post)
             await conn.execute(
                 """

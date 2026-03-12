@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { Upload, X, Paperclip, FileSpreadsheet, FileText, Image as ImageIcon, MessageCircle } from 'lucide-react'
+import { Upload, X, Paperclip, FileSpreadsheet, FileText, Image as ImageIcon, MessageCircle, Play, CheckCircle, XCircle, BookOpen, BookMarked, BookX, Layers } from 'lucide-react'
 import PageLayout from './PageLayout'
 import { apiUrl, apiFetch } from './apiClient'
 
@@ -62,6 +62,49 @@ function StatusBadge({ status }) {
     <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${cls}`}>
       {status}
     </span>
+  )
+}
+
+const EVENT_ICONS = {
+  TaskCreated: Play,
+  TaskEvidenceCollected: FileText,
+  TaskFixProposed: FileText,
+  TaskValidated: CheckCircle,
+  TaskRejected: XCircle,
+  LessonProposed: BookOpen,
+  LessonApproved: BookMarked,
+  LessonRejected: BookX,
+  PatternRegistered: Layers
+}
+
+function EventTimeline({ events }) {
+  if (!events?.length) return null
+  return (
+    <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-4">
+      <h3 className="text-sm font-medium text-slate-700 mb-3">Events</h3>
+      <ul className="space-y-2">
+        {events.map((ev) => {
+          const Icon = EVENT_ICONS[ev.event_type] || FileText
+          const isGreen = ev.event_type === 'TaskValidated' || ev.event_type === 'LessonApproved'
+          const isRed = ev.event_type === 'TaskRejected' || ev.event_type === 'LessonRejected'
+          const time = ev.created_at ? new Date(ev.created_at).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : ''
+          return (
+            <li key={ev.event_id} className="flex items-center gap-3 text-sm">
+              <span className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${isGreen ? 'bg-green-100 text-green-700' : isRed ? 'bg-red-100 text-red-700' : 'bg-slate-200 text-slate-600'}`}>
+                <Icon className="w-4 h-4" />
+              </span>
+              <span className="flex-1 min-w-0 font-medium text-slate-800">{ev.event_type}</span>
+              {ev.confidence_score != null && (
+                <span className="flex-shrink-0 text-xs px-2 py-0.5 rounded bg-indigo-100 text-indigo-800 font-medium">
+                  {(ev.confidence_score * 100).toFixed(0)}%
+                </span>
+              )}
+              <span className="flex-shrink-0 text-xs text-slate-500">{time}</span>
+            </li>
+          )
+        })}
+      </ul>
+    </div>
   )
 }
 
@@ -153,6 +196,7 @@ export default function JobSplitView() {
   const fileInputRef = useRef(null)
   const [chatAttachedFile, setChatAttachedFile] = useState(null)
   const chatFileInputRef = useRef(null)
+  const [events, setEvents] = useState([])
 
   const fetchJob = useCallback(async () => {
     if (!jobId) return null
@@ -212,6 +256,15 @@ export default function JobSplitView() {
     return () => clearInterval(interval)
   }, [data?.job?.status, data?.job?.context, fetchJob])
 
+  // V4: Event timeline — fetch events when job detail is open
+  useEffect(() => {
+    if (!jobId) return
+    apiFetch(`/api/events?job_id=${encodeURIComponent(jobId)}&limit=50`)
+      .then((res) => (res.ok ? res.json() : { events: [] }))
+      .then((d) => setEvents(d.events || []))
+      .catch(() => setEvents([]))
+  }, [jobId])
+
   useEffect(() => {
     if (!sendingChat && ceoTyping) {
       const t = setTimeout(() => setCeoTyping(false), 8000)
@@ -228,6 +281,7 @@ export default function JobSplitView() {
   const plan = context.plan || {}
   const planSteps = Array.isArray(plan.steps) ? plan.steps : []
   const chatHistory = Array.isArray(context.chat_history) ? context.chat_history : []
+  const clarifications = data?.clarifications ?? []
   const statusStr = job?.status != null ? String(job.status) : ''
   const statusUpper = statusStr.toUpperCase()
   const isIntake = statusUpper === 'INTAKE_CLARIFICATION'
@@ -674,8 +728,9 @@ export default function JobSplitView() {
               const briefCtx = context.brief?.context
               const briefStr = typeof briefCtx === 'string' ? briefCtx : (briefCtx != null ? JSON.stringify(briefCtx) : '')
               const isApiCreditError = /credit balance|API error/i.test(briefStr) || /credit balance|API error/i.test(context.error || context.execution_error || '')
+              const unansweredClarifications = clarifications.filter((c) => !c.user_answer)
               return (
-                <div className="space-y-2">
+                <div className="space-y-3">
                   {isApiCreditError && (
                     <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
                       Dit kan een eerdere fout zijn. Controleer of de juiste API-key op de server staat (Status → Keys; na herstart backend moet de fingerprint kloppen). Stuur daarna een nieuw bericht om opnieuw te proberen.
@@ -685,7 +740,17 @@ export default function JobSplitView() {
                     </div>
                   )}
                   {runningIntake && <p className="text-amber-700 text-sm font-medium">Intake wordt uitgevoerd… (kan 20–30 sec duren)</p>}
-                  {!isApiCreditError && !runningIntake && (
+                  {!isApiCreditError && unansweredClarifications.length > 0 && (
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+                      <p className="text-sm font-medium text-amber-900 mb-2">Mr. Klein vraagt het volgende — beantwoord in het chatveld links:</p>
+                      <ul className="list-decimal list-inside space-y-1 text-sm text-amber-800">
+                        {unansweredClarifications.map((c, i) => (
+                          <li key={c.question_id || i}>{c.question}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {!isApiCreditError && !runningIntake && unansweredClarifications.length === 0 && (
                     <p className="text-slate-500 text-sm">Wacht op Mr. Klein…</p>
                   )}
                 </div>
@@ -1043,6 +1108,8 @@ export default function JobSplitView() {
                 </button>
               </div>
             )}
+
+            {events?.length > 0 && <EventTimeline events={events} />}
 
             {job?.status && !['INTAKE_CLARIFICATION', 'PLAN_PROPOSED', 'RUNNING', 'JOB_READY', 'COMPLETED', 'FAILED'].includes(job.status) && (
               <p className="text-slate-600 text-sm">Status: <strong>{job.status}</strong>. No specific view for this status.</p>

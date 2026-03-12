@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
+from app.core.config import DEFAULT_MODEL
 from app.database import get_db
 from anthropic import Anthropic
 
@@ -499,7 +500,7 @@ JSON format: {{ "message": "Your deadpan Judson commentary", "skills": [...] }}"
         client = Anthropic()
         try:
             response = client.messages.create(
-                model="claude-haiku-4-5-20251001",
+                model=DEFAULT_MODEL,
                 max_tokens=4000,
                 system=JUDSON_SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": f"Document content:\n\n{content_text[:50000]}\n\n---\n\n{analysis_prompt}"}],
@@ -763,7 +764,7 @@ async def get_gaps():
         client = Anthropic()
         try:
             response = client.messages.create(
-                model="claude-haiku-4-5-20251001",
+                model=DEFAULT_MODEL,
                 max_tokens=1024,
                 system=JUDSON_SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": f"Recent development points (skill gaps / issues):\n{json.dumps(points_data, default=_json_default)}\n\nCurrent skills coverage:\n{json.dumps(skills_data, default=_json_default)}\n\nWhat are the main gaps? Reply with a short JSON: {{ \"gaps\": [ {{ \"description\": \"...\", \"suggestion\": \"...\" }} ], \"message\": \"Your deadpan assessment\" }}"}],
@@ -807,7 +808,7 @@ async def judson_chat(req: ChatRequest):
         client = Anthropic()
         try:
             response = client.messages.create(
-                model="claude-haiku-4-5-20251001",
+                model=DEFAULT_MODEL,
                 max_tokens=1024,
                 system=JUDSON_SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": user_content}],

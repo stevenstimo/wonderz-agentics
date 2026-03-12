@@ -13,6 +13,8 @@ import logging
 import time
 from anthropic import Anthropic, APIError, APITimeoutError, RateLimitError
 
+from app.core.config import DEFAULT_MODEL
+
 logger = logging.getLogger(__name__)
 
 
@@ -58,8 +60,8 @@ def build_gtm_plan(brief) -> "ExecutionPlan":
 class StrategyRoom:
     """Creates ExecutionPlans from StrategicBriefs."""
 
-    def __init__(self, model: str = "claude-sonnet-4-5-20250929", max_retries: int = 3):
-        self.model = model
+    def __init__(self, model: str | None = None, max_retries: int = 3):
+        self.model = model or DEFAULT_MODEL
         self.client = Anthropic()
         self.max_retries = max_retries
 

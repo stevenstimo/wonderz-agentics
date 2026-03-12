@@ -63,6 +63,17 @@ class LessonsRetriever:
                             1.0, (lesson.get("confidence_score") or 0) + 0.05
                         )
 
+            # V3: increment usage per lesson (platform spec 14.1)
+            try:
+                from app.services.lessons_lifecycle import LessonsLifecycle
+                lifecycle = LessonsLifecycle()
+                for lesson in lessons:
+                    lid = lesson.get("lesson_id")
+                    if lid:
+                        await lifecycle.increment_usage(pool, lid)
+            except Exception as _inc_err:
+                logger.debug("Lesson usage increment skipped: %s", _inc_err)
+
             lessons.sort(key=lambda x: -(x.get("confidence_score") or 0))
             return lessons[:top_k]
 
@@ -83,7 +94,7 @@ class LessonsRetriever:
                        1 - (l.embedding <=> $1::vector) AS similarity
                 FROM lessons l
                 LEFT JOIN agents a ON l.agent_id = a.agent_id
-                WHERE l.status = 'active'
+                WHERE (COALESCE(l.lesson_status, l.status) = 'active')
                   AND l.confidence_score >= 0.70
                   AND (a.specialization ILIKE '%' || $3 || '%' OR $3 IS NULL)
                 ORDER BY l.embedding <=> $1::vector
@@ -100,7 +111,7 @@ class LessonsRetriever:
                        l.confidence_score, l.agent_id, l.status,
                        1 - (l.embedding <=> $1::vector) AS similarity
                 FROM lessons l
-                WHERE l.status = 'active'
+                WHERE (COALESCE(l.lesson_status, l.status) = 'active')
                   AND l.confidence_score >= 0.70
                 ORDER BY l.embedding <=> $1::vector
                 LIMIT $2
@@ -124,7 +135,7 @@ class LessonsRetriever:
                        l.confidence_score, l.agent_id, l.status
                 FROM lessons l
                 LEFT JOIN agents a ON l.agent_id = a.agent_id
-                WHERE l.status = 'active'
+                WHERE (COALESCE(l.lesson_status, l.status) = 'active')
                   AND l.confidence_score >= 0.70
                   AND to_tsvector('dutch',
                         COALESCE(l.title,'') || ' ' ||
@@ -146,7 +157,7 @@ class LessonsRetriever:
                 SELECT l.lesson_id, l.title, l.gevonden, l.oorzaak, l.fix,
                        l.confidence_score, l.agent_id, l.status
                 FROM lessons l
-                WHERE l.status = 'active'
+                WHERE (COALESCE(l.lesson_status, l.status) = 'active')
                   AND l.confidence_score >= 0.70
                   AND to_tsvector('dutch',
                         COALESCE(l.title,'') || ' ' ||
@@ -173,7 +184,7 @@ class LessonsRetriever:
                        l.confidence_score, l.agent_id, l.status
                 FROM lessons l
                 LEFT JOIN agents a ON l.agent_id = a.agent_id
-                WHERE l.status = 'active'
+                WHERE (COALESCE(l.lesson_status, l.status) = 'active')
                   AND l.confidence_score >= 0.70
                   AND (a.specialization ILIKE '%' || $2 || '%' OR $2 IS NULL)
                 ORDER BY l.confidence_score DESC, l.created_at DESC
@@ -188,7 +199,7 @@ class LessonsRetriever:
                 SELECT l.lesson_id, l.title, l.gevonden, l.oorzaak, l.fix,
                        l.confidence_score, l.agent_id, l.status
                 FROM lessons l
-                WHERE l.status = 'active'
+                WHERE (COALESCE(l.lesson_status, l.status) = 'active')
                   AND l.confidence_score >= 0.70
                 ORDER BY l.confidence_score DESC, l.created_at DESC
                 LIMIT $1

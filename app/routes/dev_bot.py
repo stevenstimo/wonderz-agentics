@@ -11,6 +11,7 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Depends
 
+from app.core.config import DEFAULT_MODEL
 from app.database import get_db
 from pydantic import BaseModel
 
@@ -354,7 +355,7 @@ async def devbot_ask(req: DevbotAskRequest, db=Depends(get_db)):
         from anthropic import Anthropic
         client = Anthropic()
         response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model=DEFAULT_MODEL,
             max_tokens=2048,
             system=DEV_BOT_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": user_content}],

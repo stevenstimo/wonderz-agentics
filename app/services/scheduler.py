@@ -22,6 +22,7 @@ def start_scheduler(pool):
 
     from app.services.stale_detection import StaleDetectionService
     from app.agents.hr_manager import HRManager as SpecHRManager
+    from app.services.governance_monitor import GovernanceMonitor
 
     async def _run_stale_detection():
         try:
@@ -37,6 +38,21 @@ def start_scheduler(pool):
             logger.info("Scheduled A/B validation: %s", result)
         except Exception:
             logger.exception("Scheduled A/B validation failed")
+
+    async def _run_lesson_decay():
+        try:
+            from app.services.lessons_lifecycle import LessonsLifecycle
+            result = await LessonsLifecycle().decay_check(pool)
+            logger.info("Scheduled lesson decay: %s", result)
+        except Exception:
+            logger.exception("Scheduled lesson decay failed")
+
+    async def _run_governance_check():
+        try:
+            result = await GovernanceMonitor().check_talent_integrity(pool)
+            logger.info("Scheduled governance check: %s", result)
+        except Exception:
+            logger.exception("Scheduled governance check failed")
 
     _scheduler = AsyncIOScheduler(timezone="UTC")
     _scheduler.add_job(
@@ -55,8 +71,27 @@ def start_scheduler(pool):
         id="ab_validation",
         replace_existing=True,
     )
+    _scheduler.add_job(
+        func=_run_lesson_decay,
+        trigger="cron",
+        day=1,
+        hour=4,
+        minute=0,
+        id="lesson_decay",
+        replace_existing=True,
+    )
+    _scheduler.add_job(
+        func=_run_governance_check,
+        trigger="cron",
+        hour=1,
+        minute=30,
+        id="governance_check",
+        replace_existing=True,
+    )
     _scheduler.start()
-    logging.getLogger("uvicorn.error").info("Stale detection (02:00) + A/B validation (03:00) scheduler gestart")
+    logging.getLogger("uvicorn.error").info(
+        "Stale detection (02:00) + A/B validation (03:00) + lesson decay (1st 04:00) + governance (01:30) scheduler gestart"
+    )
 
 
 def stop_scheduler():

@@ -4,7 +4,7 @@ import json
 import logging
 import os
 from datetime import date, datetime, timedelta
-from typing import Any, Optional
+from typing import Any, Optional, Tuple
 
 import httpx
 
@@ -115,9 +115,9 @@ _CUSTOMER_CLIENT_QUERY = """
 """
 
 
-async def list_google_ads_accounts(refresh_token: str) -> list[dict[str, str]]:
+async def list_google_ads_accounts(refresh_token: str) -> Tuple[list[dict[str, str]], Optional[str]]:
     """List all Google Ads accounts accessible via the token, including MCC sub-accounts.
-    Returns [{ id, name, customer_id, descriptive_name }]."""
+    Returns (accounts, login_customer_id). login_customer_id is the MCC used (env or auto-detected) for use when fetching campaign data."""
     try:
         from google.ads.googleads.client import GoogleAdsClient
         from google.ads.googleads.errors import GoogleAdsException
@@ -125,7 +125,6 @@ async def list_google_ads_accounts(refresh_token: str) -> list[dict[str, str]]:
         raise RuntimeError("google-ads package not installed")
     if not all([GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_ADS_DEVELOPER_TOKEN]):
         raise RuntimeError("GOOGLE_ADS_DEVELOPER_TOKEN not configured")
-    # Config ZONDER login_customer_id voor list_accessible_customers (werkt niet met login_customer_id)
     base_config = {
         "developer_token": GOOGLE_ADS_DEVELOPER_TOKEN,
         "client_id": GOOGLE_CLIENT_ID,
@@ -133,21 +132,41 @@ async def list_google_ads_accounts(refresh_token: str) -> list[dict[str, str]]:
         "refresh_token": refresh_token,
         "use_proto_plus": True,
     }
-    # Config MET login_customer_id voor MCC sub-account queries (search_stream)
     mcc_config = {**base_config}
-    if GOOGLE_ADS_LOGIN_CUSTOMER_ID:
-        mcc_config["login_customer_id"] = GOOGLE_ADS_LOGIN_CUSTOMER_ID
+    login_customer_id: Optional[str] = (GOOGLE_ADS_LOGIN_CUSTOMER_ID or "").strip() or None
+    if login_customer_id:
+        login_customer_id = login_customer_id.replace("-", "")
+        mcc_config["login_customer_id"] = login_customer_id
     try:
         client = GoogleAdsClient.load_from_dict(base_config)
         customer_service = client.get_service("CustomerService")
         response = customer_service.list_accessible_customers()
 
-        mcc_client = GoogleAdsClient.load_from_dict(mcc_config)
-        ga_service = mcc_client.get_service("GoogleAdsService")
+        accessible_ids = [r.replace("customers/", "") for r in response.resource_names if r.startswith("customers/")]
+        # Find all MCCs: each accessible_id that returns customer_client results is an MCC
+        mcc_ids: list[str] = []
+        if login_customer_id:
+            mcc_ids = [login_customer_id]
+        elif accessible_ids:
+            for aid in accessible_ids:
+                try:
+                    test_config = {**base_config, "login_customer_id": aid}
+                    test_client = GoogleAdsClient.load_from_dict(test_config)
+                    ga = test_client.get_service("GoogleAdsService")
+                    stream = ga.search_stream(customer_id=aid, query=_CUSTOMER_CLIENT_QUERY)
+                    for batch in stream:
+                        if batch.results:
+                            mcc_ids.append(aid)
+                            logger.info("Google Ads MCC found: %s", aid)
+                            break
+                except (GoogleAdsException, Exception):
+                    continue
+            if mcc_ids and not login_customer_id:
+                login_customer_id = mcc_ids[0]
+
         seen: set[str] = set()
         result: list[dict[str, str]] = []
 
-        # 1) Add all directly accessible accounts (correct read from Customer)
         for resource_name in response.resource_names:
             if not resource_name.startswith("customers/"):
                 continue
@@ -167,15 +186,18 @@ async def list_google_ads_accounts(refresh_token: str) -> list[dict[str, str]]:
                     "name": descriptive_name or cid,
                     "customer_id": raw_id,
                     "descriptive_name": descriptive_name or cid,
+                    "login_customer_id": None,
                 })
-            logger.info("Ads account: id=%s, name=%s", cid, descriptive_name or cid)
 
-        # 2) For each accessible account, fetch child accounts (MCC sub-accounts) via customer_client
-        to_process = [r.replace("customers/", "") for r in response.resource_names]
+        # For each MCC, use a client with that MCC as login_customer_id to fetch its sub-accounts
+        to_process: list[str] = list(mcc_ids)
         while to_process:
-            seed_id = to_process.pop(0)
+            mcc_id = to_process.pop(0)
             try:
-                stream = ga_service.search_stream(customer_id=seed_id, query=_CUSTOMER_CLIENT_QUERY)
+                seed_config = {**base_config, "login_customer_id": mcc_id}
+                seed_client = GoogleAdsClient.load_from_dict(seed_config)
+                ga_service = seed_client.get_service("GoogleAdsService")
+                stream = ga_service.search_stream(customer_id=mcc_id, query=_CUSTOMER_CLIENT_QUERY)
                 for batch in stream:
                     for row in batch.results:
                         customer = row.customer_client
@@ -190,15 +212,20 @@ async def list_google_ads_accounts(refresh_token: str) -> list[dict[str, str]]:
                             "name": descriptive_name or cid,
                             "customer_id": raw_id,
                             "descriptive_name": descriptive_name or cid,
+                            "login_customer_id": mcc_id,
                         })
-                        logger.info("Ads account: id=%s, name=%s", cid, descriptive_name or cid)
-                        # Recurse into child managers to get their sub-accounts
+                        # Nested MCC: query its children with its own client
                         if getattr(customer, "manager", False) and getattr(customer, "level", 0) == 1:
                             to_process.append(raw_id)
             except (GoogleAdsException, Exception) as e:
-                logger.debug("customer_client query for %s failed: %s", seed_id, e)
+                logger.debug("customer_client query for MCC %s failed: %s", mcc_id, e)
 
-        return result
+        # Top-level accounts: assign default MCC if we have one (for backward compat)
+        if login_customer_id:
+            for acc in result:
+                if acc.get("login_customer_id") is None:
+                    acc["login_customer_id"] = login_customer_id
+        return (result, login_customer_id)
     except Exception as e:
         logger.warning("List Google Ads accounts failed: %s", e)
         raise PermissionError(str(e)) from e
@@ -503,8 +530,9 @@ async def fetch_google_ads_via_gaql(
     customer_id: str,
     start_date: str,
     end_date: str,
+    login_customer_id: Optional[str] = None,
 ) -> dict[str, Any]:
-    """Fetch Google Ads via GAQL using google-ads library."""
+    """Fetch Google Ads via GAQL. login_customer_id (MCC) from koppeling or env."""
     try:
         from google.ads.googleads.client import GoogleAdsClient
         from google.ads.googleads.errors import GoogleAdsException
@@ -521,8 +549,9 @@ async def fetch_google_ads_via_gaql(
         "refresh_token": refresh_token,
         "use_proto_plus": True,
     }
-    if GOOGLE_ADS_LOGIN_CUSTOMER_ID:
-        config["login_customer_id"] = GOOGLE_ADS_LOGIN_CUSTOMER_ID
+    mcc_id = (login_customer_id or "").replace("-", "").strip() or GOOGLE_ADS_LOGIN_CUSTOMER_ID
+    if mcc_id:
+        config["login_customer_id"] = mcc_id
     try:
         client = GoogleAdsClient.load_from_dict(config)
     except Exception as e:
@@ -705,3 +734,99 @@ async def fetch_gsc(
                 })
 
     return result
+
+
+async def get_client_seo_summary_for_agent(pool, user_id: str, client_slug: str) -> Optional[str]:
+    """
+    Build a short text summary of GSC data for a client, for injection into agent/Direct Chat context.
+    Returns None if client not found or on error; otherwise a string like:
+    "Client Asured (@asured). Google Search Console (laatste 30 dagen): top zoektermen: X (N clicks), ..."
+    """
+    if not pool or not user_id or not client_slug:
+        return None
+    try:
+        async with pool.acquire() as conn:
+            client = await conn.fetchrow(
+                "SELECT slug, client_name FROM clients WHERE user_id = $1 AND slug = $2",
+                user_id,
+                client_slug,
+            )
+            if not client:
+                return None
+            client_name = client["client_name"] or client_slug
+
+            integrations = await conn.fetch(
+                """
+                SELECT integration_type, api_key_encrypted, extra_config
+                FROM client_integrations
+                WHERE user_id = $1 AND client_slug = $2 AND integration_type = 'google_search_console'
+                """,
+                user_id,
+                client_slug,
+            )
+            configs = await conn.fetch(
+                """
+                SELECT platform, config FROM client_platform_configs
+                WHERE user_id = $1 AND client_slug = $2 AND platform = 'gsc'
+                """,
+                user_id,
+                client_slug,
+            )
+        int_by_type = {r["integration_type"]: r for r in integrations}
+        config_by_platform = {r["platform"]: (r["config"] or {}) for r in configs}
+        gsc_int = int_by_type.get("google_search_console")
+        gsc_cfg = config_by_platform.get("gsc", {})
+        site_url = None
+        if gsc_int and gsc_int.get("extra_config"):
+            extra = gsc_int["extra_config"]
+            if isinstance(extra, str):
+                try:
+                    extra = json.loads(extra)
+                except Exception:
+                    extra = {}
+            if isinstance(extra, dict) and extra.get("site_url"):
+                site_url = extra["site_url"]
+        if not site_url and isinstance(gsc_cfg, dict) and gsc_cfg.get("site_url"):
+            site_url = gsc_cfg["site_url"]
+
+        if not gsc_int:
+            return (
+                f"Client {client_name} (@{client_slug}). Google Search Console is niet gekoppeld voor deze client. "
+                "Zeg de gebruiker dat ze onder Clients → [client] → Integraties Google Search Console kunnen koppelen om zoektermdata te zien."
+            )
+
+        async with pool.acquire() as conn:
+            access_token = await get_valid_access_token(conn, user_id, client_slug, "google_search_console")
+        if not access_token:
+            return (
+                f"Client {client_name} (@{client_slug}). Google Search Console: token ontbreekt of verlopen. "
+                "Raad de gebruiker aan om onder Integraties opnieuw te koppelen."
+            )
+
+        if not site_url:
+            site_url = await _get_first_gsc_site(access_token)
+        if not site_url:
+            return (
+                f"Client {client_name} (@{client_slug}). Google Search Console is gekoppeld maar geen site gekozen. "
+                "Zeg de gebruiker dat ze onder Integraties een site moeten selecteren."
+            )
+
+        end_date = date.today()
+        start_date = end_date - timedelta(days=30)
+        start_str = start_date.isoformat()
+        end_str = end_date.isoformat()
+        gsc_data = await fetch_gsc(access_token, site_url, start_str, end_str, slug=client_slug)
+
+        parts = [f"Client {client_name} (@{client_slug}). Google Search Console (laatste 30 dagen):"]
+        totals = gsc_data.get("totals") or {}
+        parts.append(f"Totaal: {totals.get('clicks', 0)} clicks, {totals.get('impressions', 0)} impressies, positie ~{totals.get('position', 0):.1f}.")
+        top = gsc_data.get("top_queries") or []
+        if top:
+            query_str = "; ".join(f'"{q.get("query", "")}" ({q.get("clicks", 0)} clicks)' for q in top[:10])
+            parts.append(f"Top zoektermen: {query_str}.")
+        else:
+            parts.append("Geen top zoektermen beschikbaar.")
+        return " ".join(parts)
+    except Exception as e:
+        logger.warning("get_client_seo_summary_for_agent failed: user_id=%s client_slug=%s %s", user_id, client_slug, e)
+        return None

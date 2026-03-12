@@ -11,13 +11,13 @@ from typing import Any, Dict, List, Optional
 from anthropic import Anthropic
 
 from app.config.gtm_platforms import get_platform_context
+from app.core.config import DEFAULT_MODEL
 from app.database import get_db
 from app.utils.skills_context import build_skills_context
 
 logger = logging.getLogger(__name__)
 
-# ASSUMPTION-BASED: Use project's standard model; claude-sonnet-4-6 from spec may not exist yet
-GTM_MODEL = "claude-sonnet-4-5-20250929"
+GTM_MODEL = DEFAULT_MODEL
 
 # ASSUMPTION-BASED: Anthropic client is sync; we run it via asyncio.to_thread to avoid blocking
 # ASSUMPTION-BASED: JSON output may be wrapped in markdown code blocks; we strip ```json ... ``` before parse

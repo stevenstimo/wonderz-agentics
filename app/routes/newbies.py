@@ -15,6 +15,7 @@ from typing import Optional, List
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field, model_validator
 
+from app.core.config import DEFAULT_MODEL
 from app.database import get_db
 
 logger = logging.getLogger(__name__)
@@ -434,7 +435,7 @@ async def backfill_summaries():
     return {"updated": updated, "failed": failed, "total": total}
 
 
-SYSTEM_PROMPT_MODEL = "claude-3-haiku-20240307"
+SYSTEM_PROMPT_MODEL = DEFAULT_MODEL
 
 
 async def _generate_system_prompt_via_claude(
@@ -444,7 +445,7 @@ async def _generate_system_prompt_via_claude(
     development: str,
     role: str,
 ) -> str:
-    """Generate system_prompt via Claude API. Uses claude-3-haiku for speed + cost.
+    """Generate system_prompt via Claude API. Uses DEFAULT_MODEL (config).
     No silent fallback: raises if API key missing or API call fails."""
     logger.info("Calling Claude API for system_prompt...")
     api_key = (os.environ.get("ANTHROPIC_API_KEY") or "").strip()

@@ -6,6 +6,8 @@ import json
 import logging
 from typing import Any
 
+from app.core.config import DEFAULT_MODEL
+
 logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """
@@ -166,7 +168,7 @@ class TalentAgent:
 
             def _call():
                 return client.messages.create(
-                    model="claude-3-haiku-20240307",
+                    model=DEFAULT_MODEL,
                     max_tokens=2000,
                     system=SYSTEM_PROMPT,
                     messages=[{"role": "user", "content": user_message}],

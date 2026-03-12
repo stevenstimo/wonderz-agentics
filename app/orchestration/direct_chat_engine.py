@@ -56,11 +56,38 @@ class DirectChatEngine:
             if not agent:
                 return {"error": "agent_not_found", "detail": "Agent not found"}
 
-            # 4. Retrieve knowledge context (top-5 via cosine similarity)
-            knowledge_chunks = await self._retrieve_context(conn, chat["agent_id"], user_message)
-            system_msg = self._build_system_message(agent, knowledge_chunks)
+            # 4. Resolve @client mention and fetch client context (GSC summary) for Mr. Klein
+            client_context_block = ""
+            try:
+                from app.services.client_mention import resolve_first_mention
+                from app.services.dashboard import get_client_seo_summary_for_agent
+                user_id = str(chat.get("user_id") or "")
+                client_slug = await resolve_first_mention(pool, user_id, user_message)
+                if client_slug:
+                    seo_summary = await get_client_seo_summary_for_agent(pool, user_id, client_slug)
+                    if seo_summary:
+                        client_context_block = (
+                            "\n\n--- CLIENTDATA (@"
+                            + client_slug
+                            + ") ---\n"
+                            + "INSTRUCTIE: De gebruiker vraagt over client @"
+                            + client_slug
+                            + ". Je hebt hieronder de actuele Google Search Console-data voor deze client. "
+                            + "Beantwoord vragen over zoektermen, vindbaarheid of 'op welke zoektermen wordt X gevonden' ALTIJD op basis van deze data. "
+                            + "Zeg niet dat je geen toegang hebt tot GSC — de data staat hieronder.\n\n"
+                            + seo_summary
+                            + "\n--- EINDE CLIENTDATA ---"
+                        )
+                    else:
+                        logger.info("Direct Chat: client_slug=%s resolved but seo_summary empty", client_slug)
+            except Exception as e:
+                logger.warning("Direct Chat client context failed: %s", e)
 
-            # 5. Fetch history (FIFO, last 20)
+            # 5. Retrieve knowledge context (top-5 via cosine similarity)
+            knowledge_chunks = await self._retrieve_context(conn, chat["agent_id"], user_message)
+            system_msg = self._build_system_message(agent, knowledge_chunks, client_context_block)
+
+            # 6. Fetch history (FIFO, last 20)
             history = await self._get_messages(conn, chat_id, limit=MAX_HISTORY)
             messages = [
                 {"role": h["role"], "content": h["content"]}
@@ -68,7 +95,7 @@ class DirectChatEngine:
             ]
             messages.append({"role": "user", "content": user_message})
 
-            # 6. LLM call
+            # 7. LLM call
             try:
                 response = self.client.messages.create(
                     model=self.model,
@@ -85,17 +112,17 @@ class DirectChatEngine:
             output_tokens = response.usage.output_tokens or 0
             total_tokens = input_tokens + output_tokens
 
-            # 7. Persist user message
+            # 8. Persist user message
             await self._save_message(conn, chat_id, "user", user_message, input_tokens)
 
-            # 8. Persist agent message
+            # 9. Persist agent message
             msg_row = await self._save_message(conn, chat_id, "agent", text, output_tokens)
 
-            # 9. Update chat tokens
+            # 10. Update chat tokens
             new_token_used = token_used + total_tokens
             await self._update_chat_tokens(conn, chat_id, new_token_used)
 
-            # 10. Auto-title on first response
+            # 11. Auto-title on first response
             if (chat.get("message_count") or 0) == 0:
                 title = self._generate_title(user_message)
                 await conn.execute(
@@ -104,7 +131,7 @@ class DirectChatEngine:
                     chat_id,
                 )
 
-            # 11. Warning check
+            # 12. Warning check
             warning = None
             if new_token_used >= SOFT_TOKEN_LIMIT * 0.8:
                 pct = int(new_token_used / SOFT_TOKEN_LIMIT * 100)
@@ -120,7 +147,12 @@ class DirectChatEngine:
                 "warning": warning,
             }
 
-    def _build_system_message(self, agent: Dict[str, Any], knowledge_chunks: List[str]) -> str:
+    def _build_system_message(
+        self,
+        agent: Dict[str, Any],
+        knowledge_chunks: List[str],
+        client_context_block: str = "",
+    ) -> str:
         """Build system message per spec §2.2 — agent identity from system_prompt + context."""
         system_prompt = agent.get("system_prompt") or agent.get("system_instructions") or ""
         name = agent.get("name") or agent.get("agent_name") or "Agent"
@@ -145,7 +177,7 @@ class DirectChatEngine:
         return f"""{base}
 
 Rol: {role} | Doel binnen de crew: {goal}
-{knowledge_block}
+{knowledge_block}{client_context_block}
 
 Beschikbare tools: {tools_str}
 

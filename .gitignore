@@ -24,6 +24,8 @@ output/
 # IDE
 .vscode/
 .idea/
+# MCP config with secrets (use .cursor/mcp.json.example as template)
+.cursor/mcp.json
 .vercel
 .env*.local
 

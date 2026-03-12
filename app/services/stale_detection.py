@@ -27,16 +27,22 @@ class StaleDetectionService:
     async def run(self, pool) -> dict[str, Any]:
         interval_result = await self.check_review_intervals(pool)
         skill_result = await self.check_skill_specs(pool)
+        artifact_result = await self.check_stale_artifacts(pool)
 
         marked = interval_result["marked"] + skill_result["marked"]
         already = interval_result["already_stale"] + skill_result["already_stale"]
 
         logger.info(
-            "Stale detection completed: marked_stale=%d, already_stale=%d",
+            "Stale detection completed: marked_stale=%d, already_stale=%d, stale_artifacts=%d",
             marked,
             already,
+            artifact_result.get("stale_artifacts", 0),
         )
-        return {"marked_stale": marked, "already_stale": already}
+        return {
+            "marked_stale": marked,
+            "already_stale": already,
+            "stale_artifacts": artifact_result.get("stale_artifacts", 0),
+        }
 
     async def check_review_intervals(self, pool) -> dict[str, int]:
         """Trigger A: mark approved docs as stale when review interval exceeded."""
@@ -124,3 +130,38 @@ class StaleDetectionService:
                     marked += 1
 
         return {"marked": marked, "already_stale": already_stale or 0}
+
+    async def check_stale_artifacts(self, pool) -> dict[str, int]:
+        """
+        Markeer artifacts als stale als het geciteerde bestand (file_path) overeenkomt
+        met een knowledge_document dat recent is bijgewerkt (updated_at > artifact created_at).
+        """
+        stale_count = 0
+        try:
+            async with pool.acquire() as conn:
+                rows = await conn.fetch(
+                    """
+                    SELECT a.artifact_id, a.file_path, a.locator, a.created_at,
+                           kd.updated_at AS doc_updated_at
+                    FROM artifacts a
+                    JOIN knowledge_documents kd
+                      ON (kd.source_url IS NOT NULL AND kd.source_url ILIKE '%' || COALESCE(a.file_path, a.locator, '') || '%')
+                       OR (kd.title IS NOT NULL AND kd.title ILIKE '%' || COALESCE(a.file_path, a.locator, '') || '%')
+                    WHERE a.is_stale = false
+                      AND COALESCE(a.file_path, a.locator) != ''
+                      AND kd.updated_at > a.created_at
+                    """
+                )
+                for r in rows:
+                    await conn.execute(
+                        "UPDATE artifacts SET is_stale = true WHERE artifact_id = $1",
+                        r["artifact_id"],
+                    )
+                    logger.info(
+                        "[STALE ARTIFACT] %s — gerelateerd document bijgewerkt",
+                        r["artifact_id"],
+                    )
+                    stale_count += 1
+        except Exception as e:
+            logger.warning("check_stale_artifacts failed: %s", e)
+        return {"stale_artifacts": stale_count}

@@ -15,14 +15,16 @@ import logging
 import time
 from anthropic import Anthropic, APIError, APITimeoutError, RateLimitError
 
+from app.core.config import DEFAULT_MODEL
+
 logger = logging.getLogger(__name__)
 
 
 class IntakeEngine:
     """Analyzes job posts and generates strategic briefs with clarification questions."""
 
-    def __init__(self, model: str = "claude-sonnet-4-5-20250929", max_retries: int = 3):
-        self.model = model
+    def __init__(self, model: str | None = None, max_retries: int = 3):
+        self.model = model or DEFAULT_MODEL
         # #region agent log
         try:
             from app.debug_log import log_anthropic_key
@@ -58,6 +60,7 @@ class IntakeEngine:
         job_post: str,
         previous_answers: Optional[Dict[str, str]] = None,
         chat_history: Optional[List[Dict[str, str]]] = None,
+        client_context: Optional[str] = None,
     ) -> StrategicBrief:
         """
         Analyze a job post and return a StrategicBrief.
@@ -88,6 +91,7 @@ RULES:
 - If you have enough info to start, set is_complete=true immediately.
 - Reply in the same language as the user's job_post.
 - Be brief and friendly, not corporate.
+- If CLIENTDATA is provided (zoektermen, Search Console), use it to answer questions about search terms or visibility. Do not say you don't have access to this data.
 
 GTM/CAMPAIGN/LAUNCH JOBS: When the job mentions GTM, campagne, campaign, launch, lancering, go-to-market, or marketing strategie:
 - ALWAYS ask about: target audience (doelgroep, sector, bedrijfsgrootte), budget (marketing budget), and timeline (lanceringsdatum, tijdlijn) if these are NOT already in the job post.
@@ -149,6 +153,12 @@ IMPORTANT: You can only acknowledge feedback and confirm the team will work on i
                 user_message += f"{label}: {content}\n"
         elif previous_answers:
             user_message += f"\n\nPrevious Q&A:\n{json.dumps(previous_answers, indent=2)}"
+        if client_context:
+            user_message += (
+                "\n\n--- CLIENTDATA (use this to answer questions about zoektermen, vindbaarheid, Search Console; do not say you don't have access) ---\n"
+                + client_context
+                + "\n--- EINDE CLIENTDATA ---"
+            )
 
         # Retry logic with exponential backoff
         last_error = None

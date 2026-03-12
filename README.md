@@ -145,6 +145,7 @@ pytest tests/test_integration.py -v
 | [STRUCTURE.md](STRUCTURE.md) | Project structure and code organization |
 | [TESTING.md](TESTING.md) | Testing strategies and test suites |
 | [FEATURES.md](FEATURES.md) | Detailed feature descriptions |
+| [docs/ACCESS_AND_PERMISSIONS.md](docs/ACCESS_AND_PERMISSIONS.md) | Gebruikers, rollen, Client-toegang en permissiemodel (voor support/veiligheid) |
 
 ## 🔧 Key Technologies
 
