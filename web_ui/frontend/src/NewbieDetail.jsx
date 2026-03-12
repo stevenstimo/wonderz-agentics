@@ -101,11 +101,17 @@ export default function NewbieDetail() {
     if (!newbieId) return
     setLoading(true)
     setError(null)
+    let rethrowServerError = false
     try {
       const res = await apiFetch(`/api/newbies/${encodeURIComponent(newbieId)}`)
       if (!res.ok) {
         if (res.status === 404) throw new Error('Newbie not found')
-        throw new Error((await res.json()).detail || 'Failed to load')
+        const detail = (await res.json().catch(() => ({}))).detail || 'Failed to load'
+        if (res.status >= 500) {
+          rethrowServerError = true
+          throw new Error(detail)
+        }
+        throw new Error(detail)
       }
       const data = await res.json()
       setNewbie(data)
@@ -118,6 +124,8 @@ export default function NewbieDetail() {
         setTrainings([])
       }
     } catch (err) {
+      // ASSUMPTION: 5xx and network errors go to ErrorBoundary
+      if (rethrowServerError || (err.name === 'TypeError' && err.message?.includes('fetch'))) throw err
       setError(err.message || 'Failed to load newbie')
       setNewbie(null)
       setTrainings([])

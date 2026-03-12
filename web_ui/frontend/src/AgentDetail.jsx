@@ -160,11 +160,17 @@ export default function AgentDetail() {
     if (!agentId) return
     setLoading(true)
     setError(null)
+    let rethrowServerError = false
     try {
       const res = await apiFetch(`/api/agents/${encodeURIComponent(agentId)}/detail`)
       if (!res.ok) {
         if (res.status === 404) throw new Error('Agent not found')
-        throw new Error((await res.json()).detail || 'Failed to load')
+        const detail = (await res.json().catch(() => ({}))).detail || 'Failed to load'
+        if (res.status >= 500) {
+          rethrowServerError = true
+          throw new Error(detail)
+        }
+        throw new Error(detail)
       }
       const json = await res.json()
       setData(json)
@@ -178,6 +184,8 @@ export default function AgentDetail() {
       })
       setProfileDirty(false)
     } catch (err) {
+      // ASSUMPTION: 5xx and network errors go to ErrorBoundary
+      if (rethrowServerError || (err.name === 'TypeError' && err.message?.includes('fetch'))) throw err
       setError(err.message || 'Failed to load agent')
       setData(null)
     } finally {

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import ClientDashboard from './ClientDashboard'
+import PageLoader from './components/PageLoader.jsx'
 import { apiFetch } from './apiClient'
 
 const toDate = (d) => {
@@ -143,6 +144,11 @@ export default function ClientDashboardPage() {
     },
     [data, handleRefreshAndRetry, handleRetry]
   )
+
+  if (loading) return <PageLoader />
+  // ASSUMPTION: throw Error so ErrorBoundary can show error.message; state error is { type, message }
+  if (error) throw new Error(error?.message ?? 'Dashboard laden mislukt')
+  if (!data) return <PageLoader />
 
   return (
     <ClientDashboard

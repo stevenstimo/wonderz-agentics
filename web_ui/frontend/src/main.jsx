@@ -50,6 +50,8 @@ import KnowledgeUpload from './KnowledgeUpload.jsx'
 import SkillFactory from './SkillFactory.jsx'
 import ClientIntelligence from './ClientIntelligence.jsx'
 import KnowledgeGovernance from './KnowledgeGovernance.jsx'
+import ErrorBoundary from './components/ErrorBoundary.jsx'
+import { RouteErrorBoundary } from './components/RouteErrorBoundary.jsx'
 
 import './index.css'
 
@@ -65,7 +67,8 @@ function AuthenticatedLayout() {
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <BrowserRouter>
+    <ErrorBoundary>
+      <BrowserRouter>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/seo" element={<SEOLanding />} />
@@ -75,13 +78,13 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <Route path="/job-center" element={<JobCenter />} />
           <Route path="/mission-control" element={<MissionControl />} />
           <Route path="/jobs/new" element={<NewJob />} />
-          <Route path="/jobs/:jobId" element={<JobSplitView />} />
+          <Route path="/jobs/:jobId" element={<RouteErrorBoundary paramKey="jobId"><JobSplitView /></RouteErrorBoundary>} />
           <Route path="/crew" element={<CrewManagement />} />
           <Route path="/crew/management" element={<CrewManagement />} />
           <Route path="/agents" element={<AgentsOverview />} />
           <Route path="/agents/new" element={<NewCrewMember />} />
-          <Route path="/agents/:agentId" element={<AgentDetail />} />
-          <Route path="/agents/:agentId/edit" element={<AgentDetail />} />
+          <Route path="/agents/:agentId" element={<RouteErrorBoundary paramKey="agentId"><AgentDetail /></RouteErrorBoundary>} />
+          <Route path="/agents/:agentId/edit" element={<RouteErrorBoundary paramKey="agentId"><AgentDetail /></RouteErrorBoundary>} />
           <Route path="/training" element={<TrainingManagement />} />
           <Route path="/training/management" element={<TrainingManagement />} />
           <Route path="/skills-library" element={<Navigate to="/knowledge/skills" replace />} />
@@ -91,10 +94,10 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <Route path="/knowledge/new" element={<Navigate to="/knowledge/upload" replace />} />
           <Route path="/knowledge/skills" element={<SkillFactory />} />
           <Route path="/knowledge/clients" element={<ClientIntelligence />} />
-          <Route path="/knowledge/clients/:client_slug" element={<ClientIntelligence />} />
+          <Route path="/knowledge/clients/:client_slug" element={<RouteErrorBoundary paramKey="client_slug"><ClientIntelligence /></RouteErrorBoundary>} />
           <Route path="/knowledge/governance" element={<KnowledgeGovernance />} />
           <Route path="/knowledge/:id/edit" element={<KnowledgeUpload />} />
-          <Route path="/knowledge/:id" element={<KnowledgeDetail />} />
+          <Route path="/knowledge/:id" element={<RouteErrorBoundary paramKey="id"><KnowledgeDetail /></RouteErrorBoundary>} />
           <Route path="/knowledge" element={<KnowledgeLibrary />} />
           <Route path="/approvals" element={<ApprovalDashboard />} />
           <Route path="/hr" element={<HRDashboard />} />
@@ -113,14 +116,14 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <Route path="/devbot" element={<DevbotHome />} />
           <Route path="/hiring" element={<HiringHall onHire={() => {}} />} />
           <Route path="/newbies" element={<Newbies />} />
-          <Route path="/newbies/:newbieId" element={<NewbieDetail />} />
+          <Route path="/newbies/:newbieId" element={<RouteErrorBoundary paramKey="newbieId"><NewbieDetail /></RouteErrorBoundary>} />
           <Route path="/talents" element={<Navigate to="/newbies" replace />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/settings/api-keys" element={<ApiKeys />} />
           <Route path="/integrations" element={<Integrations />} />
           <Route path="/clients" element={<ClientsOverview />} />
           <Route path="/clients/new" element={<ClientsNew />} />
-          <Route path="/clients/:slug" element={<ClientDetailLayout />}>
+          <Route path="/clients/:slug" element={<RouteErrorBoundary paramKey="slug"><ClientDetailLayout /></RouteErrorBoundary>}>
             <Route index element={<Navigate to="dashboard" replace />} />
             <Route path="dashboard" element={<ClientDashboardPage />} />
             <Route path="integrations" element={<ClientIntegrations />} />
@@ -130,6 +133,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <Route path="/devbot/dave" element={<DaveDevConsole />} />
         </Route>
       </Routes>
-    </BrowserRouter>
+      </BrowserRouter>
+    </ErrorBoundary>
   </React.StrictMode>,
 )

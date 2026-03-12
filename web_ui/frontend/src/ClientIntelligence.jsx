@@ -5,6 +5,7 @@ import { Plus, ArrowLeft, Lock, LockKeyhole } from 'lucide-react'
 
 import { apiFetch } from './apiClient'
 import { useAuthReady } from './useAuthReady'
+import PageLoader from './components/PageLoader.jsx'
 
 const DOC_TYPE_BADGE = {
   client_context: 'bg-orange-100 text-orange-700',
@@ -81,6 +82,8 @@ export default function ClientIntelligence() {
     if (!authReady) return
     fetchDocuments()
   }, [authReady, fetchDocuments])
+
+  if (loading) return <PageLoader />
 
   // Niveau 1: client overzicht — groepeer op client_slug
   const clientGroups = documents.reduce((acc, doc) => {

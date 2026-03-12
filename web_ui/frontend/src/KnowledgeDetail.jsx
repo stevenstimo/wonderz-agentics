@@ -54,6 +54,7 @@ export default function KnowledgeDetail() {
   const fetchDocument = async () => {
     setLoading(true)
     setError('')
+    let rethrowServerError = false
     try {
       const res = await apiFetch(`/api/knowledge/${id}`)
       if (res.status === 401) {
@@ -70,10 +71,18 @@ export default function KnowledgeDetail() {
         setDoc(data)
       } else {
         const j = await res.json().catch(() => ({}))
-        setError(j.detail || 'Laden mislukt')
+        const detail = j.detail || 'Laden mislukt'
+        // ASSUMPTION: 5xx goes to ErrorBoundary; 404 stays as "niet gevonden" UI
+        if (res.status >= 500) {
+          rethrowServerError = true
+          throw new Error(detail)
+        }
+        setError(detail)
       }
     } catch (err) {
       console.error('Failed to load document:', err)
+      // Network or 5xx: let ErrorBoundary handle
+      if (rethrowServerError || (err.name === 'TypeError' && err.message?.includes('fetch'))) throw err
       setError(err.message || 'Laden mislukt')
     } finally {
       setLoading(false)

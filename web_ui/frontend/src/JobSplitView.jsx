@@ -202,16 +202,23 @@ export default function JobSplitView() {
     if (!jobId) return null
     setLoading(true)
     setError(null)
+    let rethrowServerError = false
     try {
       const res = await apiFetch(`/api/jobs/${jobId}`)
       if (!res.ok) {
         if (res.status === 404) throw new Error('Job not found')
+        if (res.status >= 500) {
+          rethrowServerError = true
+          throw new Error((await res.json().catch(() => ({}))).detail || 'Failed to load job')
+        }
         throw new Error('Failed to load job')
       }
       const json = await res.json()
       setData(json)
       return json
     } catch (err) {
+      // ASSUMPTION: 5xx and network errors go to ErrorBoundary
+      if (rethrowServerError || (err.name === 'TypeError' && err.message?.includes('fetch'))) throw err
       setError(err.message || 'Failed to load job')
       return null
     } finally {
