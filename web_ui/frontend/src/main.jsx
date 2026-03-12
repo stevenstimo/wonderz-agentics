@@ -86,13 +86,16 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <Route path="/training/management" element={<TrainingManagement />} />
           <Route path="/skills-library" element={<Navigate to="/knowledge/skills" replace />} />
           <Route path="/skills" element={<Navigate to="/knowledge/skills" replace />} />
-          <Route path="/knowledge" element={<KnowledgeLibrary />} />
+          {/* Knowledge: statische routes vóór dynamische :id */}
           <Route path="/knowledge/upload" element={<KnowledgeUpload />} />
+          <Route path="/knowledge/new" element={<Navigate to="/knowledge/upload" replace />} />
           <Route path="/knowledge/skills" element={<SkillFactory />} />
           <Route path="/knowledge/clients" element={<ClientIntelligence />} />
           <Route path="/knowledge/clients/:client_slug" element={<ClientIntelligence />} />
           <Route path="/knowledge/governance" element={<KnowledgeGovernance />} />
+          <Route path="/knowledge/:id/edit" element={<KnowledgeUpload />} />
           <Route path="/knowledge/:id" element={<KnowledgeDetail />} />
+          <Route path="/knowledge" element={<KnowledgeLibrary />} />
           <Route path="/approvals" element={<ApprovalDashboard />} />
           <Route path="/hr" element={<HRDashboard />} />
           <Route path="/hr-feedback" element={<HRDashboard />} />
