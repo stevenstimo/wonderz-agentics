@@ -109,28 +109,51 @@ export default function ClientDashboard({
         logging: false,
         backgroundColor: '#ffffff',
       })
-      const imgData = canvas.toDataURL('image/png')
-      const pdf = new jsPDF('l', 'mm', 'a4')
+      const pdf = new jsPDF('p', 'mm', 'a4')
       const pageW = pdf.internal.pageSize.getWidth()
       const pageH = pdf.internal.pageSize.getHeight()
       const margin = 10
       const headerH = 14
-      const clientLabel = liveData?.client_name || `@${slug}`
-      pdf.setFontSize(10)
-      pdf.text(clientLabel, margin, 10)
-      pdf.text(`Gegenereerd op: ${new Date().toLocaleDateString('nl-NL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`, pageW - margin, 10, { align: 'right' })
-      pdf.setDrawColor(200, 200, 200)
-      pdf.line(margin, headerH, pageW - margin, headerH)
       const contentW = pageW - 2 * margin
-      const contentH = pageH - headerH - 2 * margin
-      const imgW = canvas.width
-      const imgH = canvas.height
-      const ratio = Math.min(contentW / imgW, contentH / imgH)
-      const w = imgW * ratio
-      const h = imgH * ratio
-      const x = margin + (contentW - w) / 2
-      const y = headerH + margin
-      pdf.addImage(imgData, 'PNG', x, y, w, h)
+      const contentHFirst = pageH - headerH - 2 * margin
+      const contentHRest = pageH - 2 * margin
+      const totalHeightMm = canvas.height * (contentW / canvas.width)
+      const clientLabel = liveData?.client_name || `@${slug}`
+
+      let remainingMm = totalHeightMm
+      let startMm = 0
+      let pageIndex = 0
+      while (remainingMm > 0.01) {
+        const chunkMm = pageIndex === 0
+          ? Math.min(remainingMm, contentHFirst)
+          : Math.min(remainingMm, contentHRest)
+        const sourceY = (startMm / totalHeightMm) * canvas.height
+        const sourceHeight = (chunkMm / totalHeightMm) * canvas.height
+
+        if (pageIndex > 0) pdf.addPage()
+
+        if (pageIndex === 0) {
+          pdf.setFontSize(10)
+          pdf.text(clientLabel, margin, 10)
+          pdf.text(`Gegenereerd op: ${new Date().toLocaleDateString('nl-NL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`, pageW - margin, 10, { align: 'right' })
+          pdf.setDrawColor(200, 200, 200)
+          pdf.line(margin, headerH, pageW - margin, headerH)
+        }
+
+        const sliceCanvas = document.createElement('canvas')
+        sliceCanvas.width = canvas.width
+        sliceCanvas.height = Math.max(1, Math.ceil(sourceHeight))
+        const ctx = sliceCanvas.getContext('2d')
+        ctx.drawImage(canvas, 0, sourceY, canvas.width, sourceHeight, 0, 0, canvas.width, sliceCanvas.height)
+        const sliceData = sliceCanvas.toDataURL('image/png')
+        const yPos = pageIndex === 0 ? headerH + margin : margin
+        pdf.addImage(sliceData, 'PNG', margin, yPos, contentW, chunkMm)
+
+        startMm += chunkMm
+        remainingMm -= chunkMm
+        pageIndex += 1
+      }
+
       const filename = `${slug}-dashboard-${new Date().toISOString().slice(0, 10)}.pdf`
       pdf.save(filename)
     } finally {
