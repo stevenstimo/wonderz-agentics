@@ -93,11 +93,13 @@ class EmailPoller:
         One poll cycle: fetch UNSEEN (in thread) → for each message: parse, await process(),
         then mark \\Seen only for messages that were processed successfully.
         """
+        logger.debug("EmailPoller: poll_once starting IMAP fetch")
         uid_raw_list = await asyncio.to_thread(
             _sync_fetch_unseen,
             self.gmail_address,
             self.app_password,
         )
+        logger.debug("EmailPoller: fetched %d unseen emails", len(uid_raw_list))
         if not uid_raw_list:
             return
         to_mark_seen: List[bytes] = []
@@ -105,7 +107,9 @@ class EmailPoller:
             try:
                 msg = email.message_from_bytes(raw)
                 parsed = EmailParser.parse(msg)
+                logger.info("EmailPoller: processing UID %s from=%s subject=%s", uid, parsed.get('from', '?'), parsed.get('subject', '?'))
                 await InboxEngine.process(parsed)
+                logger.info("EmailPoller: UID %s processed OK, marking Seen", uid)
                 to_mark_seen.append(uid)
             except Exception as e:
                 logger.warning(
