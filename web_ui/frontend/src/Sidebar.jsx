@@ -178,7 +178,7 @@ export default function Sidebar() {
         const res = await apiFetch('/api/inbox/summary')
         if (res.ok && active) {
           const data = await res.json()
-          setInboxUnread(data?.total_unread ?? 0)
+          setInboxUnread(data?.unread ?? data?.total_unread ?? 0)
         }
       } catch {
         if (active) setInboxUnread(0)

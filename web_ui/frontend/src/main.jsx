@@ -112,6 +112,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <Route path="/work-team" element={<WorkTeamOrg />} />
           <Route path="/study" element={<Study />} />
           <Route path="/product-management" element={<ProductManagement />} />
+          {/* Inbox = email inbox; agent-inbox = agent messages */}
           <Route path="/inbox" element={<EmailInbox />} />
           <Route path="/agent-inbox" element={<AgentInbox />} />
           <Route path="/seo/tool" element={<SEOTool />} />

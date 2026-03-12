@@ -63,15 +63,34 @@ def _row_to_out(r: Any) -> dict:
 async def inbox_summary(
     current_user: Annotated[TokenPayload, Depends(get_current_user)],
 ) -> dict[str, Any]:
-    """Return unread count for sidebar badge."""
+    """Return counts for sidebar badge and inbox overview."""
     pool = await get_db()
     user_id = str(current_user.user_id)
     async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            "SELECT count(*) AS cnt FROM inbound_emails WHERE user_id = $1::uuid AND status = 'pending'",
+        total_row = await conn.fetchrow(
+            "SELECT count(*) AS cnt FROM inbound_emails WHERE user_id = $1::uuid",
             user_id,
         )
-    return {"total_unread": row["cnt"] if row else 0}
+        unread_row = await conn.fetchrow(
+            """
+            SELECT count(*) AS cnt FROM inbound_emails
+            WHERE user_id = $1::uuid AND status IN ('new', 'in_chat')
+            """,
+            user_id,
+        )
+        plan_ready_row = await conn.fetchrow(
+            """
+            SELECT count(*) AS cnt FROM inbound_emails
+            WHERE user_id = $1::uuid AND status = 'plan_ready'
+            """,
+            user_id,
+        )
+    return {
+        "total": total_row["cnt"] if total_row else 0,
+        "unread": unread_row["cnt"] if unread_row else 0,
+        "plan_ready": plan_ready_row["cnt"] if plan_ready_row else 0,
+        "total_unread": unread_row["cnt"] if unread_row else 0,
+    }
 
 
 @router.get("")

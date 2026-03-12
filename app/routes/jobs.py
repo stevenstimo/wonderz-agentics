@@ -573,7 +573,22 @@ async def approve_plan(
                 job_id,
             )
         context = _coerce_context(job["context"])
-        await run_job_inline(job_id, context)
+        use_nexus = os.getenv("USE_NEXUS_PIPELINE", "false").lower() == "true"
+        if use_nexus:
+            import asyncio
+            from app.orchestration.nexus_pipeline import NEXUSPipeline
+            row = await pool.fetchrow(
+                "SELECT user_id, job_post, source_platform, token_budget FROM jobs WHERE id=$1",
+                job_id,
+            )
+            user_id = str(row["user_id"]) if row and row.get("user_id") else ""
+            job_post = (row["job_post"] or "") if row else ""
+            platform = (row["source_platform"] or "browser") if row else "browser"
+            token_budget = int(row["token_budget"] or 50000) if row else 50000
+            pipeline = NEXUSPipeline()
+            await pipeline.run(job_id, user_id, platform, job_post, token_budget)
+        else:
+            await run_job_inline(job_id, context)
         logger.info(f"Job execution completed for job {job_id}")
         try:
             await manager.approve_plan(job_id)
