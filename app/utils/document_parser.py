@@ -47,26 +47,44 @@ def extract_text_from_file(filename: str, raw: bytes) -> str:
         return raw.decode("utf-8", errors="replace")
     if ext == "docx":
         try:
-            import docx
             import io
-            doc = docx.Document(io.BytesIO(raw))
+            from docx import Document
+            from docx.oxml.table import CT_Tbl
+            from docx.oxml.text.paragraph import CT_P
+            from docx.table import Table
+            from docx.text.paragraph import Paragraph
+
+            doc = Document(io.BytesIO(raw))
             parts = []
-            # Paragrafen
-            for p in doc.paragraphs:
-                s = (p.text or "").strip()
-                if not s:
-                    continue
-                style_name = (getattr(getattr(p, "style", None), "name", None) or "") or ""
-                is_heading = style_name.startswith("Heading")
-                parts.append(s + "\n\n" if is_heading else s)
-            # Tabellen
-            for table in doc.tables:
+
+            def process_paragraph(para):
+                text = (para.text or "").strip()
+                if not text:
+                    return
+                style_name = (getattr(getattr(para, "style", None), "name", None) or "") or ""
+                if style_name.startswith("Heading"):
+                    parts.append("\n\n" + text + "\n\n")
+                else:
+                    parts.append(text)
+
+            def process_table(table):
+                seen = set()
                 for row in table.rows:
                     for cell in row.cells:
                         cell_text = (cell.text or "").strip()
-                        if cell_text:
+                        if cell_text and cell_text not in seen:
+                            seen.add(cell_text)
                             parts.append(cell_text)
-            text = "\n\n".join(parts)
+
+            # Iterate body children in document order so paragraphs and tables are interleaved
+            body = doc.element.body
+            for child in body.iterchildren():
+                if isinstance(child, CT_P):
+                    process_paragraph(Paragraph(child, doc))
+                elif isinstance(child, CT_Tbl):
+                    process_table(Table(child, doc))
+
+            text = "\n\n".join(p.strip() for p in parts if p.strip())
             text = re.sub(r"\n{3,}", "\n\n", text).strip()
             return text
         except ImportError:

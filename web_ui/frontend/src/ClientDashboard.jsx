@@ -24,6 +24,15 @@ const fmtEur = (v) =>
   v == null ? '€0,00' : new Intl.NumberFormat('nl-NL', { style: 'currency', currency: 'EUR' }).format(Number(v))
 const fmtPct = (v) => (v == null ? '0%' : `${Number(v).toFixed(1).replace('.', ',')}%`)
 
+// Europees datumformaat voor assen/tooltips: YYYY-MM-DD of MM-DD → DD-MM (bijv. 02-10, 03-10)
+const fmtDateEur = (s) => {
+  if (!s || typeof s !== 'string') return s
+  const p = s.trim().split('-')
+  if (p.length === 3) return `${p[2]}-${p[1]}`
+  if (p.length === 2) return `${p[1]}-${p[0]}`
+  return s
+}
+
 const CHANNELS = ['', 'Organic Search', 'Paid Search', 'Direct', 'Organic Social', 'Paid Social', 'Email', 'Referral']
 const DEVICES = ['', 'Desktop', 'Mobile', 'Tablet']
 
@@ -339,10 +348,10 @@ export default function ClientDashboard({
           <ResponsiveContainer width="100%" height={300}>
             <ComposedChart data={timeseries}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-              <XAxis dataKey="date" tick={{ fontSize: 12 }} />
+              <XAxis dataKey="date" tick={{ fontSize: 12 }} tickFormatter={fmtDateEur} />
               <YAxis yAxisId="left" tick={{ fontSize: 12 }} tickFormatter={fmtNum} />
               <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 12 }} tickFormatter={(v) => `€${v}`} />
-              <Tooltip formatter={(v, name) => [name === 'cost' ? fmtEur(v) : fmtNum(v), name]} />
+              <Tooltip labelFormatter={fmtDateEur} formatter={(v, name) => [name === 'cost' ? fmtEur(v) : fmtNum(v), name]} />
               <Legend />
               <Line yAxisId="left" type="monotone" dataKey="sessions" stroke="#3b82f6" strokeWidth={2} name="Sessions" dot={false} />
               <Line yAxisId="left" type="monotone" dataKey="conversions" stroke="#10b981" strokeWidth={2} name="Conversions" dot={false} />
@@ -429,9 +438,9 @@ export default function ClientDashboard({
               <ResponsiveContainer width="100%" height={240}>
                 <BarChart data={adsTimeseries}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis dataKey="date" tick={{ fontSize: 12 }} />
+                  <XAxis dataKey="date" tick={{ fontSize: 12 }} tickFormatter={fmtDateEur} />
                   <YAxis tick={{ fontSize: 12 }} tickFormatter={(v) => `€${v}`} />
-                  <Tooltip formatter={(v) => [fmtEur(v), 'Kosten']} />
+                  <Tooltip labelFormatter={fmtDateEur} formatter={(v) => [fmtEur(v), 'Kosten']} />
                   <Bar dataKey="cost" fill="#3b82f6" name="Kosten" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
@@ -525,9 +534,9 @@ export default function ClientDashboard({
               <ResponsiveContainer width="100%" height={240}>
                 <LineChart data={gscTimeseries}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis dataKey="date" tick={{ fontSize: 12 }} />
+                  <XAxis dataKey="date" tick={{ fontSize: 12 }} tickFormatter={fmtDateEur} />
                   <YAxis tick={{ fontSize: 12 }} />
-                  <Tooltip />
+                  <Tooltip labelFormatter={fmtDateEur} />
                   <Line type="monotone" dataKey="clicks" stroke="#10b981" strokeWidth={2} name="Clicks" dot={false} />
                 </LineChart>
               </ResponsiveContainer>

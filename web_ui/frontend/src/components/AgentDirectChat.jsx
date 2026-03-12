@@ -231,8 +231,10 @@ export default function AgentDirectChat({ agentId, agent }) {
             setSelectedChat((prev) =>
               prev?.chat_id === chatId ? { ...prev, title: data.chat_title } : prev
             )
+            setTimeout(() => loadChats(), 500)
+          } else {
+            await loadChats()
           }
-          await loadChats()
         } else {
           setMessages((prev) => prev.filter((m) => m.id !== userMsg.id))
           if (data.error === 'session_token_limit_reached') setBlocked(true)
