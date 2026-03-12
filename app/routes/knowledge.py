@@ -293,7 +293,16 @@ async def get_knowledge(
             document_id,
         )
         chunk_count = await conn.fetchval(
-            "SELECT COUNT(*) FROM knowledge_chunks WHERE document_id = $1",
+            "SELECT COUNT(*) FROM knowledge_chunks WHERE document_id = $1 AND is_active = true",
+            document_id,
+        )
+        chunk_rows = await conn.fetch(
+            """
+            SELECT chunk_index, chunk_text
+            FROM knowledge_chunks
+            WHERE document_id = $1 AND is_active = true
+            ORDER BY chunk_index ASC
+            """,
             document_id,
         )
     doc = _row_to_doc(row)
@@ -309,6 +318,10 @@ async def get_knowledge(
         for v in versions
     ]
     doc["chunk_count"] = chunk_count or 0
+    doc["chunks"] = [
+        {"chunk_index": int(r["chunk_index"]), "chunk_text": r["chunk_text"] or ""}
+        for r in chunk_rows
+    ]
     return doc
 
 

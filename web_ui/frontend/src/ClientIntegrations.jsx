@@ -96,6 +96,7 @@ export default function ClientIntegrations() {
   const [connecting, setConnecting] = useState(null)
   const [disconnecting, setDisconnecting] = useState(null)
   const [selectorModal, setSelectorModal] = useState(null)
+  const [successMessage, setSuccessMessage] = useState('')
   const authReady = useAuthReady()
 
   const isIntegrationConnected = (integrationType) => {
@@ -167,6 +168,32 @@ export default function ClientIntegrations() {
       setError(err?.message || 'Verbinden mislukt')
     } finally {
       setConnecting(null)
+    }
+  }
+
+  const handleMetaDisconnect = async () => {
+    if (!confirm('Verbinding met Meta Business verbreken? Je kunt daarna opnieuw verbinden voor deze client.')) return
+    setDisconnecting('meta_ads')
+    setError('')
+    try {
+      const res = await apiFetch(
+        `/api/integrations/meta_ads?client_slug=${encodeURIComponent(slug)}`,
+        { method: 'DELETE' }
+      )
+      if (res.status === 401) {
+        navigate('/login', { state: { from: location } })
+        return
+      }
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}))
+        setError(j.detail || 'Ontkoppelen mislukt')
+        return
+      }
+      await fetchData()
+    } catch (err) {
+      setError(err?.message || 'Ontkoppelen mislukt')
+    } finally {
+      setDisconnecting(null)
     }
   }
 
@@ -308,9 +335,9 @@ export default function ClientIntegrations() {
         return next
       }, { replace: true })
       const metaErrorMessages = {
-        auth_failed: 'Meta OAuth mislukt of geannuleerd.',
+        auth_failed: 'Authenticatie mislukt. Probeer opnieuw.',
         invalid_state: 'Beveiligingscheck mislukt. Probeer opnieuw.',
-        token_exchange: 'Kon geen tokens ophalen van Meta. Probeer opnieuw.',
+        token_exchange: 'Kon geen toegang krijgen tot Meta. Controleer je app-instellingen.',
         client_not_found: 'Client niet gevonden.',
         config: 'Meta app niet geconfigureerd op de server.',
       }
@@ -366,6 +393,10 @@ export default function ClientIntegrations() {
               fetchGoogleOptions('google_ads'),
               fetchGoogleOptions('gsc'),
             ])
+            if (connectedService === 'meta_ads') {
+              setSuccessMessage('Meta Business verbonden!')
+              setTimeout(() => setSuccessMessage(''), 4000)
+            }
             if (['ga4', 'google_search_console', 'google_ads', 'meta_ads'].includes(connectedService)) {
               setSelectorModal({ serviceType: connectedService })
             }
@@ -549,6 +580,12 @@ export default function ClientIntegrations() {
       {error && (
         <div className="mb-4 p-4 rounded-lg bg-red-50 text-red-700 border border-red-200 text-sm">
           {error}
+        </div>
+      )}
+
+      {successMessage && (
+        <div className="mb-4 p-4 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 text-sm">
+          {successMessage}
         </div>
       )}
 
@@ -800,14 +837,20 @@ export default function ClientIntegrations() {
               Verbonden
             </span>
           ) : (
-            <button
-              type="button"
-              onClick={handleMetaConnect}
-              disabled={connecting === 'meta_ads'}
-              className="text-sm bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50"
-            >
-              {connecting === 'meta_ads' ? 'Bezig...' : 'Verbind Meta'}
-            </button>
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-sm font-medium bg-slate-100 text-slate-600">
+                <XCircle className="w-4 h-4" />
+                Not connected
+              </span>
+              <button
+                type="button"
+                onClick={handleMetaConnect}
+                disabled={connecting === 'meta_ads'}
+                className="text-sm bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+              >
+                {connecting === 'meta_ads' ? 'Bezig...' : 'Verbind Meta'}
+              </button>
+            </div>
           )}
         </div>
         {isPlatformConnected('meta_ads') && (
@@ -826,6 +869,16 @@ export default function ClientIntegrations() {
                 Selecteer Ad Account
               </button>
             )}
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={handleMetaDisconnect}
+                disabled={disconnecting === 'meta_ads'}
+                className="text-sm px-3 py-1.5 rounded-lg border border-red-200 text-red-700 bg-white hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {disconnecting === 'meta_ads' ? 'Bezig...' : 'Verbreek verbinding'}
+              </button>
+            </div>
           </div>
         )}
       </div>

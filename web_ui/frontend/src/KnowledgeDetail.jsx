@@ -48,8 +48,19 @@ export default function KnowledgeDetail() {
   const [deleteOverlayOpen, setDeleteOverlayOpen] = useState(false)
   const [deleteConfirmInput, setDeleteConfirmInput] = useState('')
   const [deleting, setDeleting] = useState(false)
+  const [expandedChunks, setExpandedChunks] = useState(new Set())
 
   const CONFIRM_DELETE_TEXT = 'DELETE'
+  const CHUNK_PREVIEW_LEN = 200
+
+  const toggleChunk = (index) => {
+    setExpandedChunks((prev) => {
+      const next = new Set(prev)
+      if (next.has(index)) next.delete(index)
+      else next.add(index)
+      return next
+    })
+  }
 
   const fetchDocument = async () => {
     setLoading(true)
@@ -68,6 +79,7 @@ export default function KnowledgeDetail() {
       }
       if (res.ok) {
         const data = await res.json()
+        console.log('[KnowledgeDetail] doc from API:', data, 'chunks:', data?.chunks, 'chunk_count:', data?.chunk_count)
         setDoc(data)
       } else {
         const j = await res.json().catch(() => ({}))
@@ -331,6 +343,46 @@ export default function KnowledgeDetail() {
           <p className="text-sm text-slate-500">
             {doc.chunk_count ?? 0} chunks geïndexeerd
           </p>
+
+          {/* Uitklapbare chunks — eerste 200 tekens, Toon meer / Toon minder */}
+          {Array.isArray(doc.chunks) && doc.chunks.length > 0 ? (
+            <div className="mt-6">
+              <h3 className="text-sm font-semibold text-slate-700 mb-3">Chunks</h3>
+              <div className="space-y-3">
+                {doc.chunks.map((chunk, mapIndex) => {
+                  const idx = Number(chunk.chunk_index ?? chunk.index ?? mapIndex)
+                  const text = String(chunk.chunk_text ?? '')
+                  const isExpanded = expandedChunks.has(idx)
+                  const preview = text.length <= CHUNK_PREVIEW_LEN ? text : text.slice(0, CHUNK_PREVIEW_LEN) + '…'
+                  const showMoreLink = text.length > CHUNK_PREVIEW_LEN
+                  return (
+                    <div
+                      key={idx}
+                      className="rounded-lg border border-slate-200 bg-slate-50/50 p-4"
+                    >
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <span className="text-xs font-medium text-slate-500">Chunk {idx + 1}</span>
+                        {showMoreLink && (
+                          <button
+                            type="button"
+                            onClick={() => toggleChunk(idx)}
+                            className="text-xs font-medium text-indigo-600 hover:text-indigo-800"
+                          >
+                            {isExpanded ? 'Toon minder' : 'Toon meer'}
+                          </button>
+                        )}
+                      </div>
+                      <p className="text-sm text-slate-700 whitespace-pre-wrap break-words">
+                        {isExpanded ? text : preview}
+                      </p>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ) : (doc.chunk_count > 0 && (
+            <p className="mt-3 text-xs text-slate-500">Chunks laden… (chunk_count={doc.chunk_count}, chunks={Array.isArray(doc.chunks) ? doc.chunks.length : 'missing'})</p>
+          ))}
         </div>
 
         {/* Sectie B — Acties */}

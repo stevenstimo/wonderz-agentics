@@ -1,8 +1,8 @@
 """
 Email Intake Channel §4.3: Match from_address to user_id.
 Exact match, case-insensitive. No fuzzy matching.
-Uses existing DB pool: get_db() + pool.acquire() (assumption-based: spec said "db.fetchrow";
-we use the codebase pattern of get_db + conn from app.database).
+# assumption-based: spec said "db.fetchrow"; we use the codebase DB-pool pattern
+# (get_db() + pool.acquire() as conn) from app.database, same as clients/job_pipeline.
 """
 
 from app.database import get_db

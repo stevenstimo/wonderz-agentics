@@ -36,10 +36,28 @@ def extract_text_from_file(filename: str, raw: bytes) -> str:
         return raw.decode("utf-8", errors="replace")
     if ext == "docx":
         try:
-            import docx
             import io
-            doc = docx.Document(io.BytesIO(raw))
-            return "\n".join(p.text for p in doc.paragraphs)
+            from docx import Document as DocxDocument
+            from docx.oxml.table import CT_Tbl
+            from docx.oxml.text.paragraph import CT_P
+            from docx.table import Table
+            from docx.text.paragraph import Paragraph
+
+            doc = DocxDocument(io.BytesIO(raw))
+            body = doc.element.body
+            parts = []
+            for child in body.iterchildren():
+                if isinstance(child, CT_P):
+                    para = Paragraph(child, doc)
+                    if para.text.strip():
+                        parts.append(para.text)
+                elif isinstance(child, CT_Tbl):
+                    tbl = Table(child, doc)
+                    for row in tbl.rows:
+                        row_text = "\t".join(cell.text.strip() for cell in row.cells)
+                        if row_text.strip():
+                            parts.append(row_text)
+            return "\n".join(parts)
         except ImportError:
             return raw.decode("utf-8", errors="replace")
     if ext in ("xlsx", "xls"):
