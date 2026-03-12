@@ -236,9 +236,9 @@ class EmailIntakeProcessor:
                     """
                     INSERT INTO jobs (
                         id, user_id, job_post, status, source_platform, context,
-                        token_budget, intake_source, inbound_email_id, created_at, updated_at
+                        token_budget, intake_source, inbound_email_id
                     )
-                    VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, now(), now())
+                    VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9)
                     """,
                     job_id,
                     user_id,
