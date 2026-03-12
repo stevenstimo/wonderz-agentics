@@ -213,6 +213,7 @@ export function JobLifecycleView({ jobId }) {
         <PlanProposalView
           jobId={jobId}
           plan={extractedPlan}
+          job={job}
           onApprove={() => {
             // Plan approved
           }}

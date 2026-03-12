@@ -410,7 +410,7 @@ async def get_client_dashboard(
             """
             SELECT integration_type, api_key_encrypted, extra_config
             FROM client_integrations
-            WHERE user_id = $1 AND client_slug = $2 AND integration_type IN ('ga4', 'google_ads', 'google_search_console')
+            WHERE user_id = $1 AND client_slug = $2 AND integration_type IN ('ga4', 'google_ads', 'google_search_console', 'meta_ads')
             """,
             current_user.user_id,
             slug,
@@ -433,6 +433,7 @@ async def get_client_dashboard(
         "ga4": None,
         "google_ads": None,
         "gsc": None,
+        "meta": None,
     }
 
     # --- GA4 ---
@@ -621,11 +622,57 @@ async def get_client_dashboard(
                     logger.exception("GSC fetch failed")
                     result["gsc"] = {"not_connected": False, "error": str(e)}
 
+    # --- Meta (Facebook/Instagram Ads) ---
+    meta_int = int_by_type.get("meta_ads")
+    if not meta_int:
+        result["meta"] = {"not_connected": True}
+    else:
+        cfg = meta_int.get("extra_config")
+        if isinstance(cfg, str):
+            try:
+                cfg = json.loads(cfg) if cfg else {}
+            except Exception:
+                cfg = {}
+        if not isinstance(cfg, dict):
+            cfg = {}
+        access_token = cfg.get("access_token")
+        ad_account_id = cfg.get("ad_account_id")
+        page_access_token = cfg.get("page_access_token")
+        instagram_id = cfg.get("instagram_business_id")
+        days = max(1, (end_date - start_date).days) if start_date and end_date else 30
+
+        meta_payload: dict[str, Any] = {}
+        if ad_account_id and access_token:
+            try:
+                meta_payload["ads"] = await fetch_meta_ads(access_token, ad_account_id, days)
+            except Exception as e:
+                logger.exception("Meta Ads fetch failed")
+                meta_payload["ads"] = {"error": "meta_api_error", "campaigns": [], "message": str(e)}
+        else:
+            meta_payload["ads"] = {"error": "no_ad_account_selected", "campaigns": []}
+
+        if page_access_token and instagram_id:
+            try:
+                meta_payload["instagram"] = await fetch_instagram_insights(
+                    page_access_token, instagram_id, days
+                )
+            except Exception as e:
+                logger.exception("Instagram insights fetch failed")
+                meta_payload["instagram"] = {"error": "instagram_api_error", "message": str(e)}
+        else:
+            meta_payload["instagram"] = {"error": "no_instagram_selected"}
+
+        result["meta"] = meta_payload
+
     # --- Overview (GA4 for users/sessions/conversions, Ads for cost) ---
     total_cost = 0.0
     if result.get("google_ads") and not result["google_ads"].get("not_connected"):
         for c in result["google_ads"].get("campaigns", []):
             total_cost += c.get("cost", 0) or 0
+    if result.get("meta") and not result["meta"].get("not_connected"):
+        ads = result["meta"].get("ads") or {}
+        if not ads.get("error"):
+            total_cost += float(ads.get("total_spend") or 0)
     ga4_kpis = result.get("ga4", {}).get("kpis", {}) if result.get("ga4") and not result["ga4"].get("not_connected") else {}
     total_conversions = ga4_kpis.get("conversions", 0) or 0
     total_conv_value = ga4_kpis.get("conversion_value", 0) or 0
@@ -633,6 +680,10 @@ async def get_client_dashboard(
         for c in result["google_ads"].get("campaigns", []):
             total_conversions += c.get("conversions", 0) or 0
             total_conv_value += c.get("conversion_value", 0) or 0
+    if result.get("meta") and not result["meta"].get("not_connected"):
+        ads = result["meta"].get("ads") or {}
+        if not ads.get("error"):
+            total_conversions += int(ads.get("total_conversions") or 0)
     cpa = total_cost / total_conversions if total_conversions else 0
 
     result["overview"] = {

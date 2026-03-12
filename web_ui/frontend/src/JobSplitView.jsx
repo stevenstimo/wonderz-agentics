@@ -573,6 +573,13 @@ export default function JobSplitView() {
               {!job && <p className="text-xs text-slate-500 mt-0.5">Chat with Mr. Klein — describe your project</p>}
             </div>
             {job && <StatusBadge status={job.status} />}
+            {job?.intake_source === 'email' && (
+              <span style={{
+                background: '#EBF5FB', color: '#1A5276',
+                borderRadius: '4px', padding: '2px 8px',
+                fontSize: '11px', marginLeft: '6px'
+              }}>✉ Via Email</span>
+            )}
           </div>
           <div className="flex-1 overflow-y-auto space-y-4 p-4 min-h-[10rem]">
             {displayChatHistory.length === 0 && !ceoTyping && !jobId && (

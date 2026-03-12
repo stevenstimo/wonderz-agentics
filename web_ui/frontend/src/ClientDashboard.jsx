@@ -16,7 +16,7 @@ import {
 import html2canvas from 'html2canvas'
 import { jsPDF } from 'jspdf'
 import PageLayout from './PageLayout'
-import { BarChart3, TrendingUp, DollarSign, MousePointer, Search, Globe, Plug, RefreshCw, FileDown } from 'lucide-react'
+import { BarChart3, TrendingUp, DollarSign, MousePointer, Search, Globe, Plug, RefreshCw, FileDown, Share2 } from 'lucide-react'
 
 // Formatters: kosten € met 2 decimalen, percentages %, grote aantallen met duizendscheiding
 const fmtNum = (v) => (v == null ? '0' : Number(v).toLocaleString('nl-NL'))
@@ -175,10 +175,16 @@ export default function ClientDashboard({
   const ga4 = liveData?.ga4
   const googleAds = liveData?.google_ads
   const gsc = liveData?.gsc
+  const meta = liveData?.meta
 
   const ga4Connected = ga4 && !ga4.not_connected
   const adsConnected = googleAds && !googleAds.not_connected
   const gscConnected = gsc && !gsc.not_connected
+  const metaConnected = meta && !meta.not_connected
+  const metaAds = meta?.ads
+  const metaAdsOk = metaConnected && metaAds && !metaAds.error && Array.isArray(metaAds.campaigns)
+  const metaInstagram = meta?.instagram
+  const metaInstagramOk = metaConnected && metaInstagram && !metaInstagram.error
 
   const ga4BlockError = blockErrors.ga4
   const adsBlockError = blockErrors.google_ads
@@ -448,6 +454,89 @@ export default function ClientDashboard({
                 </BarChart>
               </ResponsiveContainer>
             </div>
+          </>
+        )}
+      </div>
+
+      {/* Block 2b — Meta (Facebook/Instagram Ads) */}
+      <div className="mb-8">
+        <h2 className="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
+          <Share2 className="w-5 h-5" />
+          Meta (Facebook / Instagram Ads)
+        </h2>
+        {!metaConnected ? (
+          <EmptyState
+            title="Meta niet verbonden"
+            description="Koppel Meta (Facebook/Instagram) om campagnes en uitgaven te zien."
+            buttonText="Verbind Meta"
+            href={integrationsUrl}
+          />
+        ) : metaAds?.error === 'no_ad_account_selected' ? (
+          <div className="panel-card bg-slate-50 border border-slate-200 rounded-xl p-8 text-center">
+            <p className="text-slate-600 mb-2">Meta is gekoppeld, maar er is nog geen ad account gekozen.</p>
+            <Link to={integrationsUrl} className="inline-block text-indigo-600 font-medium hover:underline">
+              Kies een ad account onder Integraties →
+            </Link>
+          </div>
+        ) : metaAds?.error ? (
+          <div className="panel-card bg-amber-50 border border-amber-200 rounded-xl p-6">
+            <p className="font-medium text-amber-800">Meta Ads-fout</p>
+            <p className="text-sm text-amber-700 mt-1">{metaAds.message || metaAds.error}</p>
+            <Link to={integrationsUrl} className="inline-block mt-3 text-sm font-medium text-indigo-600 hover:underline">Controleer integratie →</Link>
+          </div>
+        ) : !metaAdsOk || (metaAds.campaigns && metaAds.campaigns.length === 0) ? (
+          <div className="text-center py-12 text-gray-400">
+            <p>Geen campagnes in de gekozen periode.</p>
+            <p className="text-sm mt-1">Pas de datumreeks aan of koppel een ad account onder Integraties.</p>
+            <Link to={integrationsUrl} className="inline-block mt-4 text-sm text-indigo-600 hover:underline">Naar Integraties</Link>
+          </div>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
+              <KpiCard label="Totaal uitgaven" value={metaAds.total_spend} formatter={fmtEur} icon={DollarSign} />
+              <KpiCard label="Klikken" value={metaAds.total_clicks} icon={MousePointer} />
+              <KpiCard label="Conversies" value={metaAds.total_conversions} icon={TrendingUp} />
+              <KpiCard label="Campagnes" value={metaAds.campaigns?.length || 0} icon={BarChart3} />
+            </div>
+            <div className="overflow-x-auto mb-6">
+              <table className="w-full text-sm border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-200">
+                    <th className="text-left py-3 px-2 font-semibold text-slate-700">Campagne</th>
+                    <th className="text-right py-3 px-2 font-semibold text-slate-700">Vertoningen</th>
+                    <th className="text-right py-3 px-2 font-semibold text-slate-700">Klikken</th>
+                    <th className="text-right py-3 px-2 font-semibold text-slate-700">Conversies</th>
+                    <th className="text-right py-3 px-2 font-semibold text-slate-700">Uitgaven</th>
+                    <th className="text-right py-3 px-2 font-semibold text-slate-700">CTR</th>
+                    <th className="text-right py-3 px-2 font-semibold text-slate-700">Reach</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(metaAds.campaigns || []).map((c, i) => (
+                    <tr key={i} className="border-b border-slate-100 hover:bg-slate-50">
+                      <td className="py-2 px-2">{c.name ?? '—'}</td>
+                      <td className="text-right py-2 px-2">{fmtNum(c.impressions)}</td>
+                      <td className="text-right py-2 px-2">{fmtNum(c.clicks)}</td>
+                      <td className="text-right py-2 px-2">{fmtNum(c.conversions)}</td>
+                      <td className="text-right py-2 px-2">{fmtEur(c.spend)}</td>
+                      <td className="text-right py-2 px-2">{fmtPct((c.ctr ?? 0) * 100)}</td>
+                      <td className="text-right py-2 px-2">{fmtNum(c.reach)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {metaInstagramOk && (
+              <div className="panel-card bg-white border border-slate-200 rounded-xl p-6 mt-4">
+                <h3 className="text-sm font-semibold text-slate-700 mb-4">Instagram (periode)</h3>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                  <KpiCard label="Reach" value={metaInstagram.reach} icon={TrendingUp} />
+                  <KpiCard label="Impressions" value={metaInstagram.impressions} icon={BarChart3} />
+                  <KpiCard label="Profile views" value={metaInstagram.profile_views} icon={MousePointer} />
+                  <KpiCard label="Volgers" value={metaInstagram.follower_count} icon={Globe} />
+                </div>
+              </div>
+            )}
           </>
         )}
       </div>

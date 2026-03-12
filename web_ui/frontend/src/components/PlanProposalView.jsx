@@ -4,7 +4,7 @@ import React, { useState } from 'react';
  * PlanProposalView: Displays the CEO's proposed execution plan.
  * Shows agents to be hired and the sequence of steps.
  */
-export function PlanProposalView({ jobId, plan, onApprove, onRequestChanges }) {
+export function PlanProposalView({ jobId, plan, onApprove, onRequestChanges, job }) {
   const apiBase = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
   const [isApproving, setIsApproving] = useState(false);
   const [showFeedbackForm, setShowFeedbackForm] = useState(false);
@@ -70,8 +70,18 @@ export function PlanProposalView({ jobId, plan, onApprove, onRequestChanges }) {
 
   const { steps = [], hired_agents = [], estimated_duration_seconds = 0 } = plan;
 
+  const rawContext = job?.context;
+  const jobContext = typeof rawContext === 'object' ? rawContext : (typeof rawContext === 'string' ? (() => { try { return JSON.parse(rawContext); } catch { return {}; } })() : {});
+
   return (
     <div className="flex flex-col gap-6 p-6 bg-white rounded-lg border border-gray-200">
+      {(jobContext.completeness_score < 0.40 || jobContext.review_note) && (
+        <div style={{ background: '#FFF9C4', border: '1px solid #F9CA24',
+          borderRadius: '4px', padding: '12px 16px', marginBottom: '16px' }}>
+          <strong>⚠ CEO notitie:</strong>{' '}
+          {jobContext.review_note || 'Dit plan is gebaseerd op beperkte informatie. Controleer de aannames voor je start.'}
+        </div>
+      )}
       <div>
         <h2 className="text-2xl font-bold mb-2">Your Execution Plan</h2>
         <p className="text-gray-600">
@@ -132,6 +142,14 @@ export function PlanProposalView({ jobId, plan, onApprove, onRequestChanges }) {
                   <span className="inline-block mt-2 px-2 py-1 bg-yellow-100 text-yellow-800 text-xs rounded font-medium">
                     Requires Approval
                   </span>
+                )}
+                {step.assumptions?.length > 0 && (
+                  <div style={{ background: '#FFF9C4', border: '1px solid #F9CA24',
+                    borderRadius: '4px', padding: '8px 12px', marginTop: '6px', fontSize: '13px' }}>
+                    <strong>⚠ CEO aanname:</strong>
+                    {step.assumptions.map((a, i) => <p key={i} style={{ margin: '4px 0' }}>{a}</p>)}
+                    <small style={{ color: '#666' }}>Pas aan via het feedbackveld voor je start.</small>
+                  </div>
                 )}
               </div>
             </div>

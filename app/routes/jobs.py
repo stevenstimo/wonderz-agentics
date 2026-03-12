@@ -271,7 +271,7 @@ def _job_for_response(job_row) -> dict:
     d.pop("file_artifact_path", None)  # Don't expose server path to frontend
     jni = d.get("job_number_int")
     ctx = _coerce_context(d.get("context"))
-    ctx = dict(ctx) if ctx else {}
+    ctx = json.loads(ctx) if isinstance(ctx, str) else (dict(ctx) if ctx else {})
     if jni is not None:
         ctx["job_number"] = f"{jni:04d}"
     elif "job_number" not in ctx:
@@ -753,14 +753,25 @@ async def approve_and_deploy(
 
 
 @router.get("")
-async def list_jobs(status: Optional[str] = None, limit: int = 50):
-    """List all jobs, optionally filtered by status."""
+async def list_jobs(status: Optional[str] = None, source: Optional[str] = None, limit: int = 50):
+    """List all jobs, optionally filtered by status and/or intake source (browser, email)."""
     pool = await get_db()
     async with pool.acquire() as conn:
-        if status:
+        use_source = source in ("browser", "email")
+        if status and use_source:
+            rows = await conn.fetch(
+                "SELECT id, user_id, job_post, status, source_platform, created_at, updated_at, tokens_used, token_budget, context, job_number_int FROM jobs WHERE status=$1 AND intake_source=$2 ORDER BY created_at DESC LIMIT $3",
+                status, source, limit
+            )
+        elif status:
             rows = await conn.fetch(
                 "SELECT id, user_id, job_post, status, source_platform, created_at, updated_at, tokens_used, token_budget, context, job_number_int FROM jobs WHERE status=$1 ORDER BY created_at DESC LIMIT $2",
                 status, limit
+            )
+        elif use_source:
+            rows = await conn.fetch(
+                "SELECT id, user_id, job_post, status, source_platform, created_at, updated_at, tokens_used, token_budget, context, job_number_int FROM jobs WHERE intake_source=$1 ORDER BY created_at DESC LIMIT $2",
+                source, limit
             )
         else:
             rows = await conn.fetch(

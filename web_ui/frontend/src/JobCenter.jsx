@@ -255,6 +255,13 @@ export default function JobCenter() {
                         </td>
                         <td className="py-3 px-4">
                           <StatusBadge status={job.status} />
+                          {job.intake_source === 'email' && (
+                            <span style={{
+                              background: '#EBF5FB', color: '#1A5276',
+                              borderRadius: '4px', padding: '2px 8px',
+                              fontSize: '11px', marginLeft: '6px'
+                            }}>✉ Via Email</span>
+                          )}
                         </td>
                         <td className="py-3 px-4">
                           <div className="flex -space-x-2">
