@@ -1,6 +1,6 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom'
 
 import App from './App.jsx'
 import RequireAuth from './RequireAuth.jsx'
@@ -54,10 +54,14 @@ import KnowledgeGovernance from './KnowledgeGovernance.jsx'
 import './index.css'
 
 function AuthenticatedLayout() {
+  const { pathname } = useLocation()
   return (
     <RequireAuth>
       <CommandCenter>
-        <Outlet />
+        {/* Key forces remount on route change so every page loads fresh and runs its effects */}
+        <div key={pathname} className="min-h-full">
+          <Outlet />
+        </div>
       </CommandCenter>
     </RequireAuth>
   )
