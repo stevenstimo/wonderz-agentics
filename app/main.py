@@ -18,7 +18,9 @@ from typing import Any, Optional
 from app.db import init_db_pool, close_db_pool
 from app.logging_config import setup_logging
 
-setup_logging()
+import logging as _logging
+_log_level = getattr(_logging, os.getenv("LOG_LEVEL", "INFO").upper(), _logging.INFO)
+setup_logging(level=_log_level)
 
 # Import job flow routes
 from app.routes.jobs import router as jobs_router, _job_for_response
