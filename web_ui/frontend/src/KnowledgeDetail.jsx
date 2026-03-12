@@ -218,7 +218,7 @@ export default function KnowledgeDetail() {
 
   return (
     <PageLayout size="medium" padded>
-      <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+      <div className="mb-6 space-y-3">
         <Link
           to={backTo}
           className="inline-flex items-center gap-1 text-slate-600 hover:text-indigo-600"
@@ -232,11 +232,12 @@ export default function KnowledgeDetail() {
                 ? 'Terug naar Client Intelligence'
                 : 'Terug naar Library'}
         </Link>
-        <div className="flex items-center gap-2">
+        {/* Edit + Delete book — altijd zichtbaar */}
+        <div className="flex flex-wrap items-center gap-2 py-2">
           <Link
             to={editUrl}
             state={{ from: location.pathname }}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 font-medium text-sm"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border-2 border-slate-300 bg-white text-slate-700 hover:bg-slate-50 font-medium"
           >
             <Pencil className="w-4 h-4" />
             Edit
@@ -244,7 +245,7 @@ export default function KnowledgeDetail() {
           <button
             type="button"
             onClick={() => { setDeleteOverlayOpen(true); setDeleteConfirmInput(''); setActionError('') }}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 font-medium text-sm"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border-2 border-red-300 bg-red-50 text-red-700 hover:bg-red-100 font-medium"
           >
             <Trash2 className="w-4 h-4" />
             Delete book
