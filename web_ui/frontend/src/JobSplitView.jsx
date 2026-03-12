@@ -198,6 +198,9 @@ export default function JobSplitView() {
   const chatFileInputRef = useRef(null)
   const [events, setEvents] = useState([])
   const [serverKeys, setServerKeys] = useState(null)
+  const [clients, setClients] = useState([])
+  const [mentionSuggestions, setMentionSuggestions] = useState([])
+  const [detectedClient, setDetectedClient] = useState(null)
 
   const fetchJob = useCallback(async () => {
     if (!jobId) return null
@@ -285,6 +288,13 @@ export default function JobSplitView() {
       .then((k) => (k ? setServerKeys(k) : setServerKeys({})))
       .catch(() => setServerKeys({}))
   }, [job?.status, job?.context])
+
+  useEffect(() => {
+    apiFetch('/api/clients')
+      .then((r) => (r.ok ? r.json() : Promise.resolve([])))
+      .then((data) => setClients(Array.isArray(data) ? data : (data?.clients ?? data ?? [])))
+      .catch(() => setClients([]))
+  }, [])
 
   useEffect(() => {
     if (!sendingChat && ceoTyping) {
@@ -408,6 +418,42 @@ export default function JobSplitView() {
     setChatAttachedFile(null)
     if (chatFileInputRef.current) chatFileInputRef.current.value = ''
   }
+
+  const handleJobInputChange = (e) => {
+    const val = e.target.value
+    setChatInput(val)
+    if (!jobId) {
+      const match = val.match(/@([a-zA-Z0-9_-]*)$/)
+      if (match) {
+        const query = (match[1] || '').toLowerCase()
+        const filtered = clients.filter(
+          (c) =>
+            (c.slug || '').toLowerCase().includes(query) ||
+            (c.client_name || c.name || '').toLowerCase().includes(query)
+        )
+        setMentionSuggestions(filtered.slice(0, 5))
+      } else {
+        setMentionSuggestions([])
+      }
+    }
+  }
+
+  const handleMentionSelect = (client) => {
+    const slug = client.slug || client.client_name || ''
+    setChatInput((prev) => prev.replace(/@([a-zA-Z0-9_-]*)$/, `@${slug} `))
+    setMentionSuggestions([])
+  }
+
+  const detectedClient = !jobId && (() => {
+    const m = chatInput.match(/@([a-zA-Z0-9_-]+)/g)
+    if (!m || !clients.length) return null
+    for (const tag of m) {
+      const slug = (tag.slice(1) || '').toLowerCase()
+      const c = clients.find((x) => (x.slug || '').toLowerCase() === slug)
+      if (c) return c
+    }
+    return null
+  })()
 
   const handleSendMessage = async (e) => {
     e?.preventDefault()
@@ -720,15 +766,37 @@ export default function JobSplitView() {
                 </button>
               </>
             )}
-            <textarea
-              value={chatInput}
-              onChange={(e) => setChatInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={jobId ? 'Type your message...' : 'Beschrijf je opdracht... Gebruik @client (bijv. @asured) voor context.'}
-              className="flex-1 px-4 py-2.5 border border-slate-300 rounded-xl text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none min-h-[44px] max-h-32"
-              disabled={inputDisabled || uploadingFile}
-              rows={1}
-            />
+            <div className="flex-1 relative">
+              {!jobId && mentionSuggestions.length > 0 && (
+                <div
+                  className="absolute bottom-full left-0 right-0 mb-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-[200px] overflow-y-auto z-50"
+                  role="listbox"
+                  aria-label="Client vermelden"
+                >
+                  {mentionSuggestions.map((c) => (
+                    <button
+                      key={c.slug || c.client_id}
+                      type="button"
+                      onClick={() => handleMentionSelect(c)}
+                      className="mention-option w-full flex justify-between px-3 py-2 text-left text-sm border-none bg-transparent cursor-pointer hover:bg-slate-100"
+                      role="option"
+                    >
+                      <span className="font-medium text-slate-800">{c.client_name || c.name || c.slug}</span>
+                      <span className="text-slate-500 text-xs">@{c.slug}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              <textarea
+                value={chatInput}
+                onChange={handleJobInputChange}
+                onKeyDown={handleKeyDown}
+                placeholder={jobId ? 'Type your message...' : 'Beschrijf je opdracht... Gebruik @client (bijv. @asured) voor context.'}
+                className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none min-h-[44px] max-h-32"
+                disabled={inputDisabled || uploadingFile}
+                rows={1}
+              />
+            </div>
             <button
               type="submit"
               disabled={inputDisabled || uploadingFile || (!chatInput.trim() && !extractedText && !chatAttachedFile)}
@@ -737,6 +805,12 @@ export default function JobSplitView() {
               {sendingChat ? 'Sending…' : 'Send'}
             </button>
             </div>
+            {!jobId && detectedClient && (
+              <div className="flex items-center gap-1.5 mt-1.5 text-sm text-emerald-600">
+                <CheckCircle className="w-4 h-4 flex-shrink-0" />
+                <span>Client context geladen: <strong>{detectedClient.client_name || detectedClient.name || detectedClient.slug}</strong> — GA4, Ads en GSC data beschikbaar</span>
+              </div>
+            )}
           </form>
         </div>
 

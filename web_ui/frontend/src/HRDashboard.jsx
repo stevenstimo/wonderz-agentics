@@ -10,6 +10,7 @@ const TABS = [
   { id: 'cross', label: 'Cross-Training' },
 ]
 
+const IMPACT_COLOR = { high: '#E74C3C', medium: '#E67E22', low: '#95A5A6' }
 const IMPACT_BADGE = {
   high: 'bg-red-100 text-red-700',
   medium: 'bg-orange-100 text-orange-700',
@@ -35,6 +36,12 @@ export default function HRDashboard() {
   const [trainingUrlInput, setTrainingUrlInput] = useState({})
   const [crossProposals, setCrossProposals] = useState([])
   const [crossUrlInput, setCrossUrlInput] = useState({})
+  const [filterImpact, setFilterImpact] = useState('')
+  const [filterStatus, setFilterStatus] = useState('')
+  const [report, setReport] = useState(null)
+  const [reportLoading, setReportLoading] = useState(false)
+  const [approveModal, setApproveModal] = useState(null)
+  const [approveUrl, setApproveUrl] = useState('')
 
   const loadPoints = useCallback(async () => {
     setLoading(true)
@@ -65,6 +72,21 @@ export default function HRDashboard() {
       setError(err.message || 'Laden mislukt')
     } finally {
       setLoading(false)
+    }
+  }, [])
+
+  const loadReport = useCallback(async () => {
+    setReportLoading(true)
+    try {
+      const res = await apiFetch('/api/hr/report')
+      if (res.ok) {
+        const data = await res.json()
+        setReport(data.agents != null ? data : { agents: {} })
+      }
+    } catch {
+      setReport({ agents: {} })
+    } finally {
+      setReportLoading(false)
     }
   }, [])
 
@@ -138,15 +160,53 @@ export default function HRDashboard() {
     }
   }
 
-  async function approveTraining(pointId) {
-    const sourceUrl = trainingUrlInput[pointId] || ''
+  async function handleApprove(pointId, sourceUrl) {
     try {
       await apiFetch('/api/hr/approve-training', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ point_id: pointId, approved: true, source_url: sourceUrl || undefined }),
+        body: JSON.stringify({
+          point_id: pointId,
+          approved: true,
+          source_url: sourceUrl || undefined,
+          approved_by: 'hr-dashboard',
+        }),
+      })
+      setApproveModal(null)
+      setApproveUrl('')
+      if (tab === 'training') await loadTrainingRequests()
+      else await loadPoints()
+    } catch {
+      setError('Goedkeuren mislukt')
+    }
+  }
+
+  async function handleDismiss(pointId) {
+    try {
+      await apiFetch('/api/hr/approve-training', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ point_id: pointId, approved: false, approved_by: 'hr-dashboard' }),
+      })
+      setApproveModal(null)
+      if (tab === 'training') await loadTrainingRequests()
+      else await loadPoints()
+    } catch {
+      setError('Afwijzen mislukt')
+    }
+  }
+
+  async function approveTraining(pointId) {
+    const sourceUrl = trainingUrlInput[pointId] || approveUrl || ''
+    try {
+      await apiFetch('/api/hr/approve-training', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ point_id: pointId, approved: true, source_url: sourceUrl || undefined, approved_by: 'hr-dashboard' }),
       })
       setTrainingUrlInput((prev) => { const n = { ...prev }; delete n[pointId]; return n })
+      setApproveModal(null)
+      setApproveUrl('')
       if (tab === 'training') await loadTrainingRequests()
       else await loadPoints()
     } catch {
@@ -231,12 +291,113 @@ export default function HRDashboard() {
         <div className="mb-4 p-4 rounded-lg bg-red-50 text-red-700 border border-red-200 text-sm">{error}</div>
       )}
 
+      {/* Weekly Report */}
+      <section className="mb-8 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-lg font-semibold text-slate-900">Weekly Report</h2>
+          <button
+            type="button"
+            onClick={loadReport}
+            disabled={reportLoading}
+            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-100 text-slate-700 text-sm font-medium hover:bg-slate-200 disabled:opacity-50"
+          >
+            <RefreshCw className={`w-4 h-4 ${reportLoading ? 'animate-spin' : ''}`} />
+            Refresh rapport
+          </button>
+        </div>
+        {report && report.agents && Object.keys(report.agents).length > 0 ? (
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {Object.entries(report.agents).map(([agentId, data]) => (
+              <div key={agentId} className="rounded-lg border border-slate-200 p-3 text-sm">
+                <strong className="text-slate-900">{data.agent_name || agentId}</strong>
+                <div className="mt-1 flex flex-wrap items-center gap-2">
+                  <span className="inline-flex items-center px-2 py-0.5 rounded bg-slate-100 text-slate-700 text-xs">
+                    {(data.open_points_count ?? 0)} open
+                  </span>
+                  <span className="text-slate-600">
+                    Retry: {((data.performance?.retry_rate ?? 0) * 100).toFixed(1)}%
+                  </span>
+                  <span className="text-slate-600">
+                    Completed: {data.performance?.jobs_touched_7d ?? 0}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : report ? (
+          <p className="text-slate-500 text-sm">Geen agentdata in rapport.</p>
+        ) : (
+          <p className="text-slate-500 text-sm">Klik "Refresh rapport" om te laden.</p>
+        )}
+      </section>
+
+      {approveModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true">
+          <div className="rounded-xl bg-white p-6 shadow-xl max-w-md mx-4">
+            <p className="text-slate-700 mb-2">Trainings-URL (optioneel):</p>
+            <input
+              type="url"
+              value={approveUrl}
+              onChange={(e) => setApproveUrl(e.target.value)}
+              placeholder="https://..."
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm mb-4"
+            />
+            <div className="flex gap-2 justify-end">
+              <button
+                type="button"
+                onClick={() => handleApprove(approveModal, approveUrl)}
+                className="rounded-lg px-4 py-2 bg-green-600 text-white text-sm font-medium hover:bg-green-700"
+              >
+                Goedkeuren
+              </button>
+              <button
+                type="button"
+                onClick={() => setApproveModal(null)}
+                className="rounded-lg px-4 py-2 border border-slate-300 text-slate-700 text-sm font-medium hover:bg-slate-50"
+              >
+                Annuleren
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Tab 1: Development Points */}
       {tab === 'points' && (
         <div>
+          <div className="flex flex-wrap items-center gap-3 mb-4">
+            <select
+              value={filterImpact}
+              onChange={(e) => setFilterImpact(e.target.value)}
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            >
+              <option value="">Alle impact</option>
+              <option value="high">High</option>
+              <option value="medium">Medium</option>
+              <option value="low">Low</option>
+            </select>
+            <select
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value)}
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            >
+              <option value="">Alle statussen</option>
+              <option value="OPEN">Open</option>
+              <option value="AWAITING_APPROVAL">Wacht op goedkeuring</option>
+              <option value="IN_TRAINING">In training</option>
+              <option value="RESOLVED">Opgelost</option>
+              <option value="DISMISSED">Afgewezen</option>
+            </select>
+          </div>
           {loading ? (
             <p className="text-slate-500">Laden...</p>
-          ) : points.length === 0 ? (
+          ) : (() => {
+            const filtered = points.filter((p) => {
+              if (filterImpact && (p.impact || '').toLowerCase() !== filterImpact) return false
+              if (filterStatus && (p.status || '').toUpperCase() !== filterStatus) return false
+              return true
+            })
+            return filtered.length === 0 ? (
             <div className="p-8 rounded-xl border border-slate-200 bg-slate-50 text-center">
               <p className="text-slate-600">Geen development points gevonden.</p>
               <p className="text-slate-400 text-sm mt-1">Klik "Scan nu" om job_steps te analyseren.</p>
@@ -255,7 +416,7 @@ export default function HRDashboard() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
-                  {points.map((p) => {
+                  {filtered.map((p) => {
                     const impactKey = (p.impact || 'medium').toLowerCase()
                     const statusKey = (p.status || 'OPEN').toUpperCase()
                     const showTrainingInput = trainingUrlInput[p.point_id] !== undefined && statusKey === 'AWAITING_APPROVAL'
@@ -265,8 +426,8 @@ export default function HRDashboard() {
                         <td className="px-4 py-2 max-w-xs">{p.issue_description || '—'}</td>
                         <td className="px-4 py-2">{p.frequency ?? '—'}</td>
                         <td className="px-4 py-2">
-                          <span className={`px-2 py-0.5 text-xs font-medium rounded ${IMPACT_BADGE[impactKey] || IMPACT_BADGE.medium}`}>
-                            {impactKey}
+                          <span style={{ color: IMPACT_COLOR[impactKey] || IMPACT_COLOR.medium, fontWeight: 600 }} className={`px-2 py-0.5 text-xs font-medium rounded ${IMPACT_BADGE[impactKey] || IMPACT_BADGE.medium}`}>
+                            {(p.impact || impactKey)}
                           </span>
                         </td>
                         <td className="px-4 py-2">
@@ -280,14 +441,14 @@ export default function HRDashboard() {
                               <>
                                 <button
                                   type="button"
-                                  onClick={() => updatePointStatus(p.point_id, 'AWAITING_APPROVAL')}
+                                  onClick={() => { setApproveModal(p.point_id); setApproveUrl(p.suggested_url || '') }}
                                   className="text-xs font-medium text-indigo-600 hover:underline"
                                 >
                                   Goedkeuren
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => updatePointStatus(p.point_id, 'DISMISSED')}
+                                  onClick={() => handleDismiss(p.point_id)}
                                   className="text-xs font-medium text-red-600 hover:underline"
                                 >
                                   Afwijzen
@@ -336,7 +497,8 @@ export default function HRDashboard() {
                 </tbody>
               </table>
             </div>
-          )}
+          );
+          })()}
         </div>
       )}
 

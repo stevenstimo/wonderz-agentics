@@ -32,6 +32,24 @@ async def lifespan(app: FastAPI):
             "EmailPoller not started: GMAIL_ADDRESS or GMAIL_APP_PASSWORD missing in env. "
             "Set both in .env to enable email intake."
         )
+
+    # HR Manager dagelijkse scan
+    async def hr_scan_loop():
+        while True:
+            try:
+                from app.database import get_db
+                from app.agents.hr_manager import HRManager
+                pool = await get_db()
+                hr = HRManager(pool)
+                await hr.scan_job_steps(since_days=7)
+                logger.info("HR scan voltooid")
+            except Exception as e:
+                logger.error("HR scan fout: %s", e, exc_info=True)
+            await asyncio.sleep(86400)  # 24 uur
+
+    asyncio.create_task(hr_scan_loop())
+    logger.info("HR scan loop gestart")
+
     yield
     await close_db_pool()
 

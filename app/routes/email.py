@@ -10,21 +10,9 @@ from typing import Annotated, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.database import get_db
-from app.middleware.auth import TokenPayload, get_current_user
+from app.middleware.auth import TokenPayload, get_current_user, require_admin_or_super_admin
 
 router = APIRouter(prefix="/api/email", tags=["email"])
-
-
-def require_admin_or_super_admin(
-    current_user: Annotated[TokenPayload, Depends(get_current_user)],
-) -> TokenPayload:
-    """Use existing auth: get_current_user then 403 if role not admin or super_admin."""
-    if current_user.role not in ("admin", "super_admin"):
-        raise HTTPException(
-            status_code=403,
-            detail="Forbidden: admin or super_admin role required",
-        )
-    return current_user
 
 
 @router.get("/inbox")

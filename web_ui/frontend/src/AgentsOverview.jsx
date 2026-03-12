@@ -46,23 +46,10 @@ export default function AgentsOverview() {
     }
   }
 
-  async function deactivateAgent(agentId, e) {
-    e.preventDefault()
-    e.stopPropagation()
-    if (!window.confirm('Deactivate this agent?')) return
-    try {
-      const res = await apiFetch(`/api/agents/${encodeURIComponent(agentId)}`, {
-        method: 'DELETE',
-      })
-      if (!res.ok) throw new Error('Deactivation failed')
-      setAgents((prev) => prev.filter((agent) => agent.agent_id !== agentId))
-    } catch (err) {
-      alert(err.message || 'Unknown error')
-    }
-  }
-
   useEffect(() => {
     loadAgents()
+    const interval = setInterval(loadAgents, 30000)
+    return () => clearInterval(interval)
   }, [])
 
   return (
@@ -133,7 +120,24 @@ export default function AgentsOverview() {
                       <td className="py-3 px-4 text-sm text-slate-600">{agent.role || '—'}</td>
                       <td className="py-3 px-4 text-sm text-slate-600">{agent.category || '—'}</td>
                       <td className="py-3 px-4">
-                        <StatusBadge isActive={agent.is_active !== false} />
+                        <span className="inline-flex items-center gap-1.5">
+                          <StatusBadge isActive={agent.is_active !== false} />
+                          {agent.is_suspended && (
+                            <span
+                              style={{
+                                background: '#FDEDEC',
+                                color: '#922B21',
+                                borderRadius: '4px',
+                                padding: '2px 8px',
+                                fontSize: '11px',
+                                marginLeft: '6px',
+                                fontWeight: 600,
+                              }}
+                            >
+                              Gesuspendeerd
+                            </span>
+                          )}
+                        </span>
                       </td>
                       <td className="py-3 px-4">
                         {typeof agent.performance_score === 'number' ? (
@@ -158,18 +162,11 @@ export default function AgentsOverview() {
                           Open chat
                         </Link>
                         <Link
-                          to={`/agents/${encodeURIComponent(agent.agent_id)}`}
+                          to={`/agents/${encodeURIComponent(agent.agent_id)}/edit`}
                           className="text-indigo-600 hover:text-indigo-800 text-sm font-medium"
                         >
                           Bewerken
                         </Link>
-                        <button
-                          type="button"
-                          onClick={(e) => deactivateAgent(agent.agent_id, e)}
-                          className="ml-3 text-red-600 hover:text-red-800 text-sm font-medium"
-                        >
-                          Deactivate
-                        </button>
                       </td>
                     </tr>
                   ))}

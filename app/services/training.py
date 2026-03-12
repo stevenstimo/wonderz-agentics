@@ -252,6 +252,7 @@ async def update_knowledge_sources(
                 "chunks": chunks_stored,
                 "approved_by": approved_by,
                 "added_at": datetime.now(timezone.utc).isoformat(),
+                "status": "active",
             }
         )
 

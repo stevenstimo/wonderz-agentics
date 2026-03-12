@@ -151,6 +151,12 @@ async def get_inbox_detail(
         email_out = _row_to_out(row)
         chat_id = row.get("chat_id")
         if chat_id:
+            chat_row = await conn.fetchrow(
+                "SELECT agent_id FROM direct_chats WHERE chat_id = $1",
+                chat_id,
+            )
+            if chat_row:
+                email_out["agent_id"] = chat_row["agent_id"]
             msg_rows = await conn.fetch(
                 """
                 SELECT message_id, chat_id, role, content, token_usage, created_at

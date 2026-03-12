@@ -6,7 +6,7 @@ import uuid
 from datetime import date, datetime, timezone
 from typing import Any, Annotated, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status, Body
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status, Body
 
 from app.middleware.auth import get_current_user, require_super_admin, TokenPayload
 from pydantic import BaseModel, Field
@@ -187,7 +187,10 @@ async def list_agents(
 
     result: List[Dict[str, Any]] = []
     for row in rows:
-        result.append(_serialize_agent_row(row))
+        rec = _serialize_agent_row(row)
+        # spec: system_prompt alleen in detail-endpoint, niet in lijst
+        rec.pop("system_prompt", None)
+        result.append(rec)
     return {"agents": result, "count": len(result)}
 
 
@@ -558,13 +561,100 @@ async def update_agent_avatar(
     return {"status": "updated"}
 
 
+async def _set_knowledge_source_status(pool, agent_id: str, source_url: str, status: str) -> None:
+    """Update status of one entry in knowledge_base_sources by url."""
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT knowledge_base_sources FROM hired_agents WHERE agent_id = $1",
+            agent_id,
+        )
+    if not row:
+        return
+    sources = row.get("knowledge_base_sources")
+    if isinstance(sources, str):
+        try:
+            sources = json.loads(sources)
+        except Exception:
+            return
+    if not isinstance(sources, list):
+        return
+    for s in sources:
+        if isinstance(s, dict) and s.get("url") == source_url:
+            s["status"] = status
+            break
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """
+            UPDATE hired_agents SET knowledge_base_sources = $1::jsonb, updated_at = now()
+            WHERE agent_id = $2
+            """,
+            json.dumps(sources, default=_json_default),
+            agent_id,
+        )
+
+
+async def _append_knowledge_processing(pool, agent_id: str, url: str, approved_by: str) -> None:
+    """Append a knowledge_base_sources entry with status processing."""
+    now_iso = datetime.now(timezone.utc).isoformat()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT knowledge_base_sources FROM hired_agents WHERE agent_id = $1",
+            agent_id,
+        )
+    sources = []
+    if row and row.get("knowledge_base_sources"):
+        raw = row["knowledge_base_sources"]
+        if isinstance(raw, str):
+            try:
+                sources = json.loads(raw)
+            except Exception:
+                pass
+        elif isinstance(raw, list):
+            sources = list(raw)
+    sources = [s for s in sources if isinstance(s, dict) and s.get("url") != url]
+    sources.append({
+        "url": url,
+        "added_at": now_iso,
+        "status": "processing",
+        "approved_by": approved_by,
+    })
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """
+            UPDATE hired_agents SET knowledge_base_sources = $1::jsonb, updated_at = now()
+            WHERE agent_id = $2
+            """,
+            json.dumps(sources, default=_json_default),
+            agent_id,
+        )
+
+
+async def _run_training_background(agent_id: str, url: str, approved_by: str) -> None:
+    """Run training in background; update status to active or failed."""
+    pool = await get_db()
+    try:
+        workflow = TrainingWorkflow(pool)
+        await workflow.start_training(
+            agent_id=agent_id,
+            url=url,
+            approved_by=approved_by,
+        )
+        await _set_knowledge_source_status(pool, agent_id, url, "active")
+    except Exception as e:
+        logger.warning("Training failed for %s %s: %s", agent_id, url, e)
+        await _set_knowledge_source_status(pool, agent_id, url, "failed")
+
+
 @router.post("/{agent_id}/train")
 async def train_agent(
     agent_id: str,
     body: TrainAgentBody,
+    background_tasks: BackgroundTasks,
     current_user: Annotated[TokenPayload, Depends(require_super_admin)],
 ) -> Dict[str, Any]:
-    """Start training voor een agent met een URL. Spec sectie 5.2."""
+    """Start training voor een agent met een URL. Returns immediately; training runs in background. Spec sectie 5.2."""
+    if not (body.url or "").strip().startswith("https://"):
+        raise HTTPException(status_code=400, detail="URL moet beginnen met https://")
     pool = await get_db()
     async with pool.acquire() as conn:
         agent = await conn.fetchrow(
@@ -576,17 +666,10 @@ async def train_agent(
     if not agent.get("is_active", True):
         raise HTTPException(status_code=400, detail="Agent is gedeactiveerd")
 
-    workflow = TrainingWorkflow(pool)
-    try:
-        result = await workflow.start_training(
-            agent_id=agent_id,
-            url=body.url,
-            approved_by=body.approved_by,
-        )
-        return result
-    except Exception as e:
-        logger.warning("Training failed for %s: %s", agent_id, e)
-        raise HTTPException(status_code=400, detail=str(e))
+    approved_by = (body.approved_by or "system").strip() or "system"
+    await _append_knowledge_processing(pool, agent_id, body.url.strip(), approved_by)
+    background_tasks.add_task(_run_training_background, agent_id, body.url.strip(), approved_by)
+    return {"status": "training_started", "url": body.url.strip(), "agent_id": agent_id}
 
 
 @router.get("/{agent_id}/context")

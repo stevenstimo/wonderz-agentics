@@ -42,6 +42,7 @@ import WorkTeamOrg from './WorkTeamOrg.jsx'
 import Study from './Study.jsx'
 import ProductManagement from './ProductManagement.jsx'
 import AgentInbox from './AgentInbox.jsx'
+import EmailInbox from './EmailInbox.jsx'
 import SEOTool from './SEOTool.jsx'
 import SEOLanding from './SEOLanding.jsx'
 import KnowledgeLibrary from './KnowledgeLibrary.jsx'
@@ -111,7 +112,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <Route path="/work-team" element={<WorkTeamOrg />} />
           <Route path="/study" element={<Study />} />
           <Route path="/product-management" element={<ProductManagement />} />
-          <Route path="/inbox" element={<AgentInbox />} />
+          <Route path="/inbox" element={<EmailInbox />} />
+          <Route path="/agent-inbox" element={<AgentInbox />} />
           <Route path="/seo/tool" element={<SEOTool />} />
           <Route path="/devbot" element={<DevbotHome />} />
           <Route path="/hiring" element={<HiringHall onHire={() => {}} />} />

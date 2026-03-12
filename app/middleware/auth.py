@@ -173,3 +173,15 @@ async def require_super_admin(
             detail="Forbidden: super_admin role required",
         )
     return current_user
+
+
+def require_admin_or_super_admin(
+    current_user: Annotated[TokenPayload, Depends(get_current_user)],
+) -> TokenPayload:
+    """FastAPI dependency: raises 403 if role not admin or super_admin. Reused by email and HR routes."""
+    if current_user.role not in ("admin", "super_admin"):
+        raise HTTPException(
+            status_code=403,
+            detail="Forbidden: admin or super_admin role required",
+        )
+    return current_user

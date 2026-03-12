@@ -288,6 +288,50 @@ export default function AgentDetail() {
     }
   }
 
+  const handleTrain = async () => {
+    const urlToTrain = trainUrl.trim()
+    if (!urlToTrain.startsWith('https://')) {
+      setTrainMessage('URL moet beginnen met https://')
+      return
+    }
+    setIsTraining(true)
+    setTrainMessage('Training gestart...')
+    try {
+      const res = await apiFetch(`/api/agents/${encodeURIComponent(agentId)}/train`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: urlToTrain, approved_by: 'user' }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        setTrainMessage(err?.detail || 'Training start mislukt')
+        setIsTraining(false)
+        return
+      }
+      setTrainUrl('')
+      const maxPolls = 60
+      let polls = 0
+      const poll = setInterval(async () => {
+        polls += 1
+        const json = await loadDetail()
+        const sources = Array.isArray(json?.agent?.knowledge_base_sources) ? json.agent.knowledge_base_sources : []
+        const source = sources.find((s) => s && s.url === urlToTrain)
+        if (source && source.status !== 'processing') {
+          clearInterval(poll)
+          setIsTraining(false)
+          setTrainMessage(source.status === 'active' ? 'Training voltooid ✓' : 'Training mislukt')
+        } else if (polls >= maxPolls) {
+          clearInterval(poll)
+          setIsTraining(false)
+          setTrainMessage('Timeout – controleer status handmatig')
+        }
+      }, 5000)
+    } catch (err) {
+      setTrainMessage(err?.message || 'Fout')
+      setIsTraining(false)
+    }
+  }
+
   const handleIsActiveToggle = () => {
     const currentlyActive = agent.is_active !== false
     if (currentlyActive) {
@@ -428,7 +472,7 @@ export default function AgentDetail() {
           <div className="rounded-xl bg-white p-6 shadow-xl max-w-md mx-4">
             <h2 id="deactivate-modal-title" className="text-lg font-semibold text-slate-900 mb-2">Agent deactiveren</h2>
             <p className="text-slate-600 text-sm mb-4">
-              Agent {agent.name || 'deze agent'} wordt gedeactiveerd. Lopende taken worden niet onderbroken.
+              Weet je zeker dat je <strong>{agent.agent_name || agent.name || 'deze agent'}</strong> wilt deactiveren?
             </p>
             <div className="flex gap-3 justify-end">
               <button
@@ -671,17 +715,24 @@ export default function AgentDetail() {
             </div>
           </div>
 
-          {/* Knowledge Sources */}
+          {/* Knowledge Base */}
           <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <h3 className="text-sm font-semibold text-slate-900 mb-2">Knowledge Sources</h3>
+            <h3 className="text-sm font-semibold text-slate-900 mb-3">Knowledge Base</h3>
             {knowledgeSources.length === 0 ? (
-              <p className="text-xs text-slate-500">No sources</p>
+              <p className="text-xs text-slate-500 mb-3">Geen bronnen. Voeg een URL toe en start training.</p>
             ) : (
-              <ul className="space-y-2">
+              <ul className="space-y-2 mb-4">
                 {knowledgeSources.map((src, i) => (
                   <li key={i} className="flex items-start justify-between gap-2 text-xs">
                     <span className="min-w-0 truncate text-slate-700">
                       {typeof src === 'string' ? src : (src?.url || src?.source || JSON.stringify(src))}
+                    </span>
+                    <span className={`shrink-0 px-2 py-0.5 rounded text-xs font-medium ${
+                      (src?.status === 'active') ? 'bg-green-100 text-green-800' :
+                      (src?.status === 'processing') ? 'bg-amber-100 text-amber-800' :
+                      (src?.status === 'failed') ? 'bg-red-100 text-red-800' : 'bg-slate-100 text-slate-600'
+                    }`}>
+                      {src?.status || 'pending'}
                     </span>
                     {typeof src === 'object' && (src.chunks != null || src.added_at) && (
                       <span className="text-slate-400 shrink-0">
@@ -689,13 +740,28 @@ export default function AgentDetail() {
                         {src.added_at ? ` · ${relativeTime(src.added_at)}` : ''}
                       </span>
                     )}
-                    <button type="button" className="text-red-600 hover:underline shrink-0" title="Remove (API)">
-                      Remove
-                    </button>
                   </li>
                 ))}
               </ul>
             )}
+            <div className="flex gap-2 flex-wrap items-center">
+              <input
+                type="url"
+                placeholder="https://..."
+                value={trainUrl}
+                onChange={(e) => setTrainUrl(e.target.value)}
+                className="flex-1 min-w-[200px] rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              />
+              <button
+                type="button"
+                onClick={handleTrain}
+                disabled={isTraining}
+                className="rounded-lg px-4 py-2 bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isTraining ? 'Bezig...' : 'Train'}
+              </button>
+            </div>
+            {trainMessage && <p className="mt-2 text-xs text-slate-600">{trainMessage}</p>}
           </div>
         </div>
         <div className="hidden lg:block" />

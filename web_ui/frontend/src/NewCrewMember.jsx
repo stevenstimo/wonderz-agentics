@@ -90,12 +90,22 @@ export default function NewCrewMember() {
     })
   }
 
+  function validate() {
+    const e = {}
+    if (!form.agent_name?.trim()) e.agent_name = ['Naam is verplicht']
+    if (!form.role?.trim()) e.role = ['Rol is verplicht']
+    if (!form.goal?.trim()) e.goal = ['Doel is verplicht']
+    if (!form.system_prompt?.trim()) e.system_prompt = ['System Instructions zijn verplicht']
+    setFieldErrors(e)
+    return Object.keys(e).length === 0
+  }
+
   async function handleSubmit(e) {
     e.preventDefault()
     setError('')
     setFieldErrors({})
-    if (!isValid) {
-      setError('Vul alle verplichte velden in (naam min 2 tekens, doel min 10, system prompt min 20).')
+    if (!validate()) {
+      setError('Vul alle verplichte velden in.')
       return
     }
 
@@ -213,7 +223,9 @@ export default function NewCrewMember() {
               placeholder="Emma"
             />
             {fieldErrors.agent_name && (
-              <p className="mt-1 text-xs text-red-600">{fieldErrors.agent_name.join(', ')}</p>
+              <span className="field-error mt-1 text-xs text-red-600 block">
+                {Array.isArray(fieldErrors.agent_name) ? fieldErrors.agent_name.join(', ') : fieldErrors.agent_name}
+              </span>
             )}
           </div>
 
@@ -230,7 +242,9 @@ export default function NewCrewMember() {
               ))}
             </select>
             {fieldErrors.role && (
-              <p className="mt-1 text-xs text-red-600">{fieldErrors.role.join(', ')}</p>
+              <span className="field-error mt-1 text-xs text-red-600 block">
+                {Array.isArray(fieldErrors.role) ? fieldErrors.role.join(', ') : fieldErrors.role}
+              </span>
             )}
           </div>
 
@@ -256,7 +270,9 @@ export default function NewCrewMember() {
               placeholder="Content optimaliseren voor zoekmachines"
             />
             {fieldErrors.goal && (
-              <p className="mt-1 text-xs text-red-600">{fieldErrors.goal.join(', ')}</p>
+              <span className="field-error mt-1 text-xs text-red-600 block">
+                {Array.isArray(fieldErrors.goal) ? fieldErrors.goal.join(', ') : fieldErrors.goal}
+              </span>
             )}
           </div>
 
@@ -270,7 +286,9 @@ export default function NewCrewMember() {
               placeholder="Je bent een SEO expert..."
             />
             {fieldErrors.system_prompt && (
-              <p className="mt-1 text-xs text-red-600">{fieldErrors.system_prompt.join(', ')}</p>
+              <span className="field-error mt-1 text-xs text-red-600 block">
+                {Array.isArray(fieldErrors.system_prompt) ? fieldErrors.system_prompt.join(', ') : fieldErrors.system_prompt}
+              </span>
             )}
           </div>
 

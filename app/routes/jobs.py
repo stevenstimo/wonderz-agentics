@@ -36,6 +36,7 @@ from app.services.job_pipeline import (
     _update_job_context,
 )
 from app.services.client_mention import resolve_first_mention
+from app.services.client_context import extract_client_context
 from app.models.requests import (
     CreateJobRequest,
     SubmitAnswersRequest,
@@ -174,9 +175,18 @@ async def create_job(req: CreateJobRequest, background_tasks: BackgroundTasks):
         }
         if client_slug:
             context["client_slug"] = client_slug
+            context["injected_context"] = await extract_client_context(req.job_post, str(req.user_id))
             logger.info("Job %s: client_slug=%s from @mention", job_id, client_slug)
 
         async with pool.acquire() as conn:
+            if client_slug:
+                row = await conn.fetchrow(
+                    "SELECT client_name FROM clients WHERE user_id = $1 AND slug = $2",
+                    str(req.user_id),
+                    client_slug,
+                )
+                if row:
+                    context["client_name"] = row["client_name"]
             token_budget = get_token_budget(req.job_post)
             await conn.execute(
                 """

@@ -595,7 +595,20 @@ async def run_intake_inline(job_id: str, job_post: str):
                 client_slug = await resolve_first_mention(pool, str(job_row["user_id"]), job_post)
             if client_slug and job_row:
                 from app.services.dashboard import get_client_seo_summary_for_agent
-                client_context = await get_client_seo_summary_for_agent(pool, str(job_row["user_id"]), client_slug)
+                gsc_context = await get_client_seo_summary_for_agent(pool, str(job_row["user_id"]), client_slug)
+                client_name = existing_ctx.get("client_name") or ""
+                injected = (existing_ctx.get("injected_context") or "").strip()
+                if injected or client_name:
+                    client_info_block = (
+                        "BESCHIKBARE CLIENT INFORMATIE:\n"
+                        f"Klant: {client_name or '—'} (@{client_slug})\n\n"
+                        f"{injected}\n\n---\n\n"
+                    )
+                    client_context = client_info_block + (gsc_context or "")
+                else:
+                    client_context = gsc_context
+            else:
+                client_context = None
 
         brief = intake.analyze_job_post(job_post, client_context=client_context)
         if client_slug:
@@ -702,7 +715,18 @@ async def run_intake_answers_inline(job_id: str, answers: dict):
                 client_slug = await resolve_first_mention(pool, user_id, job_post)
             if client_slug and user_id:
                 from app.services.dashboard import get_client_seo_summary_for_agent
-                client_context = await get_client_seo_summary_for_agent(pool, user_id, client_slug)
+                gsc_context = await get_client_seo_summary_for_agent(pool, user_id, client_slug)
+                client_name = context.get("client_name") or ""
+                injected = (context.get("injected_context") or "").strip()
+                if injected or client_name:
+                    client_info_block = (
+                        "BESCHIKBARE CLIENT INFORMATIE:\n"
+                        f"Klant: {client_name or '—'} (@{client_slug})\n\n"
+                        f"{injected}\n\n---\n\n"
+                    )
+                    client_context = client_info_block + (gsc_context or "")
+                else:
+                    client_context = gsc_context
 
             brief = intake.analyze_job_post(
                 job_post,
@@ -903,6 +927,30 @@ async def run_job_inline(job_id: str, context_extra: Optional[dict] = None):
                         job_id,
                         agent_role,
                     )
+
+                    # Per-step agent knowledge from agent_knowledge (training workflow).
+                    # assumption-based: first active agent with matching role is used when step has no agent_id.
+                    step_agent_id = step.get("agent_id")
+                    if not step_agent_id and agent_role:
+                        row = await conn.fetchrow(
+                            "SELECT agent_id FROM hired_agents WHERE role = $1 AND is_active = true LIMIT 1",
+                            agent_role,
+                        )
+                        step_agent_id = row["agent_id"] if row else None
+                    if step_agent_id:
+                        try:
+                            from app.services.training_workflow import TrainingWorkflow
+                            task_desc = step.get("description") or context.get("job_post") or ""
+                            wf = TrainingWorkflow(pool)
+                            chunks = await wf.retrieve_context(
+                                agent_id=step_agent_id,
+                                query=task_desc[:8000] if task_desc else "",
+                                top_k=5,
+                            )
+                            if chunks:
+                                context["_knowledge_block"] = "\n\n## Relevante kennis\n" + "\n---\n".join(chunks)
+                        except Exception as _kw:
+                            logger.warning("Per-step knowledge retrieval failed for %s: %s", step_agent_id, _kw)
 
                     output, tokens_used = await _run_step_agent_with_timeout(
                         agent_role=agent_role,
