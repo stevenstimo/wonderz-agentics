@@ -290,6 +290,7 @@ async def get_client_dashboard(
     ga4_int = int_by_type.get("ga4")
     ga4_cfg = config_by_platform.get("ga4", {})
     property_id = ga4_cfg.get("property_id") if isinstance(ga4_cfg, dict) else None
+    ga4_used_fallback = False
 
     if not ga4_int:
         result["ga4"] = {"not_connected": True}
@@ -303,14 +304,34 @@ async def get_client_dashboard(
         else:
             if not property_id:
                 property_id = await _get_first_ga4_property(access_token)
+                if property_id:
+                    ga4_used_fallback = True
+                    logger.info("Dashboard ga4: no property_id saved for %s, using first property %s", slug, property_id)
             if not property_id:
-                result["ga4"] = {"not_connected": True, "error": "No GA4 property found"}
+                result["ga4"] = {"not_connected": True, "error": "No GA4 property found. Kies een property onder Integraties."}
             else:
                 try:
                     ga4_data = await fetch_ga4(
                         access_token, property_id, start_str, end_str, channel, device
                     )
                     result["ga4"] = ga4_data
+                    if ga4_used_fallback:
+                        result["ga4"]["_used_first_property"] = True
+                        async with pool.acquire() as conn:
+                            await conn.execute(
+                                """
+                                INSERT INTO client_platform_configs
+                                    (config_id, user_id, client_slug, client_name, platform, config, is_active)
+                                VALUES ($1, $2, $3, $4, 'ga4', $5::jsonb, true)
+                                ON CONFLICT (user_id, client_slug, platform)
+                                DO UPDATE SET config = client_platform_configs.config || $5::jsonb, is_active = true
+                                """,
+                                f"cfg:{slug}:ga4",
+                                current_user.user_id,
+                                slug,
+                                client["client_name"],
+                                json.dumps({"property_id": property_id}),
+                            )
                 except Exception as e:
                     logger.exception("GA4 fetch failed")
                     result["ga4"] = {"not_connected": False, "error": str(e)}
@@ -331,6 +352,7 @@ async def get_client_dashboard(
         or extra_config.get("customer_id")
         or (ads_cfg.get("customer_id") if isinstance(ads_cfg, dict) else None)
     )
+    ads_used_fallback = False
 
     if not ads_int:
         result["google_ads"] = {"not_connected": True}
@@ -339,14 +361,20 @@ async def get_client_dashboard(
         if not refresh:
             result["google_ads"] = {"not_connected": True}
         elif not customer_id:
-            result["google_ads"] = {
-                "campaigns": [],
-                "timeseries": [],
-                "total_spend": 0,
-                "total_clicks": 0,
-                "total_impressions": 0,
-            }
-        else:
+            # Fallback: use first accessible account (e.g. when user never picked one in dropdown)
+            customer_id = await _get_first_google_ads_customer(refresh)
+            if customer_id:
+                ads_used_fallback = True
+                logger.info("Dashboard google_ads: no customer_id saved for %s, using first account %s", slug, customer_id)
+            else:
+                result["google_ads"] = {
+                    "campaigns": [],
+                    "timeseries": [],
+                    "total_spend": 0,
+                    "total_clicks": 0,
+                    "total_impressions": 0,
+                }
+        if customer_id:
             try:
                 ads_data = await fetch_google_ads_via_gaql(refresh, customer_id, start_str, end_str)
                 if ads_data.get("not_implemented") or ads_data.get("not_configured"):
@@ -355,6 +383,33 @@ async def get_client_dashboard(
                     result["google_ads"] = {"not_connected": False, "error": ads_data["error"]}
                 else:
                     result["google_ads"] = ads_data
+                    if ads_used_fallback:
+                        result["google_ads"]["_used_first_account"] = True
+                        async with pool.acquire() as conn:
+                            await conn.execute(
+                                """
+                                UPDATE client_integrations
+                                SET extra_config = extra_config || $1::jsonb, updated_at = now()
+                                WHERE user_id = $2 AND client_slug = $3 AND integration_type = 'google_ads'
+                                """,
+                                json.dumps({"customer_id": customer_id}),
+                                current_user.user_id,
+                                slug,
+                            )
+                            await conn.execute(
+                                """
+                                INSERT INTO client_platform_configs
+                                    (config_id, user_id, client_slug, client_name, platform, config, is_active)
+                                VALUES ($1, $2, $3, $4, 'google_ads', $5::jsonb, true)
+                                ON CONFLICT (user_id, client_slug, platform)
+                                DO UPDATE SET config = client_platform_configs.config || $5::jsonb, is_active = true
+                                """,
+                                f"cfg:{slug}:google_ads",
+                                current_user.user_id,
+                                slug,
+                                client["client_name"],
+                                json.dumps({"customer_id": customer_id}),
+                            )
             except Exception as e:
                 logger.exception("Google Ads fetch failed")
                 result["google_ads"] = {"not_connected": False, "error": str(e)}

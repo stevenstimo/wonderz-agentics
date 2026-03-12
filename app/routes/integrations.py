@@ -383,7 +383,7 @@ async def google_oauth_callback(code: Optional[str] = None, state: Optional[str]
                     VALUES ($1, $2, $3, $4, $5, $6::jsonb, now())
                     ON CONFLICT (user_id, client_slug, integration_type) DO UPDATE SET
                         api_key_encrypted = COALESCE(NULLIF($7, ''), client_integrations.api_key_encrypted),
-                        extra_config = jsonb_build_object(
+                        extra_config = client_integrations.extra_config || jsonb_build_object(
                             'access_token', EXCLUDED.extra_config->>'access_token',
                             'expires_at', COALESCE((EXCLUDED.extra_config->>'expires_at')::int, (EXTRACT(EPOCH FROM now())::int + 3600)),
                             'oauth_connected', true,

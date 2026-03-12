@@ -305,6 +305,12 @@ export default function ClientDashboard({
           </div>
         ) : (
           <>
+            {googleAds?._used_first_account && (
+              <div className="mb-4 p-3 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-800">
+                We tonen het eerste beschikbare Google Ads-account. Wil je het account van deze klant?{' '}
+                <Link to={integrationsUrl} className="font-medium text-indigo-600 hover:underline">Kies onder Integraties</Link>.
+              </div>
+            )}
             <div className="overflow-x-auto mb-6">
               <table className="w-full text-sm border-collapse">
                 <thead>
@@ -469,6 +475,12 @@ export default function ClientDashboard({
           />
         ) : (
           <>
+            {ga4?._used_first_property && (
+              <div className="mb-4 p-3 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-800">
+                We tonen het eerste beschikbare GA4-property. Wil je het property van deze klant?{' '}
+                <Link to={integrationsUrl} className="font-medium text-indigo-600 hover:underline">Kies onder Integraties</Link>.
+              </div>
+            )}
             <div className="grid sm:grid-cols-2 gap-4 mb-6">
               <KpiCard label="Engagement rate" value={engagementRate} formatter={(v) => fmtPct(v)} icon={TrendingUp} />
               <KpiCard label="Conversion rate" value={conversionRate} formatter={(v) => fmtPct(v)} icon={MousePointer} />
