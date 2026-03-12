@@ -52,45 +52,6 @@ export default function ClientsOverview() {
     fetchClients()
   }, [authReady, navigate, location])
 
-  const handleCreateVitbliss = async () => {
-    setCreatingVitbliss(true)
-    setError('')
-    try {
-      const res = await apiFetch('/api/clients', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ client_name: 'Vitbliss' }),
-      })
-      if (res.status === 401) {
-        navigate('/login', { state: { from: location } })
-        return
-      }
-      if (res.ok) {
-        const data = await res.json()
-        navigate(`/clients/${data.slug}`)
-      } else {
-        const j = await res.json().catch(() => ({}))
-        const detail = j.detail
-        if (typeof detail === 'string') {
-          setError(detail)
-        } else if (Array.isArray(detail)) {
-          setError(detail.map(d => d.msg || JSON.stringify(d)).join(', '))
-        } else if (detail && typeof detail === 'object') {
-          setError(JSON.stringify(detail))
-        } else {
-          setError('Aanmaken mislukt')
-        }
-      }
-    } catch (err) {
-      console.error('Failed to create Vitbliss:', err)
-      setError(typeof err?.message === 'string' ? err.message : 'Aanmaken mislukt')
-    } finally {
-      setCreatingVitbliss(false)
-    }
-  }
-
-  const hasVitbliss = clients.some((c) => c.slug === 'vitbliss')
-
   if (loading) {
     return (
       <PageLayout size="narrow" padded>
@@ -129,7 +90,7 @@ export default function ClientsOverview() {
       {clients.length === 0 ? (
         <div className="panel-card bg-white shadow-sm border border-slate-200 p-8 rounded-xl text-center text-slate-300">
           <Building className="w-12 h-12 mx-auto mb-3 opacity-50" />
-          <p>Nog geen clients. Maak een nieuwe aan of gebruik de Vitbliss-knop.</p>
+          <p>Nog geen clients. Maak een nieuwe aan via de knop hierboven.</p>
         </div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2">
