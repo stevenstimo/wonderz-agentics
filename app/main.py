@@ -3,6 +3,9 @@ FastAPI app — main backend entry point.
 
 Run: uvicorn app.main:app --host 0.0.0.0 --port 8090
 """
+import asyncio
+import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -10,11 +13,25 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.db import init_db_pool, close_db_pool
 
+logger = logging.getLogger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup: init DB pool. Shutdown: close pool."""
+    """Startup: init DB pool, then start EmailPoller if Gmail credentials set. Shutdown: close pool."""
     await init_db_pool()
+    gmail_address = (os.getenv("GMAIL_ADDRESS") or "").strip()
+    app_password = (os.getenv("GMAIL_APP_PASSWORD") or "").strip()
+    if gmail_address and app_password:
+        from app.services.email_poller import EmailPoller
+        poller = EmailPoller(gmail_address=gmail_address, app_password=app_password)
+        asyncio.create_task(poller.poll_loop())
+        logger.info("EmailPoller started (Gmail intake)")
+    else:
+        logger.warning(
+            "EmailPoller not started: GMAIL_ADDRESS or GMAIL_APP_PASSWORD missing in env. "
+            "Set both in .env to enable email intake."
+        )
     yield
     await close_db_pool()
 

@@ -52,10 +52,11 @@ LIMIT 3;
 
 ## Query 3: job_steps voor de job uit query 2
 
-Vervang `<id uit query 2>` door de UUID van de email-job (eerste rij uit query 2).
+Vervang `<id uit query 2>` door de UUID van de email-job (eerste rij uit query 2).  
+Kolomnaam in de tabel is `step_name` (niet `description`).
 
 ```sql
-SELECT job_id, step_index, agent_role, description
+SELECT job_id, step_index, agent_role, step_name
 FROM job_steps
 WHERE job_id = '<id uit query 2>'
 ORDER BY step_index;
@@ -63,13 +64,13 @@ ORDER BY step_index;
 
 **Verwachte output (voorbeeld voor 1 CEO-step):**
 
-| job_id  | step_index | agent_role | description        |
+| job_id  | step_index | agent_role | step_name          |
 |---------|------------|------------|--------------------|
 | \<uuid\> | 1          | copywriter | Blog 600 woorden   |
 
 - Meerdere rijen als de CEO meerdere stappen heeft voorgesteld.
 - `step_index`: 1, 2, 3, …
-- `agent_role` / `description`: uit het CEO-plan (bijv. copywriter, reviewer).
+- `agent_role` / `step_name`: uit het CEO-plan (bijv. copywriter, beschrijvingstekst).
 
 ---
 

@@ -95,12 +95,20 @@ pip install -r requirements-dev.txt
 
 ### 2. Configure Environment
 
-Create `.env` file:
+Create `.env` file (see `.env.example` for a template):
 ```bash
 ANTHROPIC_API_KEY=sk-ant-...
 DATABASE_URL=postgresql://user:pass@localhost:5432/ai_bureau
 REDIS_URL=redis://localhost:6379/0
 ```
+
+#### Email Intake Channel (Gmail)
+
+Jobs can be created by sending an email to a dedicated Gmail inbox. The backend polls via IMAP and creates a job in `PLAN_PROPOSED` for the user linked to the sender address.
+
+- **Setup**: Copy `.env.example` and set `GMAIL_ADDRESS` and `GMAIL_APP_PASSWORD`. Use a [Gmail App Password](https://support.google.com/accounts/answer/185833) (not your normal password); 2-Step Verification must be enabled. Optionally set `EMAIL_POLL_INTERVAL` (default 60 seconds).
+- **Tables**: Ensure migrations `063_inbound_emails_and_users.sql` and `064_jobs_intake_source.sql` are applied. Sender matching uses the `users` table (`id`, `email`); keep it in sync with your auth (e.g. on login).
+- **Security**: Never commit `.env`. `GMAIL_APP_PASSWORD` must stay in `.env` only (see `.gitignore`).
 
 ### 3. Start Services
 
