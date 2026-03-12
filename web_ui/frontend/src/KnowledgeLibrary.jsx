@@ -171,7 +171,7 @@ export default function KnowledgeLibrary() {
               className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 transition-colors"
             >
               <Plus className="w-4 h-4" />
-              Create book
+              Write Book
             </Link>
           </div>
 

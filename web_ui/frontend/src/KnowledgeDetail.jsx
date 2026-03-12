@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate, useLocation, Link } from 'react-router-dom'
 import PageLayout from './PageLayout'
-import { ArrowLeft, Check, Archive, AlertTriangle, Lock } from 'lucide-react'
+import { ArrowLeft, Check, Archive, AlertTriangle, Lock, Trash2, X } from 'lucide-react'
 
 import { apiFetch } from './apiClient'
 import { useAuthReady } from './useAuthReady'
@@ -45,6 +45,11 @@ export default function KnowledgeDetail() {
   const [secondApprover, setSecondApprover] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [relatedDocs, setRelatedDocs] = useState([])
+  const [deleteOverlayOpen, setDeleteOverlayOpen] = useState(false)
+  const [deleteConfirmInput, setDeleteConfirmInput] = useState('')
+  const [deleting, setDeleting] = useState(false)
+
+  const CONFIRM_DELETE_TEXT = 'DELETE'
 
   const fetchDocument = async () => {
     setLoading(true)
@@ -151,6 +156,32 @@ export default function KnowledgeDetail() {
       setActionError(err.message || 'Archive mislukt')
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  const handleDelete = async () => {
+    if (deleteConfirmInput !== CONFIRM_DELETE_TEXT || !id) return
+    setDeleting(true)
+    setActionError('')
+    try {
+      const res = await apiFetch(`/api/knowledge/${id}`, { method: 'DELETE' })
+      if (res.status === 401) {
+        navigate('/login', { state: { from: location } })
+        return
+      }
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}))
+        setActionError(j.detail || 'Verwijderen mislukt')
+        setDeleting(false)
+        return
+      }
+      setDeleteOverlayOpen(false)
+      setDeleteConfirmInput('')
+      const from = location.state?.from || (doc?.doc_type === 'skill_spec' ? '/knowledge/skills' : doc?.doc_type === 'client_context' ? '/knowledge/clients' : '/knowledge')
+      navigate(from, { replace: true })
+    } catch (err) {
+      setActionError(err.message || 'Verwijderen mislukt')
+      setDeleting(false)
     }
   }
 
@@ -291,6 +322,14 @@ export default function KnowledgeDetail() {
               Archive
             </button>
           )}
+          <button
+            type="button"
+            onClick={() => { setDeleteOverlayOpen(true); setDeleteConfirmInput(''); setActionError('') }}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-red-200 bg-red-50 text-red-700 font-medium hover:bg-red-100"
+          >
+            <Trash2 className="w-4 h-4" />
+            Delete book
+          </button>
         </div>
       </div>
 
@@ -435,6 +474,48 @@ export default function KnowledgeDetail() {
                 className="flex-1 px-4 py-2.5 rounded-lg bg-red-600 text-white font-medium hover:bg-red-700 disabled:opacity-50"
               >
                 {submitting ? 'Bezig...' : 'Archive'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete book overlay */}
+      {deleteOverlayOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 border border-slate-200">
+            <h2 className="text-lg font-semibold text-slate-900 mb-2">Book verwijderen</h2>
+            <p className="text-slate-600 mb-4">
+              Weet je zeker dat je dit book wilt deleten? Dit kan niet ongedaan worden gemaakt; er is geen backup.
+            </p>
+            <p className="text-sm text-slate-500 mb-2">Typ <strong>DELETE</strong> om te bevestigen:</p>
+            <input
+              type="text"
+              value={deleteConfirmInput}
+              onChange={(e) => setDeleteConfirmInput(e.target.value)}
+              placeholder="DELETE"
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
+              autoFocus
+            />
+            {actionError && (
+              <div className="mt-3 p-3 rounded-lg bg-red-50 text-red-700 text-sm">{actionError}</div>
+            )}
+            <div className="flex gap-3 mt-6">
+              <button
+                type="button"
+                onClick={() => { setDeleteOverlayOpen(false); setDeleteConfirmInput(''); setActionError('') }}
+                disabled={deleting}
+                className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 font-medium"
+              >
+                <X className="w-4 h-4" /> Annuleren
+              </button>
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={deleteConfirmInput !== CONFIRM_DELETE_TEXT || deleting}
+                className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-red-600 text-white font-medium hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {deleting ? 'Bezig...' : 'Definitief verwijderen'}
               </button>
             </div>
           </div>
