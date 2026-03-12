@@ -928,20 +928,33 @@ async def run_job_inline(job_id: str, context_extra: Optional[dict] = None):
                             talent_result = {"status": "rejected", "blocking_issues": [str(_talent_err)]}
 
                     # Retry logic: rejected -> max 2 retries; approved_with_changes -> 1 retry
-                    if talent_result and talent_result.get("status") == "rejected" and step_retries < 2:
-                        step_retries += 1
-                        await conn.execute(
-                            "UPDATE job_steps SET retry_count = $1, retry_reason = $2 WHERE id = $3",
-                            step_retries,
-                            "talent_rejected",
-                            step_id,
-                        )
-                        context["user_feedback"] = (
-                            "Je vorige output werd afgekeurd door de Talent agent.\n\nBlokkerende issues:\n"
-                            + "\n".join(talent_result.get("blocking_issues", []))
-                            + ("\n\n" + (talent_result.get("delta") or "")) if talent_result.get("delta") else ""
-                        )
-                        continue
+                    if talent_result and talent_result.get("status") == "rejected":
+                        if step_retries < 2:
+                            step_retries += 1
+                            await conn.execute(
+                                "UPDATE job_steps SET retry_count = $1, retry_reason = $2 WHERE id = $3",
+                                step_retries,
+                                "talent_rejected",
+                                step_id,
+                            )
+                            context["user_feedback"] = (
+                                "Je vorige output werd afgekeurd door de Talent agent.\n\nBlokkerende issues:\n"
+                                + "\n".join(talent_result.get("blocking_issues", []))
+                                + ("\n\n" + (talent_result.get("delta") or "")) if talent_result.get("delta") else ""
+                            )
+                            continue
+                        else:
+                            # Na 3 pogingen: step status=failed, feedback voor CEO/HR (platform spec V2)
+                            ceo_msg = "Talent agent heeft 3x afgekeurd: " + "; ".join(
+                                talent_result.get("blocking_issues", [])
+                            )
+                            await conn.execute(
+                                """UPDATE job_steps SET status = $1, feedback = $2 WHERE id = $3""",
+                                "failed",
+                                ceo_msg,
+                                step_id,
+                            )
+                            break
                     if talent_result and talent_result.get("status") == "approved_with_changes" and step_retries == 0:
                         step_retries += 1
                         await conn.execute(
