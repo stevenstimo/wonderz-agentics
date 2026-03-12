@@ -1,8 +1,18 @@
+import { useRef, useEffect } from 'react'
+import { useLocation } from 'react-router-dom'
 import TopHeader from './TopHeader.jsx'
 import Sidebar from './Sidebar.jsx'
 import DebugChat from './DebugChat.jsx'
 
 export default function CommandCenter({ children }) {
+  const mainRef = useRef(null)
+  const { pathname } = useLocation()
+
+  // Scroll content area to top on every route change so the new page is visible immediately
+  useEffect(() => {
+    mainRef.current?.scrollTo(0, 0)
+  }, [pathname])
+
   return (
     <>
       <div className="flex h-screen overflow-hidden">
@@ -15,7 +25,7 @@ export default function CommandCenter({ children }) {
           <header className="h-14 flex-shrink-0 border-b border-slate-200 bg-white flex items-center z-20">
             <TopHeader />
           </header>
-          <main className="flex-1 overflow-y-auto bg-slate-50 min-h-0">
+          <main ref={mainRef} className="flex-1 overflow-y-auto bg-slate-50 min-h-0">
             {children}
           </main>
         </div>
