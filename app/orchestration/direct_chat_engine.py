@@ -31,10 +31,19 @@ class DirectChatEngine:
         self.model = model
         self.client = Anthropic()
 
-    async def send_message(self, chat_id: str, user_message: str) -> Dict[str, Any]:
+    async def send_message(
+        self,
+        chat_id: str,
+        user_message: str,
+        *,
+        extra_system_block: str | None = None,
+    ) -> Dict[str, Any]:
         """
         Process user message, call LLM with context injection, persist messages.
         Returns dict with agent_response, token_usage, session_tokens_used, warning, or error.
+
+        extra_system_block: Optional. When set, prepended to the system message (e.g. for
+        inbox CEO context). Default None so all existing call sites remain unchanged.
         """
         pool = await get_db()
         async with pool.acquire() as conn:
@@ -87,6 +96,8 @@ class DirectChatEngine:
             # 5. Retrieve knowledge context (top-5 via cosine similarity)
             knowledge_chunks = await self._retrieve_context(conn, chat["agent_id"], user_message)
             system_msg = self._build_system_message(agent, knowledge_chunks, client_context_block)
+            if extra_system_block is not None:
+                system_msg = extra_system_block.rstrip() + "\n\n" + system_msg
 
             # 6. Fetch history (FIFO, last 20) — map DB roles to Anthropic: agent→assistant, human→user
             history = await self._get_messages(conn, chat_id, limit=MAX_HISTORY)

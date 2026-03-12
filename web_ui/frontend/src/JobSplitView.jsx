@@ -197,6 +197,7 @@ export default function JobSplitView() {
   const [chatAttachedFile, setChatAttachedFile] = useState(null)
   const chatFileInputRef = useRef(null)
   const [events, setEvents] = useState([])
+  const [serverKeys, setServerKeys] = useState(null)
 
   const fetchJob = useCallback(async () => {
     if (!jobId) return null
@@ -271,6 +272,19 @@ export default function JobSplitView() {
       .then((d) => setEvents(d.events || []))
       .catch(() => setEvents([]))
   }, [jobId])
+
+  // When showing API key error, fetch current server fingerprint so user can compare
+  useEffect(() => {
+    if (job?.status !== 'INTAKE_CLARIFICATION') return
+    const ctx = job?.context ? parseContext(job.context) : {}
+    const briefCtx = ctx.brief?.context
+    const errFp = briefCtx && typeof briefCtx === 'object' && briefCtx.key_fingerprint
+    if (!errFp) return
+    fetch(apiUrl('/api/status/keys'))
+      .then((r) => (r.ok ? r.json() : null))
+      .then((k) => (k ? setServerKeys(k) : setServerKeys({})))
+      .catch(() => setServerKeys({}))
+  }, [job?.status, job?.context])
 
   useEffect(() => {
     if (!sendingChat && ceoTyping) {
@@ -747,10 +761,23 @@ export default function JobSplitView() {
                 <div className="space-y-3">
                   {isApiCreditError && (
                     <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-                      Dit kan een eerdere fout zijn. Controleer of de juiste API-key op de server staat (Status → Keys; na herstart backend moet de fingerprint kloppen). Stuur daarna een nieuw bericht om opnieuw te proberen.
+                      <p>Dit kan een eerdere fout zijn. Controleer of de juiste API-key op de server staat. Na wijziging: herstart de backend, controleer de fingerprint op het Dashboard (Status), en stuur daarna een nieuw bericht.</p>
                       {briefCtx && typeof briefCtx === 'object' && briefCtx.key_fingerprint && (
-                        <span className="block mt-2 text-xs font-mono text-amber-900">Key fingerprint bij fout: {briefCtx.key_fingerprint} (vergelijk met /api/status/keys)</span>
+                        <div className="mt-2 space-y-1 text-xs font-mono text-amber-900">
+                          <div>Key fingerprint bij fout: <strong>{briefCtx.key_fingerprint}</strong></div>
+                          {serverKeys?.anthropic && (
+                            <>
+                              <div>Huidige server (Anthropic): <strong>{serverKeys.anthropic.fingerprint || '(niet geladen)'}</strong></div>
+                              <p className="font-sans text-amber-800 mt-1">
+                                {serverKeys.anthropic.fingerprint === briefCtx.key_fingerprint
+                                  ? 'Zelfde key — controleer of de key geldig is (niet verlopen/ingetrokken) in het Anthropic-dashboard.'
+                                  : 'Andere key op server — zet de juiste ANTHROPIC_API_KEY in de omgeving, herstart de backend en probeer opnieuw.'}
+                              </p>
+                            </>
+                          )}
+                        </div>
                       )}
+                      <Link to="/" className="inline-block mt-2 text-xs font-medium text-amber-900 underline hover:text-amber-700">Naar Dashboard (Status / Keys)</Link>
                     </div>
                   )}
                   {runningIntake && <p className="text-amber-700 text-sm font-medium">Intake wordt uitgevoerd… (kan 20–30 sec duren)</p>}
