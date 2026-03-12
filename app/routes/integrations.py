@@ -15,7 +15,7 @@ from typing import Optional
 from urllib.parse import urlencode
 
 import httpx
-from fastapi import APIRouter, Body, Depends, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 
@@ -651,10 +651,10 @@ async def upsert_integration(
 @router.delete("/{integration_type}")
 async def delete_integration(
     integration_type: str,
-    client_slug: Optional[str] = None,
+    client_slug: Optional[str] = Query(None, description="Client slug for client-scoped disconnect"),
     current_user: TokenPayload = Depends(get_current_user),
 ):
-    """Delete integration for the current user. Optionally scoped to client_slug."""
+    """Delete integration for the current user. Optionally scoped to client_slug. Clears platform config for this client when present."""
     pool = await get_db()
     async with pool.acquire() as conn:
         result = await conn.execute(
@@ -666,6 +666,17 @@ async def delete_integration(
             client_slug,
             integration_type,
         )
+        if client_slug and result != "DELETE 0":
+            platform = integration_type
+            await conn.execute(
+                """
+                DELETE FROM client_platform_configs
+                WHERE user_id = $1 AND client_slug = $2 AND platform = $3
+                """,
+                current_user.user_id,
+                client_slug,
+                platform,
+            )
     if result == "DELETE 0":
         raise HTTPException(status_code=404, detail="Integration not found")
     return {"status": "ok", "integration_type": integration_type}

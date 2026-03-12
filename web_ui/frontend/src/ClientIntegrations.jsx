@@ -89,6 +89,7 @@ export default function ClientIntegrations() {
   const [googleLoading, setGoogleLoading] = useState({ ga4: false, google_ads: false, gsc: false })
   const [googleError, setGoogleError] = useState({ ga4: null, google_ads: null, gsc: null })
   const [connecting, setConnecting] = useState(null)
+  const [disconnecting, setDisconnecting] = useState(null)
   const [selectorModal, setSelectorModal] = useState(null)
   const authReady = useAuthReady()
 
@@ -137,6 +138,36 @@ export default function ClientIntegrations() {
       setError(err.message || 'Verbinden mislukt')
     } finally {
       setConnecting(null)
+    }
+  }
+
+  const handleGoogleDisconnect = async (platform) => {
+    const serviceType = PLATFORM_TO_SERVICE_TYPE[platform]
+    if (!serviceType) return
+    if (!confirm(`Verbinding met ${PLATFORM_LABELS[platform]} verbreken? Je kunt daarna opnieuw verbinden met het account van deze klant.`)) return
+    setDisconnecting(platform)
+    setError('')
+    try {
+      const res = await apiFetch(
+        `/api/integrations/${serviceType}?client_slug=${encodeURIComponent(slug)}`,
+        { method: 'DELETE' }
+      )
+      if (res.status === 401) {
+        navigate('/login', { state: { from: location } })
+        return
+      }
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}))
+        setError(j.detail || 'Ontkoppelen mislukt')
+        return
+      }
+      await fetchData()
+      setGoogleOptions((prev) => ({ ...prev, [platform]: [] }))
+      setGoogleError((prev) => ({ ...prev, [platform]: null }))
+    } catch (err) {
+      setError(err?.message || 'Ontkoppelen mislukt')
+    } finally {
+      setDisconnecting(null)
     }
   }
 
@@ -486,42 +517,54 @@ export default function ClientIntegrations() {
                   : 'bg-slate-50 border-slate-200 opacity-75'
               }`}
             >
-              <div className="flex items-center justify-between mb-4">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
                 <h3 className="font-semibold text-slate-800">{PLATFORM_LABELS[platform]}</h3>
-                <span
-                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-sm font-medium ${
-                    (isGoogle ? isPlatformConnected(platform) : configured)
-                      ? 'bg-emerald-100 text-emerald-800'
-                      : canConfigure
-                        ? 'bg-slate-100 text-slate-600'
-                        : isGoogle
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-sm font-medium ${
+                      (isGoogle ? isPlatformConnected(platform) : configured)
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : canConfigure
                           ? 'bg-slate-100 text-slate-600'
-                          : 'bg-slate-200 text-slate-500'
-                  }`}
-                >
-                  {(isGoogle ? isPlatformConnected(platform) : configured) ? (
-                    <>
-                      <CheckCircle className="w-4 h-4" />
-                      {isGoogle
-                        ? (getDisplayNameForPlatform(platform)
-                          ? `Verbonden — ${getDisplayNameForPlatform(platform)}`
-                          : 'Verbonden')
-                        : 'Geconfigureerd'}
-                    </>
-                  ) : canConfigure ? (
-                    <>
-                      <XCircle className="w-4 h-4" />
-                      {isGoogle ? 'Niet verbonden' : 'Niet geconfigureerd'}
-                    </>
-                  ) : isGoogle ? (
-                    <>
-                      <XCircle className="w-4 h-4" />
-                      Niet verbonden
-                    </>
-                  ) : (
-                    <>Koppel eerst in Integrations</>
+                          : isGoogle
+                            ? 'bg-slate-100 text-slate-600'
+                            : 'bg-slate-200 text-slate-500'
+                    }`}
+                  >
+                    {(isGoogle ? isPlatformConnected(platform) : configured) ? (
+                      <>
+                        <CheckCircle className="w-4 h-4" />
+                        {isGoogle
+                          ? (getDisplayNameForPlatform(platform)
+                            ? `Verbonden — ${getDisplayNameForPlatform(platform)}`
+                            : 'Verbonden')
+                          : 'Geconfigureerd'}
+                      </>
+                    ) : canConfigure ? (
+                      <>
+                        <XCircle className="w-4 h-4" />
+                        {isGoogle ? 'Niet verbonden' : 'Niet geconfigureerd'}
+                      </>
+                    ) : isGoogle ? (
+                      <>
+                        <XCircle className="w-4 h-4" />
+                        Niet verbonden
+                      </>
+                    ) : (
+                      <>Koppel eerst in Integrations</>
+                    )}
+                  </span>
+                  {isGoogle && isPlatformConnected(platform) && (
+                    <button
+                      type="button"
+                      onClick={() => handleGoogleDisconnect(platform)}
+                      disabled={disconnecting === platform}
+                      className="text-sm px-3 py-1.5 rounded-lg border border-red-200 text-red-700 bg-white hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {disconnecting === platform ? 'Bezig...' : 'Ontkoppelen'}
+                    </button>
                   )}
-                </span>
+                </div>
               </div>
 
               {isGoogle && (
@@ -576,20 +619,30 @@ export default function ClientIntegrations() {
                                 <option value={currentVal}>{currentVal}</option>
                               )}
                             </select>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                handleGoogleSave(
-                                  platform,
-                                  platformForms[platform]?.[cfg.configKey] ?? currentVal
-                                )
-                              }
-                              disabled={!currentVal || saving === platform}
-                              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                              <Save className="w-4 h-4" />
-                              {saving === platform ? 'Opslaan...' : 'Opslaan'}
-                            </button>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleGoogleSave(
+                                    platform,
+                                    platformForms[platform]?.[cfg.configKey] ?? currentVal
+                                  )
+                                }
+                                disabled={!currentVal || saving === platform}
+                                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                <Save className="w-4 h-4" />
+                                {saving === platform ? 'Opslaan...' : 'Opslaan'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleGoogleDisconnect(platform)}
+                                disabled={disconnecting === platform || saving === platform}
+                                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-300 text-slate-700 bg-white hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                {disconnecting === platform ? 'Bezig...' : 'Verbinding verbreken'}
+                              </button>
+                            </div>
                           </>
                         )
                       })()}
