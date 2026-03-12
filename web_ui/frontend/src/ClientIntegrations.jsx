@@ -86,6 +86,7 @@ export default function ClientIntegrations() {
   const [error, setError] = useState('')
   const [platformForms, setPlatformForms] = useState({})
   const [googleOptions, setGoogleOptions] = useState({ ga4: [], google_ads: [], gsc: [] })
+  const [googleMccAccounts, setGoogleMccAccounts] = useState([])
   const [googleLoginCustomerId, setGoogleLoginCustomerId] = useState(null)
   const [googleLoading, setGoogleLoading] = useState({ ga4: false, google_ads: false, gsc: false })
   const [googleError, setGoogleError] = useState({ ga4: null, google_ads: null, gsc: null })
@@ -211,8 +212,10 @@ export default function ClientIntegrations() {
       const data = await res.json()
       const list = data?.accounts ?? (Array.isArray(data) ? data : [])
       setGoogleOptions((prev) => ({ ...prev, [platform]: list }))
-      if (platform === 'google_ads' && data?.login_customer_id) setGoogleLoginCustomerId(data.login_customer_id)
-      else if (platform === 'google_ads') setGoogleLoginCustomerId(null)
+      if (platform === 'google_ads') {
+        setGoogleMccAccounts(data?.mcc_accounts ?? [])
+        setGoogleLoginCustomerId(data?.login_customer_id ?? null)
+      }
     } catch (err) {
       setGoogleError((prev) => ({ ...prev, [platform]: err.message || 'Laden mislukt' }))
     } finally {
@@ -610,6 +613,8 @@ export default function ClientIntegrations() {
                         if (load) {
                           return <p className="text-sm text-slate-500">Laden...</p>
                         }
+                        const isGoogleAdsGrouped =
+                          platform === 'google_ads' && Array.isArray(googleMccAccounts) && googleMccAccounts.length > 0
                         return (
                           <>
                             <select
@@ -619,11 +624,21 @@ export default function ClientIntegrations() {
                               className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                             >
                               {!currentVal && <option value="">— Selecteer —</option>}
-                              {opts.map((opt) => (
-                                <option key={opt[cfg.valueKey]} value={opt[cfg.valueKey]}>
-                                  {cfg.optionLabel ? cfg.optionLabel(opt) : (opt[cfg.labelKey] || opt[cfg.valueKey])}
-                                </option>
-                              ))}
+                              {isGoogleAdsGrouped
+                                ? googleMccAccounts.map((mcc) => (
+                                    <optgroup key={mcc.mcc_id} label={`${mcc.mcc_name} (${mcc.mcc_id})`}>
+                                      {(mcc.children || []).map((child) => (
+                                        <option key={child.customer_id} value={child.customer_id}>
+                                          {cfg.optionLabel ? cfg.optionLabel(child) : (child.descriptive_name || child.customer_id)}
+                                        </option>
+                                      ))}
+                                    </optgroup>
+                                  ))
+                                : opts.map((opt) => (
+                                    <option key={opt[cfg.valueKey]} value={opt[cfg.valueKey]}>
+                                      {cfg.optionLabel ? cfg.optionLabel(opt) : (opt[cfg.labelKey] || opt[cfg.valueKey])}
+                                    </option>
+                                  ))}
                               {currentVal && !opts.some((o) => o[cfg.valueKey] === currentVal) && (
                                 <option value={currentVal}>{currentVal}</option>
                               )}

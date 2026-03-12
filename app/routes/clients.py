@@ -179,7 +179,7 @@ async def get_ads_accounts(
     if not refresh:
         raise HTTPException(status_code=401, detail="token_expired")
     try:
-        accounts, login_customer_id = await list_google_ads_accounts(refresh)
+        mcc_accounts, accounts, login_customer_id = await list_google_ads_accounts(refresh)
     except Exception as e:
         err_str = str(e)
         if "403" in err_str or "has not been used" in err_str or "API not enabled" in err_str:
@@ -187,7 +187,17 @@ async def get_ads_accounts(
         elif "401" in err_str or "invalid_grant" in err_str or "Token has been expired" in err_str:
             raise HTTPException(status_code=401, detail="token_expired")
         raise HTTPException(status_code=500, detail=str(e))
-    return {"accounts": accounts, "login_customer_id": login_customer_id or None}
+    num_mccs = len(mcc_accounts)
+    num_children = sum(len(mcc.get("children", [])) for mcc in mcc_accounts)
+    logger.info(
+        "Google Ads ads-accounts response: slug=%s, mccs=%s, children=%s",
+        slug, num_mccs, num_children,
+    )
+    return {
+        "mcc_accounts": mcc_accounts,
+        "accounts": accounts,
+        "login_customer_id": login_customer_id or None,
+    }
 
 
 @router.get("/{slug}/google/gsc-sites")
@@ -392,7 +402,7 @@ async def get_client_dashboard(
                         fallback_extra = {"customer_id": customer_id}
                         if not (extra_config.get("login_customer_id") if isinstance(extra_config, dict) else None):
                             try:
-                                _, mcc_id = await list_google_ads_accounts(refresh)
+                                _, _, mcc_id = await list_google_ads_accounts(refresh)
                                 if mcc_id:
                                     fallback_extra["login_customer_id"] = mcc_id
                             except Exception:
@@ -548,6 +558,11 @@ async def save_integration_config(
         extra = dict(extra)
         extra.update(config_dict)
         extra_json = json.dumps(extra)
+        if service_type == "google_ads" and config_dict.get("login_customer_id"):
+            logger.info(
+                "Google Ads config saved: slug=%s, customer_id=%s, login_customer_id=%s",
+                slug, config_dict.get("customer_id"), config_dict.get("login_customer_id"),
+            )
 
         await conn.execute(
             """

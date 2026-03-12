@@ -34,6 +34,7 @@ const SERVICE_CONFIG = {
 
 export function PropertySelectorModal({ slug, serviceType, onSaved, onClose }) {
   const [options, setOptions] = useState([])
+  const [mccAccounts, setMccAccounts] = useState([])
   const [selected, setSelected] = useState('')
   const [loginCustomerId, setLoginCustomerId] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -52,8 +53,10 @@ export function PropertySelectorModal({ slug, serviceType, onSaved, onClose }) {
       .then((data) => {
         const list = data?.accounts ?? (Array.isArray(data) ? data : [])
         setOptions(list)
-        if (serviceType === 'google_ads') setLoginCustomerId(data?.login_customer_id ?? null)
-        else setLoginCustomerId(null)
+        if (serviceType === 'google_ads') {
+          setMccAccounts(data?.mcc_accounts ?? [])
+          setLoginCustomerId(data?.login_customer_id ?? null)
+        } else setMccAccounts([])
         if (list.length === 1) setSelected(cfg.optionValue(list[0]))
       })
       .catch(() => setError('Kon opties niet laden.'))
@@ -108,11 +111,21 @@ export function PropertySelectorModal({ slug, serviceType, onSaved, onClose }) {
             onChange={(e) => setSelected(e.target.value)}
           >
             <option value="">— Selecteer een optie —</option>
-            {options.map((opt) => (
-              <option key={config.optionValue(opt)} value={config.optionValue(opt)}>
-                {config.optionLabel(opt)}
-              </option>
-            ))}
+            {serviceType === 'google_ads' && mccAccounts.length > 0
+              ? mccAccounts.map((mcc) => (
+                  <optgroup key={mcc.mcc_id} label={`${mcc.mcc_name} (${mcc.mcc_id})`}>
+                    {(mcc.children || []).map((child) => (
+                      <option key={child.customer_id} value={child.customer_id}>
+                        {config.optionLabel(child)}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))
+              : options.map((opt) => (
+                  <option key={config.optionValue(opt)} value={config.optionValue(opt)}>
+                    {config.optionLabel(opt)}
+                  </option>
+                ))}
           </select>
         )}
 

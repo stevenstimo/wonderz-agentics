@@ -111,13 +111,26 @@ def _format_customer_id(cid: str) -> str:
 _CUSTOMER_CLIENT_QUERY = """
     SELECT customer_client.id, customer_client.descriptive_name, customer_client.manager, customer_client.level
     FROM customer_client
-    WHERE customer_client.level <= 1
+    WHERE customer_client.level <= 3
 """
 
 
-async def list_google_ads_accounts(refresh_token: str) -> Tuple[list[dict[str, str]], Optional[str]]:
-    """List all Google Ads accounts accessible via the token, including MCC sub-accounts.
-    Returns (accounts, login_customer_id). login_customer_id is the MCC used (env or auto-detected) for use when fetching campaign data."""
+def _list_google_ads_accounts_result(
+    mcc_accounts: list[dict], login_customer_id: Optional[str]
+) -> Tuple[list[dict], list[dict], Optional[str]]:
+    """Return (mcc_accounts, flat_accounts, login_customer_id). Flat list = all children for backwards compat."""
+    flat: list[dict] = []
+    for mcc in mcc_accounts:
+        for child in mcc.get("children", []):
+            flat.append(dict(child))
+    return (mcc_accounts, flat, login_customer_id)
+
+
+async def list_google_ads_accounts(
+    refresh_token: str,
+) -> Tuple[list[dict], list[dict], Optional[str]]:
+    """List Google Ads accounts grouped by MCC. Only non-manager (child) accounts are selectable.
+    Returns (mcc_accounts, flat_accounts, login_customer_id)."""
     try:
         from google.ads.googleads.client import GoogleAdsClient
         from google.ads.googleads.errors import GoogleAdsException
@@ -132,18 +145,15 @@ async def list_google_ads_accounts(refresh_token: str) -> Tuple[list[dict[str, s
         "refresh_token": refresh_token,
         "use_proto_plus": True,
     }
-    mcc_config = {**base_config}
     login_customer_id: Optional[str] = (GOOGLE_ADS_LOGIN_CUSTOMER_ID or "").strip() or None
     if login_customer_id:
         login_customer_id = login_customer_id.replace("-", "")
-        mcc_config["login_customer_id"] = login_customer_id
     try:
         client = GoogleAdsClient.load_from_dict(base_config)
         customer_service = client.get_service("CustomerService")
         response = customer_service.list_accessible_customers()
 
         accessible_ids = [r.replace("customers/", "") for r in response.resource_names if r.startswith("customers/")]
-        # Find all MCCs: each accessible_id that returns customer_client results is an MCC
         mcc_ids: list[str] = []
         if login_customer_id:
             mcc_ids = [login_customer_id]
@@ -164,35 +174,15 @@ async def list_google_ads_accounts(refresh_token: str) -> Tuple[list[dict[str, s
             if mcc_ids and not login_customer_id:
                 login_customer_id = mcc_ids[0]
 
-        seen: set[str] = set()
-        result: list[dict[str, str]] = []
-
-        for resource_name in response.resource_names:
-            if not resource_name.startswith("customers/"):
-                continue
-            raw_id = resource_name.replace("customers/", "")
-            descriptive_name = ""
-            try:
-                customer = customer_service.get_customer(resource_name=resource_name)
-                raw_id = str(customer.id)
-                descriptive_name = getattr(customer, "descriptive_name", None) or ""
-            except (GoogleAdsException, Exception) as e:
-                logger.debug("get_customer %s failed: %s", resource_name, e)
-            cid = _format_customer_id(raw_id)
-            if raw_id not in seen:
-                seen.add(raw_id)
-                result.append({
-                    "id": cid,
-                    "name": descriptive_name or cid,
-                    "customer_id": raw_id,
-                    "descriptive_name": descriptive_name or cid,
-                    "login_customer_id": None,
-                })
-
-        # For each MCC, use a client with that MCC as login_customer_id to fetch its sub-accounts
+        # mcc_id (raw) -> { mcc_name, children[] }; only manager=false in children
+        mcc_data: dict[str, dict] = {}
         to_process: list[str] = list(mcc_ids)
+        seen_children: set[str] = set()
+
         while to_process:
             mcc_id = to_process.pop(0)
+            if mcc_id not in mcc_data:
+                mcc_data[mcc_id] = {"mcc_name": _format_customer_id(mcc_id), "children": []}
             try:
                 seed_config = {**base_config, "login_customer_id": mcc_id}
                 seed_client = GoogleAdsClient.load_from_dict(seed_config)
@@ -201,31 +191,42 @@ async def list_google_ads_accounts(refresh_token: str) -> Tuple[list[dict[str, s
                 for batch in stream:
                     for row in batch.results:
                         customer = row.customer_client
-                        descriptive_name = getattr(customer, "descriptive_name", None) or ""
-                        cid = _format_customer_id(str(customer.id))
                         raw_id = str(customer.id)
-                        if raw_id in seen:
+                        is_manager = getattr(customer, "manager", False)
+                        descriptive_name = getattr(customer, "descriptive_name", None) or ""
+                        cid = _format_customer_id(raw_id)
+
+                        if raw_id == mcc_id:
+                            mcc_data[mcc_id]["mcc_name"] = descriptive_name or cid
+                        if is_manager:
+                            if raw_id != mcc_id:
+                                to_process.append(raw_id)
+                                if raw_id not in mcc_data:
+                                    mcc_data[raw_id] = {"mcc_name": descriptive_name or cid, "children": []}
                             continue
-                        seen.add(raw_id)
-                        result.append({
-                            "id": cid,
-                            "name": descriptive_name or cid,
+                        # Only non-manager (child) accounts are selectable
+                        if raw_id in seen_children:
+                            continue
+                        seen_children.add(raw_id)
+                        mcc_data[mcc_id]["children"].append({
                             "customer_id": raw_id,
+                            "id": cid,
                             "descriptive_name": descriptive_name or cid,
+                            "name": descriptive_name or cid,
                             "login_customer_id": mcc_id,
                         })
-                        # Nested MCC: query its children with its own client
-                        if getattr(customer, "manager", False) and getattr(customer, "level", 0) == 1:
-                            to_process.append(raw_id)
             except (GoogleAdsException, Exception) as e:
                 logger.debug("customer_client query for MCC %s failed: %s", mcc_id, e)
 
-        # Top-level accounts: assign default MCC if we have one (for backward compat)
-        if login_customer_id:
-            for acc in result:
-                if acc.get("login_customer_id") is None:
-                    acc["login_customer_id"] = login_customer_id
-        return (result, login_customer_id)
+        mcc_accounts = [
+            {
+                "mcc_id": _format_customer_id(mid),
+                "mcc_name": data["mcc_name"],
+                "children": data["children"],
+            }
+            for mid, data in mcc_data.items()
+        ]
+        return _list_google_ads_accounts_result(mcc_accounts, login_customer_id)
     except Exception as e:
         logger.warning("List Google Ads accounts failed: %s", e)
         raise PermissionError(str(e)) from e
