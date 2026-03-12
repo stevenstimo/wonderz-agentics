@@ -442,16 +442,6 @@ export default function JobSplitView() {
     setMentionSuggestions([])
   }
 
-  const mentionedClient = (() => {
-    const m = chatInput.match(/@([a-zA-Z0-9_-]+)/g)
-    if (!m || !clients.length) return null
-    for (const tag of m) {
-      const slug = (tag.slice(1) || '').toLowerCase()
-      const c = clients.find((x) => (x.slug || '').toLowerCase() === slug)
-      if (c) return c
-    }
-    return null
-  })()
 
   const handleSendMessage = async (e) => {
     e?.preventDefault()
