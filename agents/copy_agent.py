@@ -71,6 +71,11 @@ async def _generate_copy_with_anthropic(job_post: str, objective: str, target_au
     )
     if knowledge_block:
         system_prompt += "\n\n" + knowledge_block
+    try:
+        from app.services.worker_contract import WorkerOutputValidator
+        system_prompt += "\n\n" + WorkerOutputValidator().format_for_prompt()
+    except Exception:
+        pass
     user_prompt = (
         f"Schrijf één sterke Nederlandse tekst op basis van:\n"
         f"- Oorspronkelijke aanvraag: {job_post}\n"
@@ -151,6 +156,27 @@ async def run(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     summary = content[:100]
 
+    worker_output = None
+    validation_status = "pending"
+    validation_warnings = []
+    try:
+        from app.services.worker_contract import WorkerOutputValidator
+        validator = WorkerOutputValidator()
+        parsed = validator.parse_from_llm_response(content)
+        validation = validator.validate(parsed)
+        worker_output = parsed
+        validation_status = "valid" if validation.get("valid") else "invalid"
+        validation_warnings = validation.get("warnings") or []
+        if not validation.get("valid"):
+            import logging
+            logging.getLogger(__name__).warning(
+                "Worker contract invalid: missing=%s empty=%s",
+                validation.get("missing_sections"),
+                validation.get("empty_sections"),
+            )
+    except Exception:
+        pass
+
     return {
         'status': 'DRAFT_READY',
         'content': content,
@@ -171,4 +197,7 @@ async def run(payload: Dict[str, Any]) -> Dict[str, Any]:
                 'review_feedback': None,
             }
         ],
+        'worker_output': worker_output,
+        'validation_status': validation_status,
+        'validation_warnings': validation_warnings,
     }

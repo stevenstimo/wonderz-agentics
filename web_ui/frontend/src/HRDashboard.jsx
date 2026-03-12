@@ -7,6 +7,7 @@ import { useAuthReady } from './useAuthReady'
 const TABS = [
   { id: 'points', label: 'Development Points' },
   { id: 'training', label: 'Training Requests' },
+  { id: 'cross', label: 'Cross-Training' },
 ]
 
 const IMPACT_BADGE = {
@@ -32,6 +33,8 @@ export default function HRDashboard() {
   const [scanning, setScanning] = useState(false)
   const [error, setError] = useState('')
   const [trainingUrlInput, setTrainingUrlInput] = useState({})
+  const [crossProposals, setCrossProposals] = useState([])
+  const [crossUrlInput, setCrossUrlInput] = useState({})
 
   const loadPoints = useCallback(async () => {
     setLoading(true)
@@ -65,11 +68,51 @@ export default function HRDashboard() {
     }
   }, [])
 
+  const loadCrossProposals = useCallback(async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const res = await apiFetch('/api/hr/cross-training-proposals?status=pending')
+      if (res.ok) {
+        const data = await res.json()
+        setCrossProposals(Array.isArray(data) ? data : [])
+      }
+    } catch (err) {
+      setError(err.message || 'Laden mislukt')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
     if (!authReady) return
     if (tab === 'points') loadPoints()
     else if (tab === 'training') loadTrainingRequests()
-  }, [authReady, tab, loadPoints, loadTrainingRequests])
+    else if (tab === 'cross') loadCrossProposals()
+  }, [authReady, tab, loadPoints, loadTrainingRequests, loadCrossProposals])
+
+  // Mark CEO notifications as read when user lands on HR dashboard
+  useEffect(() => {
+    if (!authReady) return
+    let cancelled = false
+    const markAllRead = async () => {
+      try {
+        const res = await apiFetch('/api/hr/notifications')
+        if (!res.ok || cancelled) return
+        const list = await res.json()
+        if (!Array.isArray(list) || cancelled) return
+        for (const n of list) {
+          if (n.notification_id) {
+            await apiFetch(`/api/hr/notifications/${n.notification_id}/read`, { method: 'POST' })
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+    markAllRead()
+    return () => { cancelled = true }
+  }, [authReady])
 
   async function triggerScan() {
     setScanning(true)
@@ -119,6 +162,34 @@ export default function HRDashboard() {
         body: JSON.stringify({ status: 'DISMISSED', approved_by: 'hr-dashboard' }),
       })
       await loadTrainingRequests()
+    } catch {
+      setError('Afwijzen mislukt')
+    }
+  }
+
+  async function approveCrossTrain(proposalId) {
+    const sourceUrl = crossUrlInput[proposalId] || null
+    try {
+      await apiFetch('/api/hr/cross-train', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ proposal_id: proposalId, approved: true, source_url: sourceUrl || undefined }),
+      })
+      setCrossUrlInput((prev) => { const n = { ...prev }; delete n[proposalId]; return n })
+      await loadCrossProposals()
+    } catch {
+      setError('Goedkeuren mislukt')
+    }
+  }
+
+  async function rejectCrossTrain(proposalId) {
+    try {
+      await apiFetch('/api/hr/cross-train', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ proposal_id: proposalId, approved: false }),
+      })
+      await loadCrossProposals()
     } catch {
       setError('Afwijzen mislukt')
     }
@@ -353,6 +424,100 @@ export default function HRDashboard() {
                               </div>
                             )}
                           </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Tab 3: Cross-Training */}
+      {tab === 'cross' && (
+        <div>
+          {loading ? (
+            <p className="text-slate-500">Laden...</p>
+          ) : crossProposals.length === 0 ? (
+            <div className="p-8 rounded-xl border border-slate-200 bg-slate-50 text-center">
+              <p className="text-slate-600">Geen cross-training voorstellen.</p>
+              <p className="text-slate-400 text-sm mt-1">HR Manager detecteert automatisch nieuwe kansen.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto rounded-lg border border-slate-200">
+              <table className="min-w-full text-sm">
+                <thead className="bg-slate-50">
+                  <tr>
+                    <th className="px-4 py-2 text-left font-medium text-slate-700">Lesson</th>
+                    <th className="px-4 py-2 text-left font-medium text-slate-700">Bron agent</th>
+                    <th className="px-4 py-2 text-left font-medium text-slate-700">Doel agents</th>
+                    <th className="px-4 py-2 text-left font-medium text-slate-700">Reden</th>
+                    <th className="px-4 py-2 text-left font-medium text-slate-700">Acties</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {crossProposals.map((p) => {
+                    const showInput = crossUrlInput[p.proposal_id] !== undefined
+                    const targets = Array.isArray(p.target_agent_ids) ? p.target_agent_ids : []
+                    return (
+                      <tr key={p.proposal_id} className="hover:bg-slate-50">
+                        <td className="px-4 py-2 max-w-xs">{p.lesson_id}</td>
+                        <td className="px-4 py-2">{p.source_agent_id || '—'}</td>
+                        <td className="px-4 py-2">
+                          <div className="flex flex-wrap gap-1">
+                            {targets.map((id) => (
+                              <span key={id} className="px-2 py-0.5 text-xs font-medium rounded bg-slate-100 text-slate-700">
+                                {id}
+                              </span>
+                            ))}
+                          </div>
+                        </td>
+                        <td className="px-4 py-2 max-w-xs text-slate-600">{p.reason || '—'}</td>
+                        <td className="px-4 py-2">
+                          {!showInput ? (
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setCrossUrlInput((prev) => ({ ...prev, [p.proposal_id]: '' }))}
+                                className="text-xs font-medium text-green-600 hover:underline"
+                              >
+                                Goedkeuren
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => rejectCrossTrain(p.proposal_id)}
+                                className="text-xs font-medium text-red-600 hover:underline"
+                              >
+                                Afwijzen
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1">
+                              <input
+                                type="url"
+                                placeholder="Source URL (optioneel)"
+                                className="border border-slate-300 rounded px-2 py-1 text-xs w-48"
+                                value={crossUrlInput[p.proposal_id] || ''}
+                                onChange={(e) => setCrossUrlInput((prev) => ({ ...prev, [p.proposal_id]: e.target.value }))}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => approveCrossTrain(p.proposal_id)}
+                                className="text-xs font-medium text-green-600 hover:underline"
+                              >
+                                Bevestig
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setCrossUrlInput((prev) => { const n = { ...prev }; delete n[p.proposal_id]; return n })}
+                                className="text-xs font-medium text-slate-400 hover:underline"
+                              >
+                                Annuleer
+                              </button>
+                            </div>
+                          )}
                         </td>
                       </tr>
                     )

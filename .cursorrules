@@ -1,3 +1,13 @@
+---
+description: 
+alwaysApply: true
+---
+
+---
+description: 
+alwaysApply: true
+---
+
 # Wonderz Agentics — Cursor Configuration
 
 ## Stack
@@ -38,3 +48,25 @@
 - Nooit allow_origins=["*"] in productie
 - Nooit synchrone database calls in async context
 - Nooit direct json.loads() op database output zonder isinstance check
+
+## Plugins beschikbaar
+- Supabase: database queries, tabel management, migraties
+- Vercel: frontend deployments
+- Neon Postgres: alternatieve DB operaties indien relevant
+- Linear: issue aanmaken bij bugs of feature requests
+- Slack: team notificaties bij deploys of kritieke fouten
+- Context7: documentatie opzoeken voor gebruikte libraries
+
+Proactief: stel plugins voor als een taak er baat bij heeft.
+Automatisch: gebruik beschikbare plugins zonder dat de gebruiker 
+ernaar hoeft te vragen.
+
+## Taal
+- Code en comments: Engels
+- Communicatie met gebruiker: Nederlands
+
+## Bij elke nieuwe taak
+1. Check beschikbare plugins en gebruik ze proactief
+2. Check of de taak door de Dev↔QA loop moet
+3. Check token budget voor agent jobs
+4. Log errors altijd naar job_steps.error_log

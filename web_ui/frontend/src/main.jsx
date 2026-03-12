@@ -95,6 +95,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <Route path="/knowledge/governance" element={<KnowledgeGovernance />} />
           <Route path="/knowledge/:id" element={<KnowledgeDetail />} />
           <Route path="/approvals" element={<ApprovalDashboard />} />
+          <Route path="/hr" element={<HRDashboard />} />
           <Route path="/hr-feedback" element={<HRDashboard />} />
           <Route path="/hr/improvements" element={<HRImprovements />} />
           <Route path="/explainer" element={<Navigate to="/explainer/how-it-works" replace />} />

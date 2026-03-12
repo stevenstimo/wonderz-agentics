@@ -709,6 +709,204 @@ async def trigger_scan(since_days: int = Query(default=7)):
     return {"scanned_days": since_days, "results": results, "created": created, "incremented": incremented}
 
 
+@router.post("/run-ab-validation")
+async def run_ab_validation():
+    """P8: Run A/B validation for IN_TRAINING development points."""
+    import time
+    pool = await get_db()
+    hr = await _get_spec_hr()
+    start = time.perf_counter()
+    try:
+        result = await hr.run_ab_validation(pool)
+    except Exception as e:
+        logger.error("A/B validation failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+    duration_ms = int((time.perf_counter() - start) * 1000)
+    return {**result, "duration_ms": duration_ms}
+
+
+@router.post("/detect-cross-training")
+async def detect_cross_training():
+    """P8: Detect cross-training opportunities from lessons."""
+    pool = await get_db()
+    hr = await _get_spec_hr()
+    try:
+        created = await hr.detect_cross_training_opportunities(pool)
+    except Exception as e:
+        logger.error("Detect cross-training failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+    return {"proposals_created": created}
+
+
+@router.get("/cross-training-proposals")
+async def list_cross_training_proposals(status: str = Query("pending")):
+    """P8: List cross-training proposals (default: pending)."""
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        exists = await conn.fetchval(
+            "SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'cross_training_proposals'"
+        )
+        if not exists:
+            return []
+        rows = await conn.fetch(
+            """
+            SELECT proposal_id, lesson_id, source_agent_id, target_agent_ids, reason, status, created_at
+            FROM cross_training_proposals
+            WHERE status = $1
+            ORDER BY created_at DESC
+            """,
+            status,
+        )
+    return [
+        {
+            "proposal_id": str(r["proposal_id"]),
+            "lesson_id": r["lesson_id"],
+            "source_agent_id": r["source_agent_id"],
+            "target_agent_ids": r["target_agent_ids"] or [],
+            "reason": r["reason"],
+            "status": r["status"],
+            "created_at": r["created_at"].isoformat() if r.get("created_at") else None,
+        }
+        for r in rows
+    ]
+
+
+class CrossTrainRequest(BaseModel):
+    proposal_id: str
+    approved: bool
+    source_url: Optional[str] = None
+
+
+@router.post("/cross-train")
+async def cross_train(req: CrossTrainRequest):
+    """P8: Approve or reject a cross-training proposal."""
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        prop = await conn.fetchrow(
+            "SELECT * FROM cross_training_proposals WHERE proposal_id = $1",
+            req.proposal_id,
+        )
+    if not prop:
+        raise HTTPException(status_code=404, detail="Proposal not found")
+    if prop["status"] != "pending":
+        raise HTTPException(status_code=400, detail=f"Proposal status is {prop['status']}")
+
+    if not req.approved:
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE cross_training_proposals SET status = 'rejected' WHERE proposal_id = $1",
+                req.proposal_id,
+            )
+        return {"proposal_id": req.proposal_id, "status": "rejected"}
+
+    # Approved: run training for each target agent
+    from app.services.training_workflow import TrainingWorkflow
+    import json
+
+    lesson_id = prop["lesson_id"]
+    source_url = req.source_url
+    target_ids = prop["target_agent_ids"]
+    if isinstance(target_ids, str):
+        target_ids = json.loads(target_ids) if target_ids else []
+    if not isinstance(target_ids, list):
+        target_ids = []
+
+    if source_url:
+        workflow = TrainingWorkflow(pool)
+        for agent_id in target_ids:
+            try:
+                await workflow.start_training(agent_id, source_url, approved_by="ceo")
+            except Exception as e:
+                logger.warning("Cross-train start_training failed for %s: %s", agent_id, e)
+    else:
+        # Store lesson text as chunk in agent_knowledge per target
+        async with pool.acquire() as conn:
+            lesson_row = await conn.fetchrow(
+                "SELECT fix, title, gevonden, oorzaak FROM lessons WHERE lesson_id = $1",
+                lesson_id,
+            )
+        text = ""
+        if lesson_row:
+            text = "\n\n".join(
+                filter(None, [lesson_row.get("title"), lesson_row.get("gevonden"), lesson_row.get("oorzaak"), lesson_row.get("fix")])
+            )
+        if not text:
+            text = f"Lesson {lesson_id}"
+        source_ref = f"lesson:{lesson_id}"
+        from app.services.training import generate_embedding
+        for agent_id in target_ids:
+            try:
+                embedding = await generate_embedding(text[:8000])
+                async with pool.acquire() as conn:
+                    await conn.execute(
+                        """
+                        INSERT INTO agent_knowledge (agent_id, source_url, chunk_text, embedding, chunk_index, is_active)
+                        VALUES ($1, $2, $3, $4::vector, 0, true)
+                        """,
+                        agent_id,
+                        source_ref,
+                        text[:12000],
+                        json.dumps(embedding),
+                    )
+            except Exception as e:
+                logger.warning("Cross-train chunk insert failed for %s: %s", agent_id, e)
+
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE cross_training_proposals SET status = 'completed', completed_at = now() WHERE proposal_id = $1",
+            req.proposal_id,
+        )
+    return {"proposal_id": req.proposal_id, "status": "completed", "targets": target_ids}
+
+
+@router.get("/notifications")
+async def list_ceo_notifications():
+    """P8: List unread CEO notifications."""
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        exists = await conn.fetchval(
+            "SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'ceo_notifications'"
+        )
+        if not exists:
+            return []
+        rows = await conn.fetch(
+            """
+            SELECT notification_id, type, message, related_id, is_read, created_at
+            FROM ceo_notifications
+            WHERE is_read = false
+            ORDER BY created_at DESC
+            """
+        )
+    return [
+        {
+            "notification_id": str(r["notification_id"]),
+            "type": r["type"],
+            "message": r["message"],
+            "related_id": r["related_id"],
+            "is_read": r["is_read"],
+            "created_at": r["created_at"].isoformat() if r.get("created_at") else None,
+        }
+        for r in rows
+    ]
+
+
+@router.post("/notifications/{notification_id}/read")
+async def mark_notification_read(notification_id: str):
+    """P8: Mark a CEO notification as read."""
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        exists = await conn.fetchval(
+            "SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'ceo_notifications'"
+        )
+        if not exists:
+            raise HTTPException(status_code=404, detail="Table not found")
+        await conn.execute(
+            "UPDATE ceo_notifications SET is_read = true WHERE notification_id = $1",
+            notification_id,
+        )
+    return {"notification_id": notification_id, "is_read": True}
+
+
 @router.post("/check-effectiveness/{point_id}")
 async def check_training_effectiveness(point_id: str):
     """

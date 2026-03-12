@@ -424,6 +424,11 @@ def _run_step_agent(
         knowledge_block = context.get("_knowledge_block") or ""
         if knowledge_block:
             system += "\n\n" + knowledge_block
+        try:
+            from app.services.worker_contract import WorkerOutputValidator
+            system += "\n\n" + WorkerOutputValidator().format_for_prompt()
+        except Exception:
+            pass
         user = f"Write an article of approximately {word_count} words about: {objective}. Focus: {focus}."
         user_feedback = context.get("user_feedback") or context.get("feedback") or ""
         if user_feedback and isinstance(user_feedback, str):
@@ -448,7 +453,24 @@ def _run_step_agent(
                 )
                 text = (response.content[0].text if response.content else "").strip()
                 tokens += (response.usage.input_tokens or 0) + (response.usage.output_tokens or 0)
-            return ({"status": "completed", "content": text, "agent_role": agent_role, "step_name": step_desc}, tokens)
+            out = {"status": "completed", "content": text, "agent_role": agent_role, "step_name": step_desc}
+            try:
+                from app.services.worker_contract import WorkerOutputValidator
+                validator = WorkerOutputValidator()
+                parsed = validator.parse_from_llm_response(text)
+                validation = validator.validate(parsed)
+                out["worker_output"] = parsed
+                out["validation_status"] = "valid" if validation.get("valid") else "invalid"
+                out["validation_warnings"] = validation.get("warnings") or []
+                if not validation.get("valid"):
+                    logger.warning(
+                        "Worker contract invalid: missing=%s empty=%s",
+                        validation.get("missing_sections"),
+                        validation.get("empty_sections"),
+                    )
+            except Exception as _vc:
+                logger.debug("Worker contract parse/validate skipped: %s", _vc)
+            return (out, tokens)
         except Exception as e:
             logger.exception("Copywriter step failed: %s", e)
             return ({"status": "failed", "content": "", "error": str(e), "agent_role": agent_role}, 0)
@@ -701,7 +723,9 @@ async def run_job_inline(job_id: str, context_extra: Optional[dict] = None):
                 context = {**context, **context_extra}
 
             steps = await conn.fetch(
-                "SELECT id, step_index, step_name, agent_role, unified_tool FROM job_steps WHERE job_id=$1 ORDER BY step_index",
+                """SELECT id, step_index, step_name, agent_role, unified_tool,
+                          COALESCE(retry_count, 0) AS retry_count
+                   FROM job_steps WHERE job_id=$1 ORDER BY step_index""",
                 job_id,
             )
             num_steps = len(steps)
@@ -769,68 +793,170 @@ async def run_job_inline(job_id: str, context_extra: Optional[dict] = None):
                     await _update_job_context(conn, job_id, {"token_budget_warning": check.get("percentage")})
 
                 step_id = step["id"]
-                await conn.execute(
-                    "UPDATE job_steps SET status='running', started_at=now() WHERE id=$1",
-                    step_id,
-                )
-                await _update_step_progress(conn, step_id, 10)
-
-                started = time.monotonic()
-                logger.info(
-                    "Running job step %s for job %s (%s)",
-                    step.get("step_name"),
-                    job_id,
-                    step.get("agent_role"),
-                )
                 step_name = step.get("step_name") or step.get("agent_role") or "step"
                 agent_role = step.get("agent_role") or ""
+                step_retries = int(step.get("retry_count") or 0)
+                talent_result = None
+                output = None
+                tokens_used = 0
 
-                output, tokens_used = await _run_step_agent_with_timeout(
-                    agent_role=agent_role,
-                    step_name=step_name,
-                    context=context or {},
-                    previous_content=previous_content,
-                )
-                await _update_step_progress(conn, step_id, 70)
-                output["step_name"] = step.get("step_name")
-                output["agent_role"] = step.get("agent_role")
-                output["unified_tool"] = step.get("unified_tool")
+                while True:
+                    await conn.execute(
+                        "UPDATE job_steps SET status='running', started_at=now() WHERE id=$1",
+                        step_id,
+                    )
+                    await _update_step_progress(conn, step_id, 10)
 
-                if output.get("content"):
-                    last_content = output["content"]
-                    previous_content = output["content"]
-                elif output.get("review") and previous_content:
-                    last_content = previous_content
+                    started = time.monotonic()
+                    logger.info(
+                        "Running job step %s for job %s (%s)",
+                        step.get("step_name"),
+                        job_id,
+                        agent_role,
+                    )
 
-                timing_ms = int((time.monotonic() - started) * 1000)
+                    output, tokens_used = await _run_step_agent_with_timeout(
+                        agent_role=agent_role,
+                        step_name=step_name,
+                        context=context or {},
+                        previous_content=previous_content,
+                    )
+                    await _update_step_progress(conn, step_id, 70)
+                    output["step_name"] = step.get("step_name")
+                    output["agent_role"] = step.get("agent_role")
+                    output["unified_tool"] = step.get("unified_tool")
 
-                await conn.execute(
-                    """
-                    UPDATE job_steps
-                    SET status='completed', completed_at=now(), output=$1::jsonb, tokens_used=$2, timing_ms=$3, progress_pct=100
-                    WHERE id=$4
-                    """,
-                    json.dumps(output, default=_json_default),
-                    tokens_used,
-                    timing_ms,
-                    step_id,
-                )
-                await _update_step_progress(conn, step_id, 100)
+                    if output.get("content"):
+                        last_content = output["content"]
+                        previous_content = output["content"]
+                    elif output.get("review") and previous_content:
+                        last_content = previous_content
 
-                if knowledge_context.get("sources_used"):
-                    try:
-                        from app.services.knowledge_context import log_knowledge_usage
-                        await log_knowledge_usage(
-                            pool=pool,
-                            job_id=str(job_id),
-                            step_id=str(step_id),
-                            agent_id=agent_role or f"pipeline:{job_id}",
-                            sources=knowledge_context["sources_used"],
+                    timing_ms = int((time.monotonic() - started) * 1000)
+
+                    worker_output_json = None
+                    validation_status_val = None
+                    validation_warnings_val = None
+                    if output.get("worker_output") is not None:
+                        worker_output_json = json.dumps(output["worker_output"], default=_json_default)
+                    if output.get("validation_status") is not None:
+                        validation_status_val = output["validation_status"]
+                    if output.get("validation_warnings") is not None:
+                        validation_warnings_val = output["validation_warnings"]
+
+                    await conn.execute(
+                        """
+                        UPDATE job_steps
+                        SET status='completed', completed_at=now(), output=$1::jsonb, tokens_used=$2, timing_ms=$3, progress_pct=100,
+                            worker_output=CASE WHEN $5::jsonb IS NOT NULL THEN $5::jsonb ELSE worker_output END,
+                            validation_status=COALESCE($6, validation_status),
+                            validation_warnings=COALESCE($7, validation_warnings)
+                        WHERE id=$4
+                        """,
+                        json.dumps(output, default=_json_default),
+                        tokens_used,
+                        timing_ms,
+                        step_id,
+                        worker_output_json,
+                        validation_status_val,
+                        validation_warnings_val,
+                    )
+                    await _update_step_progress(conn, step_id, 100)
+
+                    if knowledge_context.get("sources_used"):
+                        try:
+                            from app.services.knowledge_context import log_knowledge_usage
+                            await log_knowledge_usage(
+                                pool=pool,
+                                job_id=str(job_id),
+                                step_id=str(step_id),
+                                agent_id=agent_role or f"pipeline:{job_id}",
+                                sources=knowledge_context["sources_used"],
+                            )
+                        except Exception as _log_err:
+                            logger.warning("Knowledge usage logging failed: %s", _log_err)
+
+                    await token_guard.register_usage(job_id, tokens_used, step_id)
+
+                    # V2: Talent validation when step has worker_output
+                    talent_result = None
+                    if output.get("worker_output"):
+                        try:
+                            from agents.talent_agent import TalentAgent
+                            talent = TalentAgent()
+                            talent_result = await talent.validate(
+                                worker_output=output["worker_output"],
+                                task_id=str(job_id),
+                                pool=pool,
+                            )
+                            talent_status = talent_result.get("status") or "pending"
+                            talent_output_json = json.dumps(talent_result, default=_json_default)
+                            talent_delta = talent_result.get("delta")
+                            talent_blocking = talent_result.get("blocking_issues") or []
+                            await conn.execute(
+                                """
+                                UPDATE job_steps SET
+                                    talent_status = $1,
+                                    talent_output = $2::jsonb,
+                                    talent_delta = $3,
+                                    talent_blocking_issues = $4
+                                WHERE id = $5
+                                """,
+                                talent_status,
+                                talent_output_json,
+                                talent_delta,
+                                talent_blocking,
+                                step_id,
+                            )
+                            checks = talent_result.get("checks") or {}
+                            for check_name, result in checks.items():
+                                if not check_name:
+                                    continue
+                                res_val = "pass" if result == "pass" else "fail"
+                                await conn.execute(
+                                    """
+                                    INSERT INTO validation_decisions (task_id, step_id, check_name, result)
+                                    VALUES ($1, $2, $3, $4)
+                                    """,
+                                    str(job_id),
+                                    step_id,
+                                    check_name,
+                                    res_val,
+                                )
+                        except Exception as _talent_err:
+                            logger.warning("Talent validation failed: %s", _talent_err)
+                            talent_result = {"status": "rejected", "blocking_issues": [str(_talent_err)]}
+
+                    # Retry logic: rejected -> max 2 retries; approved_with_changes -> 1 retry
+                    if talent_result and talent_result.get("status") == "rejected" and step_retries < 2:
+                        step_retries += 1
+                        await conn.execute(
+                            "UPDATE job_steps SET retry_count = $1, retry_reason = $2 WHERE id = $3",
+                            step_retries,
+                            "talent_rejected",
+                            step_id,
                         )
-                    except Exception as _log_err:
-                        logger.warning("Knowledge usage logging failed: %s", _log_err)
+                        context["user_feedback"] = (
+                            "Je vorige output werd afgekeurd door de Talent agent.\n\nBlokkerende issues:\n"
+                            + "\n".join(talent_result.get("blocking_issues", []))
+                            + ("\n\n" + (talent_result.get("delta") or "")) if talent_result.get("delta") else ""
+                        )
+                        continue
+                    if talent_result and talent_result.get("status") == "approved_with_changes" and step_retries == 0:
+                        step_retries += 1
+                        await conn.execute(
+                            "UPDATE job_steps SET retry_count = $1, retry_reason = $2 WHERE id = $3",
+                            step_retries,
+                            "talent_approved_with_changes",
+                            step_id,
+                        )
+                        context["user_feedback"] = (
+                            "De Talent agent keurt goed mits je de volgende aanpassingen doorvoert:\n\n"
+                            + (talent_result.get("delta") or "")
+                        )
+                        continue
+                    break
 
-                await token_guard.register_usage(job_id, tokens_used, step_id)
                 if output.get("image_url"):
                     await _update_job_context(conn, job_id, {"image_url": output["image_url"]})
                 # Checkpoint: save content after each step that produces it (survives crash)

@@ -2,11 +2,20 @@
 app/agents/hr_manager.py
 HR Manager Agent — Crew Intelligent
 Spec: Product Spec v1.1, Sectie 6
+P8: A/B validation + Cross-agent learning
 """
 
+import json
+import logging
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Optional, Any
 import asyncpg
+
+logger = logging.getLogger(__name__)
+
+
+def _json_array(ids: list) -> str:
+    return json.dumps(ids)
 
 
 async def generate_point_id(conn: asyncpg.Connection) -> str:
@@ -312,7 +321,7 @@ class HRManager:
 
     async def update_point_status(self, point_id, new_status, approved_by=None, source_url=None) -> dict:
         async with self.pool.acquire() as conn:
-            sets = ["status = $1"]
+            sets = ["status = $1", "updated_at = now()"]
             params: list = [new_status]
             idx = 2
             if approved_by: sets.append(f"approved_by = ${idx}"); params.append(approved_by); idx += 1
@@ -321,6 +330,161 @@ class HRManager:
             params.append(point_id)
             await conn.execute(f"UPDATE development_points SET {', '.join(sets)} WHERE point_id = ${idx}", *params)
             return {"point_id": point_id, "status": new_status}
+
+    async def run_ab_validation(self, pool: asyncpg.pool.Pool) -> dict[str, int]:
+        """
+        A/B validatie: voor alle IN_TRAINING development points,
+        vergelijk retry frequency na training met baseline.
+        resolved / improving / ineffective.
+        """
+        resolved = improving = ineffective = 0
+        async with pool.acquire() as conn:
+            # Check ceo_notifications exists
+            has_notifications = await conn.fetchval(
+                "SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'ceo_notifications'"
+            )
+            points = await conn.fetch(
+                """
+                SELECT point_id, agent_id, issue_description, frequency,
+                       COALESCE(updated_at, created_at) AS since_at
+                FROM development_points
+                WHERE status = 'IN_TRAINING'
+                """
+            )
+            for dp in points:
+                point_id = str(dp["point_id"])
+                agent_id = dp["agent_id"]
+                issue = (dp["issue_description"] or "").strip()
+                baseline_freq = int(dp["frequency"] or 0)
+                since_at = dp["since_at"]
+
+                if not issue:
+                    continue
+
+                new_freq_row = await conn.fetchrow(
+                    """
+                    SELECT COUNT(*) AS cnt
+                    FROM job_steps
+                    WHERE agent_id = $1
+                      AND retry_reason IS NOT NULL AND retry_reason != ''
+                      AND retry_reason ILIKE $2
+                      AND started_at > $3
+                    """,
+                    agent_id,
+                    f"%{issue[:200]}%",
+                    since_at,
+                )
+                new_freq = int(new_freq_row["cnt"] or 0)
+
+                if new_freq == 0:
+                    await conn.execute(
+                        "UPDATE development_points SET status = 'RESOLVED', resolved_at = now(), updated_at = now() WHERE point_id = $1",
+                        point_id,
+                    )
+                    resolved += 1
+                    logger.info("[AB] %s: RESOLVED — geen retries na training", agent_id)
+                elif new_freq < baseline_freq:
+                    improving += 1
+                    logger.info("[AB] %s: verbetering (%s → %s), training loopt nog", agent_id, baseline_freq, new_freq)
+                else:
+                    await conn.execute(
+                        "UPDATE development_points SET status = 'OPEN', updated_at = now() WHERE point_id = $1",
+                        point_id,
+                    )
+                    ineffective += 1
+                    if has_notifications:
+                        msg = f"Training voor {agent_id} heeft geen effect op: {issue[:200]}"
+                        await conn.execute(
+                            """
+                            INSERT INTO ceo_notifications (type, message, related_id)
+                            VALUES ('training_ineffective', $1, $2)
+                            """,
+                            msg,
+                            point_id,
+                        )
+                    logger.info("[AB] %s: geen effect, teruggestuurd naar OPEN", agent_id)
+
+        return {"resolved": resolved, "improving": improving, "ineffective": ineffective}
+
+    async def detect_cross_training_opportunities(self, pool: asyncpg.pool.Pool) -> int:
+        """
+        Zoekt lessons die relevant zijn voor meerdere agents.
+        Maakt cross_training_proposals aan. Return: aantal nieuwe voorstellen.
+        """
+        async with pool.acquire() as conn:
+            has_lessons = await conn.fetchval(
+                "SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'lessons'"
+            )
+            has_proposals = await conn.fetchval(
+                "SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'cross_training_proposals'"
+            )
+            if not has_lessons or not has_proposals:
+                return 0
+
+            lessons = await conn.fetch(
+                """
+                SELECT lesson_id, title, fix, agent_id
+                FROM lessons
+                WHERE status = 'active' AND confidence_score >= 0.70
+                """
+            )
+            agents = await conn.fetch(
+                "SELECT agent_id, role, goal FROM hired_agents WHERE is_active = true"
+            )
+            agent_by_id = {a["agent_id"]: dict(a) for a in agents}
+            # Build simple keyword set per agent from role + goal
+            def keywords(a: dict) -> set:
+                r = (a.get("role") or "").lower()
+                g = (a.get("goal") or "").lower()
+                return set((r + " " + g).split())
+
+            created = 0
+            for lesson in lessons:
+                lesson_id = lesson["lesson_id"]
+                source_agent_id = lesson["agent_id"]
+                title = (lesson["title"] or "") + " " + (lesson["fix"] or "")
+                title_lower = title.lower()
+                words = set(title_lower.split())
+
+                targets = []
+                for aid, a in agent_by_id.items():
+                    if aid == source_agent_id:
+                        continue
+                    kw = keywords(a)
+                    if not kw:
+                        continue
+                    if words & kw:
+                        targets.append(aid)
+
+                if len(targets) < 2:
+                    continue
+                targets = sorted(targets)
+
+                # Dedupe: same lesson + same target set
+                existing = await conn.fetchrow(
+                    """
+                    SELECT 1 FROM cross_training_proposals
+                    WHERE lesson_id = $1 AND status = 'pending' AND target_agent_ids = $2::jsonb
+                    """,
+                    lesson_id,
+                    _json_array(targets),
+                )
+                if existing:
+                    continue
+
+                await conn.execute(
+                    """
+                    INSERT INTO cross_training_proposals
+                    (lesson_id, source_agent_id, target_agent_ids, reason, status)
+                    VALUES ($1, $2, $3::jsonb, $4, 'pending')
+                    """,
+                    lesson_id,
+                    source_agent_id,
+                    _json_array(targets),
+                    f"Lesson relevant voor {len(targets)} andere agents",
+                )
+                created += 1
+            return created
 
 
 def _serialize(rows) -> list[dict]:

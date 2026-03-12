@@ -295,6 +295,14 @@ export default function ClientDashboard({
             buttonText="Verbind Google Ads"
             href={integrationsUrl}
           />
+        ) : (!campaigns || campaigns.length === 0) ? (
+          <div className="text-center py-12 text-gray-400">
+            <p>Geen Google Ads account geselecteerd.</p>
+            <p className="text-sm mt-1">Ga naar Integraties om een account te koppelen.</p>
+            <Link to={integrationsUrl} className="inline-block mt-4 text-sm text-indigo-600 hover:underline">
+              Naar Integraties
+            </Link>
+          </div>
         ) : (
           <>
             <div className="overflow-x-auto mb-6">

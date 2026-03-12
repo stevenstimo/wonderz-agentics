@@ -10,6 +10,7 @@ import httpx
 
 from app.core.config import (
     GOOGLE_ADS_DEVELOPER_TOKEN,
+    GOOGLE_ADS_LOGIN_CUSTOMER_ID,
     GOOGLE_CLIENT_ID,
     GOOGLE_CLIENT_SECRET,
 )
@@ -60,11 +61,19 @@ async def list_ga4_properties(access_token: str) -> list[dict[str, str]]:
         raise PermissionError(f"GA4 API error: {r.status_code}")
     data = r.json()
     for acc in data.get("accountSummaries", []):
+        account_display = acc.get("displayName", "") or ""
         for prop in acc.get("propertySummaries", []):
             name = prop.get("property", "")
             if name.startswith("properties/"):
                 pid = name.replace("properties/", "")
-                display = prop.get("displayName", pid)
+                raw_display = prop.get("displayName") or ""
+                # Naam + ID: use property displayName; if missing or same as ID use account name or fallback
+                if raw_display and raw_display != pid:
+                    display = raw_display
+                elif account_display:
+                    display = account_display
+                else:
+                    display = f"Property {pid}"
                 result.append({"property_id": pid, "display_name": display})
     return result
 
@@ -99,8 +108,16 @@ def _format_customer_id(cid: str) -> str:
     return cid
 
 
+_CUSTOMER_CLIENT_QUERY = """
+    SELECT customer_client.id, customer_client.descriptive_name, customer_client.manager, customer_client.level
+    FROM customer_client
+    WHERE customer_client.level <= 1
+"""
+
+
 async def list_google_ads_accounts(refresh_token: str) -> list[dict[str, str]]:
-    """List all Google Ads accounts accessible via the token. Returns [{ customer_id, descriptive_name }]."""
+    """List all Google Ads accounts accessible via the token, including MCC sub-accounts.
+    Returns [{ id, name, customer_id, descriptive_name }]."""
     try:
         from google.ads.googleads.client import GoogleAdsClient
         from google.ads.googleads.errors import GoogleAdsException
@@ -108,32 +125,82 @@ async def list_google_ads_accounts(refresh_token: str) -> list[dict[str, str]]:
         raise RuntimeError("google-ads package not installed")
     if not all([GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_ADS_DEVELOPER_TOKEN]):
         raise RuntimeError("GOOGLE_ADS_DEVELOPER_TOKEN not configured")
-    config = {
+    # Config ZONDER login_customer_id voor list_accessible_customers (werkt niet met login_customer_id)
+    base_config = {
         "developer_token": GOOGLE_ADS_DEVELOPER_TOKEN,
         "client_id": GOOGLE_CLIENT_ID,
         "client_secret": GOOGLE_CLIENT_SECRET,
         "refresh_token": refresh_token,
         "use_proto_plus": True,
     }
+    # Config MET login_customer_id voor MCC sub-account queries (search_stream)
+    mcc_config = {**base_config}
+    if GOOGLE_ADS_LOGIN_CUSTOMER_ID:
+        mcc_config["login_customer_id"] = GOOGLE_ADS_LOGIN_CUSTOMER_ID
     try:
-        client = GoogleAdsClient.load_from_dict(config)
+        client = GoogleAdsClient.load_from_dict(base_config)
         customer_service = client.get_service("CustomerService")
         response = customer_service.list_accessible_customers()
+
+        mcc_client = GoogleAdsClient.load_from_dict(mcc_config)
+        ga_service = mcc_client.get_service("GoogleAdsService")
+        seen: set[str] = set()
         result: list[dict[str, str]] = []
+
+        # 1) Add all directly accessible accounts (correct read from Customer)
         for resource_name in response.resource_names:
             if not resource_name.startswith("customers/"):
                 continue
-            cid = resource_name.replace("customers/", "")
-            desc = _format_customer_id(cid)
+            raw_id = resource_name.replace("customers/", "")
+            descriptive_name = ""
             try:
                 customer = customer_service.get_customer(resource_name=resource_name)
-                desc = getattr(customer, "descriptive_name", None) or desc
-            except (GoogleAdsException, Exception):
-                pass
-            result.append({"customer_id": cid, "descriptive_name": desc})
+                raw_id = str(customer.id)
+                descriptive_name = getattr(customer, "descriptive_name", None) or ""
+            except (GoogleAdsException, Exception) as e:
+                logger.debug("get_customer %s failed: %s", resource_name, e)
+            cid = _format_customer_id(raw_id)
+            if raw_id not in seen:
+                seen.add(raw_id)
+                result.append({
+                    "id": cid,
+                    "name": descriptive_name or cid,
+                    "customer_id": raw_id,
+                    "descriptive_name": descriptive_name or cid,
+                })
+            logger.info("Ads account: id=%s, name=%s", cid, descriptive_name or cid)
+
+        # 2) For each accessible account, fetch child accounts (MCC sub-accounts) via customer_client
+        to_process = [r.replace("customers/", "") for r in response.resource_names]
+        while to_process:
+            seed_id = to_process.pop(0)
+            try:
+                stream = ga_service.search_stream(customer_id=seed_id, query=_CUSTOMER_CLIENT_QUERY)
+                for batch in stream:
+                    for row in batch.results:
+                        customer = row.customer_client
+                        descriptive_name = getattr(customer, "descriptive_name", None) or ""
+                        cid = _format_customer_id(str(customer.id))
+                        raw_id = str(customer.id)
+                        if raw_id in seen:
+                            continue
+                        seen.add(raw_id)
+                        result.append({
+                            "id": cid,
+                            "name": descriptive_name or cid,
+                            "customer_id": raw_id,
+                            "descriptive_name": descriptive_name or cid,
+                        })
+                        logger.info("Ads account: id=%s, name=%s", cid, descriptive_name or cid)
+                        # Recurse into child managers to get their sub-accounts
+                        if getattr(customer, "manager", False) and getattr(customer, "level", 0) == 1:
+                            to_process.append(raw_id)
+            except (GoogleAdsException, Exception) as e:
+                logger.debug("customer_client query for %s failed: %s", seed_id, e)
+
         return result
     except Exception as e:
-        logger.warning(f"List Google Ads accounts failed: {e}")
+        logger.warning("List Google Ads accounts failed: %s", e)
         raise PermissionError(str(e)) from e
 
 
@@ -451,6 +518,8 @@ async def fetch_google_ads_via_gaql(
         "refresh_token": refresh_token,
         "use_proto_plus": True,
     }
+    if GOOGLE_ADS_LOGIN_CUSTOMER_ID:
+        config["login_customer_id"] = GOOGLE_ADS_LOGIN_CUSTOMER_ID
     try:
         client = GoogleAdsClient.load_from_dict(config)
     except Exception as e:
@@ -534,8 +603,13 @@ async def fetch_gsc(
     site_url: str,
     start_date: str,
     end_date: str,
+    *,
+    slug: Optional[str] = None,
 ) -> dict[str, Any]:
-    """Fetch Search Console: clicks, impressions, CTR, position, top queries, top pages."""
+    """Fetch Search Console: clicks, impressions, CTR, position, top queries, top pages.
+    site_url should come from client_integrations.extra_config for the client."""
+    if slug is not None:
+        logger.info("GSC site_url for %s: %s", slug, site_url)
     # Site URL must be URL-encoded for the path
     import urllib.parse
     site_encoded = urllib.parse.quote(site_url, safe="")

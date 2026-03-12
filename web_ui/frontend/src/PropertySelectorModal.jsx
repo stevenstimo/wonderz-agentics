@@ -5,7 +5,10 @@ const SERVICE_CONFIG = {
   ga4: {
     label: 'GA4 Property',
     endpoint: (slug) => `/api/clients/${slug}/google/ga4-properties`,
-    optionLabel: (opt) => `${opt.display_name} (${opt.property_id})`,
+    optionLabel: (opt) => {
+      const name = opt.display_name && opt.display_name !== opt.property_id ? opt.display_name : `Property ${opt.property_id}`;
+      return `${name} (${opt.property_id})`;
+    },
     optionValue: (opt) => opt.property_id,
     configKey: 'property_id',
   },
@@ -19,7 +22,11 @@ const SERVICE_CONFIG = {
   google_ads: {
     label: 'Google Ads Account',
     endpoint: (slug) => `/api/clients/${slug}/google/ads-accounts`,
-    optionLabel: (opt) => `${opt.descriptive_name} (${opt.customer_id})`,
+    optionLabel: (opt) => {
+      const id = opt.id ?? opt.customer_id ?? '';
+      const name = (opt.descriptive_name || opt.name) && (opt.descriptive_name || opt.name) !== id ? (opt.descriptive_name || opt.name) : id;
+      return name ? `${name} (${id})` : String(id);
+    },
     optionValue: (opt) => opt.customer_id,
     configKey: 'customer_id',
   },
@@ -42,7 +49,7 @@ export function PropertySelectorModal({ slug, serviceType, onSaved, onClose }) {
     apiFetch(cfg.endpoint(slug))
       .then((res) => res.json())
       .then((data) => {
-        const list = Array.isArray(data) ? data : []
+        const list = data?.accounts ?? (Array.isArray(data) ? data : [])
         setOptions(list)
         if (list.length === 1) setSelected(cfg.optionValue(list[0]))
       })

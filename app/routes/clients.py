@@ -186,7 +186,7 @@ async def get_ads_accounts(
         elif "401" in err_str or "invalid_grant" in err_str or "Token has been expired" in err_str:
             raise HTTPException(status_code=401, detail="token_expired")
         raise HTTPException(status_code=500, detail=str(e))
-    return accounts
+    return {"accounts": accounts}
 
 
 @router.get("/{slug}/google/gsc-sites")
@@ -318,7 +318,19 @@ async def get_client_dashboard(
     # --- Google Ads ---
     ads_int = int_by_type.get("google_ads")
     ads_cfg = config_by_platform.get("google_ads", {})
-    customer_id = ads_cfg.get("customer_id") if isinstance(ads_cfg, dict) else None
+    # Prefer customer_id from extra_config (google_ads_customer_id or customer_id), then platform config
+    extra_config = ads_int.get("extra_config") if ads_int else None
+    if isinstance(extra_config, str):
+        try:
+            extra_config = json.loads(extra_config)
+        except Exception:
+            extra_config = {}
+    extra_config = extra_config or {}
+    customer_id = (
+        extra_config.get("google_ads_customer_id")
+        or extra_config.get("customer_id")
+        or (ads_cfg.get("customer_id") if isinstance(ads_cfg, dict) else None)
+    )
 
     if not ads_int:
         result["google_ads"] = {"not_connected": True}
@@ -326,28 +338,43 @@ async def get_client_dashboard(
         refresh = _get_refresh_token(ads_int["api_key_encrypted"], ads_int["extra_config"])
         if not refresh:
             result["google_ads"] = {"not_connected": True}
+        elif not customer_id:
+            result["google_ads"] = {
+                "campaigns": [],
+                "timeseries": [],
+                "total_spend": 0,
+                "total_clicks": 0,
+                "total_impressions": 0,
+            }
         else:
-            if not customer_id:
-                customer_id = await _get_first_google_ads_customer(refresh)
-            if not customer_id:
-                result["google_ads"] = {"not_connected": True, "error": "Configure customer_id in platform config or no accessible accounts"}
-            else:
-                try:
-                    ads_data = await fetch_google_ads_via_gaql(refresh, customer_id, start_str, end_str)
-                    if ads_data.get("not_implemented") or ads_data.get("not_configured"):
-                        result["google_ads"] = {"not_connected": True, "error": ads_data.get("error", "Google Ads not configured")}
-                    elif ads_data.get("error"):
-                        result["google_ads"] = {"not_connected": False, "error": ads_data["error"]}
-                    else:
-                        result["google_ads"] = ads_data
-                except Exception as e:
-                    logger.exception("Google Ads fetch failed")
-                    result["google_ads"] = {"not_connected": False, "error": str(e)}
+            try:
+                ads_data = await fetch_google_ads_via_gaql(refresh, customer_id, start_str, end_str)
+                if ads_data.get("not_implemented") or ads_data.get("not_configured"):
+                    result["google_ads"] = {"not_connected": True, "error": ads_data.get("error", "Google Ads not configured")}
+                elif ads_data.get("error"):
+                    result["google_ads"] = {"not_connected": False, "error": ads_data["error"]}
+                else:
+                    result["google_ads"] = ads_data
+            except Exception as e:
+                logger.exception("Google Ads fetch failed")
+                result["google_ads"] = {"not_connected": False, "error": str(e)}
 
     # --- GSC ---
     gsc_int = int_by_type.get("google_search_console")
     gsc_cfg = config_by_platform.get("gsc", {})
-    site_url = gsc_cfg.get("site_url") if isinstance(gsc_cfg, dict) else None
+    # Prefer site_url from client_integrations.extra_config, then client_platform_configs, then first GSC site
+    site_url = None
+    if gsc_int and gsc_int.get("extra_config"):
+        extra = gsc_int["extra_config"]
+        if isinstance(extra, str):
+            try:
+                extra = json.loads(extra)
+            except Exception:
+                extra = {}
+        if isinstance(extra, dict) and extra.get("site_url"):
+            site_url = extra["site_url"]
+    if not site_url and isinstance(gsc_cfg, dict) and gsc_cfg.get("site_url"):
+        site_url = gsc_cfg["site_url"]
 
     if not gsc_int:
         result["gsc"] = {"not_connected": True}
@@ -365,7 +392,7 @@ async def get_client_dashboard(
                 result["gsc"] = {"not_connected": True, "error": "Configure site_url in platform config (e.g. https://example.com/)"}
             else:
                 try:
-                    gsc_data = await fetch_gsc(access_token, site_url, start_str, end_str)
+                    gsc_data = await fetch_gsc(access_token, site_url, start_str, end_str, slug=slug)
                     result["gsc"] = gsc_data
                 except Exception as e:
                     logger.exception("GSC fetch failed")

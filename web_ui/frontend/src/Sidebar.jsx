@@ -48,6 +48,7 @@ const MANAGEMENT = [
   { label: 'Agents', icon: Users, path: '/agents' },
   { label: 'Newbies', icon: Star, path: '/newbies' },
   { label: 'Training Hub', icon: GraduationCap, path: '/training' },
+  { label: 'HR', icon: ClipboardList, path: '/hr', badgeKey: 'hrNotifications' },
   { label: 'Improvements', icon: TrendingUp, path: '/hr/improvements' },
   { label: 'Hiring Hall', icon: UserPlus, path: '/hiring' },
 ]
@@ -101,7 +102,7 @@ function initials(user) {
   return name.charAt(0).toUpperCase()
 }
 
-function NavItem({ item, badge }) {
+function NavItem({ item, badge, badgeRed }) {
   const Icon = item.icon
   if (!item.path || item.path === '#') {
     return (
@@ -125,7 +126,7 @@ function NavItem({ item, badge }) {
       <Icon className="w-[18px] h-[18px] flex-shrink-0" />
       <span className="text-sm font-medium flex-1 min-w-0 truncate">{item.label}</span>
       {badge != null && badge > 0 && (
-        <span className="flex-shrink-0 min-w-[1.25rem] h-5 px-1.5 rounded-full bg-indigo-500 text-white text-xs font-medium flex items-center justify-center">
+        <span className={`flex-shrink-0 min-w-[1.25rem] h-5 px-1.5 rounded-full text-white text-xs font-medium flex items-center justify-center ${badgeRed ? 'bg-red-500' : 'bg-indigo-500'}`}>
           {badge > 99 ? '99+' : badge}
         </span>
       )}
@@ -168,6 +169,7 @@ export default function Sidebar() {
   const [role, setRole] = useState('member')
   const [mobileOpen, setMobileOpen] = useState(false)
   const [inboxUnread, setInboxUnread] = useState(0)
+  const [hrNotifications, setHrNotifications] = useState(0)
 
   useEffect(() => {
     let active = true
@@ -184,6 +186,27 @@ export default function Sidebar() {
     }
     fetchInboxSummary()
     const interval = setInterval(fetchInboxSummary, 30000)
+    return () => {
+      active = false
+      clearInterval(interval)
+    }
+  }, [])
+
+  useEffect(() => {
+    let active = true
+    const fetchHrNotifications = async () => {
+      try {
+        const res = await apiFetch('/api/hr/notifications')
+        if (res.ok && active) {
+          const data = await res.json()
+          setHrNotifications(Array.isArray(data) ? data.length : 0)
+        }
+      } catch {
+        if (active) setHrNotifications(0)
+      }
+    }
+    fetchHrNotifications()
+    const interval = setInterval(fetchHrNotifications, 60000)
     return () => {
       active = false
       clearInterval(interval)
@@ -263,7 +286,12 @@ export default function Sidebar() {
 
             <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 px-3 mt-4 mb-2">Management</div>
             {MANAGEMENT.map((item) => (
-              <NavItem key={item.label} item={item} />
+              <NavItem
+                key={item.label}
+                item={item}
+                badge={item.badgeKey === 'hrNotifications' ? hrNotifications : undefined}
+                badgeRed={item.badgeKey === 'hrNotifications'}
+              />
             ))}
 
             <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 px-3 mt-4 mb-2">Operations</div>

@@ -28,6 +28,10 @@ const GOOGLE_DROPDOWN_CONFIG = {
     labelKey: 'display_name',
     configKey: 'property_id',
     description: 'Traffic data',
+    optionLabel: (opt) => {
+      const name = opt.display_name && opt.display_name !== opt.property_id ? opt.display_name : `Property ${opt.property_id}`
+      return `${name} (${opt.property_id})`
+    },
   },
   gsc: {
     endpoint: 'gsc-sites',
@@ -42,6 +46,11 @@ const GOOGLE_DROPDOWN_CONFIG = {
     labelKey: 'descriptive_name',
     configKey: 'customer_id',
     description: 'Campaign data',
+    optionLabel: (opt) => {
+      const id = opt.id ?? opt.customer_id ?? ''
+      const name = (opt.descriptive_name || opt.name) && (opt.descriptive_name || opt.name) !== id ? (opt.descriptive_name || opt.name) : id
+      return name ? `${name} (${id})` : String(id)
+    },
   },
 }
 
@@ -168,7 +177,8 @@ export default function ClientIntegrations() {
         return
       }
       const data = await res.json()
-      setGoogleOptions((prev) => ({ ...prev, [platform]: Array.isArray(data) ? data : [] }))
+      const list = data?.accounts ?? (Array.isArray(data) ? data : [])
+      setGoogleOptions((prev) => ({ ...prev, [platform]: list }))
     } catch (err) {
       setGoogleError((prev) => ({ ...prev, [platform]: err.message || 'Laden mislukt' }))
     } finally {
@@ -308,7 +318,7 @@ export default function ClientIntegrations() {
     if (!val) return null
     const opts = googleOptions[platform] || []
     const found = opts.find((o) => o[cfg.valueKey] === val)
-    if (found) return found[cfg.labelKey] || val
+    if (found) return cfg.optionLabel ? cfg.optionLabel(found) : (found[cfg.labelKey] || val)
     return val
   }
 
@@ -559,7 +569,7 @@ export default function ClientIntegrations() {
                               {!currentVal && <option value="">— Selecteer —</option>}
                               {opts.map((opt) => (
                                 <option key={opt[cfg.valueKey]} value={opt[cfg.valueKey]}>
-                                  {opt[cfg.labelKey] || opt[cfg.valueKey]}
+                                  {cfg.optionLabel ? cfg.optionLabel(opt) : (opt[cfg.labelKey] || opt[cfg.valueKey])}
                                 </option>
                               ))}
                               {currentVal && !opts.some((o) => o[cfg.valueKey] === currentVal) && (
