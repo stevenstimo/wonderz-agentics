@@ -422,19 +422,17 @@ export default function JobSplitView() {
   const handleJobInputChange = (e) => {
     const val = e.target.value
     setChatInput(val)
-    if (!jobId) {
-      const match = val.match(/@([a-zA-Z0-9_-]*)$/)
-      if (match) {
-        const query = (match[1] || '').toLowerCase()
-        const filtered = clients.filter(
-          (c) =>
-            (c.slug || '').toLowerCase().includes(query) ||
-            (c.client_name || c.name || '').toLowerCase().includes(query)
-        )
-        setMentionSuggestions(filtered.slice(0, 5))
-      } else {
-        setMentionSuggestions([])
-      }
+    const match = val.match(/@([a-zA-Z0-9_-]*)$/)
+    if (match) {
+      const query = (match[1] || '').toLowerCase()
+      const filtered = clients.filter(
+        (c) =>
+          (c.slug || '').toLowerCase().includes(query) ||
+          (c.client_name || c.name || '').toLowerCase().includes(query)
+      )
+      setMentionSuggestions(filtered.slice(0, 5))
+    } else {
+      setMentionSuggestions([])
     }
   }
 
@@ -444,7 +442,7 @@ export default function JobSplitView() {
     setMentionSuggestions([])
   }
 
-  const detectedClient = !jobId && (() => {
+  const mentionedClient = (() => {
     const m = chatInput.match(/@([a-zA-Z0-9_-]+)/g)
     if (!m || !clients.length) return null
     for (const tag of m) {
@@ -767,7 +765,7 @@ export default function JobSplitView() {
               </>
             )}
             <div className="flex-1 relative">
-              {!jobId && mentionSuggestions.length > 0 && (
+              {mentionSuggestions.length > 0 && (
                 <div
                   className="absolute bottom-full left-0 right-0 mb-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-[200px] overflow-y-auto z-50"
                   role="listbox"
@@ -791,7 +789,7 @@ export default function JobSplitView() {
                 value={chatInput}
                 onChange={handleJobInputChange}
                 onKeyDown={handleKeyDown}
-                placeholder={jobId ? 'Type your message...' : 'Beschrijf je opdracht... Gebruik @client (bijv. @asured) voor context.'}
+                placeholder={jobId ? 'Type your message... Gebruik @client voor context.' : 'Beschrijf je opdracht... Gebruik @client (bijv. @asured) voor context.'}
                 className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none min-h-[44px] max-h-32"
                 disabled={inputDisabled || uploadingFile}
                 rows={1}
@@ -805,7 +803,7 @@ export default function JobSplitView() {
               {sendingChat ? 'Sending…' : 'Send'}
             </button>
             </div>
-            {!jobId && detectedClient && (
+            {detectedClient && (
               <div className="flex items-center gap-1.5 mt-1.5 text-sm text-emerald-600">
                 <CheckCircle className="w-4 h-4 flex-shrink-0" />
                 <span>Client context geladen: <strong>{detectedClient.client_name || detectedClient.name || detectedClient.slug}</strong> — GA4, Ads en GSC data beschikbaar</span>
