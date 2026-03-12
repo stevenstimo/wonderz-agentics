@@ -104,8 +104,9 @@ export default function ClientDashboard({
     setExporting(true)
     try {
       const canvas = await html2canvas(dashboardRef.current, {
-        scale: 2,
+        scale: 1.5,
         useCORS: true,
+        allowTaint: false,
         logging: false,
         backgroundColor: '#ffffff',
       })
@@ -145,9 +146,9 @@ export default function ClientDashboard({
         sliceCanvas.height = Math.max(1, Math.ceil(sourceHeight))
         const ctx = sliceCanvas.getContext('2d')
         ctx.drawImage(canvas, 0, sourceY, canvas.width, sourceHeight, 0, 0, canvas.width, sliceCanvas.height)
-        const sliceData = sliceCanvas.toDataURL('image/png')
+        const sliceData = sliceCanvas.toDataURL('image/jpeg', 0.85)
         const yPos = pageIndex === 0 ? headerH + margin : margin
-        pdf.addImage(sliceData, 'PNG', margin, yPos, contentW, chunkMm)
+        pdf.addImage(sliceData, 'JPEG', margin, yPos, contentW, chunkMm)
 
         startMm += chunkMm
         remainingMm -= chunkMm
