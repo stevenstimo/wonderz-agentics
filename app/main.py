@@ -12,6 +12,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.db import init_db_pool, close_db_pool
+from app.logging_config import setup_logging
+
+_log_level = getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO)
+setup_logging(_log_level)
 
 logger = logging.getLogger(__name__)
 
