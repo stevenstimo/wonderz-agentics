@@ -200,8 +200,98 @@ class NEXUSPipeline:
                 )
 
     async def phase_5_ceo_review(self, ctx: HandoffContext) -> None:
-        """CEO beoordeelt eindresultaat tegen de StrategicBrief."""
-        pass
+        """
+        CEO beoordeelt eindresultaat tegen originele job post.
+        Tevreden: doorgaan. Niet tevreden: agent terug via phase_4 (max 1 retry).
+        Na 1 retry: proceed anyway met warning.
+        """
+        # 1. Laatste output (zelfde logica als phase_6)
+        final_output = ""
+        for step in reversed(ctx.execution_plan):
+            step_name = step.get("step_name", "")
+            output = ctx.step_outputs.get(step_name, "")
+            if output and step_name != "gtm_analysis":
+                final_output = output if isinstance(output, str) else str(output)
+                break
+
+        if not final_output:
+            logger.info("Job %s phase_5: geen eindoutput — doorgaan zonder CEO review", ctx.job_id)
+            return
+
+        if ctx.is_over_budget():
+            raise BudgetExceededError(ctx.job_id)
+        if ctx.budget_warning():
+            logger.warning("Job %s: token budget >80%% bij start CEO review", ctx.job_id)
+
+        from app.services.job_pipeline import _coerce_context, _run_step_agent_with_timeout
+        from app.services.token_guard import TokenGuard
+
+        token_guard = TokenGuard(db_pool=self._pool)
+        check = await token_guard.check_before_call(ctx.job_id, estimated_tokens=2000)
+        if not check.get("allowed", True):
+            raise BudgetExceededError(ctx.job_id)
+
+        async with self._pool.acquire() as conn:
+            job_row = await conn.fetchrow(
+                "SELECT job_post, context FROM jobs WHERE id = $1",
+                ctx.job_id,
+            )
+        job_context = _coerce_context(job_row.get("context") if job_row else None)
+        job_post = (job_row.get("job_post") or "") if job_row else ""
+        objective = (ctx.strategic_brief or {}).get("objective", job_post) or job_post
+
+        agent_context = {
+            "brief": ctx.strategic_brief,
+            "objective": objective,
+            "job_post": job_post,
+            "platform": ctx.platform,
+            "_knowledge_block": (job_context or {}).get("_knowledge_block", ""),
+        }
+
+        try:
+            output_dict, tokens_used = await _run_step_agent_with_timeout(
+                agent_role="reviewer",
+                step_name="ceo_review",
+                context=agent_context,
+                previous_content=final_output[:12000],
+            )
+        except Exception as e:
+            logger.error("Job %s CEO review call failed: %s", ctx.job_id, e, exc_info=True)
+            logger.info("Job %s: doorgaan na CEO call fout", ctx.job_id)
+            return
+
+        ctx.register_tokens(tokens_used)
+        try:
+            await token_guard.register_usage(ctx.job_id, tokens_used, step_id=None)
+        except Exception as e:
+            logger.debug("TokenGuard register_usage (CEO review): %s", e)
+
+        review_text = (output_dict.get("review") or output_dict.get("content") or "").strip()
+        approved = output_dict.get("approved", False)
+        if not approved and review_text:
+            approved = "approved" in review_text.lower() and "changes needed" not in review_text.lower()
+
+        if approved:
+            logger.info("Job %s CEO review: APPROVED", ctx.job_id)
+            return
+
+        # NEEDS_REVISION
+        ceo_retries = ctx.retry_counts.get("ceo_review", 0)
+        if ceo_retries < 1:
+            ctx.retry_counts["ceo_review"] = ceo_retries + 1
+            logger.info(
+                "Job %s CEO review: NEEDS_REVISION — retry %s/1 via phase_4",
+                ctx.job_id,
+                ctx.retry_counts["ceo_review"],
+            )
+            await self.phase_4_qa_loop(ctx)
+            await self.phase_5_ceo_review(ctx)
+            return
+
+        logger.warning(
+            "Job %s CEO review: NEEDS_REVISION na 1 retry — doorgaan zonder gebruiker te lastigvallen",
+            ctx.job_id,
+        )
 
     async def phase_6_approval_gate(self, ctx: HandoffContext) -> None:
         """

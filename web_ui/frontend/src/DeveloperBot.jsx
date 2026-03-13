@@ -16,8 +16,7 @@ function ChatBubble({ message, isUser, embedded }) {
 	return (
 		<div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-2`}>
 			<div
-				className={`max-w-[70%] px-5 py-4 rounded-card shadow-sleak border text-base whitespace-pre-line font-sans ${isUser ? 'bg-white border-sleak-border text-sleak-text' : 'bg-brand-500 border-brand-500 text-white'}`}
-				style={{ borderRadius: '32px' }}
+				className={`max-w-[70%] px-5 py-4 rounded-[32px] shadow-sleak border text-base whitespace-pre-line font-sans ${isUser ? 'bg-white border-sleak-border text-sleak-text' : 'bg-brand-500 border-brand-500 text-white'}`}
 			>
 				{message}
 			</div>
@@ -82,8 +81,7 @@ function DeveloperBot({ embedded = false }) {
 		<form onSubmit={sendPrompt} className="flex gap-2 mt-4">
 			<input
 				type="text"
-				className={`flex-1 rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 ${embedded ? 'bg-gray-700 text-white focus:ring-indigo-600' : 'px-4 py-4 rounded-card border border-sleak-border focus:ring-brand-500/10 bg-white text-sleak-text'}`}
-				style={embedded ? {} : { borderRadius: '32px' }}
+				className={`flex-1 text-sm focus:outline-none focus:ring-2 ${embedded ? 'rounded-lg px-4 py-2 bg-gray-700 text-white focus:ring-indigo-600' : 'wz-input px-4 py-4 rounded-[32px] focus:ring-brand-500/10'}`}
 				placeholder={embedded ? "Job #137, health, recent_errors, agents..." : "Typ je vraag..."}
 				value={prompt}
 				onChange={e => setPrompt(e.target.value)}
@@ -91,8 +89,7 @@ function DeveloperBot({ embedded = false }) {
 			/>
 			<button
 				type="submit"
-				className={`rounded-lg px-4 py-2 transition font-semibold ${embedded ? 'bg-indigo-600 hover:bg-indigo-700 text-white' : 'px-8 py-4 rounded-card font-black text-white shadow-sleak bg-brand-600 hover:bg-brand-500'}`}
-				style={embedded ? {} : { borderRadius: '32px' }}
+				className={`transition font-semibold ${embedded ? 'rounded-lg px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white' : 'wz-btn-primary px-8 py-4 rounded-[32px] font-black shadow-sleak'}`}
 				disabled={loading || !prompt.trim()}
 			>
 				Verstuur
@@ -116,7 +113,7 @@ function DeveloperBot({ embedded = false }) {
 
 	return (
 		<PageLayout size="wide" padded>
-			<div className="max-w-2xl mx-auto py-10 px-4 wonderz-card" style={{ background: "#F9FAFB", minHeight: 600, borderRadius: '32px' }}>
+			<div className="max-w-2xl mx-auto py-10 px-4 wz-card min-h-[600px] rounded-[32px] bg-[var(--color-bg-subtle)]">
 				<h1 className="text-3xl font-black mb-4 text-black font-sans">Developer Bot</h1>
 				<div className="mb-6 text-black font-sans">Vraag naar jobs, errors, agents of systeemstatus. De bot haalt de data op en geeft je een analyse.</div>
 				<div className="mb-6">{messagesArea}</div>

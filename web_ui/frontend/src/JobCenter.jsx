@@ -5,14 +5,14 @@ import { apiUrl, apiFetch } from './apiClient'
 import { useAuthReady } from './useAuthReady'
 
 const STATUS_BADGE = {
-  INTAKE_CLARIFICATION: 'bg-amber-100 text-amber-800',
-  PLAN_PROPOSED: 'bg-purple-100 text-purple-800',
-  RUNNING: 'bg-blue-100 text-blue-800',
-  JOB_READY: 'bg-emerald-100 text-emerald-800',
-  AWAITING_APPROVAL: 'bg-slate-100 text-slate-800',
-  COMPLETED: 'bg-emerald-100 text-emerald-800',
-  FAILED: 'bg-red-100 text-red-800',
-  CANCELLED: 'bg-slate-100 text-slate-600',
+  INTAKE_CLARIFICATION: 'wz-badge-warning',
+  PLAN_PROPOSED: 'wz-badge-running',
+  RUNNING: 'wz-badge-running',
+  JOB_READY: 'wz-badge-success',
+  AWAITING_APPROVAL: 'wz-tag',
+  COMPLETED: 'wz-badge-success',
+  FAILED: 'wz-badge-error',
+  CANCELLED: 'wz-tag',
 }
 
 const STATUS_LABEL = {
@@ -27,7 +27,7 @@ const STATUS_LABEL = {
 }
 
 function StatusBadge({ status }) {
-  const cls = STATUS_BADGE[status] || 'bg-slate-100 text-slate-700'
+  const cls = STATUS_BADGE[status] || 'wz-tag'
   const label = STATUS_LABEL[status] ?? status
   return (
     <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${cls}`}>
@@ -182,20 +182,20 @@ export default function JobCenter() {
         <button
           type="button"
           onClick={() => navigate('/jobs/new')}
-          className="rounded-lg px-4 py-2.5 bg-indigo-600 text-white font-medium hover:bg-indigo-700 transition shadow-sm flex-shrink-0"
+          className="wz-btn-primary flex-shrink-0"
         >
           Create New Job
         </button>
       </div>
 
-      <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+      <div className="wz-card overflow-hidden">
         <div className="p-4 border-b border-slate-200 flex flex-col sm:flex-row gap-3 flex-wrap">
           <input
             type="search"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search jobs..."
-            className="flex-1 min-w-[200px] px-3 py-2 border border-slate-200 rounded-lg text-slate-800 placeholder-slate-400 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
+            className="wz-input flex-1 min-w-[200px] text-sm"
           />
           <div className="flex gap-1 flex-wrap">
             {[
@@ -210,8 +210,8 @@ export default function JobCenter() {
                 onClick={() => setFilter(key)}
                 className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${
                   filter === key
-                    ? 'bg-indigo-600 text-white'
-                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                    ? 'wz-btn-primary'
+                    : 'wz-tag hover:opacity-90'
                 }`}
               >
                 {label}
@@ -232,11 +232,11 @@ export default function JobCenter() {
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50/80">
-                    <th className="text-left py-3 px-4 text-xs font-semibold uppercase tracking-wider text-slate-500">Job Title</th>
-                    <th className="text-left py-3 px-4 text-xs font-semibold uppercase tracking-wider text-slate-500">Status</th>
-                    <th className="text-left py-3 px-4 text-xs font-semibold uppercase tracking-wider text-slate-500">Assigned Agents</th>
-                    <th className="text-left py-3 px-4 text-xs font-semibold uppercase tracking-wider text-slate-500">Date</th>
-                    <th className="text-right py-3 px-4 text-xs font-semibold uppercase tracking-wider text-slate-500">Actions</th>
+                    <th className="text-left py-3 px-4 wz-label">Job Title</th>
+                    <th className="text-left py-3 px-4 wz-label">Status</th>
+                    <th className="text-left py-3 px-4 wz-label">Assigned Agents</th>
+                    <th className="text-left py-3 px-4 wz-label">Date</th>
+                    <th className="text-right py-3 px-4 wz-label">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -251,16 +251,12 @@ export default function JobCenter() {
                       >
                         <td className="py-3 px-4">
                           <div className="font-medium text-slate-900">{title}</div>
-                          <div className="text-xs text-slate-400 mt-0.5">#{getJobNumber(job)}</div>
+                          <div className="wz-mono text-xs mt-0.5">#{getJobNumber(job)}</div>
                         </td>
                         <td className="py-3 px-4">
                           <StatusBadge status={job.status} />
                           {job.intake_source === 'email' && (
-                            <span style={{
-                              background: '#EBF5FB', color: '#1A5276',
-                              borderRadius: '4px', padding: '2px 8px',
-                              fontSize: '11px', marginLeft: '6px'
-                            }}>✉ Via Email</span>
+                            <span className="wz-badge-running ml-1.5">✉ Via Email</span>
                           )}
                         </td>
                         <td className="py-3 px-4">
@@ -287,7 +283,7 @@ export default function JobCenter() {
                           <button
                             type="button"
                             onClick={(e) => { e.stopPropagation(); navigate(`/jobs/${job.id}`); }}
-                            className="text-indigo-600 hover:text-indigo-800 text-sm font-medium"
+                            className="wz-btn-ghost text-sm"
                           >
                             View Details
                           </button>
@@ -304,7 +300,7 @@ export default function JobCenter() {
                 <button
                   type="button"
                   onClick={() => navigate('/jobs/new')}
-                  className="rounded-lg px-4 py-2 bg-indigo-600 text-white font-medium hover:bg-indigo-700 transition"
+                  className="wz-btn-primary"
                 >
                   Create New Job
                 </button>
@@ -320,7 +316,7 @@ export default function JobCenter() {
       </div>
 
       {/* Crew status section */}
-      <div className="rounded-xl border border-slate-200 bg-white shadow-sm p-6">
+      <div className="wz-card p-6">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h3 className="text-lg font-semibold text-slate-900">Crew status</h3>
@@ -340,7 +336,7 @@ export default function JobCenter() {
           <>
             <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
               {updates.map((item) => (
-                <div key={item.slug} className="rounded-lg border border-slate-200 p-4">
+                <div key={item.slug} className="wz-card-subtle p-4">
                   <div className="text-sm font-semibold text-slate-800">{item.title}</div>
                   <div className="text-xs text-slate-500 mt-2">
                     Updated: {item.updated_at ? new Date(item.updated_at).toLocaleString() : 'Unknown'}
@@ -350,7 +346,7 @@ export default function JobCenter() {
             </div>
             <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
               {crew.map((member) => (
-                <div key={member.id} className="rounded-lg border border-slate-200 p-4">
+                <div key={member.id} className="wz-card-subtle p-4">
                   <div className="flex items-center justify-between">
                     <div>
                       <div className="text-sm font-semibold text-slate-800">{member.name}</div>
@@ -360,8 +356,8 @@ export default function JobCenter() {
                   </div>
                   <div className="mt-3 text-xs text-slate-500">{member.current_task || 'No active task'}</div>
                   {typeof member.progress === 'number' && (
-                    <div className="mt-2 h-2 rounded-full bg-slate-100 overflow-hidden">
-                      <div className="h-2 rounded-full bg-indigo-600 transition-all" style={{ width: `${member.progress}%` }} />
+                    <div className="mt-2 wz-progress-track">
+                      <div className="wz-progress-bar transition-all" style={{ width: `${member.progress}%` }} />
                     </div>
                   )}
                 </div>

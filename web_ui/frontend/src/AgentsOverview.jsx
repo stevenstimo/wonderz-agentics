@@ -23,12 +23,19 @@ export default function AgentsOverview() {
   const [agents, setAgents] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  // Filter: 'all' | true (actief) | false (inactief)
+  const [activeFilter, setActiveFilter] = useState('all')
 
   async function loadAgents() {
     setLoading(true)
     setError('')
     try {
-      const res = await apiFetch('/api/agents')
+      const params = new URLSearchParams()
+      if (activeFilter === true) params.set('is_active', 'true')
+      if (activeFilter === false) params.set('is_active', 'false')
+      const qs = params.toString()
+      const url = qs ? `/api/agents?${qs}` : '/api/agents'
+      const res = await apiFetch(url)
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data?.detail || 'Failed to load agents')
       const list = Array.isArray(data) ? data : (data?.agents || [])
@@ -50,7 +57,7 @@ export default function AgentsOverview() {
     loadAgents()
     const interval = setInterval(loadAgents, 30000)
     return () => clearInterval(interval)
-  }, [])
+  }, [activeFilter])
 
   return (
     <PageLayout>
@@ -78,6 +85,34 @@ export default function AgentsOverview() {
           </div>
         </div>
 
+        {/* Filter: actief / inactief */}
+        <div className="mx-6 mt-4 flex flex-wrap items-center gap-2">
+          <span className="text-sm font-medium text-slate-600">Status:</span>
+          <div className="inline-flex rounded-lg border border-slate-200 p-0.5 bg-slate-50/80">
+            <button
+              type="button"
+              onClick={() => setActiveFilter('all')}
+              className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${activeFilter === 'all' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+            >
+              Alles
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveFilter(true)}
+              className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${activeFilter === true ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+            >
+              Actief
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveFilter(false)}
+              className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${activeFilter === false ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+            >
+              Inactief
+            </button>
+          </div>
+        </div>
+
         {error && (
           <div className="mx-6 mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700 border border-red-100">
             {error}
@@ -96,6 +131,7 @@ export default function AgentsOverview() {
                     <th className="text-left py-3 px-4 text-xs font-semibold uppercase tracking-wider text-slate-500">Rol</th>
                     <th className="text-left py-3 px-4 text-xs font-semibold uppercase tracking-wider text-slate-500">Categorie</th>
                     <th className="text-left py-3 px-4 text-xs font-semibold uppercase tracking-wider text-slate-500">Status</th>
+                    <th className="text-left py-3 px-4 text-xs font-semibold uppercase tracking-wider text-slate-500">Tools</th>
                     <th className="text-left py-3 px-4 text-xs font-semibold uppercase tracking-wider text-slate-500">Performance</th>
                     <th className="text-right py-3 px-4 text-xs font-semibold uppercase tracking-wider text-slate-500">Acties</th>
                   </tr>
@@ -138,6 +174,9 @@ export default function AgentsOverview() {
                             </span>
                           )}
                         </span>
+                      </td>
+                      <td className="py-3 px-4 text-sm text-slate-600">
+                        {(Array.isArray(agent.tool_access_whitelist) ? agent.tool_access_whitelist : agent.tool_whitelist || []).length}
                       </td>
                       <td className="py-3 px-4">
                         {typeof agent.performance_score === 'number' ? (

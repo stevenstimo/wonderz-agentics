@@ -4,13 +4,14 @@ import { Upload, X, Paperclip, FileSpreadsheet, FileText, Image as ImageIcon, Me
 import PageLayout from './PageLayout'
 import { apiUrl, apiFetch } from './apiClient'
 
+/** Parses job context (object or JSON string). Never throws; returns {} on invalid input. */
 function parseContext(ctx) {
-  if (!ctx) return {}
-  if (typeof ctx === 'object') return ctx
+  if (ctx == null) return {}
+  if (typeof ctx === 'object' && !Array.isArray(ctx)) return ctx
   try {
     const parsed = JSON.parse(ctx)
     if (typeof parsed === 'string') return JSON.parse(parsed)
-    return parsed
+    return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed) ? parsed : {}
   } catch {
     return {}
   }
@@ -201,23 +202,36 @@ export default function JobSplitView() {
   const [clients, setClients] = useState([])
   const [mentionSuggestions, setMentionSuggestions] = useState([])
   const [detectedClient, setDetectedClient] = useState(null)
+  const [authError, setAuthError] = useState(false)
 
   const fetchJob = useCallback(async () => {
     if (!jobId) return null
     setLoading(true)
     setError(null)
+    setAuthError(false)
     let rethrowServerError = false
     try {
       const res = await apiFetch(`/api/jobs/${jobId}`)
       if (!res.ok) {
         if (res.status === 404) throw new Error('Job not found')
+        if (res.status === 401) {
+          setError('Session expired or unauthorized. Please log in again.')
+          setAuthError(true)
+          return null
+        }
         if (res.status >= 500) {
           rethrowServerError = true
           throw new Error((await res.json().catch(() => ({}))).detail || 'Failed to load job')
         }
         throw new Error('Failed to load job')
       }
-      const json = await res.json()
+      let json
+      try {
+        json = await res.json()
+      } catch (_) {
+        setError('Invalid response from server.')
+        return null
+      }
       setData(json)
       return json
     } catch (err) {
@@ -585,7 +599,11 @@ export default function JobSplitView() {
       <PageLayout size="wide" padded className="!max-w-none">
         <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm text-red-500">{error}</div>
         <div className="mt-4 flex gap-2 flex-wrap">
-          <button type="button" onClick={() => { setError(null); fetchJob(); }} className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700">Retry</button>
+          {authError ? (
+            <button type="button" onClick={() => navigate('/login', { state: { from: `/jobs/${jobId}` } })} className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700">Log in again</button>
+          ) : (
+            <button type="button" onClick={() => { setError(null); setAuthError(false); fetchJob(); }} className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700">Retry</button>
+          )}
           <button type="button" onClick={() => navigate('/job-center')} className="px-4 py-2 border border-slate-300 rounded-lg font-medium">Back to Job Center</button>
         </div>
       </PageLayout>

@@ -11,10 +11,19 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, s
 from app.middleware.auth import get_current_user, require_super_admin, TokenPayload
 from pydantic import BaseModel, Field
 
+import httpx
+
 from app.database import get_db
 from app.orchestration.direct_chat_engine import DirectChatEngine
 from app.services.client_context import extract_client_context
-from app.services.training import generate_embedding
+from app.services.training import (
+    generate_embedding,
+    scrape_url,
+    extract_text,
+    chunk_text_by_chars,
+    update_knowledge_sources,
+    TrainingError,
+)
 from app.services.training_workflow import TrainingWorkflow
 from app.data.agent_presets import AGENT_PRESETS
 
@@ -84,6 +93,12 @@ def _generate_agent_id_slug(name: str, role: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "agent"
     safe_role = role.lower().replace(" ", "-")[:30]
     return f"agent:{safe_role}:{slug}"
+
+
+def _generate_agent_id_with_suffix(role: str) -> str:
+    """agent:<role>-<uuid4[:8]> for collision avoidance."""
+    safe_role = role.lower().replace(" ", "-")[:30]
+    return f"agent:{safe_role}-{uuid.uuid4().hex[:8]}"
 
 
 class KnowledgeSource(BaseModel):
@@ -172,26 +187,42 @@ class AgentResponse(BaseModel):
 @router.get("")
 async def list_agents(
     current_user: Annotated[TokenPayload, Depends(get_current_user)],
+    is_active: Optional[bool] = Query(None, description="Filter by is_active"),
+    category: Optional[str] = Query(None, description="Filter by category"),
 ) -> Dict[str, Any]:
-    """Returns {agents: [...], count: N}. Spec v1.1."""
+    """Returns {agents: [...], count: N, total: N}. Optional filters: is_active, category."""
     pool = await get_db()
+    conditions: List[str] = []
+    values: List[Any] = []
+    idx = 1
+    if is_active is not None:
+        conditions.append(f"is_active = ${idx}")
+        idx += 1
+        values.append(is_active)
+    if category is not None:
+        conditions.append(f"category = ${idx}")
+        idx += 1
+        values.append(category)
+    where_clause = (" WHERE " + " AND ".join(conditions)) if conditions else ""
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             """
             SELECT * FROM hired_agents
+            """ + where_clause + """
             ORDER BY
                 CASE WHEN LOWER(role) = 'ceo' THEN 0 ELSE 1 END,
                 COALESCE(name, '') ASC
-            """
+            """,
+            *values,
         )
 
     result: List[Dict[str, Any]] = []
     for row in rows:
         rec = _serialize_agent_row(row)
-        # spec: system_prompt alleen in detail-endpoint, niet in lijst
         rec.pop("system_prompt", None)
         result.append(rec)
-    return {"agents": result, "count": len(result)}
+    n = len(result)
+    return {"agents": result, "count": n, "total": n}
 
 
 @router.get("/presets")
@@ -561,8 +592,10 @@ async def update_agent_avatar(
     return {"status": "updated"}
 
 
-async def _set_knowledge_source_status(pool, agent_id: str, source_url: str, status: str) -> None:
-    """Update status of one entry in knowledge_base_sources by url."""
+async def _set_knowledge_source_status(
+    pool, agent_id: str, source_url: str, status: str, error_msg: Optional[str] = None
+) -> None:
+    """Update status of one entry in knowledge_base_sources by url. Optionally set error for failed."""
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             "SELECT knowledge_base_sources FROM hired_agents WHERE agent_id = $1",
@@ -581,6 +614,8 @@ async def _set_knowledge_source_status(pool, agent_id: str, source_url: str, sta
     for s in sources:
         if isinstance(s, dict) and s.get("url") == source_url:
             s["status"] = status
+            if error_msg is not None:
+                s["error"] = error_msg[:500]
             break
     async with pool.acquire() as conn:
         await conn.execute(
@@ -630,46 +665,102 @@ async def _append_knowledge_processing(pool, agent_id: str, url: str, approved_b
 
 
 async def _run_training_background(agent_id: str, url: str, approved_by: str) -> None:
-    """Run training in background; update status to active or failed."""
+    """Run training in background: scrape → chunk (char 2000/200) → embed → store. Updates knowledge_base_sources."""
     pool = await get_db()
+    if not pool:
+        logger.error("Training %s: no DB pool", agent_id)
+        return
     try:
-        workflow = TrainingWorkflow(pool)
-        await workflow.start_training(
-            agent_id=agent_id,
-            url=url,
-            approved_by=approved_by,
-        )
+        html = await scrape_url(url)
+        text = extract_text(html)
+        if len(text) < 100:
+            await _set_knowledge_source_status(
+                pool, agent_id, url, "failed", "Pagina bevat te weinig tekst"
+            )
+            return
+        chunks = chunk_text_by_chars(text, chunk_size=2000, overlap=200)
+        if not chunks:
+            await _set_knowledge_source_status(
+                pool, agent_id, url, "failed", "Geen chunks gegenereerd"
+            )
+            return
+
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                UPDATE agent_knowledge SET is_active = false
+                WHERE agent_id = $1 AND source_url = $2
+                """,
+                agent_id,
+                url,
+            )
+
+        for idx, chunk in enumerate(chunks):
+            embedding = await generate_embedding((chunk or "")[:8000])
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    """
+                    INSERT INTO agent_knowledge (agent_id, source_url, chunk_text, embedding, chunk_index, is_active)
+                    VALUES ($1, $2, $3, $4::vector, $5, true)
+                    """,
+                    agent_id,
+                    url,
+                    chunk,
+                    json.dumps(embedding),
+                    idx,
+                )
+
+        await update_knowledge_sources(pool, agent_id, url, len(chunks), approved_by=approved_by)
         await _set_knowledge_source_status(pool, agent_id, url, "active")
-    except Exception as e:
+        logger.info("Training completed for %s %s: %s chunks", agent_id, url, len(chunks))
+    except TrainingError as e:
         logger.warning("Training failed for %s %s: %s", agent_id, url, e)
-        await _set_knowledge_source_status(pool, agent_id, url, "failed")
+        await _set_knowledge_source_status(pool, agent_id, url, "failed", str(e))
+    except Exception as e:
+        logger.exception("Training failed for %s %s", agent_id, url)
+        await _set_knowledge_source_status(pool, agent_id, url, "failed", str(e)[:500])
 
 
-@router.post("/{agent_id}/train")
+@router.post("/{agent_id}/train", status_code=status.HTTP_202_ACCEPTED)
 async def train_agent(
     agent_id: str,
     body: TrainAgentBody,
     background_tasks: BackgroundTasks,
     current_user: Annotated[TokenPayload, Depends(require_super_admin)],
 ) -> Dict[str, Any]:
-    """Start training voor een agent met een URL. Returns immediately; training runs in background. Spec sectie 5.2."""
-    if not (body.url or "").strip().startswith("https://"):
-        raise HTTPException(status_code=400, detail="URL moet beginnen met https://")
+    """Start training for an agent with a URL. Returns 202; training runs in background. No CEO approval gate."""
+    url = (body.url or "").strip()
+    if not url.startswith("http://") and not url.startswith("https://"):
+        raise HTTPException(status_code=422, detail="URL moet beginnen met http:// of https://")
     pool = await get_db()
     async with pool.acquire() as conn:
         agent = await conn.fetchrow(
-            "SELECT agent_id, is_active FROM hired_agents WHERE agent_id = $1",
+            "SELECT agent_id FROM hired_agents WHERE agent_id = $1",
             agent_id,
         )
     if not agent:
-        raise HTTPException(status_code=404, detail=f"Agent {agent_id} niet gevonden")
-    if not agent.get("is_active", True):
-        raise HTTPException(status_code=400, detail="Agent is gedeactiveerd")
+        raise HTTPException(status_code=404, detail="Agent not found")
 
-    approved_by = (body.approved_by or "system").strip() or "system"
-    await _append_knowledge_processing(pool, agent_id, body.url.strip(), approved_by)
-    background_tasks.add_task(_run_training_background, agent_id, body.url.strip(), approved_by)
-    return {"status": "training_started", "url": body.url.strip(), "agent_id": agent_id}
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=5.0) as client:
+            head = await client.head(url)
+            head.raise_for_status()
+    except httpx.HTTPError as e:
+        raise HTTPException(
+            status_code=422,
+            detail=f"URL niet bereikbaar: {str(e)}",
+        ) from e
+
+    approved_by = (body.approved_by or "user").strip() or "user"
+    await _append_knowledge_processing(pool, agent_id, url, approved_by)
+    background_tasks.add_task(_run_training_background, agent_id, url, approved_by)
+
+    return {
+        "agent_id": agent_id,
+        "url": url,
+        "status": "started",
+        "message": f"Training gestart voor agent:{agent_id}",
+    }
 
 
 @router.get("/{agent_id}/context")
@@ -764,15 +855,14 @@ async def create_agent(
         tool_json = json.dumps(payload.tool_whitelist)
 
         async with pool.acquire() as conn:
-            existing = await conn.fetchrow(
-                "SELECT agent_id FROM hired_agents WHERE agent_id = $1",
-                agent_id,
-            )
-            if existing:
-                raise HTTPException(
-                    status_code=409,
-                    detail=f"Agent {agent_id} bestaat al.",
+            while True:
+                existing = await conn.fetchrow(
+                    "SELECT agent_id FROM hired_agents WHERE agent_id = $1",
+                    agent_id,
                 )
+                if not existing:
+                    break
+                agent_id = _generate_agent_id_with_suffix(payload.role)
 
             row = await conn.fetchrow(
                 """
@@ -862,7 +952,24 @@ async def update_agent(
     if not data:
         raise HTTPException(status_code=400, detail="No fields provided for update")
 
-    data["updated_at"] = datetime.utcnow()
+    # Validate tool_access_whitelist against VALID_TOOLS
+    if "tool_access_whitelist" in data:
+        tools = data["tool_access_whitelist"]
+        if isinstance(tools, str):
+            try:
+                tools = json.loads(tools) if tools else []
+            except json.JSONDecodeError:
+                tools = []
+        if not isinstance(tools, list):
+            tools = []
+        for t in tools:
+            if t not in VALID_TOOLS:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Onbekende tool: {t}. Geldige tools: {VALID_TOOLS}",
+                )
+
+    data["updated_at"] = datetime.now(timezone.utc)
 
     json_fields = {
         "permissions",

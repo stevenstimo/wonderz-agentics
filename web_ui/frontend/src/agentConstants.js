@@ -1,4 +1,4 @@
-// Source of truth: app/routes/agents.py VALID_TOOLS — sync bij wijziging
+// Backend app/routes/agents.py is single source of truth; keep this list in sync.
 export const VALID_TOOLS = [
   'read_product', 'write_copy', 'read_analytics', 'write_social',
   'read_tickets', 'write_tickets', 'read_jobs', 'send_report', 'write_report',

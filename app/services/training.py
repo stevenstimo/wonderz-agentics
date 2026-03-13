@@ -129,6 +129,41 @@ def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> List[Tupl
     return chunks
 
 
+def chunk_text_by_chars(
+    text: str,
+    chunk_size: int = 2000,
+    overlap: int = 200,
+) -> List[str]:
+    """Split text into overlapping character chunks. No tiktoken/OpenAI.
+
+    Each chunk is at most chunk_size chars; last overlap chars of chunk N
+    are the first overlap chars of chunk N+1.
+    Returns list of chunk strings.
+    """
+    if chunk_size <= 0:
+        raise TrainingError("chunk_size must be > 0")
+    if overlap < 0 or overlap >= chunk_size:
+        raise TrainingError("overlap must be >= 0 and < chunk_size")
+
+    clean = (text or "").strip()
+    if not clean:
+        return []
+
+    step = chunk_size - overlap
+    start = 0
+    chunks: List[str] = []
+    while start < len(clean):
+        end = min(start + chunk_size, len(clean))
+        chunk = clean[start:end]
+        if chunk.strip():
+            chunks.append(chunk)
+        if end >= len(clean):
+            break
+        start += step
+
+    return chunks
+
+
 EMBEDDING_DIM = 1024  # agent_knowledge.embedding vector size (BGE-M3)
 
 

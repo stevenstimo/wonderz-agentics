@@ -32,11 +32,12 @@ export default function SEOTool() {
     try {
       const res = await apiFetch(`/api/seo/status/${id}`)
       const data = await res.json()
+      console.log('[SEO POLL]', data)
       if (!res.ok) throw new Error(data.detail || 'Status check failed')
       setStatus(data.status)
       setProgress(data.progress ?? 0)
       setKeywordsProcessed(data.keywords_processed ?? 0)
-      setKeywordsTotal(data.keywords_total ?? 0)
+      setKeywordsTotal(data.keywords_total ?? data.keyword_count ?? data.total ?? 0)
       if (data.status === 'ready' && data.download_url) {
         setDownloadUrl(apiUrl(data.download_url))
         if (pollIntervalRef.current) {
@@ -134,7 +135,7 @@ export default function SEOTool() {
   }
 
   const showUpload = !jobId || status === 'failed'
-  const showProgress = jobId && status === 'processing'
+  const showProgress = jobId && (status === 'processing' || status === 'pending')
   const showDownload = jobId && status === 'ready'
 
   return (
@@ -251,7 +252,9 @@ export default function SEOTool() {
                 />
               </div>
               <p className="text-slate-600">
-                {keywordsProcessed} van {keywordsTotal} keywords verwerkt
+                {status === 'pending' && progress === 0
+                  ? 'Starten…'
+                  : `${keywordsProcessed} van ${keywordsTotal} keywords verwerkt`}
               </p>
               {currentSilo && (
                 <p className="text-sm text-slate-500">Huidige silo: {currentSilo}</p>

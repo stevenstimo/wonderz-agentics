@@ -150,19 +150,19 @@ const HiringHall = ({ onHire }) => {
   return (
     <PageLayout variant="inner" size="medium" className="space-y-12 animate-in zoom-in-95 duration-500 pb-24">
       <div className="text-center space-y-4">
-        <h1 className="text-4xl font-black text-[#111827] tracking-tight">Recruit New Crew Member</h1>
-        <p className="text-[#6B7280] text-lg max-w-2xl mx-auto">
+        <h1 className="text-4xl font-black text-[var(--color-text-primary)] tracking-tight">Recruit New Crew Member</h1>
+        <p className="text-[var(--color-text-muted)] text-lg max-w-2xl mx-auto">
           Configureer het &quot;Brein&quot; van je agent. Definieer hun persona, kennisbasis en operationele tools.
         </p>
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-2 border-b border-[#E5E7EB]">
+      <div className="flex gap-2 border-b border-[var(--color-border)]">
         <button
           type="button"
           onClick={() => setActiveTab(TAB_RECRUIT)}
           className={`px-6 py-3 font-semibold rounded-t-xl transition-colors ${
-            activeTab === TAB_RECRUIT ? 'bg-white border border-[#E5E7EB] border-b-0 text-[#1d62e3]' : 'text-[#6B7280] hover:text-[#111827]'
+            activeTab === TAB_RECRUIT ? 'bg-white border border-[var(--color-border)] border-b-0 text-[#1d62e3]' : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]'
           }`}
         >
           <span className="flex items-center gap-2">
@@ -174,14 +174,14 @@ const HiringHall = ({ onHire }) => {
           type="button"
           onClick={() => setActiveTab(TAB_PROMOTE)}
           className={`px-6 py-3 font-semibold rounded-t-xl transition-colors ${
-            activeTab === TAB_PROMOTE ? 'bg-white border border-[#E5E7EB] border-b-0 text-[#1d62e3]' : 'text-[#6B7280] hover:text-[#111827]'
+            activeTab === TAB_PROMOTE ? 'bg-white border border-[var(--color-border)] border-b-0 text-[#1d62e3]' : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]'
           }`}
         >
           <span className="flex items-center gap-2">
             <GraduationCap size={18} />
             Promote Newbie
             {readyNewbies.length > 0 && (
-              <span className="ml-1 px-2 py-0.5 rounded-full bg-green-100 text-green-800 text-xs font-bold">
+              <span className="wz-badge-success ml-1">
                 {readyNewbies.length}
               </span>
             )}
@@ -190,39 +190,39 @@ const HiringHall = ({ onHire }) => {
       </div>
 
       {activeTab === TAB_PROMOTE && (
-        <div className="bg-white rounded-[32px] border border-[#E5E7EB] p-10 shadow-sleak">
-          <h2 className="text-xl font-bold text-[#111827] mb-4">Ready Newbies</h2>
-          <p className="text-[#6B7280] text-sm mb-6">
+        <div className="wz-card rounded-[32px] p-10">
+          <h2 className="text-xl font-bold text-[var(--color-text-primary)] mb-4">Ready Newbies</h2>
+          <p className="text-[var(--color-text-muted)] text-sm mb-6">
             Newbies met readiness ≥ 70. Klik op Hire om ze direct naar de crew te promoveren.
           </p>
           {hireError && (
             <div className="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{hireError}</div>
           )}
           {loadingNewbies ? (
-            <p className="text-[#6B7280] text-sm">Laden...</p>
+            <p className="text-[var(--color-text-muted)] text-sm">Laden...</p>
           ) : readyNewbies.length === 0 ? (
-            <p className="text-[#6B7280] text-sm">Geen ready newbies. Train newbies op de Newbies-pagina tot readiness ≥ 70.</p>
+            <p className="text-[var(--color-text-muted)] text-sm">Geen ready newbies. Train newbies op de Newbies-pagina tot readiness ≥ 70.</p>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {readyNewbies.map((n) => (
                 <div
                   key={n.newbie_id}
                   className={`rounded-xl border p-5 transition ${
-                    promoteId === n.newbie_id ? 'border-[#1d62e3] bg-[#f0f6ff]' : 'border-[#E5E7EB] bg-[#F9FAFB] hover:border-[#1d62e3]/50'
+                    promoteId === n.newbie_id ? 'border-[#1d62e3] bg-[#f0f6ff]' : 'border-[var(--color-border)] bg-[var(--color-bg-subtle)] hover:border-[#1d62e3]/50'
                   }`}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <h3 className="font-semibold text-[#111827]">{n.newbie_name || '—'}</h3>
-                      {n.suggested_role && <span className="text-sm text-[#6B7280]">{n.suggested_role}</span>}
-                      <p className="text-xs text-[#6B7280] mt-1 line-clamp-2">{n.persona || ''}</p>
+                      <h3 className="font-semibold text-[var(--color-text-primary)]">{n.newbie_name || '—'}</h3>
+                      {n.suggested_role && <span className="text-sm text-[var(--color-text-muted)]">{n.suggested_role}</span>}
+                      <p className="text-xs text-[var(--color-text-muted)] mt-1 line-clamp-2">{n.persona || ''}</p>
                       <span className="text-xs font-medium text-green-600 mt-2 block">Readiness: {n.readiness_score ?? 0}%</span>
                     </div>
                     <button
                       type="button"
                       onClick={() => handleHireNewbie(n)}
                       disabled={hiringNewbieId === n.newbie_id}
-                      className="flex items-center gap-2 px-4 py-2 bg-[#1d62e3] text-white rounded-xl font-medium hover:bg-[#1557c7] disabled:opacity-50"
+                      className="wz-btn-primary flex items-center gap-2 disabled:opacity-50"
                     >
                       <UserPlus size={18} />
                       {hiringNewbieId === n.newbie_id ? 'Bezig...' : 'Hire'}
@@ -238,31 +238,31 @@ const HiringHall = ({ onHire }) => {
       {activeTab === TAB_RECRUIT && (
       <form onSubmit={(e) => e.preventDefault()} className="space-y-10">
         {/* Section 1: Core Identity */}
-        <div className="bg-white rounded-[32px] border border-[#E5E7EB] p-10 shadow-sleak space-y-8">
-          <div className="flex items-center gap-3 border-b border-[#F9FAFB] pb-6">
-            <div className="w-10 h-10 bg-[#f0f6ff] text-[#1d62e3] rounded-xl flex items-center justify-center">
+        <div className="wz-card rounded-[32px] p-10 space-y-8">
+          <div className="flex items-center gap-3 border-b border-[var(--color-bg-subtle)] pb-6">
+            <div className="w-10 h-10 bg-[var(--color-brand-primary-light)] text-[var(--color-brand-primary)] rounded-xl flex items-center justify-center">
               <Briefcase size={20} />
             </div>
-            <h2 className="text-xl font-bold text-[#111827]">Core Identity</h2>
+            <h2 className="text-xl font-bold text-[var(--color-text-primary)]">Core Identity</h2>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-2">
-              <label className="text-[10px] font-black text-[#6B7280] uppercase tracking-widest px-1">Name</label>
+              <label className="text-[10px] font-black text-[var(--color-text-muted)] uppercase tracking-widest px-1">Name</label>
               <input
                 required
                 placeholder="e.g. Donna Paulsen"
-                className="w-full bg-[#F9FAFB] border border-[#E5E7EB] px-5 py-4 rounded-xl focus:ring-4 focus:ring-[#1d62e3]/10 focus:bg-white outline-none transition-all font-bold"
+                className="w-full bg-[var(--color-bg-subtle)] border border-[var(--color-border)] px-5 py-4 rounded-xl focus:ring-4 focus:ring-[var(--color-brand-primary)]/10 focus:bg-white outline-none transition-all font-bold"
                 value={formData.agent_name}
                 onChange={(e) => setFormData({ ...formData, agent_name: e.target.value })}
               />
             </div>
             <div className="space-y-2">
-              <label className="text-[10px] font-black text-[#6B7280] uppercase tracking-widest px-1">Role</label>
+              <label className="text-[10px] font-black text-[var(--color-text-muted)] uppercase tracking-widest px-1">Role</label>
               <input
                 required
                 placeholder="e.g. personal-assistant"
-                className="w-full bg-[#F9FAFB] border border-[#E5E7EB] px-5 py-4 rounded-xl focus:ring-4 focus:ring-[#1d62e3]/10 focus:bg-white outline-none transition-all font-bold"
+                className="w-full bg-[var(--color-bg-subtle)] border border-[var(--color-border)] px-5 py-4 rounded-xl focus:ring-4 focus:ring-[var(--color-brand-primary)]/10 focus:bg-white outline-none transition-all font-bold"
                 value={formData.role}
                 onChange={(e) => setFormData({ ...formData, role: e.target.value })}
               />
@@ -271,19 +271,19 @@ const HiringHall = ({ onHire }) => {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-2">
-              <label className="text-[10px] font-black text-[#6B7280] uppercase tracking-widest px-1">Goal</label>
+              <label className="text-[10px] font-black text-[var(--color-text-muted)] uppercase tracking-widest px-1">Goal</label>
               <input
                 required
                 placeholder="e.g. Elke dag proactief rapporteren over afgesloten jobs..."
-                className="w-full bg-[#F9FAFB] border border-[#E5E7EB] px-5 py-4 rounded-xl focus:ring-4 focus:ring-[#1d62e3]/10 focus:bg-white outline-none transition-all font-bold"
+                className="w-full bg-[var(--color-bg-subtle)] border border-[var(--color-border)] px-5 py-4 rounded-xl focus:ring-4 focus:ring-[var(--color-brand-primary)]/10 focus:bg-white outline-none transition-all font-bold"
                 value={formData.goal}
                 onChange={(e) => setFormData({ ...formData, goal: e.target.value })}
               />
             </div>
             <div className="space-y-2">
-              <label className="text-[10px] font-black text-[#6B7280] uppercase tracking-widest px-1">Category</label>
+              <label className="text-[10px] font-black text-[var(--color-text-muted)] uppercase tracking-widest px-1">Category</label>
               <select
-                className="w-full bg-[#F9FAFB] border border-[#E5E7EB] px-5 py-4 rounded-xl focus:ring-4 focus:ring-[#1d62e3]/10 focus:bg-white outline-none transition-all font-bold"
+                className="w-full bg-[var(--color-bg-subtle)] border border-[var(--color-border)] px-5 py-4 rounded-xl focus:ring-4 focus:ring-[var(--color-brand-primary)]/10 focus:bg-white outline-none transition-all font-bold"
                 value={formData.category}
                 onChange={(e) => setFormData({ ...formData, category: e.target.value })}
               >
@@ -298,20 +298,20 @@ const HiringHall = ({ onHire }) => {
         </div>
 
         {/* Section 2: The Brain (System Instruction) */}
-        <div className="bg-white rounded-[32px] border border-[#E5E7EB] p-10 shadow-sleak space-y-8">
-          <div className="flex items-center gap-3 border-b border-[#F9FAFB] pb-6">
-            <div className="w-10 h-10 bg-[#f5f3ff] text-[#8B5CF6] rounded-xl flex items-center justify-center">
+        <div className="wz-card rounded-[32px] p-10 space-y-8">
+          <div className="flex items-center gap-3 border-b border-[var(--color-bg-subtle)] pb-6">
+            <div className="w-10 h-10 bg-[var(--color-bg-subtle)] text-[var(--color-technical)] rounded-xl flex items-center justify-center">
               <BrainCircuit size={20} />
             </div>
-            <h2 className="text-xl font-bold text-[#111827]">Agent Persona & Brain</h2>
+            <h2 className="text-xl font-bold text-[var(--color-text-primary)]">Agent Persona & Brain</h2>
           </div>
 
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <label className="text-[10px] font-black text-[#6B7280] uppercase tracking-widest px-1">
+              <label className="text-[10px] font-black text-[var(--color-text-muted)] uppercase tracking-widest px-1">
                 System Instructions
               </label>
-              <div className="flex items-center gap-1.5 text-[#6B7280]">
+              <div className="flex items-center gap-1.5 text-[var(--color-text-muted)]">
                 <Info size={12} />
                 <span className="text-[10px] font-bold">Dit definieert het gedrag en de toon van de agent.</span>
               </div>
@@ -319,38 +319,38 @@ const HiringHall = ({ onHire }) => {
             <textarea
               required
               placeholder="Je bent een empathische support agent..."
-              className="w-full bg-[#F9FAFB] border border-[#E5E7EB] px-6 py-6 rounded-[24px] focus:ring-4 focus:ring-[#1d62e3]/10 focus:bg-white outline-none transition-all min-h-[160px] font-medium text-[#111827] leading-relaxed"
+              className="w-full bg-[var(--color-bg-subtle)] border border-[var(--color-border)] px-6 py-6 rounded-[24px] focus:ring-4 focus:ring-[var(--color-brand-primary)]/10 focus:bg-white outline-none transition-all min-h-[160px] font-medium text-[var(--color-text-primary)] leading-relaxed"
               value={formData.system_prompt}
               onChange={(e) => setFormData({ ...formData, system_prompt: e.target.value })}
             />
           </div>
 
           <div className="space-y-4">
-            <label className="text-[10px] font-black text-[#6B7280] uppercase tracking-widest px-1">
+            <label className="text-[10px] font-black text-[var(--color-text-muted)] uppercase tracking-widest px-1">
               Knowledge Sources (URLs, één per regel)
             </label>
             <textarea
               placeholder="https://docs.example.com/..."
-              className="w-full bg-[#F9FAFB] border border-[#E5E7EB] px-6 py-4 rounded-xl focus:ring-4 focus:ring-[#1d62e3]/10 focus:bg-white outline-none transition-all min-h-[80px] font-medium"
+              className="w-full bg-[var(--color-bg-subtle)] border border-[var(--color-border)] px-6 py-4 rounded-xl focus:ring-4 focus:ring-[var(--color-brand-primary)]/10 focus:bg-white outline-none transition-all min-h-[80px] font-medium"
               value={knowledgeText}
               onChange={handleKnowledgeChange}
             />
           </div>
 
           <div className="space-y-4">
-            <label className="text-[10px] font-black text-[#6B7280] uppercase tracking-widest px-1">Tool Access</label>
+            <label className="text-[10px] font-black text-[var(--color-text-muted)] uppercase tracking-widest px-1">Tool Access</label>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {VALID_TOOLS.map((tool) => (
                 <label
                   key={tool.id}
-                  className="flex items-center gap-2 rounded-xl border border-[#E5E7EB] px-4 py-3 bg-[#F9FAFB] hover:bg-[#f0f6ff] cursor-pointer"
+                  className="flex items-center gap-2 rounded-xl border border-[var(--color-border)] px-4 py-3 bg-[var(--color-bg-subtle)] hover:bg-[var(--color-brand-primary-light)] cursor-pointer"
                 >
                   <input
                     type="checkbox"
                     checked={formData.tool_whitelist.includes(tool.id)}
                     onChange={() => toggleTool(tool.id)}
                   />
-                  <span className="text-sm font-medium text-[#111827]">{tool.label}</span>
+                  <span className="text-sm font-medium text-[var(--color-text-primary)]">{tool.label}</span>
                 </label>
               ))}
             </div>
@@ -369,13 +369,13 @@ const HiringHall = ({ onHire }) => {
       )}
 
       {/* Footer Security Badge */}
-      <div className="bg-[#111827] rounded-[32px] p-8 text-white flex items-center gap-8 shadow-2xl relative overflow-hidden">
-        <div className="w-16 h-16 bg-[#1d62e3] rounded-2xl flex items-center justify-center flex-shrink-0 shadow-lg">
+      <div className="bg-[var(--color-text-primary)] rounded-[32px] p-8 text-white flex items-center gap-8 shadow-2xl relative overflow-hidden">
+        <div className="w-16 h-16 bg-[var(--color-brand-primary)] rounded-2xl flex items-center justify-center flex-shrink-0 shadow-lg">
           <ShieldCheck size={32} />
         </div>
         <div>
           <h4 className="text-lg font-bold mb-1">Safety Gate Integration Active</h4>
-          <p className="text-[#6B7280] text-sm font-medium leading-relaxed max-w-xl">
+          <p className="text-[var(--color-text-muted)] text-sm font-medium leading-relaxed max-w-xl">
             Nieuwe agents worden direct onderworpen aan de globale Compliance Officer (**Aegis**). Acties worden
             gemonitord volgens de Wonderz-veiligheidsprotocollen.
           </p>

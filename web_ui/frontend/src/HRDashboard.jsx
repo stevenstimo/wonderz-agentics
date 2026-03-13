@@ -32,6 +32,7 @@ export default function HRDashboard() {
   const [trainingRequests, setTrainingRequests] = useState([])
   const [loading, setLoading] = useState(false)
   const [scanning, setScanning] = useState(false)
+  const [scanMessage, setScanMessage] = useState('')
   const [error, setError] = useState('')
   const [trainingUrlInput, setTrainingUrlInput] = useState({})
   const [crossProposals, setCrossProposals] = useState([])
@@ -42,6 +43,7 @@ export default function HRDashboard() {
   const [reportLoading, setReportLoading] = useState(false)
   const [approveModal, setApproveModal] = useState(null)
   const [approveUrl, setApproveUrl] = useState('')
+  const [resolveInput, setResolveInput] = useState({})
 
   const loadPoints = useCallback(async () => {
     setLoading(true)
@@ -138,9 +140,19 @@ export default function HRDashboard() {
 
   async function triggerScan() {
     setScanning(true)
+    setScanMessage('')
+    setError('')
     try {
-      await apiFetch('/api/hr/scan', { method: 'POST' })
+      const res = await apiFetch('/api/hr/scan', { method: 'POST' })
+      const data = res.ok ? await res.json().catch(() => ({})) : {}
+      const created = data.created ?? 0
+      const incremented = data.incremented ?? 0
+      const total = created + incremented
+      setScanMessage(total > 0
+        ? `Scan voltooid — ${created} nieuwe development point${created !== 1 ? 's' : ''} gevonden${incremented > 0 ? `, ${incremented} bijgewerkt` : ''}`
+        : 'Scan voltooid — geen nieuwe patronen gevonden')
       await loadPoints()
+      setTimeout(() => setScanMessage(''), 3000)
     } catch {
       setError('Scan mislukt')
     }
@@ -181,30 +193,30 @@ export default function HRDashboard() {
     }
   }
 
+  /** Development Points tab only: dismiss point via dedicated endpoint. */
   async function handleDismiss(pointId) {
+    if (tab !== 'points') return
     try {
-      await apiFetch('/api/hr/approve-training', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ point_id: pointId, approved: false, approved_by: 'hr-dashboard' }),
-      })
+      await apiFetch(`/api/hr/development-points/${pointId}/dismiss`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
       setApproveModal(null)
-      if (tab === 'training') await loadTrainingRequests()
-      else await loadPoints()
+      await loadPoints()
     } catch {
       setError('Afwijzen mislukt')
     }
   }
 
-  async function approveTraining(pointId) {
-    const sourceUrl = trainingUrlInput[pointId] || approveUrl || ''
+  async function approveTraining(id) {
+    const sourceUrl = trainingUrlInput[id] || approveUrl || ''
+    const body = tab === 'training'
+      ? { request_id: id, approved: true, source_url: sourceUrl || undefined, approved_by: 'hr-dashboard' }
+      : { point_id: id, approved: true, source_url: sourceUrl || undefined, approved_by: 'hr-dashboard' }
     try {
       await apiFetch('/api/hr/approve-training', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ point_id: pointId, approved: true, source_url: sourceUrl || undefined, approved_by: 'hr-dashboard' }),
+        body: JSON.stringify(body),
       })
-      setTrainingUrlInput((prev) => { const n = { ...prev }; delete n[pointId]; return n })
+      setTrainingUrlInput((prev) => { const n = { ...prev }; delete n[id]; return n })
       setApproveModal(null)
       setApproveUrl('')
       if (tab === 'training') await loadTrainingRequests()
@@ -214,12 +226,14 @@ export default function HRDashboard() {
     }
   }
 
-  async function dismissTrainingRequest(pointId) {
+  /** Training Requests tab only: reject request via approve-training with approved: false. */
+  async function dismissTrainingRequest(requestId) {
+    if (tab !== 'training') return
     try {
-      await apiFetch(`/api/hr/development-points/${pointId}`, {
-        method: 'PATCH',
+      await apiFetch('/api/hr/approve-training', {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'DISMISSED', approved_by: 'hr-dashboard' }),
+        body: JSON.stringify({ request_id: requestId, approved: false, approved_by: 'hr-dashboard' }),
       })
       await loadTrainingRequests()
     } catch {
@@ -239,6 +253,20 @@ export default function HRDashboard() {
       await loadCrossProposals()
     } catch {
       setError('Goedkeuren mislukt')
+    }
+  }
+
+  async function resolvePoint(pointId, resolution) {
+    try {
+      await apiFetch(`/api/hr/development-points/${pointId}/resolve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ resolution: resolution || 'Opgelost via HR Dashboard' }),
+      })
+      setResolveInput((prev) => { const n = { ...prev }; delete n[pointId]; return n })
+      await loadPoints()
+    } catch {
+      setError('Opgelost markeren mislukt')
     }
   }
 
@@ -290,6 +318,9 @@ export default function HRDashboard() {
       {error && (
         <div className="mb-4 p-4 rounded-lg bg-red-50 text-red-700 border border-red-200 text-sm">{error}</div>
       )}
+      {scanMessage && (
+        <div className="mb-4 p-4 rounded-lg bg-green-50 text-green-700 border border-green-200 text-sm">{scanMessage}</div>
+      )}
 
       {/* Weekly Report */}
       <section className="mb-8 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -309,23 +340,23 @@ export default function HRDashboard() {
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {Object.entries(report.agents).map(([agentId, data]) => (
               <div key={agentId} className="rounded-lg border border-slate-200 p-3 text-sm">
-                <strong className="text-slate-900">{data.agent_name || agentId}</strong>
+                <strong className="text-slate-900">{data.agent_name ?? agentId ?? '—'}</strong>
                 <div className="mt-1 flex flex-wrap items-center gap-2">
                   <span className="inline-flex items-center px-2 py-0.5 rounded bg-slate-100 text-slate-700 text-xs">
-                    {(data.open_points_count ?? 0)} open
+                    {data.open_points_count != null ? data.open_points_count : '—'} open
                   </span>
                   <span className="text-slate-600">
-                    Retry: {((data.performance?.retry_rate ?? 0) * 100).toFixed(1)}%
+                    Retry: {data.performance?.retry_rate != null ? ((data.performance.retry_rate) * 100).toFixed(1) : '—'}%
                   </span>
                   <span className="text-slate-600">
-                    Completed: {data.performance?.jobs_touched_7d ?? 0}
+                    Jobs (7d): {data.performance?.jobs_touched_7d != null ? data.performance.jobs_touched_7d : '—'}
                   </span>
                 </div>
               </div>
             ))}
           </div>
         ) : report ? (
-          <p className="text-slate-500 text-sm">Geen agentdata in rapport.</p>
+          <p className="text-slate-500 text-sm">Geen data beschikbaar.</p>
         ) : (
           <p className="text-slate-500 text-sm">Klik "Refresh rapport" om te laden.</p>
         )}
@@ -419,9 +450,11 @@ export default function HRDashboard() {
                   {filtered.map((p) => {
                     const impactKey = (p.impact || 'medium').toLowerCase()
                     const statusKey = (p.status || 'OPEN').toUpperCase()
-                    const showTrainingInput = trainingUrlInput[p.point_id] !== undefined && statusKey === 'AWAITING_APPROVAL'
+                    const pointId = p.point_id || p.id
+                    const showTrainingInput = trainingUrlInput[pointId] !== undefined && statusKey === 'AWAITING_APPROVAL'
+                    const showResolveInput = resolveInput[pointId] !== undefined && (statusKey === 'IN_TRAINING' || statusKey === 'AWAITING_APPROVAL')
                     return (
-                      <tr key={p.point_id || p.id} className="hover:bg-slate-50">
+                      <tr key={pointId} className="hover:bg-slate-50">
                         <td className="px-4 py-2">{p.agent_name || p.agent_id || p.agent_role || '—'}</td>
                         <td className="px-4 py-2 max-w-xs">{p.issue_description || '—'}</td>
                         <td className="px-4 py-2">{p.frequency ?? '—'}</td>
@@ -441,24 +474,24 @@ export default function HRDashboard() {
                               <>
                                 <button
                                   type="button"
-                                  onClick={() => { setApproveModal(p.point_id); setApproveUrl(p.suggested_url || '') }}
+                                  onClick={() => { setApproveModal(pointId); setApproveUrl(p.suggested_url || '') }}
                                   className="text-xs font-medium text-indigo-600 hover:underline"
                                 >
                                   Goedkeuren
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => handleDismiss(p.point_id)}
+                                  onClick={() => handleDismiss(pointId)}
                                   className="text-xs font-medium text-red-600 hover:underline"
                                 >
                                   Afwijzen
                                 </button>
                               </>
                             )}
-                            {statusKey === 'AWAITING_APPROVAL' && !showTrainingInput && (
+                            {statusKey === 'AWAITING_APPROVAL' && !showTrainingInput && !showResolveInput && (
                               <button
                                 type="button"
-                                onClick={() => setTrainingUrlInput((prev) => ({ ...prev, [p.point_id]: p.suggested_url || '' }))}
+                                onClick={() => setTrainingUrlInput((prev) => ({ ...prev, [pointId]: p.suggested_url || '' }))}
                                 className="text-xs font-medium text-purple-600 hover:underline"
                               >
                                 Start Training
@@ -470,19 +503,53 @@ export default function HRDashboard() {
                                   type="url"
                                   placeholder="Source URL (optioneel)"
                                   className="border border-slate-300 rounded px-2 py-1 text-xs w-48"
-                                  value={trainingUrlInput[p.point_id] || ''}
-                                  onChange={(e) => setTrainingUrlInput((prev) => ({ ...prev, [p.point_id]: e.target.value }))}
+                                  value={trainingUrlInput[pointId] || ''}
+                                  onChange={(e) => setTrainingUrlInput((prev) => ({ ...prev, [pointId]: e.target.value }))}
                                 />
                                 <button
                                   type="button"
-                                  onClick={() => approveTraining(p.point_id)}
+                                  onClick={() => approveTraining(pointId)}
                                   className="text-xs font-medium text-green-600 hover:underline"
                                 >
                                   Bevestig
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => setTrainingUrlInput((prev) => { const n = { ...prev }; delete n[p.point_id]; return n })}
+                                  onClick={() => setTrainingUrlInput((prev) => { const n = { ...prev }; delete n[pointId]; return n })}
+                                  className="text-xs font-medium text-slate-400 hover:underline"
+                                >
+                                  Annuleer
+                                </button>
+                              </div>
+                            )}
+                            {(statusKey === 'IN_TRAINING' || statusKey === 'AWAITING_APPROVAL') && !showResolveInput && !showTrainingInput && (
+                              <button
+                                type="button"
+                                onClick={() => setResolveInput((prev) => ({ ...prev, [pointId]: '' }))}
+                                className="text-xs font-medium text-slate-600 hover:underline"
+                              >
+                                Opgelost markeren
+                              </button>
+                            )}
+                            {showResolveInput && (
+                              <div className="flex items-center gap-1">
+                                <input
+                                  type="text"
+                                  placeholder="Oplossing (optioneel)"
+                                  className="border border-slate-300 rounded px-2 py-1 text-xs w-48"
+                                  value={resolveInput[pointId] ?? ''}
+                                  onChange={(e) => setResolveInput((prev) => ({ ...prev, [pointId]: e.target.value }))}
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => resolvePoint(pointId, resolveInput[pointId])}
+                                  className="text-xs font-medium text-green-600 hover:underline"
+                                >
+                                  Bevestig
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setResolveInput((prev) => { const n = { ...prev }; delete n[pointId]; return n })}
                                   className="text-xs font-medium text-slate-400 hover:underline"
                                 >
                                   Annuleer
@@ -525,7 +592,7 @@ export default function HRDashboard() {
                 </thead>
                 <tbody className="divide-y divide-slate-200">
                   {trainingRequests.map((r) => {
-                    const id = r.point_id || r.id
+                    const id = r.request_id || r.point_id || r.id
                     const showInput = trainingUrlInput[id] !== undefined
                     return (
                       <tr key={id} className="hover:bg-slate-50">

@@ -17,15 +17,15 @@ const SCOPES = ['all', 'agency_wide', 'client_specific', 'per_job']
 const STATUSES = ['all', 'draft', 'approved', 'stale']
 
 const SCOPE_BADGE = {
-  agency_wide: 'bg-blue-100 text-blue-700',
-  client_specific: 'bg-orange-100 text-orange-700',
-  per_job: 'bg-gray-100 text-gray-700',
+  agency_wide: 'wz-badge-running',
+  client_specific: 'wz-badge-warning',
+  per_job: 'wz-tag',
 }
 
 const STATUS_BADGE = {
-  draft: 'bg-gray-100 text-gray-700',
-  approved: 'bg-green-100 text-green-700',
-  stale: 'bg-orange-100 text-orange-700',
+  draft: 'wz-tag',
+  approved: 'wz-badge-success',
+  stale: 'wz-badge-warning',
 }
 
 function formatRelative(dateStr) {
@@ -125,11 +125,11 @@ export default function SkillFactory() {
       <div className="flex gap-6">
         {/* Filters sidebar */}
         <aside className="w-56 flex-shrink-0 space-y-4">
-          <h2 className="text-sm font-semibold text-slate-700 uppercase tracking-wider">
+          <h2 className="wz-label block mb-2">
             Filters
           </h2>
           <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1">Zoeken</label>
+            <label className="wz-label block mb-1">Zoeken</label>
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <input
@@ -139,16 +139,16 @@ export default function SkillFactory() {
                 onBlur={fetchSkills}
                 onKeyDown={(e) => e.key === 'Enter' && fetchSkills()}
                 placeholder="title, summary"
-                className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                className="wz-input w-full pl-9"
               />
             </div>
           </div>
           <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1">Target agent</label>
+            <label className="wz-label block mb-1">Target agent</label>
             <select
               value={targetAgent}
               onChange={(e) => setTargetAgent(e.target.value)}
-              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+              className="wz-input w-full"
             >
               <option value="all">All</option>
               {targetAgentOptions.map((o) => (
@@ -157,7 +157,7 @@ export default function SkillFactory() {
             </select>
           </div>
           <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1">Scope</label>
+            <label className="wz-label block mb-1">Scope</label>
             <div className="flex flex-wrap gap-1">
               {SCOPES.map((s) => (
                 <button
@@ -176,7 +176,7 @@ export default function SkillFactory() {
             </div>
           </div>
           <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1">Status</label>
+            <label className="wz-label block mb-1">Status</label>
             <div className="flex flex-wrap gap-1">
               {STATUSES.map((s) => (
                 <button
@@ -202,7 +202,7 @@ export default function SkillFactory() {
             <h1 className="text-2xl font-bold text-slate-900">Skill Factory</h1>
             <Link
               to="/knowledge/upload?doc_type=skill_spec"
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 transition-colors"
+              className="wz-btn-primary inline-flex items-center gap-2"
             >
               <Plus className="w-4 h-4" />
               Nieuwe Skill Spec
@@ -216,11 +216,11 @@ export default function SkillFactory() {
           )}
 
           {loading ? (
-            <div className="panel-card bg-white shadow-sm border border-slate-200 p-8 rounded-xl">
+            <div className="wz-card p-8">
               Skills laden...
             </div>
           ) : skills.length === 0 ? (
-            <div className="panel-card bg-white shadow-sm border border-slate-200 p-12 rounded-xl text-center text-slate-500">
+            <div className="wz-card p-12 text-center text-slate-500">
               Geen skill specs gevonden. Upload een document om te beginnen.
             </div>
           ) : (
@@ -229,7 +229,7 @@ export default function SkillFactory() {
                 <Link
                   key={doc.document_id}
                   to={`/knowledge/${doc.document_id}`}
-                  className="block p-4 rounded-xl border border-slate-200 bg-white hover:border-indigo-300 hover:shadow-md transition-all relative"
+                  className="wz-card block p-4 wz-lift relative"
                 >
                   {doc.status === 'stale' && (
                     <div className="absolute top-0 left-0 right-0 rounded-t-xl bg-orange-50 border-b border-orange-200 px-4 py-2 flex items-center gap-2 text-orange-800 text-sm">
@@ -240,16 +240,16 @@ export default function SkillFactory() {
                   <div className={doc.status === 'stale' ? 'pt-12' : ''}>
                     <h3 className="font-semibold text-slate-900 truncate">{doc.title || 'Untitled'}</h3>
                     {doc.function_tag && (
-                      <p className="text-xs text-slate-500 mt-0.5">agent:{doc.function_tag}</p>
+                      <p className="wz-mono text-xs mt-0.5">agent:{doc.function_tag}</p>
                     )}
                     <div className="flex flex-wrap gap-1.5 mt-2">
                       <span className="px-2 py-0.5 text-xs font-medium rounded bg-pink-100 text-pink-700">
                         skill_spec
                       </span>
-                      <span className={`px-2 py-0.5 text-xs font-medium rounded ${SCOPE_BADGE[doc.scope] || 'bg-gray-100 text-gray-700'}`}>
+                      <span className={`px-2 py-0.5 text-xs font-medium rounded ${SCOPE_BADGE[doc.scope] || 'wz-tag'}`}>
                         {doc.scope || 'agency_wide'}
                       </span>
-                      <span className={`px-2 py-0.5 text-xs font-medium rounded ${STATUS_BADGE[doc.status] || 'bg-gray-100 text-gray-700'}`}>
+                      <span className={`px-2 py-0.5 text-xs font-medium rounded ${STATUS_BADGE[doc.status] || 'wz-tag'}`}>
                         {doc.status}
                       </span>
                     </div>

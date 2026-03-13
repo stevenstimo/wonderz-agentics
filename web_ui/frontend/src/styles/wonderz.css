@@ -47,6 +47,25 @@
   --transition-fast: all 0.15s ease;
   --transition-normal: all 0.20s ease;
   --transition-slow: all 0.35s ease;
+  /* Legacy/alias tokens (index.css and components) – single source */
+  --top-header-height: 56px;
+  --bg-main: #F9FAFB;
+  --bg-card: #FFFFFF;
+  --border-color: #E5E7EB;
+  --text-primary: #111827;
+  --text-secondary: #6B7280;
+  --color-management: #2563EB;
+  --color-creative: #10B981;
+  --color-technical: #8B5CF6;
+  --status-yellow: #FEF3C7;
+  --text-yellow: #92400E;
+  --button-dark: #111827;
+  --shadow-soft: 0 16px 32px rgba(15, 23, 42, 0.08);
+  --explainer-ink: #1D1B1A;
+  --explainer-ivory: #F7F3EA;
+  --explainer-sage: #2F6F6D;
+  --explainer-ember: #E46F2D;
+  --explainer-cobalt: #2A4D8F;
 }
 .wz-card { background: var(--color-bg-card); border-radius: var(--radius-lg); padding: var(--card-padding); box-shadow: var(--shadow-card); }
 .wz-card-subtle { background: var(--color-bg-subtle); border-radius: var(--radius-md); padding: var(--space-3) var(--space-4); border: 1px solid var(--color-border-subtle); }

@@ -226,7 +226,7 @@ export default function CrewManagement() {
 
   return (
     <PageLayout size="wide" padded>
-      <div className="panel-card mb-8">
+      <div className="wz-card mb-8">
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div>
             <h2 className="page-title">The Crew</h2>
@@ -237,7 +237,7 @@ export default function CrewManagement() {
               <RefreshCw className="w-4 h-4" />
             </button>
             {canEdit && (
-              <button onClick={openCreate} className="btn-manage gap-2" type="button">
+              <button onClick={openCreate} className="wz-btn-primary gap-2 flex items-center" type="button">
                 <Plus className="w-4 h-4" />
                 Add Member
               </button>
@@ -250,7 +250,7 @@ export default function CrewManagement() {
       </div>
 
       {showForm && (
-        <div className="panel-card mb-8">
+        <div className="wz-card mb-8">
           <h3 className="text-lg font-semibold mb-6 text-gray-800">{editingId ? 'Edit Crew Member' : 'New Crew Member'}</h3>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
@@ -314,7 +314,7 @@ export default function CrewManagement() {
             </div>
 
             <div className="flex gap-2 pt-4">
-              <button type="submit" disabled={submitLoading} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition disabled:opacity-50">
+              <button type="submit" disabled={submitLoading} className="wz-btn-primary flex items-center gap-2 disabled:opacity-50">
                 {submitLoading ? <><Loader className="w-4 h-4 animate-spin" />Saving...</> : <><Check className="w-4 h-4" />Save</>}
               </button>
               <button type="button" onClick={() => { setShowForm(false); setEditingId(null); setFormData(initialFormData) }} disabled={submitLoading} className="flex items-center gap-2 px-4 py-2 border rounded-lg hover:bg-gray-100 transition disabled:opacity-50">
@@ -326,7 +326,7 @@ export default function CrewManagement() {
         </div>
       )}
 
-      <div className="panel-card">
+      <div className="wz-card">
         <div className="flex items-center justify-between mb-6">
           <h3 className="text-lg font-semibold text-gray-800">Team Members</h3>
           <span className="text-xs text-gray-400">{crew.length} agents synchronized</span>
@@ -375,7 +375,7 @@ export default function CrewManagement() {
                   {member.current_task && <div className="text-xs text-gray-400 mt-2">Current: {member.current_task}</div>}
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className={`text-xs font-semibold px-2 py-1 rounded-full ${member.status === 'active' ? 'bg-green-100 text-green-800' : member.status === 'busy' ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100 text-gray-800'}`}>
+                  <span className={`text-xs font-semibold ${member.status === 'active' ? 'wz-badge-success' : member.status === 'busy' ? 'wz-badge-warning' : 'wz-tag'}`}>
                     {member.status}
                   </span>
                   {member.progress !== undefined && <span className="text-xs text-gray-400">{member.progress}%</span>}

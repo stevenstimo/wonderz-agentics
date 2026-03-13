@@ -144,7 +144,7 @@ export default function HRImprovements() {
 
   return (
     <PageLayout size="medium" padded>
-          <div className="panel-card mb-8">
+          <div className="wz-card mb-8">
             <div className="flex items-center justify-between gap-4 flex-wrap">
               <div>
                 <h2 className="page-title">HR Improvements</h2>
@@ -154,7 +154,7 @@ export default function HRImprovements() {
                 <span className="hr-pill hr-pill-high">{criticalCount} Critical Issues</span>
                 <button
                   onClick={fetchImprovements}
-                  className="btn-manage gap-2"
+                  className="wz-btn-primary gap-2 flex items-center"
                 >
                   <RefreshCw className="w-4 h-4" />
                   Refresh
@@ -168,12 +168,12 @@ export default function HRImprovements() {
                   value={command}
                   onChange={(e) => setCommand(e.target.value)}
                   placeholder="Typ: laat verbeter punten zien"
-                  className="w-full pl-9 pr-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  className="wz-input w-full pl-9"
                 />
               </div>
               <button
                 type="submit"
-                className="btn-manage"
+                className="wz-btn-primary"
               >
                 Stuur naar HR
               </button>
@@ -183,7 +183,7 @@ export default function HRImprovements() {
             )}
           </div>
 
-          <div className="panel-card">
+          <div className="wz-card">
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-xl font-semibold text-gray-800">Issues by agent</h3>
               {loading && <span className="text-sm text-gray-400">Loading...</span>}
@@ -233,7 +233,7 @@ export default function HRImprovements() {
                         {item.proposed_action || 'Injecteer transactielogs in de vector store.'}
                       </div>
                       <button
-                        className="btn-secondary w-full justify-center"
+                        className="wz-btn-ghost w-full justify-center border border-[var(--color-border)] rounded-xl py-3"
                         onClick={() => handleAuthorizeTraining(item)}
                         disabled={trainingLoading !== null || submittedById[item.id]}
                       >

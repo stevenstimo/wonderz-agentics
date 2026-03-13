@@ -135,7 +135,7 @@ class TrainingWorkflow:
         query: str,
         top_k: int = 5,
     ) -> list[str]:
-        """Haalt de meest relevante chunks op via cosine similarity."""
+        """Haalt de meest relevante chunks op via cosine similarity (<=>, is_active=true)."""
         query_embedding = await generate_embedding(query[:8000])
         async with self.pool.acquire() as conn:
             rows = await conn.fetch(
@@ -151,3 +151,47 @@ class TrainingWorkflow:
                 top_k,
             )
         return [row["chunk_text"] for row in rows]
+
+
+async def retrieve_agent_context(
+    agent_id: str,
+    query: str,
+    pool: asyncpg.pool.Pool,
+    top_k: int = 5,
+) -> str:
+    """
+    Haalt de meest relevante kennischunks op voor een agent op basis van de query.
+    Retourneert een geformatteerde string klaar voor prompt-injectie.
+    Geeft lege string terug als er geen kennis is voor de agent.
+    """
+    if not query or not agent_id:
+        return ""
+    try:
+        query_embedding = await generate_embedding((query or "")[:8000])
+    except Exception:
+        return ""
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT chunk_text, source_url, chunk_index
+            FROM agent_knowledge
+            WHERE agent_id = $1 AND is_active = true AND embedding IS NOT NULL
+            ORDER BY embedding <=> $2::vector
+            LIMIT $3
+            """,
+            agent_id,
+            json.dumps(query_embedding),
+            top_k,
+        )
+    if not rows:
+        return ""
+    parts = ["=== Relevante kennisbronnen ==="]
+    for row in rows:
+        url = row.get("source_url") or ""
+        idx = row.get("chunk_index", 0)
+        text = (row.get("chunk_text") or "").strip()
+        parts.append(f"[Bron: {url}, chunk {idx}]")
+        parts.append(text)
+        parts.append("")
+    parts.append("===")
+    return "\n".join(parts)

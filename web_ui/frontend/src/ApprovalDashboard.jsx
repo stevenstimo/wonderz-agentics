@@ -106,7 +106,7 @@ export default function ApprovalDashboard() {
 
   return (
     <PageLayout size="wide" padded>
-          <div className="panel-card mb-8">
+          <div className="wz-card mb-8">
             <div className="flex items-center justify-between gap-4 flex-wrap">
               <div>
                 <h2 className="page-title">Safety Gate</h2>
@@ -114,7 +114,7 @@ export default function ApprovalDashboard() {
               </div>
               <button
                 onClick={fetchApprovals}
-                className="btn-manage gap-2"
+                className="wz-btn-primary gap-2 flex items-center"
               >
                 <RefreshCw className="w-4 h-4" />
                 Refresh
@@ -134,8 +134,8 @@ export default function ApprovalDashboard() {
                   onClick={() => setFilter(status)}
                   className={`px-3 py-1 text-xs font-medium rounded-full transition ${
                     filter === status
-                      ? 'bg-indigo-100 text-indigo-700'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      ? 'wz-badge-running'
+                      : 'wz-tag hover:opacity-90'
                   }`}
                 >
                   {status.charAt(0).toUpperCase() + status.slice(1)}
@@ -145,7 +145,7 @@ export default function ApprovalDashboard() {
             </div>
           </div>
 
-          <div className="panel-card">
+          <div className="wz-card">
             <h3 className="text-lg font-semibold mb-6 text-gray-800">
               Pending Approvals ({filtered.length})
             </h3>
@@ -168,7 +168,7 @@ export default function ApprovalDashboard() {
               {filtered.map(approval => (
                 <div
                   key={approval.id}
-                  className="border rounded-lg p-4 hover:bg-gray-50 transition"
+                  className="wz-card-subtle p-4 wz-table-row"
                 >
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex items-start gap-3 flex-1">
@@ -225,12 +225,12 @@ export default function ApprovalDashboard() {
                             value={notes[approval.id] || ''}
                             onChange={(e) => setNotes(prev => ({ ...prev, [approval.id]: e.target.value }))}
                             placeholder="Optional note"
-                            className="px-2 py-1 text-xs border rounded w-40"
+                            className="wz-input text-xs w-40 py-1"
                           />
                           <button
                             onClick={() => handleDecision(approval.id, true)}
                             disabled={decisionLoading !== null}
-                            className="flex items-center gap-1 px-3 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="wz-btn-primary flex items-center gap-1 px-3 py-1 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             {decisionLoading === approval.id ? (
                               <Loader className="w-3 h-3 animate-spin" />
@@ -242,7 +242,7 @@ export default function ApprovalDashboard() {
                           <button
                             onClick={() => handleDecision(approval.id, false)}
                             disabled={decisionLoading !== null}
-                            className="flex items-center gap-1 px-3 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="wz-badge-error flex items-center gap-1 px-3 py-1 text-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed border-0"
                           >
                             {decisionLoading === approval.id ? (
                               <Loader className="w-3 h-3 animate-spin" />

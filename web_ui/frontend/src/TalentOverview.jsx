@@ -147,7 +147,7 @@ export default function TalentOverview() {
 
   return (
     <PageLayout>
-      <div className="panel-card">
+      <div className="wz-card">
         <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="page-title mb-1">Talent Pool</h1>
@@ -158,7 +158,7 @@ export default function TalentOverview() {
               ↻
             </button>
             {canEdit && (
-              <button type="button" className="btn-manage gap-2" onClick={() => setShowAdd(true)}>
+              <button type="button" className="wz-btn-primary gap-2 flex items-center" onClick={() => setShowAdd(true)}>
                 <Plus className="w-4 h-4" />
                 Nieuwe Talent
               </button>
@@ -175,7 +175,7 @@ export default function TalentOverview() {
             {talents.map((talent) => (
               <div
                 key={talent.id}
-                className="block rounded-lg border border-slate-200 p-4 hover:border-indigo-300 hover:bg-slate-50/50 transition"
+                className="wz-card wz-card-subtle block hover:shadow-[var(--shadow-hover)] transition-[box-shadow]"
               >
                 <div className="flex items-start gap-3">
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full overflow-hidden bg-indigo-100 text-indigo-700 font-semibold text-sm">
@@ -227,14 +227,14 @@ export default function TalentOverview() {
         <div className="modal-overlay">
           <div className="modal-card space-y-3">
             <h2 className="text-xl font-bold">Nieuwe Talent</h2>
-            <input className="w-full px-3 py-2 border border-slate-300 rounded-lg" placeholder="Naam" value={addForm.name} onChange={(e) => setAddForm({ ...addForm, name: e.target.value })} />
-            <input className="w-full px-3 py-2 border border-slate-300 rounded-lg" placeholder="Persona" value={addForm.persona} onChange={(e) => setAddForm({ ...addForm, persona: e.target.value })} />
-            <textarea className="w-full px-3 py-2 border border-slate-300 rounded-lg" placeholder="Quality" value={addForm.quality} onChange={(e) => setAddForm({ ...addForm, quality: e.target.value })} />
-            <textarea className="w-full px-3 py-2 border border-slate-300 rounded-lg" placeholder="Growth" value={addForm.growth} onChange={(e) => setAddForm({ ...addForm, growth: e.target.value })} />
-            <input className="w-full px-3 py-2 border border-slate-300 rounded-lg" placeholder="Avatar URL" value={addForm.avatar_url} onChange={(e) => setAddForm({ ...addForm, avatar_url: e.target.value })} />
+            <input className="wz-input" placeholder="Naam" value={addForm.name} onChange={(e) => setAddForm({ ...addForm, name: e.target.value })} />
+            <input className="wz-input" placeholder="Persona" value={addForm.persona} onChange={(e) => setAddForm({ ...addForm, persona: e.target.value })} />
+            <textarea className="wz-input" placeholder="Quality" value={addForm.quality} onChange={(e) => setAddForm({ ...addForm, quality: e.target.value })} />
+            <textarea className="wz-input" placeholder="Growth" value={addForm.growth} onChange={(e) => setAddForm({ ...addForm, growth: e.target.value })} />
+            <input className="wz-input" placeholder="Avatar URL" value={addForm.avatar_url} onChange={(e) => setAddForm({ ...addForm, avatar_url: e.target.value })} />
             <div className="flex gap-2">
-              <button type="button" onClick={() => setShowAdd(false)} className="flex-1 px-4 py-2 border border-slate-300 rounded-lg hover:bg-slate-50">Annuleren</button>
-              <button type="button" onClick={submitAdd} disabled={adding} className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg disabled:opacity-50">{adding ? 'Opslaan...' : 'Aanmaken'}</button>
+              <button type="button" onClick={() => setShowAdd(false)} className="flex-1 px-4 py-2 border border-[var(--color-border)] rounded-lg hover:bg-[var(--color-bg-subtle)]">Annuleren</button>
+              <button type="button" onClick={submitAdd} disabled={adding} className="wz-btn-primary flex-1 disabled:opacity-50">{adding ? 'Opslaan...' : 'Aanmaken'}</button>
             </div>
           </div>
         </div>
@@ -252,13 +252,13 @@ export default function TalentOverview() {
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-semibold mb-1">Rol</label>
-                <select value={promoteForm.role} onChange={(e) => setPromoteForm({ ...promoteForm, role: e.target.value })} className="w-full px-3 py-2 border border-slate-300 rounded-lg">
+                <select value={promoteForm.role} onChange={(e) => setPromoteForm({ ...promoteForm, role: e.target.value })} className="wz-input">
                   {crewRoles.map((role) => <option key={role}>{role}</option>)}
                 </select>
               </div>
               <div>
                 <label className="block text-sm font-semibold mb-1">Specialisatie</label>
-                <input type="text" value={promoteForm.specialization} onChange={(e) => setPromoteForm({ ...promoteForm, specialization: e.target.value })} className="w-full px-3 py-2 border border-slate-300 rounded-lg" />
+                <input type="text" value={promoteForm.specialization} onChange={(e) => setPromoteForm({ ...promoteForm, specialization: e.target.value })} className="wz-input" />
               </div>
               <div>
                 <label className="block text-sm font-semibold mb-1">System Instructions</label>
@@ -269,8 +269,8 @@ export default function TalentOverview() {
                 <textarea value={promoteForm.hiring_logic} onChange={(e) => setPromoteForm({ ...promoteForm, hiring_logic: e.target.value })} className="w-full px-3 py-2 border border-slate-300 rounded-lg h-24" />
               </div>
               <div className="flex gap-3 mt-6">
-                <button type="button" onClick={() => setSelectedTalent(null)} className="flex-1 px-4 py-2 border border-slate-300 rounded-lg hover:bg-slate-50" disabled={promoting}>Annuleren</button>
-                <button type="button" onClick={submitPromotion} disabled={promoting} className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg disabled:opacity-50">{promoting ? 'Bezig...' : 'Promoveren'}</button>
+                <button type="button" onClick={() => setSelectedTalent(null)} className="flex-1 px-4 py-2 border border-[var(--color-border)] rounded-lg hover:bg-[var(--color-bg-subtle)]" disabled={promoting}>Annuleren</button>
+                <button type="button" onClick={submitPromotion} disabled={promoting} className="wz-btn-primary flex-1 disabled:opacity-50">{promoting ? 'Bezig...' : 'Promoveren'}</button>
               </div>
             </div>
           </div>
@@ -282,7 +282,7 @@ export default function TalentOverview() {
         <div className="modal-overlay">
           <div className="modal-card space-y-3">
             <h2 className="text-xl font-bold">Avatar voor {avatarTalent.name}</h2>
-            <input className="w-full px-3 py-2 border border-slate-300 rounded-lg" placeholder="Avatar URL" value={avatarValue} onChange={(e) => setAvatarValue(e.target.value)} />
+            <input className="wz-input" placeholder="Avatar URL" value={avatarValue} onChange={(e) => setAvatarValue(e.target.value)} />
             <div className="flex justify-center">
               <img
                 src={avatarValue || `https://api.dicebear.com/7.x/personas/svg?seed=${encodeURIComponent(avatarTalent.name)}`}
@@ -291,8 +291,8 @@ export default function TalentOverview() {
               />
             </div>
             <div className="flex gap-2">
-              <button type="button" onClick={() => setAvatarTalent(null)} className="flex-1 px-4 py-2 border border-slate-300 rounded-lg hover:bg-slate-50">Annuleren</button>
-              <button type="button" onClick={saveAvatar} disabled={savingAvatar} className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg disabled:opacity-50">{savingAvatar ? 'Opslaan...' : 'Avatar opslaan'}</button>
+              <button type="button" onClick={() => setAvatarTalent(null)} className="flex-1 px-4 py-2 border border-[var(--color-border)] rounded-lg hover:bg-[var(--color-bg-subtle)]">Annuleren</button>
+              <button type="button" onClick={saveAvatar} disabled={savingAvatar} className="wz-btn-primary flex-1 disabled:opacity-50">{savingAvatar ? 'Opslaan...' : 'Avatar opslaan'}</button>
             </div>
           </div>
         </div>

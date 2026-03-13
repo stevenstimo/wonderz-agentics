@@ -70,7 +70,7 @@ export default function StatusIntelligence() {
       <Sidebar />
       <main className="content-area">
         <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
-          <section className="panel-card">
+          <section className="wz-card">
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
               <div>
                 <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
@@ -100,13 +100,13 @@ export default function StatusIntelligence() {
           </section>
 
           {loading && (
-            <section className="panel-card">
+            <section className="wz-card">
               <p className="text-slate-600">Intelligence data wordt geladen...</p>
             </section>
           )}
 
           {error && !loading && (
-            <section className="panel-card border border-amber-300 bg-amber-50/60">
+            <section className="wz-card border border-amber-300 bg-amber-50/60">
               <h2 className="text-lg font-semibold text-amber-900 flex items-center gap-2">
                 <AlertTriangle className="w-5 h-5" />
                 Live data tijdelijk niet beschikbaar
@@ -120,7 +120,7 @@ export default function StatusIntelligence() {
             </section>
           )}
 
-          <section id="overview" className="panel-card space-y-3">
+          <section id="overview" className="wz-card space-y-3">
             <h2 className="text-xl font-semibold flex items-center gap-2">
               <Activity className="w-5 h-5 text-indigo-600" />
               Overview
@@ -135,7 +135,7 @@ export default function StatusIntelligence() {
             <p className="text-sm text-slate-500">Laatste run: {summary.latest_run_at || 'n/a'}</p>
           </section>
 
-          <section id="brains-map" className="panel-card space-y-3">
+          <section id="brains-map" className="wz-card space-y-3">
             <h2 className="text-xl font-semibold flex items-center gap-2">
               <Cpu className="w-5 h-5 text-indigo-600" />
               Brains Map
@@ -150,7 +150,7 @@ export default function StatusIntelligence() {
             </div>
           </section>
 
-          <section id="decision-quality" className="panel-card space-y-3">
+          <section id="decision-quality" className="wz-card space-y-3">
             <h2 className="text-xl font-semibold">Decision Quality</h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <Metric label="Ambiguity Rate" value={pct(decision.ambiguity_rate)} />
@@ -159,7 +159,7 @@ export default function StatusIntelligence() {
             </div>
           </section>
 
-          <section id="execution-quality" className="panel-card space-y-3">
+          <section id="execution-quality" className="wz-card space-y-3">
             <h2 className="text-xl font-semibold">Execution Quality</h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <Metric label="Avg Step Latency" value={`${safe(execution.avg_step_latency_ms)} ms`} />
@@ -168,7 +168,7 @@ export default function StatusIntelligence() {
             </div>
           </section>
 
-          <section id="learning-memory" className="panel-card space-y-3">
+          <section id="learning-memory" className="wz-card space-y-3">
             <h2 className="text-xl font-semibold flex items-center gap-2">
               <BookOpenText className="w-5 h-5 text-indigo-600" />
               Learning & Memory
@@ -180,7 +180,7 @@ export default function StatusIntelligence() {
             </div>
           </section>
 
-          <section id="failure-intel" className="panel-card space-y-3">
+          <section id="failure-intel" className="wz-card space-y-3">
             <h2 className="text-xl font-semibold">Failure Intelligence</h2>
             {(topFailures || []).length > 0 ? (
               <ul className="space-y-2">
@@ -196,7 +196,7 @@ export default function StatusIntelligence() {
             )}
           </section>
 
-          <section id="governance-safety" className="panel-card space-y-3">
+          <section id="governance-safety" className="wz-card space-y-3">
             <h2 className="text-xl font-semibold flex items-center gap-2">
               <Shield className="w-5 h-5 text-indigo-600" />
               Governance & Safety
@@ -207,7 +207,7 @@ export default function StatusIntelligence() {
             </div>
           </section>
 
-          <section id="cost-performance" className="panel-card space-y-3">
+          <section id="cost-performance" className="wz-card space-y-3">
             <h2 className="text-xl font-semibold flex items-center gap-2">
               <Coins className="w-5 h-5 text-indigo-600" />
               Cost & Performance
@@ -219,7 +219,7 @@ export default function StatusIntelligence() {
             </div>
           </section>
 
-          <section id="recent-runs" className="panel-card space-y-3">
+          <section id="recent-runs" className="wz-card space-y-3">
             <h2 className="text-xl font-semibold">Recent Runs</h2>
             {(recentRuns || []).length === 0 ? (
               <p className="text-slate-500">Nog geen recente runs gevonden.</p>

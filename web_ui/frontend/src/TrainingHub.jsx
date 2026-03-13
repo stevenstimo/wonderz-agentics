@@ -70,23 +70,22 @@ export default function TrainingHub() {
 
   return (
     <PageLayout title="Training Hub">
-      <div style={{ maxWidth: '960px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-        <div className="wz-card" style={{ padding: '20px' }}>
-          <h1 style={{ fontSize: '22px', fontWeight: 700, color: 'var(--color-text-primary)' }}>Training Hub</h1>
-          <p style={{ color: 'var(--color-text-muted)', fontSize: '12px', marginTop: '6px' }}>
+      <div className="max-w-[960px] mx-auto flex flex-col gap-5">
+        <div className="wz-card p-5">
+          <h1 className="wz-title text-[22px]">Training Hub</h1>
+          <p className="wz-label mt-1.5 normal-case">
             Train agents met URL-bronnen om hun kennis te vergroten.
           </p>
         </div>
 
-        <div className="wz-card" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          <label style={{ fontSize: '11px', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--color-text-muted)' }}>
+        <div className="wz-card p-5 flex flex-col gap-3">
+          <label className="wz-label">
             Agent kiezen
           </label>
           <select
-            className="wz-input"
+            className="wz-input w-full text-sm"
             value={selectedAgentId}
             onChange={e => setSelectedAgentId(e.target.value)}
-            style={{ width: '100%', fontSize: '12px' }}
           >
             <option value="">Selecteer een agent...</option>
             {agents.map(agent => (
@@ -96,78 +95,76 @@ export default function TrainingHub() {
             ))}
           </select>
           {selectedAgent && (
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div className="flex justify-between items-center">
               <div>
-                <div style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{displayName}</div>
+                <div className="font-semibold text-[var(--color-text-primary)]">{displayName}</div>
                 {displayRole && (
-                  <div style={{ fontSize: '12px', color: 'var(--color-text-muted)' }}>{displayRole}</div>
+                  <div className="wz-mono text-xs">{displayRole}</div>
                 )}
               </div>
-              <span className="wz-badge" style={{ color: 'var(--color-brand-primary)' }}>{selectedAgentId}</span>
+              <span className="wz-badge wz-mono">{selectedAgentId}</span>
             </div>
           )}
         </div>
 
-        <form onSubmit={startTraining} className="wz-card" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          <label style={{ fontSize: '11px', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--color-text-muted)' }}>
+        <form onSubmit={startTraining} className="wz-card p-5 flex flex-col gap-3">
+          <label className="wz-label">
             Training URL
           </label>
-          <div style={{ position: 'relative' }}>
-            <Link2 style={{ position: 'absolute', left: '12px', top: '11px', width: '16px', height: '16px', color: 'var(--color-text-muted)' }} />
+          <div className="relative">
+            <Link2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-muted)]" />
             <input
-              className="wz-input"
+              className="wz-input w-full pl-10 text-sm"
               type="url"
               placeholder="https://example.com/bron"
               value={url}
               onChange={e => setUrl(e.target.value)}
               required
-              style={{ width: '100%', paddingLeft: '38px', fontSize: '12px' }}
             />
           </div>
           <button
             type="submit"
-            className="wz-btn-primary"
+            className="wz-btn-primary self-start text-sm font-semibold"
             disabled={training || !selectedAgentId}
-            style={{ alignSelf: 'flex-start', fontSize: '12px', fontWeight: 600 }}
           >
             {training ? 'Training...' : 'Start training'}
           </button>
           {error && (
-            <div className="wz-card" style={{ padding: '10px', borderColor: 'var(--color-status-error)', color: 'var(--color-status-error)', fontSize: '12px' }}>
+            <div className="wz-card p-2.5 border-2 border-[var(--color-status-error)] text-[var(--color-status-error)] text-sm">
               {error}
             </div>
           )}
           {(training || chunksProcessed !== null) && (
-            <div className="wz-card" style={{ padding: '12px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <Loader2 style={{ width: '16px', height: '16px', color: 'var(--color-brand-primary)' }} />
-              <div style={{ fontSize: '12px', color: 'var(--color-text-muted)' }}>
+            <div className="wz-card-subtle p-3 flex items-center gap-2.5">
+              <Loader2 className="w-4 h-4 text-[var(--color-brand-primary)] flex-shrink-0" />
+              <div className="wz-mono text-sm">
                 {training ? 'Bezig met verwerken...' : `${chunksProcessed} chunks verwerkt`}
               </div>
             </div>
           )}
         </form>
 
-        <div className="wz-card" style={{ padding: '20px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-            <h2 style={{ fontSize: '14px', fontWeight: 600, color: 'var(--color-text-primary)' }}>Trainingsgeschiedenis</h2>
-            <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>{history.length} bronnen</span>
+        <div className="wz-card p-5">
+          <div className="flex justify-between items-center mb-3">
+            <h2 className="wz-subtitle text-sm">Trainingsgeschiedenis</h2>
+            <span className="wz-label normal-case">{history.length} bronnen</span>
           </div>
           {history.length === 0 ? (
-            <div style={{ fontSize: '12px', color: 'var(--color-text-muted)' }}>
+            <div className="wz-mono text-sm">
               Nog geen trainingsbronnen toegevoegd.
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <div className="flex flex-col gap-2.5">
               {history.map((item, idx) => (
-                <div key={`${item.url || item.source_url || idx}`} className="wz-card" style={{ padding: '12px' }}>
-                  <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--color-text-primary)' }}>
+                <div key={`${item.url || item.source_url || idx}`} className="wz-card-subtle p-3">
+                  <div className="text-sm font-semibold text-[var(--color-text-primary)]">
                     {item.url || item.source_url}
                   </div>
-                  <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', marginTop: '6px' }}>
+                  <div className="wz-mono text-xs mt-1.5">
                     {item.status ? `Status: ${item.status}` : 'Status: onbekend'}
                   </div>
                   {item.added_at && (
-                    <div style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Toegevoegd: {item.added_at}</div>
+                    <div className="wz-mono text-xs">Toegevoegd: {item.added_at}</div>
                   )}
                 </div>
               ))}

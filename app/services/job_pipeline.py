@@ -945,16 +945,17 @@ async def run_job_inline(job_id: str, context_extra: Optional[dict] = None):
                         step_agent_id = row["agent_id"] if row else None
                     if step_agent_id:
                         try:
-                            from app.services.training_workflow import TrainingWorkflow
-                            task_desc = step.get("description") or context.get("job_post") or ""
-                            wf = TrainingWorkflow(pool)
-                            chunks = await wf.retrieve_context(
+                            from app.services.training_workflow import retrieve_agent_context
+                            job_post = context.get("job_post") or ""
+                            query = f"{step_name or ''} {job_post}".strip() or (step.get("description") or "")
+                            agent_context = await retrieve_agent_context(
                                 agent_id=step_agent_id,
-                                query=task_desc[:8000] if task_desc else "",
+                                query=query[:8000] if query else "",
+                                pool=pool,
                                 top_k=5,
                             )
-                            if chunks:
-                                context["_knowledge_block"] = "\n\n## Relevante kennis\n" + "\n---\n".join(chunks)
+                            if agent_context:
+                                context["_knowledge_block"] = agent_context
                         except Exception as _kw:
                             logger.warning("Per-step knowledge retrieval failed for %s: %s", step_agent_id, _kw)
 

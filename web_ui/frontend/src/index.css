@@ -1,35 +1,9 @@
+@import './styles/wonderz.css';
 @import url('https://fonts.googleapis.com/css2?family=Fraunces:wght@400;600;700&family=Space+Grotesk:wght@400;600;700&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
-:root {
-  --top-header-height: 56px;
-  /* Wonderz base palette */
-  --bg-main: #f9fafb;
-  --bg-card: #ffffff;
-  --border-color: #e5e7eb;
-  --text-primary: #111827;
-  --text-secondary: #6b7280;
-
-  /* Wonderz category colors */
-  --color-management: #2563eb;
-  --color-creative: #10b981;
-  --color-technical: #8b5cf6;
-
-  /* UI elements */
-  --status-yellow: #fef3c7;
-  --text-yellow: #92400e;
-  --button-dark: #111827;
-  --shadow-soft: 0 16px 32px rgba(15, 23, 42, 0.08);
-
-  --explainer-ink: #1d1b1a;
-  --explainer-ivory: #f7f3ea;
-  --explainer-sage: #2f6f6d;
-  --explainer-ember: #e46f2d;
-  --explainer-cobalt: #2a4d8f;
-}
 
 .page-title {
   font-size: 1.08rem;

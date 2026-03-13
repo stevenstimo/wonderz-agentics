@@ -17,7 +17,13 @@ const initialForm = {
   goal: '',
   system_prompt: '',
   tool_whitelist: [],
-  knowledge_sources: [],
+}
+
+/** Live preview: agent:<role> met role genormaliseerd (lowercase, spaties → streepjes). */
+function agentIdPreview(role) {
+  if (!role || !role.trim()) return 'agent:—'
+  const normalized = role.trim().toLowerCase().replace(/\s+/g, '-')
+  return `agent:${normalized}`
 }
 
 export default function NewCrewMember() {
@@ -29,7 +35,6 @@ export default function NewCrewMember() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [fieldErrors, setFieldErrors] = useState({})
-  const [knowledgeUrlInput, setKnowledgeUrlInput] = useState('')
 
   const isValid = useMemo(() => {
     return (
@@ -74,7 +79,6 @@ export default function NewCrewMember() {
       goal: preset.goal || '',
       system_prompt: preset.system_prompt || '',
       tool_whitelist: tools,
-      knowledge_sources: [],
     })
   }
 
@@ -92,10 +96,16 @@ export default function NewCrewMember() {
 
   function validate() {
     const e = {}
-    if (!form.agent_name?.trim()) e.agent_name = ['Naam is verplicht']
+    const name = form.agent_name?.trim() || ''
+    if (!name) e.agent_name = ['Naam is verplicht']
+    else if (name.length < 2) e.agent_name = ['Minimaal 2 tekens']
     if (!form.role?.trim()) e.role = ['Rol is verplicht']
-    if (!form.goal?.trim()) e.goal = ['Doel is verplicht']
-    if (!form.system_prompt?.trim()) e.system_prompt = ['System Instructions zijn verplicht']
+    const goal = form.goal?.trim() || ''
+    if (!goal) e.goal = ['Doel is verplicht']
+    else if (goal.length < 10) e.goal = ['Minimaal 10 tekens']
+    const sys = form.system_prompt?.trim() || ''
+    if (!sys) e.system_prompt = ['System Instructions zijn verplicht']
+    else if (sys.length < 20) e.system_prompt = ['Minimaal 20 tekens']
     setFieldErrors(e)
     return Object.keys(e).length === 0
   }
@@ -118,7 +128,6 @@ export default function NewCrewMember() {
         goal: form.goal.trim(),
         system_prompt: form.system_prompt.trim(),
         tool_whitelist: form.tool_whitelist,
-        knowledge_sources: form.knowledge_sources,
       }
       const res = await apiFetch('/api/agents', {
         method: 'POST',
@@ -241,6 +250,9 @@ export default function NewCrewMember() {
                 <option key={r} value={r}>{r}</option>
               ))}
             </select>
+            <p className="mt-1 text-xs font-mono text-slate-500" aria-live="polite">
+              Preview: {agentIdPreview(form.role)}
+            </p>
             {fieldErrors.role && (
               <span className="field-error mt-1 text-xs text-red-600 block">
                 {Array.isArray(fieldErrors.role) ? fieldErrors.role.join(', ') : fieldErrors.role}
@@ -306,60 +318,6 @@ export default function NewCrewMember() {
                 </label>
               ))}
             </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-2">Knowledge Base Sources</label>
-            <div className="flex gap-2">
-              <input
-                type="url"
-                className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                placeholder="https://example.com/docs"
-                value={knowledgeUrlInput}
-                onChange={(e) => setKnowledgeUrlInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault()
-                    const url = knowledgeUrlInput.trim()
-                    if (url && !form.knowledge_sources.some((s) => s.url === url)) {
-                      setForm((f) => ({ ...f, knowledge_sources: [...f.knowledge_sources, { url, status: 'pending' }] }))
-                      setKnowledgeUrlInput('')
-                    }
-                  }
-                }}
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  const url = knowledgeUrlInput.trim()
-                  if (url && !form.knowledge_sources.some((s) => s.url === url)) {
-                    setForm((f) => ({ ...f, knowledge_sources: [...f.knowledge_sources, { url, status: 'pending' }] }))
-                    setKnowledgeUrlInput('')
-                  }
-                }}
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-              >
-                Toevoegen
-              </button>
-            </div>
-            {form.knowledge_sources.length > 0 && (
-              <ul className="mt-2 space-y-1">
-                {form.knowledge_sources.map((s, i) => (
-                  <li key={i} className="flex items-center gap-2 rounded-lg bg-slate-50 border border-slate-200 px-3 py-1.5 text-sm">
-                    <span className="flex-1 truncate text-slate-700">{s.url}</span>
-                    <span className="text-xs text-slate-400">pending</span>
-                    <button
-                      type="button"
-                      onClick={() => setForm((f) => ({ ...f, knowledge_sources: f.knowledge_sources.filter((_, j) => j !== i) }))}
-                      className="text-red-500 hover:text-red-700 text-xs font-medium"
-                    >
-                      &times;
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <p className="mt-1 text-xs text-slate-400">URLs worden opgeslagen. Training start apart via agent detail.</p>
           </div>
 
           <button

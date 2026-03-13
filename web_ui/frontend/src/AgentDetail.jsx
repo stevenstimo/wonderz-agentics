@@ -1,9 +1,9 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, Briefcase, Target, BookOpen, Activity, ImagePlus, Trash2, MessageCircle } from 'lucide-react'
+import { ArrowLeft, Briefcase, Target, BookOpen, Activity, ImagePlus, Trash2, MessageCircle, GraduationCap } from 'lucide-react'
 import PageLayout from './PageLayout'
 import { apiUrl, apiFetch } from './apiClient'
-import { VALID_TOOLS } from './agentConstants'
+import { VALID_TOOLS, VALID_CATEGORIES } from './agentConstants'
 import AgentDirectChat from './components/AgentDirectChat'
 
 const AVATAR_COLORS = [
@@ -72,6 +72,7 @@ function resizeImageToDataUrl(file) {
 }
 
 const TAB_PROFIEL = 'profiel'
+const TAB_TRAINING = 'training'
 const TAB_KENNIS = 'kennis'
 const TAB_PRESTATIES = 'prestaties'
 const TAB_CHAT = 'chat'
@@ -148,13 +149,16 @@ export default function AgentDetail() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
-  const [profileForm, setProfileForm] = useState({ name: '', goal: '', system_prompt: '', tool_access_whitelist: [] })
+  const [profileForm, setProfileForm] = useState({ name: '', goal: '', system_prompt: '', category: 'Custom', tool_access_whitelist: [] })
   const [profileDirty, setProfileDirty] = useState(false)
   const [savingProfile, setSavingProfile] = useState(false)
   const [savingStatus, setSavingStatus] = useState(false)
   const [savingAvatar, setSavingAvatar] = useState(false)
   const [showAvatarColors, setShowAvatarColors] = useState(false)
   const [showDeactivateModal, setShowDeactivateModal] = useState(false)
+  const [trainUrl, setTrainUrl] = useState('')
+  const [trainMessage, setTrainMessage] = useState('')
+  const [isTraining, setIsTraining] = useState(false)
 
   const loadDetail = useCallback(async () => {
     if (!agentId) return
@@ -180,6 +184,7 @@ export default function AgentDetail() {
         name: a.name || '',
         goal: a.goal || '',
         system_prompt: a.system_prompt || a.system_instructions || '',
+        category: a.category || 'Custom',
         tool_access_whitelist: tools.map((t) => (typeof t === 'string' ? t : t.name || t)),
       })
       setProfileDirty(false)
@@ -225,16 +230,18 @@ export default function AgentDetail() {
       name: agent.name || '',
       goal: agent.goal || '',
       system_prompt: agent.system_prompt || agent.system_instructions || '',
+      category: agent.category || 'Custom',
       tool_access_whitelist: tools.map((t) => (typeof t === 'string' ? t : t.name || t)),
     })
     setProfileDirty(false)
-  }, [agent.name, agent.goal, agent.system_prompt, agent.system_instructions, agent.tool_access_whitelist])
+  }, [agent.name, agent.goal, agent.system_prompt, agent.system_instructions, agent.category, agent.tool_access_whitelist])
 
   const saveProfile = async () => {
     const payload = {
       name: profileForm.name.trim(),
       goal: profileForm.goal.trim() || undefined,
       system_prompt: profileForm.system_prompt.trim(),
+      category: profileForm.category || undefined,
       tool_access_whitelist: profileForm.tool_access_whitelist,
     }
     setSavingProfile(true)
@@ -290,12 +297,12 @@ export default function AgentDetail() {
 
   const handleTrain = async () => {
     const urlToTrain = trainUrl.trim()
-    if (!urlToTrain.startsWith('https://')) {
-      setTrainMessage('URL moet beginnen met https://')
+    if (!urlToTrain.startsWith('http://') && !urlToTrain.startsWith('https://')) {
+      setTrainMessage('URL moet beginnen met http:// of https://')
       return
     }
     setIsTraining(true)
-    setTrainMessage('Training gestart...')
+    setTrainMessage('Training gestart. Dit kan ~30 seconden duren.')
     try {
       const res = await apiFetch(`/api/agents/${encodeURIComponent(agentId)}/train`, {
         method: 'POST',
@@ -309,23 +316,37 @@ export default function AgentDetail() {
         return
       }
       setTrainUrl('')
-      const maxPolls = 60
+      const pollIntervalMs = 3000
+      const maxPolls = 20 // 60s
       let polls = 0
       const poll = setInterval(async () => {
         polls += 1
-        const json = await loadDetail()
-        const sources = Array.isArray(json?.agent?.knowledge_base_sources) ? json.agent.knowledge_base_sources : []
-        const source = sources.find((s) => s && s.url === urlToTrain)
-        if (source && source.status !== 'processing') {
-          clearInterval(poll)
-          setIsTraining(false)
-          setTrainMessage(source.status === 'active' ? 'Training voltooid ✓' : 'Training mislukt')
-        } else if (polls >= maxPolls) {
-          clearInterval(poll)
-          setIsTraining(false)
-          setTrainMessage('Timeout – controleer status handmatig')
+        try {
+          const agentRes = await apiFetch(`/api/agents/${encodeURIComponent(agentId)}`)
+          if (!agentRes.ok) return
+          const agentData = await agentRes.json()
+          const sources = Array.isArray(agentData?.knowledge_base_sources) ? agentData.knowledge_base_sources : []
+          const source = sources.find((s) => s && s.url === urlToTrain)
+          if (source && source.status !== 'processing') {
+            clearInterval(poll)
+            setIsTraining(false)
+            setTrainMessage(source.status === 'active' ? 'Training voltooid ✓' : `Training mislukt${source.error ? `: ${source.error}` : ''}`)
+            setData((prev) => (prev ? { ...prev, agent: { ...prev.agent, ...agentData } } : prev))
+            return
+          }
+          if (polls >= maxPolls) {
+            clearInterval(poll)
+            setIsTraining(false)
+            setTrainMessage('Training duurt langer dan verwacht. Ververs de pagina later.')
+          }
+        } catch (_) {
+          if (polls >= maxPolls) {
+            clearInterval(poll)
+            setIsTraining(false)
+            setTrainMessage('Training duurt langer dan verwacht. Ververs de pagina later.')
+          }
         }
-      }, 5000)
+      }, pollIntervalMs)
     } catch (err) {
       setTrainMessage(err?.message || 'Fout')
       setIsTraining(false)
@@ -528,6 +549,13 @@ export default function AgentDetail() {
           </button>
           <button
             type="button"
+            onClick={() => setTab(TAB_TRAINING)}
+            className={`px-6 py-3 font-semibold rounded-t-xl transition-colors flex items-center gap-2 ${tabClass(TAB_TRAINING)}`}
+          >
+            <GraduationCap className="w-4 h-4" /> Training
+          </button>
+          <button
+            type="button"
             onClick={() => setTab(TAB_KENNIS)}
             className={`px-6 py-3 font-semibold rounded-t-xl transition-colors ${tabClass(TAB_KENNIS)}`}
           >
@@ -671,6 +699,18 @@ export default function AgentDetail() {
               />
             </div>
             <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Categorie</label>
+              <select
+                value={profileForm.category}
+                onChange={(e) => { setProfileForm((p) => ({ ...p, category: e.target.value })); setProfileDirty(true) }}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              >
+                {VALID_CATEGORIES.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </div>
+            <div>
               <label className="block text-xs font-medium text-slate-600 mb-1">System Instructions</label>
               <textarea
                 value={profileForm.system_prompt}
@@ -715,56 +755,67 @@ export default function AgentDetail() {
             </div>
           </div>
 
-          {/* Knowledge Base */}
-          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <h3 className="text-sm font-semibold text-slate-900 mb-3">Knowledge Base</h3>
-            {knowledgeSources.length === 0 ? (
-              <p className="text-xs text-slate-500 mb-3">Geen bronnen. Voeg een URL toe en start training.</p>
-            ) : (
-              <ul className="space-y-2 mb-4">
-                {knowledgeSources.map((src, i) => (
-                  <li key={i} className="flex items-start justify-between gap-2 text-xs">
-                    <span className="min-w-0 truncate text-slate-700">
-                      {typeof src === 'string' ? src : (src?.url || src?.source || JSON.stringify(src))}
-                    </span>
-                    <span className={`shrink-0 px-2 py-0.5 rounded text-xs font-medium ${
-                      (src?.status === 'active') ? 'bg-green-100 text-green-800' :
-                      (src?.status === 'processing') ? 'bg-amber-100 text-amber-800' :
-                      (src?.status === 'failed') ? 'bg-red-100 text-red-800' : 'bg-slate-100 text-slate-600'
-                    }`}>
-                      {src?.status || 'pending'}
-                    </span>
-                    {typeof src === 'object' && (src.chunks != null || src.added_at) && (
-                      <span className="text-slate-400 shrink-0">
-                        {src.chunks != null ? `${src.chunks} chunks` : ''}
-                        {src.added_at ? ` · ${relativeTime(src.added_at)}` : ''}
-                      </span>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
-            <div className="flex gap-2 flex-wrap items-center">
-              <input
-                type="url"
-                placeholder="https://..."
-                value={trainUrl}
-                onChange={(e) => setTrainUrl(e.target.value)}
-                className="flex-1 min-w-[200px] rounded-lg border border-slate-300 px-3 py-2 text-sm"
-              />
-              <button
-                type="button"
-                onClick={handleTrain}
-                disabled={isTraining}
-                className="rounded-lg px-4 py-2 bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isTraining ? 'Bezig...' : 'Train'}
-              </button>
-            </div>
-            {trainMessage && <p className="mt-2 text-xs text-slate-600">{trainMessage}</p>}
-          </div>
         </div>
         <div className="hidden lg:block" />
+      </div>
+      )}
+
+      {tab === TAB_TRAINING && (
+      <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm max-w-2xl">
+        <h2 className="text-lg font-semibold text-slate-900 mb-4">Kennisbronnen trainen</h2>
+        <div className="flex gap-2 flex-wrap items-center mb-4">
+          <input
+            type="url"
+            placeholder="https://..."
+            value={trainUrl}
+            onChange={(e) => setTrainUrl(e.target.value)}
+            className="flex-1 min-w-[200px] rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            aria-label="URL om te trainen"
+          />
+          <button
+            type="button"
+            onClick={handleTrain}
+            disabled={isTraining}
+            className="rounded-lg px-4 py-2 bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isTraining ? 'Bezig...' : 'Train'}
+          </button>
+        </div>
+        {trainMessage && <p className="mb-4 text-sm text-slate-600">{trainMessage}</p>}
+        <p className="text-sm text-slate-500 mb-4">
+          Status: {knowledgeSources.some((s) => s?.status === 'processing') ? '● Bezig' : '● Actief'}{' '}
+          ({knowledgeSources.filter((s) => s?.status === 'active').length} bronnen)
+        </p>
+        <h3 className="text-sm font-semibold text-slate-800 mb-2">Bronnen</h3>
+        {knowledgeSources.length === 0 ? (
+          <p className="text-sm text-slate-500">Geen bronnen. Voeg een URL toe en klik op Train.</p>
+        ) : (
+          <ul className="space-y-3">
+            {knowledgeSources.map((src, i) => (
+              <li key={i} className="flex flex-wrap items-start justify-between gap-2 rounded-lg border border-slate-100 p-3 text-sm">
+                <span className="min-w-0 truncate text-slate-700 font-medium">
+                  {typeof src === 'string' ? src : (src?.url || src?.source || JSON.stringify(src))}
+                </span>
+                <span className={`shrink-0 px-2 py-0.5 rounded text-xs font-medium ${
+                  (src?.status === 'active') ? 'bg-green-100 text-green-800' :
+                  (src?.status === 'processing') ? 'bg-amber-100 text-amber-800' :
+                  (src?.status === 'failed') ? 'bg-red-100 text-red-800' : 'bg-slate-100 text-slate-600'
+                }`}>
+                  {src?.status === 'active' ? '✓' : ''}{src?.status || 'pending'}
+                </span>
+                {typeof src === 'object' && (src.chunks != null || src.added_at) && (
+                  <span className="text-slate-400 shrink-0 w-full text-xs mt-0.5">
+                    {src.chunks != null ? `${src.chunks} chunks` : ''}
+                    {src.added_at ? ` · ${relativeTime(src.added_at)}` : ''}
+                  </span>
+                )}
+                {typeof src === 'object' && src?.status === 'failed' && src?.error && (
+                  <span className="text-red-600 text-xs w-full mt-1">{src.error}</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
       )}
 

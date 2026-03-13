@@ -18,9 +18,24 @@
 - **TokenGuard**: `register_usage(job_id, tokens_used, step_id)` — `step_id` is optioneel; bij ontbreken wordt alleen `jobs.tokens_used` bijgewerkt.
 - **job_steps kolommen**: Gebruikt `timing_ms` (niet `latency_ms`); geen aparte `error_log` kolom — fout staat in `output` JSON.
 - **Status na phase_2**: In de implementatie zet `phase_2_planning` de status niet op `PLAN_PROPOSED` (zodat RUNNING van approve_plan niet wordt overschreven). `phase_3_execution` houdt RUNNING; phase_6 zet `JOB_READY`. Jobs-tabel heeft `updated_at` (gebruikt in alle UPDATEs).
-- **approve-plan met NEXUS**: Bij `USE_NEXUS_PIPELINE=true` wordt `pipeline.run(...)` met `asyncio.create_task()` gestart; het endpoint retourneert direct met status `RUNNING` en message "Plan approved. Workflow started."
+- **approve-plan met NEXUS**: Bij `USE_NEXUS_PIPELINE=true` wordt `manager.approve_plan(job_id)` vóór `asyncio.create_task(pipeline.run(...))` aangeroepen; daarna start de pipeline op de achtergrond. Het endpoint retourneert direct met status `RUNNING` en message "Plan approved. Workflow started."
 
-## USE_NEXUS_PIPELINE testen
+## Implementatiebeslissingen
+
+- **approve_plan (Optie A):** In het NEXUS-path roept de jobs-route `manager.approve_plan(job_id)` aan **vóór** `asyncio.create_task(pipeline.run(...))`. Daarmee blijft de audit-step "plan_approved" in `job_steps` behouden en eventuele toekomstige side-effects van approve_plan van toepassing. De status RUNNING wordt door de route al gezet; approve_plan zet die opnieuw (idempotent).
+- **Integratietests:** In `tests/test_nexus_integration.py` wordt per test een **eigen** asyncpg-pool aangemaakt (geen `init_db_pool()`), voor event-loopisolatie en om "Event loop is closed" te voorkomen. De LLM wordt gemockt op de definitieplaats: `app.services.job_pipeline._run_step_agent_with_timeout`. De fixture `test_job` / `test_job_with_steps` heeft een assumption-based docstring: `jobs.user_id` heeft in het huidige schema geen FK naar `users`; er wordt een willekeurige UUID gebruikt. Als er later wel een FK komt, moet de fixture worden aangepast (test-user `00000000-0000-0000-0000-000000000001` + INSERT INTO users in setup/teardown).
+
+## Hoe te testen
+
+```bash
+pytest tests/test_nexus_pipeline.py -v       # unit tests (geen DB nodig)
+pytest tests/test_nexus_integration.py -v   # integratietests (DB vereist)
+pytest tests/ -v                             # alles
+```
+
+Bij geen bereikbare DB worden de integratietests overgeslagen (skip).
+
+## USE_NEXUS_PIPELINE testen (e2e)
 
 1. **Env**: In `.env` zetten: `USE_NEXUS_PIPELINE=true` (in `.env.example` staat `USE_NEXUS_PIPELINE=false`).
 2. **Aanroep**: `POST /api/jobs/{job_id}/approve-plan` (na intake en plan in PLAN_PROPOSED).
@@ -33,6 +48,4 @@
 
 ## Openstaande items
 
-- **Integratietests met echte DB**: `test_phase2_adds_gtm_for_wonderz` is een smoke test (geen DB); volledige test dat GTM-step in `job_steps` wordt geïnserd voor wonderz/clawagency/blogable vereist test-DB en eventueel mock pool.
 - **Error in job_steps**: Fouten worden in `output` (JSON) opgeslagen; als er later een `error_log` kolom op `job_steps` komt, kan NEXUS die vullen voor snellere queries.
-- **manager.approve_plan**: Bij NEXUS-path wordt `manager.approve_plan(job_id)` niet aangeroepen na de task (pipeline draait asynchroon); eventuele side-effects van `approve_plan` zijn daarmee niet uitgevoerd in de NEXUS-flow.
