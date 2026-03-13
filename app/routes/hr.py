@@ -270,6 +270,7 @@ async def scan_patterns():
 @router.post("/approve-training")
 async def approve_training(req: ApproveTrainingRequest):
     """Approve a development point and start training."""
+    logger.info("[approve-training] request_id=%s point_id=%s approved=%s source_url=%s", req.request_id, req.point_id, req.approved, req.source_url)
     # Training request approval path (only when request_id is explicitly provided)
     if req.request_id:
         try:

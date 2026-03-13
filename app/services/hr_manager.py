@@ -371,11 +371,13 @@ class HRManager:
 
         async with self.pool.acquire() as conn:
             point = await conn.fetchrow(
-                "SELECT * FROM development_points WHERE point_id = $1",
+                "SELECT * FROM development_points WHERE point_id = $1 OR id::text = $1",
                 point_id,
             )
             if not point:
                 raise ValueError(f"Development point not found: {point_id}")
+            # Normalize to the real point_id for subsequent queries
+            point_id = point["point_id"]
 
             columns = await self._get_table_columns(conn, "development_points")
             set_clauses = ["status = 'IN_TRAINING'"]
