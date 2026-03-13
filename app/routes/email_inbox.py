@@ -59,6 +59,10 @@ def _row_to_out(r: Any) -> dict:
     return d
 
 
+def _is_admin(user: TokenPayload) -> bool:
+    return getattr(user, "role", "") == "super_admin"
+
+
 @router.get("/summary")
 async def inbox_summary(
     current_user: Annotated[TokenPayload, Depends(get_current_user)],
@@ -66,25 +70,35 @@ async def inbox_summary(
     """Return counts for sidebar badge and inbox overview."""
     pool = await get_db()
     user_id = str(current_user.user_id)
+    admin = _is_admin(current_user)
     async with pool.acquire() as conn:
-        total_row = await conn.fetchrow(
-            "SELECT count(*) AS cnt FROM inbound_emails WHERE user_id = $1::uuid",
-            user_id,
-        )
-        unread_row = await conn.fetchrow(
-            """
-            SELECT count(*) AS cnt FROM inbound_emails
-            WHERE user_id = $1::uuid AND status IN ('new', 'in_chat')
-            """,
-            user_id,
-        )
-        plan_ready_row = await conn.fetchrow(
-            """
-            SELECT count(*) AS cnt FROM inbound_emails
-            WHERE user_id = $1::uuid AND status = 'plan_ready'
-            """,
-            user_id,
-        )
+        if admin:
+            total_row = await conn.fetchrow("SELECT count(*) AS cnt FROM inbound_emails")
+            unread_row = await conn.fetchrow(
+                "SELECT count(*) AS cnt FROM inbound_emails WHERE status IN ('new', 'in_chat')"
+            )
+            plan_ready_row = await conn.fetchrow(
+                "SELECT count(*) AS cnt FROM inbound_emails WHERE status = 'plan_ready'"
+            )
+        else:
+            total_row = await conn.fetchrow(
+                "SELECT count(*) AS cnt FROM inbound_emails WHERE user_id = $1::uuid",
+                user_id,
+            )
+            unread_row = await conn.fetchrow(
+                """
+                SELECT count(*) AS cnt FROM inbound_emails
+                WHERE user_id = $1::uuid AND status IN ('new', 'in_chat')
+                """,
+                user_id,
+            )
+            plan_ready_row = await conn.fetchrow(
+                """
+                SELECT count(*) AS cnt FROM inbound_emails
+                WHERE user_id = $1::uuid AND status = 'plan_ready'
+                """,
+                user_id,
+            )
     return {
         "total": total_row["cnt"] if total_row else 0,
         "unread": unread_row["cnt"] if unread_row else 0,
@@ -97,20 +111,33 @@ async def inbox_summary(
 async def list_inbox(
     current_user: Annotated[TokenPayload, Depends(get_current_user)],
 ) -> list[dict[str, Any]]:
-    """All inbound_emails for the current user, sorted by received_at DESC."""
+    """All inbound_emails for the current user (or all if super_admin), sorted by received_at DESC."""
     pool = await get_db()
     user_id = str(current_user.user_id)
+    admin = _is_admin(current_user)
     async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            """
-            SELECT email_id, from_address, from_name, subject, status, received_at,
-                   chat_id, job_id, completeness_score
-            FROM inbound_emails
-            WHERE user_id = $1::uuid
-            ORDER BY received_at DESC
-            """,
-            user_id,
-        )
+        if admin:
+            rows = await conn.fetch(
+                """
+                SELECT e.email_id, e.from_address, e.from_name, e.subject, e.status,
+                       e.received_at, e.chat_id, e.job_id, e.completeness_score, e.user_id,
+                       u.email AS owner_email
+                FROM inbound_emails e
+                LEFT JOIN users u ON u.id = e.user_id
+                ORDER BY e.received_at DESC
+                """,
+            )
+        else:
+            rows = await conn.fetch(
+                """
+                SELECT email_id, from_address, from_name, subject, status, received_at,
+                       chat_id, job_id, completeness_score
+                FROM inbound_emails
+                WHERE user_id = $1::uuid
+                ORDER BY received_at DESC
+                """,
+                user_id,
+            )
     return [_row_to_out(r) for r in rows]
 
 
@@ -169,17 +196,29 @@ async def get_inbox_detail(
     """Detail of one email plus full chat history."""
     pool = await get_db()
     user_id = str(current_user.user_id)
+    admin = _is_admin(current_user)
     async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            """
-            SELECT email_id, message_id, from_address, from_name, subject, body_clean,
-                   received_at, status, chat_id, job_id, completeness_score, created_at
-            FROM inbound_emails
-            WHERE email_id = $1 AND user_id = $2::uuid
-            """,
-            email_id,
-            user_id,
-        )
+        if admin:
+            row = await conn.fetchrow(
+                """
+                SELECT email_id, message_id, from_address, from_name, subject, body_clean,
+                       received_at, status, chat_id, job_id, completeness_score, created_at
+                FROM inbound_emails
+                WHERE email_id = $1
+                """,
+                email_id,
+            )
+        else:
+            row = await conn.fetchrow(
+                """
+                SELECT email_id, message_id, from_address, from_name, subject, body_clean,
+                       received_at, status, chat_id, job_id, completeness_score, created_at
+                FROM inbound_emails
+                WHERE email_id = $1 AND user_id = $2::uuid
+                """,
+                email_id,
+                user_id,
+            )
         if not row:
             raise HTTPException(status_code=404, detail="Email not found")
         email_out = _row_to_out(row)
@@ -214,16 +253,27 @@ async def convert_to_job(
     """Convert inbox email to Job. Requires status plan_ready; uses last %%PLAN%% in chat."""
     pool = await get_db()
     user_id = str(current_user.user_id)
+    admin = _is_admin(current_user)
     async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            """
-            SELECT email_id, status, chat_id, subject, user_id
-            FROM inbound_emails
-            WHERE email_id = $1 AND user_id = $2::uuid
-            """,
-            email_id,
-            user_id,
-        )
+        if admin:
+            row = await conn.fetchrow(
+                """
+                SELECT email_id, status, chat_id, subject, user_id
+                FROM inbound_emails
+                WHERE email_id = $1
+                """,
+                email_id,
+            )
+        else:
+            row = await conn.fetchrow(
+                """
+                SELECT email_id, status, chat_id, subject, user_id
+                FROM inbound_emails
+                WHERE email_id = $1 AND user_id = $2::uuid
+                """,
+                email_id,
+                user_id,
+            )
         if not row:
             raise HTTPException(status_code=404, detail="Email not found")
         if row["status"] != "plan_ready":
@@ -250,6 +300,8 @@ async def convert_to_job(
         if not plan_data:
             raise HTTPException(status_code=400, detail="No %%PLAN%% block found in chat")
         job_id = str(uuid.uuid4())
+        # Use the email owner's user_id for the job, not the admin's
+        job_owner_id = str(row["user_id"]) if row.get("user_id") else user_id
         context = {
             "plan": plan_data,
             "completeness_score": plan_data.get("completeness_score"),
@@ -264,7 +316,7 @@ async def convert_to_job(
             VALUES ($1, $2::uuid, $3, $4, $5, $6::jsonb, $7, $8, $9)
             """,
             job_id,
-            user_id,
+            job_owner_id,
             row["subject"] or "Email job",
             "PLAN_PROPOSED",
             "web",
