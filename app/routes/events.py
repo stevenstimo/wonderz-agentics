@@ -45,7 +45,7 @@ async def list_events(
             params.append(event_type)
             idx += 1
 
-        where = (" AND " + " AND ".join(conditions)) if conditions else "1=1"
+        where = (" AND ".join(conditions)) if conditions else "1=1"
         params.append(limit)
 
         rows = await conn.fetch(

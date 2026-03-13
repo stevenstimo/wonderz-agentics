@@ -263,16 +263,24 @@ async def trigger_run_intake(job_id: str):
 
 
 def _coerce_context(raw) -> dict:
-    if raw is None:
-        return {}
-    if isinstance(raw, dict):
-        return raw
-    if isinstance(raw, str):
-        try:
-            return json.loads(raw)
-        except json.JSONDecodeError:
+    """Coerce context from DB to a plain dict. Handles None, dict, str,
+    and double/triple-encoded JSON strings (JSONB string wrapping JSON)."""
+    val = raw
+    # Unwrap up to 3 layers of JSON-encoded strings
+    for _ in range(3):
+        if val is None:
             return {}
-    return {}
+        if isinstance(val, dict):
+            return val
+        if isinstance(val, str):
+            try:
+                val = json.loads(val)
+            except (json.JSONDecodeError, ValueError):
+                return {}
+        else:
+            return {}
+    # If after 3 rounds we still don't have a dict, give up
+    return val if isinstance(val, dict) else {}
 
 
 def _job_for_response(job_row) -> dict:
@@ -281,7 +289,6 @@ def _job_for_response(job_row) -> dict:
     d.pop("file_artifact_path", None)  # Don't expose server path to frontend
     jni = d.get("job_number_int")
     ctx = _coerce_context(d.get("context"))
-    ctx = json.loads(ctx) if isinstance(ctx, str) else (dict(ctx) if ctx else {})
     if jni is not None:
         ctx["job_number"] = f"{jni:04d}"
     elif "job_number" not in ctx:
@@ -586,7 +593,7 @@ async def approve_plan(
             platform = (row["source_platform"] or "browser") if row else "browser"
             token_budget = int(row["token_budget"] or 50000) if row else 50000
             pipeline = NEXUSPipeline()
-            await pipeline.run(job_id, user_id, platform, job_post, token_budget)
+            await pipeline.run(job_id, user_id, platform, job_post, token_budget, pool=pool)
         else:
             await run_job_inline(job_id, context)
         logger.info(f"Job execution completed for job {job_id}")

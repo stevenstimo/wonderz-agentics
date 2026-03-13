@@ -115,16 +115,22 @@ async def _get_pool():
 
 
 def _coerce_context(raw: Any) -> Dict[str, Any]:
-    if not raw:
-        return {}
-    if isinstance(raw, dict):
-        return raw
-    if isinstance(raw, str):
-        try:
-            return json.loads(raw)
-        except json.JSONDecodeError:
+    """Coerce context from DB to a plain dict. Handles None, dict, str,
+    and double/triple-encoded JSON strings (JSONB string wrapping JSON)."""
+    val = raw
+    for _ in range(3):
+        if not val:
             return {}
-    return {}
+        if isinstance(val, dict):
+            return val
+        if isinstance(val, str):
+            try:
+                val = json.loads(val)
+            except (json.JSONDecodeError, ValueError):
+                return {}
+        else:
+            return {}
+    return val if isinstance(val, dict) else {}
 
 
 async def _load_job(conn, job_id: str):
