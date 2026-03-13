@@ -107,7 +107,7 @@ class EmailPoller:
             try:
                 msg = email.message_from_bytes(raw)
                 parsed = EmailParser.parse(msg)
-                logger.info("EmailPoller: processing UID %s from=%s subject=%s", uid, parsed.get('from', '?'), parsed.get('subject', '?'))
+                logger.info("EmailPoller: processing UID %s from=%s subject=%s", uid, getattr(parsed, 'from_address', '?'), getattr(parsed, 'subject', '?'))
                 await InboxEngine.process(parsed)
                 logger.info("EmailPoller: UID %s processed OK, marking Seen", uid)
                 to_mark_seen.append(uid)
