@@ -808,10 +808,11 @@ async def save_integration_config(
         extra = row["extra_config"] or {}
         if isinstance(extra, str):
             try:
-                extra = json.loads(extra)
+                extra = json.loads(extra) if extra.strip() else {}
             except Exception:
                 extra = {}
-        extra = dict(extra)
+        if not isinstance(extra, dict):
+            extra = {}
         extra.update(config_dict)
         extra_json = json.dumps(extra)
         if service_type == "google_ads" and config_dict.get("login_customer_id"):

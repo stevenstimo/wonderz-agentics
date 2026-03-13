@@ -356,10 +356,11 @@ async def get_valid_access_token(
     extra = row["extra_config"] or {}
     if isinstance(extra, str):
         try:
-            extra = json.loads(extra)
+            extra = json.loads(extra) if extra.strip() else {}
         except Exception:
             extra = {}
-    extra = dict(extra or {})
+    if not isinstance(extra, dict):
+        extra = {}
 
     access_token = extra.get("access_token")
     refresh_token = extra.get("refresh_token") or row.get("api_key_encrypted")

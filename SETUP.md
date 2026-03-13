@@ -9,6 +9,8 @@ cd ~/wonderz-agentics
 .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8090
 ```
 
+**Productie (exe.dev / systemd):** Gebruik altijd `app.main:app` als entry point. Dan werken o.a. `/api/clients/{slug}/dashboard` en `/api/hr/approve-training`. Bij 404 op deze endpoints: controleer of de service `uvicorn app.main:app` draait en niet `api_main:app`.
+
 ## Architecture: Route Registration
 
 Routes are registered in TWO places. Both are required.

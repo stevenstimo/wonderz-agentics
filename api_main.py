@@ -72,6 +72,13 @@ Base.metadata.create_all(bind=engine)
 # --- FastAPI app instance ---
 app = FastAPI(title="Multi-Agentic Crew - Orchestrator API")
 
+# Mount HR routes (approve-training, report, development-points, etc.) when running from repo root
+try:
+    from app.routes import hr
+    app.include_router(hr.router)
+except Exception:
+    pass
+
 
 @app.get("/api/health")
 def health_check():
@@ -1397,15 +1404,22 @@ async def hr_register_improvement(req: RegisterImprovementInput):
 
 @app.on_event("startup")
 async def on_startup():
-    """Startup hook - skip database initialization."""
-    # Database initialization (like creating Dave Dev) should be done via migrations
-    # Not during startup, to avoid crashes when tables don't exist
-    pass
+    """Startup hook - init async DB pool if HR routes are mounted."""
+    try:
+        from app.db import init_db_pool
+        await init_db_pool()
+    except Exception:
+        pass
 
 
 @app.on_event("shutdown")
 async def on_shutdown():
-    pass
+    """Shutdown hook - close async DB pool if it was opened."""
+    try:
+        from app.db import close_db_pool
+        await close_db_pool()
+    except Exception:
+        pass
 
 # --- Request Models for Dave Dev ---
 class DaveDevPromptRequest(BaseModel):
