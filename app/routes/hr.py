@@ -270,8 +270,8 @@ async def scan_patterns():
 @router.post("/approve-training")
 async def approve_training(req: ApproveTrainingRequest):
     """Approve a development point and start training."""
-    # Training request approval path
-    if req.request_id or req.approved is not None:
+    # Training request approval path (only when request_id is explicitly provided)
+    if req.request_id:
         try:
             pool = await get_db()
 
