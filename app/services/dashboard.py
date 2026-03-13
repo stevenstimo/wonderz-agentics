@@ -495,17 +495,22 @@ async def fetch_ga4(
         if r.status_code != 200:
             logger.warning(f"GA4 overview failed: {r.status_code} {r.text}")
             return result
-        data = r.json()
-        rows = data.get("rows", [])
+        data = r.json() if r.content else {}
+        data = data if isinstance(data, dict) else {}
+        rows = data.get("rows", []) if isinstance(data.get("rows"), list) else []
         if rows:
-            row = rows[0]
-            metrics = row.get("metricValues", [])
+            row = rows[0] if isinstance(rows[0], dict) else {}
+            metrics = row.get("metricValues", []) if isinstance(row.get("metricValues"), list) else []
+            def _mval(i: int, default: float = 0):
+                if i >= len(metrics): return default
+                m = metrics[i]
+                return float(m.get("value", default)) if isinstance(m, dict) else default
             result["kpis"] = {
-                "users": int(metrics[0].get("value", 0)) if len(metrics) > 0 else 0,
-                "sessions": int(metrics[1].get("value", 0)) if len(metrics) > 1 else 0,
-                "conversions": float(metrics[2].get("value", 0)) if len(metrics) > 2 else 0,
-                "conversion_value": float(metrics[3].get("value", 0)) if len(metrics) > 3 else 0,
-                "engagement_rate": float(metrics[4].get("value", 0)) if len(metrics) > 4 else 0,
+                "users": int(_mval(0)),
+                "sessions": int(_mval(1)),
+                "conversions": _mval(2),
+                "conversion_value": _mval(3),
+                "engagement_rate": _mval(4),
             }
             if result["kpis"]["sessions"] > 0:
                 result["kpis"]["conversion_rate"] = (
@@ -517,41 +522,56 @@ async def fetch_ga4(
         # Time series (GA4 API returns date dimension as YYYYMMDD; normalize to YYYY-MM-DD for frontend merge with Ads)
         r = await client.post(url, headers=headers, json=timeseries_body)
         if r.status_code == 200:
-            data = r.json()
-            for row in data.get("rows", []):
-                dims = row.get("dimensionValues", [])
-                metrics = row.get("metricValues", [])
-                if dims and metrics:
+            data = r.json() if r.content else {}
+            data = data if isinstance(data, dict) else {}
+            for row in (data.get("rows") or []):
+                if not isinstance(row, dict):
+                    continue
+                dims = row.get("dimensionValues", []) if isinstance(row.get("dimensionValues"), list) else []
+                metrics = row.get("metricValues", []) if isinstance(row.get("metricValues"), list) else []
+                if dims and metrics and isinstance(dims[0], dict):
                     raw_date = dims[0].get("value", "")
                     if len(raw_date) == 8 and raw_date.isdigit():
                         date_val = f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:8]}"
                     else:
                         date_val = raw_date
+                    def _mv(i: int):
+                        if i >= len(metrics) or not isinstance(metrics[i], dict):
+                            return 0
+                        return float(metrics[i].get("value", 0)) or 0
                     result["timeseries"].append({
                         "date": date_val,
-                        "users": int(metrics[0].get("value", 0)) if len(metrics) > 0 else 0,
-                        "sessions": int(metrics[1].get("value", 0)) if len(metrics) > 1 else 0,
-                        "conversions": float(metrics[2].get("value", 0)) if len(metrics) > 2 else 0,
-                        "conversion_value": float(metrics[3].get("value", 0)) if len(metrics) > 3 else 0,
+                        "users": int(_mv(0)),
+                        "sessions": int(_mv(1)),
+                        "conversions": _mv(2),
+                        "conversion_value": _mv(3),
                     })
 
         # Traffic by channel
         r = await client.post(url, headers=headers, json=channel_body)
         if r.status_code == 200:
-            data = r.json()
-            for row in data.get("rows", []):
-                dims = row.get("dimensionValues", [])
-                metrics = row.get("metricValues", [])
-                if dims and metrics:
-                    sess = int(metrics[1].get("value", 0)) if len(metrics) > 1 else 0
-                    conv = float(metrics[2].get("value", 0)) if len(metrics) > 2 else 0
-                    result["traffic_by_channel"].append({
-                        "channel": dims[0].get("value", "(not set)"),
-                        "users": int(metrics[0].get("value", 0)) if len(metrics) > 0 else 0,
-                        "sessions": sess,
-                        "conversions": conv,
-                        "conversion_rate": (conv / sess * 100) if sess else 0.0,
-                    })
+            data = r.json() if r.content else {}
+            data = data if isinstance(data, dict) else {}
+            for row in (data.get("rows") or []):
+                if not isinstance(row, dict):
+                    continue
+                dims = row.get("dimensionValues", []) if isinstance(row.get("dimensionValues"), list) else []
+                metrics = row.get("metricValues", []) if isinstance(row.get("metricValues"), list) else []
+                if not dims or not metrics or not isinstance(dims[0], dict):
+                    continue
+                def _mv2(i: int):
+                    if i >= len(metrics) or not isinstance(metrics[i], dict):
+                        return 0
+                    return float(metrics[i].get("value", 0)) or 0
+                sess = int(_mv2(1))
+                conv = _mv2(2)
+                result["traffic_by_channel"].append({
+                    "channel": dims[0].get("value", "(not set)"),
+                    "users": int(_mv2(0)),
+                    "sessions": sess,
+                    "conversions": conv,
+                    "conversion_rate": (conv / sess * 100) if sess else 0.0,
+                })
 
     return result
 

@@ -669,35 +669,46 @@ async def get_client_dashboard(
         result["meta"] = meta_payload
 
     # --- Overview (GA4 for users/sessions/conversions, Ads for cost) ---
+    # Defensive: never call .get() on a non-dict (e.g. if API returns unexpected types).
+    def _safe_dict(v: Any) -> dict:
+        return v if isinstance(v, dict) else {}
+
     total_cost = 0.0
-    if result.get("google_ads") and not result["google_ads"].get("not_connected"):
-        for c in result["google_ads"].get("campaigns", []):
-            total_cost += c.get("cost", 0) or 0
-    if result.get("meta") and not result["meta"].get("not_connected"):
-        ads = result["meta"].get("ads") or {}
+    ga4_block = _safe_dict(result.get("ga4"))
+    ads_block = _safe_dict(result.get("google_ads"))
+    meta_block = _safe_dict(result.get("meta"))
+
+    if ads_block and not ads_block.get("not_connected"):
+        for c in ads_block.get("campaigns") or []:
+            if isinstance(c, dict):
+                total_cost += float(c.get("cost") or 0) or 0
+    if meta_block and not meta_block.get("not_connected"):
+        ads = _safe_dict(meta_block.get("ads"))
         if not ads.get("error"):
-            total_cost += float(ads.get("total_spend") or 0)
-    ga4_kpis = result.get("ga4", {}).get("kpis", {}) if result.get("ga4") and not result["ga4"].get("not_connected") else {}
-    total_conversions = ga4_kpis.get("conversions", 0) or 0
-    total_conv_value = ga4_kpis.get("conversion_value", 0) or 0
-    if not total_conversions and result.get("google_ads") and not result["google_ads"].get("not_connected"):
-        for c in result["google_ads"].get("campaigns", []):
-            total_conversions += c.get("conversions", 0) or 0
-            total_conv_value += c.get("conversion_value", 0) or 0
-    if result.get("meta") and not result["meta"].get("not_connected"):
-        ads = result["meta"].get("ads") or {}
+            total_cost += float(ads.get("total_spend") or 0) or 0
+
+    ga4_kpis = _safe_dict(ga4_block.get("kpis")) if not ga4_block.get("not_connected") else {}
+    total_conversions = int(ga4_kpis.get("conversions") or 0) or 0
+    total_conv_value = float(ga4_kpis.get("conversion_value") or 0) or 0
+    if not total_conversions and ads_block and not ads_block.get("not_connected"):
+        for c in ads_block.get("campaigns") or []:
+            if isinstance(c, dict):
+                total_conversions += int(c.get("conversions") or 0) or 0
+                total_conv_value += float(c.get("conversion_value") or 0) or 0
+    if meta_block and not meta_block.get("not_connected"):
+        ads = _safe_dict(meta_block.get("ads"))
         if not ads.get("error"):
-            total_conversions += int(ads.get("total_conversions") or 0)
+            total_conversions += int(ads.get("total_conversions") or 0) or 0
     cpa = total_cost / total_conversions if total_conversions else 0
 
     result["overview"] = {
-        "users": ga4_kpis.get("users", 0),
-        "sessions": ga4_kpis.get("sessions", 0),
+        "users": int(ga4_kpis.get("users") or 0) or 0,
+        "sessions": int(ga4_kpis.get("sessions") or 0) or 0,
         "conversions": total_conversions,
         "conversion_value": total_conv_value,
         "total_cost": total_cost,
         "cpa": cpa,
-        "conversion_rate": ga4_kpis.get("conversion_rate", 0),
+        "conversion_rate": float(ga4_kpis.get("conversion_rate") or 0) or 0,
     }
 
     return result
