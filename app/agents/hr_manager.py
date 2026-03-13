@@ -98,7 +98,7 @@ class HRManager:
                             "SELECT role FROM hired_agents WHERE agent_id = $1", row["agent_id"]
                         )
                         agent_role_val = (role_row["role"] if role_row else "") or ""
-                    ev = f"Job {row['first_job']}, {row['freq']}x gezien in {since_days} dagen"
+                    ev = json.dumps([f"Job {row['first_job']}, {row['freq']}x gezien in {since_days} dagen"])
                     if has_proposed_by and needs_agent_role:
                         await conn.execute(
                             """
@@ -193,7 +193,7 @@ class HRManager:
                         rrow = await conn.fetchrow("SELECT role FROM hired_agents WHERE agent_id = $1", row["agent_id"])
                         agent_role_chat = (rrow["role"] if rrow else "") or ""
                     desc = "Agent antwoordt herhaaldelijk met 'ik weet het niet' in Direct Chat"
-                    sample = (row["sample"] or "")[:200]
+                    sample = json.dumps([(row["sample"] or "")[:200]])
                     if has_proposed_by_chat and needs_agent_role_chat:
                         await conn.execute(
                             """INSERT INTO development_points (point_id, agent_id, agent_role, issue_description, evidence_example, frequency, impact, status, proposed_by)
