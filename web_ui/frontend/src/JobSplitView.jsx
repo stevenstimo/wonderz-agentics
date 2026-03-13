@@ -276,6 +276,22 @@ export default function JobSplitView() {
       .catch(() => setEvents([]))
   }, [jobId])
 
+  // Derived values before any useEffect that uses them (avoids TDZ: job was used in deps before declaration)
+  const job = data?.job
+  const steps = data?.steps ?? []
+  const artifacts = data?.artifacts ?? []
+  const context = job ? parseContext(job.context) : {}
+  const imageUrl = context.image_url
+  const plan = context.plan || {}
+  const planSteps = Array.isArray(plan.steps) ? plan.steps : []
+  const chatHistory = Array.isArray(context.chat_history) ? context.chat_history : []
+  const clarifications = data?.clarifications ?? []
+  const statusStr = job?.status != null ? String(job.status) : ''
+  const statusUpper = statusStr.toUpperCase()
+  const isIntake = statusUpper === 'INTAKE_CLARIFICATION'
+  const displayChatHistory = [...chatHistory, ...optimisticMessages]
+  const inputDisabled = sendingChat
+
   // When showing API key error, fetch current server fingerprint so user can compare
   useEffect(() => {
     if (job?.status !== 'INTAKE_CLARIFICATION') return
@@ -303,21 +319,6 @@ export default function JobSplitView() {
     }
   }, [sendingChat, ceoTyping])
 
-  // Derived values before any early return so hook count is stable (React #310)
-  const job = data?.job
-  const steps = data?.steps ?? []
-  const artifacts = data?.artifacts ?? []
-  const context = job ? parseContext(job.context) : {}
-  const imageUrl = context.image_url
-  const plan = context.plan || {}
-  const planSteps = Array.isArray(plan.steps) ? plan.steps : []
-  const chatHistory = Array.isArray(context.chat_history) ? context.chat_history : []
-  const clarifications = data?.clarifications ?? []
-  const statusStr = job?.status != null ? String(job.status) : ''
-  const statusUpper = statusStr.toUpperCase()
-  const isIntake = statusUpper === 'INTAKE_CLARIFICATION'
-  const displayChatHistory = [...chatHistory, ...optimisticMessages]
-  const inputDisabled = sendingChat
   useEffect(() => {
     if (isIntake && chatHistory.length) {
       chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
