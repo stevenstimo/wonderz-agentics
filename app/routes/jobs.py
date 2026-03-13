@@ -70,6 +70,27 @@ def _json_default(obj):
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 
+def _to_jsonable(obj):
+    """Recursively convert to JSON-serializable types (UUID/datetime from asyncpg)."""
+    if obj is None:
+        return None
+    if hasattr(obj, "hex"):  # UUID
+        return str(obj)
+    if hasattr(obj, "isoformat"):  # datetime/date
+        return obj.isoformat()
+    if isinstance(obj, dict):
+        return {k: _to_jsonable(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_to_jsonable(v) for v in obj]
+    if isinstance(obj, (str, int, float, bool)):
+        return obj
+    if isinstance(obj, bytes):
+        return obj.decode("utf-8", errors="replace")
+    if hasattr(obj, "__float__") and not isinstance(obj, bool):  # Decimal, etc.
+        return float(obj)
+    return str(obj)  # fallback for any other type (e.g. Enum)
+
+
 # ============ Dependency: Get OperationsManager ============
 
 def get_operations_manager():
@@ -593,9 +614,16 @@ async def approve_plan(
             platform = (row["source_platform"] or "browser") if row else "browser"
             token_budget = int(row["token_budget"] or 50000) if row else 50000
             pipeline = NEXUSPipeline()
-            await pipeline.run(job_id, user_id, platform, job_post, token_budget, pool=pool)
-        else:
-            await run_job_inline(job_id, context)
+            asyncio.create_task(
+                pipeline.run(job_id, user_id, platform, job_post, token_budget, pool=pool)
+            )
+            logger.info("NEXUS pipeline started in background for job %s", job_id)
+            return {
+                "job_id": job_id,
+                "status": JobStatus.RUNNING.value,
+                "message": "Plan approved. Workflow started."
+            }
+        await run_job_inline(job_id, context)
         logger.info(f"Job execution completed for job {job_id}")
         try:
             await manager.approve_plan(job_id)
@@ -897,12 +925,13 @@ async def get_job(job_id: str):
                 job_id
             )
         
-        return {
+        payload = {
             "job": _job_for_response(job),
             "clarifications": [dict(c) for c in clarifications],
             "steps": [dict(s) for s in steps],
             "artifacts": [dict(a) for a in artifacts]
         }
+        return _to_jsonable(payload)
     
     except HTTPException:
         raise
