@@ -426,7 +426,11 @@ async def get_client_dashboard(
         )
 
     int_by_type = {r["integration_type"]: r for r in integrations}
-    config_by_platform = {r["platform"]: (r["config"] or {}) for r in configs}
+    # Normalize config to dict (asyncpg usually returns jsonb as dict; defensive for string/None)
+    config_by_platform = {}
+    for r in configs:
+        c = r.get("config")
+        config_by_platform[r["platform"]] = c if isinstance(c, dict) else {}
 
     result: dict[str, Any] = {
         "overview": None,

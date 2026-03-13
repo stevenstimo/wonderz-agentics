@@ -8,8 +8,9 @@ import logging
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.db import init_db_pool, close_db_pool
 from app.logging_config import setup_logging
@@ -70,6 +71,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    """Return JSON on any unhandled exception so frontend can show a message instead of crashing on HTML."""
+    logger.exception("Unhandled exception: %s", exc)
+    return JSONResponse(status_code=500, content={"detail": str(exc)})
+
 
 # --- Routers (each defines its own prefix, e.g. /api/clients) ---
 from app.routes import (

@@ -50,7 +50,10 @@ export default function ClientDashboardPage() {
         try {
           parsed = JSON.parse(raw)
         } catch (_) {
-          throw new Error('Ongeldige response')
+          // Backend may return HTML on 500; show generic message instead of crashing
+          setError({ type: 'server', message: res.ok ? 'Ongeldige response' : `Serverfout (${res.status}). Probeer later opnieuw.` })
+          setData(null)
+          return
         }
       }
 
@@ -64,8 +67,11 @@ export default function ClientDashboardPage() {
         return
       }
       if (!res.ok) {
-        const detail = parsed?.detail || parsed?.error || parsed?.message || `Request mislukt (${res.status})`
-        setError({ type: 'server', message: detail })
+        const rawDetail = parsed?.detail ?? parsed?.error ?? parsed?.message ?? `Request mislukt (${res.status})`
+        const message = typeof rawDetail === 'string' ? rawDetail : Array.isArray(rawDetail)
+          ? rawDetail.map((d) => d?.msg ?? JSON.stringify(d)).join(', ')
+          : (rawDetail && typeof rawDetail === 'object' ? JSON.stringify(rawDetail) : String(rawDetail))
+        setError({ type: 'server', message })
         setData(null)
         return
       }
