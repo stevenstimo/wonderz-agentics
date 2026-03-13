@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { BarChart3, Upload, Loader2, Download, CheckCircle } from 'lucide-react'
 import PageLayout from './PageLayout'
 import { apiUrl, apiFetch, getAccessToken } from './apiClient'
+import { supabase } from './supabase'
 
 const MANUAL_ENTRY_VALUE = '__manual__'
 
@@ -156,7 +157,11 @@ export default function SEOTool() {
     setError(null)
     setUploading(true)
     try {
-      const token = await getAccessToken()
+      let token = await getAccessToken()
+      if (!token) {
+        const { data } = await supabase.auth.getSession()
+        token = data?.session?.access_token ?? null
+      }
       if (!token) {
         setError('Log in om een SEO plan te maken.')
         setUploading(false)
