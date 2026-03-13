@@ -19,10 +19,25 @@ export default function SEOTool() {
   const [currentSilo, setCurrentSilo] = useState('')
   const [downloadUrl, setDownloadUrl] = useState(null)
   const [error, setError] = useState(null)
+  const [history, setHistory] = useState([])
   const fileInputRef = useRef(null)
   const pollIntervalRef = useRef(null)
 
+  async function fetchJobHistory() {
+    try {
+      const res = await apiFetch('/api/seo/jobs')
+      const data = await res.json()
+      if (res.ok && data.jobs) setHistory(data.jobs)
+    } catch (_) {}
+  }
+
   useEffect(() => {
+    const savedJobId = localStorage.getItem('seo_active_job_id')
+    if (savedJobId) {
+      setJobId(savedJobId)
+      setStatus('processing')
+    }
+    fetchJobHistory()
     return () => {
       if (pollIntervalRef.current) clearInterval(pollIntervalRef.current)
     }
@@ -40,6 +55,8 @@ export default function SEOTool() {
       setKeywordsTotal(data.keywords_total ?? data.keyword_count ?? data.total ?? 0)
       if (data.status === 'ready' && data.download_url) {
         setDownloadUrl(apiUrl(data.download_url))
+        localStorage.removeItem('seo_active_job_id')
+        fetchJobHistory()
         if (pollIntervalRef.current) {
           clearInterval(pollIntervalRef.current)
           pollIntervalRef.current = null
@@ -47,6 +64,8 @@ export default function SEOTool() {
       }
       if (data.status === 'failed') {
         setError('Verwerking mislukt')
+        localStorage.removeItem('seo_active_job_id')
+        fetchJobHistory()
         if (pollIntervalRef.current) {
           clearInterval(pollIntervalRef.current)
           pollIntervalRef.current = null
@@ -74,8 +93,8 @@ export default function SEOTool() {
     const f = files?.[0]
     if (!f) return
     const ext = (f.name || '').toLowerCase().split('.').pop()
-    if (ext !== 'csv' && ext !== 'xlsx' && ext !== 'xls') {
-      setError('Alleen CSV of XLSX bestanden worden ondersteund')
+    if (ext !== 'csv' && ext !== 'xlsx' && ext !== 'xls' && ext !== 'numbers') {
+      setError('Alleen CSV, XLSX of Numbers bestanden worden ondersteund')
       return
     }
     setError(null)
@@ -105,6 +124,7 @@ export default function SEOTool() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail || 'Upload mislukt')
       setJobId(data.job_id)
+      localStorage.setItem('seo_active_job_id', data.job_id)
       setKeywordsTotal(data.keyword_count ?? 0)
       setKeywordsProcessed(0)
       setProgress(0)
@@ -132,6 +152,7 @@ export default function SEOTool() {
     setFile(null)
     setError(null)
     setCurrentSilo('')
+    localStorage.removeItem('seo_active_job_id')
   }
 
   const showUpload = !jobId || status === 'failed'
@@ -215,13 +236,13 @@ export default function SEOTool() {
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".csv,.xlsx,.xls"
+                accept=".csv,.xlsx,.xls,.numbers"
                 className="hidden"
                 onChange={(e) => handleFileSelect(e.target?.files)}
               />
               <Upload className="w-12 h-12 mx-auto text-slate-400 mb-2" />
               <p className="text-slate-600">
-                {file ? file.name : 'Sleep CSV of XLSX hier of klik om te uploaden'}
+                {file ? file.name : 'Sleep CSV, XLSX of Numbers hier of klik om te uploaden'}
               </p>
               <p className="text-sm text-slate-500 mt-1">Max 2000 keywords, 5MB</p>
             </div>
@@ -288,6 +309,53 @@ export default function SEOTool() {
               >
                 Nieuw plan
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* Job history */}
+        {history.length > 0 && (
+          <div className="mt-10 bg-white rounded-xl shadow border border-slate-200 p-6">
+            <h2 className="text-lg font-semibold text-slate-800 mb-4">Eerdere SEO jobs</h2>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm text-left">
+                <thead>
+                  <tr className="border-b border-slate-200 text-slate-600">
+                    <th className="py-2 pr-4">Brand</th>
+                    <th className="py-2 pr-4">Keywords</th>
+                    <th className="py-2 pr-4">Status</th>
+                    <th className="py-2 pr-4">Datum</th>
+                    <th className="py-2">Actie</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {history.map((job) => {
+                    const date = job.created_at
+                      ? new Date(job.created_at).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short', year: 'numeric' })
+                      : '—'
+                    const statusLabel = job.status === 'ready' ? '✅ Klaar' : job.status === 'failed' ? '❌ Mislukt' : job.status === 'processing' || job.status === 'pending' ? '⏳ Bezig' : job.status || '—'
+                    return (
+                      <tr key={job.job_id} className="border-b border-slate-100">
+                        <td className="py-2 pr-4 font-medium text-slate-800">{job.brand_name || '—'}</td>
+                        <td className="py-2 pr-4 text-slate-600">{job.keyword_count ?? '—'}</td>
+                        <td className="py-2 pr-4 text-slate-600">{statusLabel}</td>
+                        <td className="py-2 pr-4 text-slate-600">{date}</td>
+                        <td className="py-2">
+                          {job.status === 'ready' && (
+                            <button
+                              type="button"
+                              onClick={() => window.open(apiUrl(`/api/seo/download/${job.job_id}`), '_blank')}
+                              className="text-indigo-600 hover:text-indigo-800 font-medium"
+                            >
+                              Download
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
             </div>
           </div>
         )}

@@ -1,38 +1,58 @@
 """
-SEO Keyword CSV/XLSX parser — parses Semrush-style exports into keyword dicts.
-Required columns: Keyword, Search Volume, Keyword Difficulty.
-Optional: Position, CPC, URL, Keyword Intents.
+SEO Keyword CSV/XLSX/Numbers parser — parses Semrush/Ahrefs-style exports into keyword dicts.
+Only keyword column is required; volume, kd, position, cpc, url, intent use aliases and defaults.
 """
 import csv
 import io
 import logging
+import os
+import tempfile
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-# Column name mappings (case-insensitive, various export formats)
-VOLUME_ALIASES = ("search volume", "volume", "sv", "search_volume", "monthly volume")
-KD_ALIASES = ("keyword difficulty", "kd", "keyword_difficulty", "difficulty")
-KEYWORD_ALIASES = ("keyword", "keywords", "query", "zoekwoord")
-POSITION_ALIASES = ("position", "pos", "rank", "current position")
-CPC_ALIASES = ("cpc", "cost per click", "cost-per-click")
-URL_ALIASES = ("url", "current url", "landing page")
-INTENT_ALIASES = ("keyword intents", "intent", "keyword_intents", "intents")
+COLUMN_ALIASES = {
+    "keyword": [
+        "keyword", "keywords", "query", "search query", "zoekwoord",
+        "term", "search term", "key phrase", "keyphrase", "topic",
+    ],
+    "volume": [
+        "search volume", "volume", "sv", "avg monthly searches",
+        "monthly searches", "msv", "searches", "zoekvolume",
+    ],
+    "kd": [
+        "keyword difficulty", "kd", "difficulty", "kd %", "competition",
+        "keyword difficulty %", "moeilijkheid",
+    ],
+    "position": [
+        "position", "pos", "rank", "ranking", "current position",
+        "positie", "pos.", "current rank",
+    ],
+    "cpc": ["cpc", "cost per click", "cpc (usd)", "cpc (eur)"],
+    "url": [
+        "url", "current url", "landing page", "page", "link", "content idea url",
+    ],
+    "intent": [
+        "intent", "keyword intent", "intents", "keyword intents", "search intent",
+    ],
+}
 
 
-def _normalize_header(h: str) -> str:
-    return (h or "").strip().lower()
+def _normalize_col_key(col: str) -> str:
+    return (col or "").strip().lower().replace(" ", "_").replace("-", "_")
 
 
-def _find_column(headers: List[str], aliases: tuple) -> Optional[int]:
-    for i, h in enumerate(headers):
-        if _normalize_header(h) in aliases:
-            return i
+def find_column(columns: List[str], aliases: List[str]) -> Optional[str]:
+    normalized = {_normalize_col_key(col): col for col in columns}
+    for alias in aliases:
+        key = _normalize_col_key(alias)
+        if key in normalized:
+            return normalized[key]
     return None
 
 
 def parse_csv(content: bytes) -> List[Dict[str, Any]]:
-    """Parse CSV content into list of keyword dicts."""
+    """Parse CSV content into list of keyword dicts (original headers)."""
     text = content.decode("utf-8", errors="replace")
     reader = csv.reader(io.StringIO(text))
     rows = list(reader)
@@ -46,7 +66,7 @@ def parse_csv(content: bytes) -> List[Dict[str, Any]]:
         elif len(row) > len(headers):
             row = row[: len(headers)]
         data.append(dict(zip(headers, row)))
-    return _normalize_rows(data)
+    return data
 
 
 def parse_xlsx(content: bytes) -> List[Dict[str, Any]]:
@@ -70,69 +90,76 @@ def parse_xlsx(content: bytes) -> List[Dict[str, Any]]:
             row_values = row_values[: len(headers)]
         data.append(dict(zip(headers, row_values)))
     wb.close()
-    return _normalize_rows(data)
+    return data
+
+
+def parse_numbers_file(file_path: str) -> List[Dict[str, Any]]:
+    """Parse Apple Numbers file (first sheet, first table) into list of dicts."""
+    from numbers_parser import Document
+
+    doc = Document(file_path)
+    sheet = doc.sheets[0]
+    table = sheet.tables[0]
+    rows = list(table.iter_rows())
+    if not rows:
+        return []
+    headers = [str(c.value) if c.value is not None else "" for c in rows[0]]
+    data = []
+    for row in rows[1:]:
+        data.append(dict(zip(headers, [str(c.value) if c.value is not None else "" for c in row])))
+    return data
 
 
 def _normalize_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Map various column names to standard keys and coerce types."""
+    """Map alias-based columns to standard keys; only keyword required; defaults for missing."""
     if not rows:
         return []
     headers = list(rows[0].keys())
-    kw_idx = _find_column(headers, KEYWORD_ALIASES)
-    vol_idx = _find_column(headers, VOLUME_ALIASES)
-    kd_idx = _find_column(headers, KD_ALIASES)
-    pos_idx = _find_column(headers, POSITION_ALIASES)
-    cpc_idx = _find_column(headers, CPC_ALIASES)
-    url_idx = _find_column(headers, URL_ALIASES)
-    intent_idx = _find_column(headers, INTENT_ALIASES)
-
-    if kw_idx is None:
-        raise ValueError("Required column 'Keyword' not found")
-    if vol_idx is None:
-        raise ValueError("Required column 'Search Volume' not found")
-    if kd_idx is None:
-        raise ValueError("Required column 'Keyword Difficulty' not found")
-
-    kw_col = headers[kw_idx]
-    vol_col = headers[vol_idx]
-    kd_col = headers[kd_idx]
-    pos_col = headers[pos_idx] if pos_idx is not None else None
-    cpc_col = headers[cpc_idx] if cpc_idx is not None else None
-    url_col = headers[url_idx] if url_idx is not None else None
-    intent_col = headers[intent_idx] if intent_idx is not None else None
+    kw_col = find_column(headers, COLUMN_ALIASES["keyword"])
+    if kw_col is None:
+        raise ValueError(
+            f"Geen keyword-kolom gevonden. Gevonden kolommen: {list(rows[0].keys())}. "
+            "Verwacht: keyword, query, search term, zoekwoord, of topic."
+        )
+    vol_col = find_column(headers, COLUMN_ALIASES["volume"])
+    kd_col = find_column(headers, COLUMN_ALIASES["kd"])
+    pos_col = find_column(headers, COLUMN_ALIASES["position"])
+    cpc_col = find_column(headers, COLUMN_ALIASES["cpc"])
+    url_col = find_column(headers, COLUMN_ALIASES["url"])
+    intent_col = find_column(headers, COLUMN_ALIASES["intent"])
 
     result = []
     for r in rows:
         kw = (r.get(kw_col) or "").strip()
         if not kw:
             continue
-        vol_raw = r.get(vol_col) or "0"
-        kd_raw = r.get(kd_col) or "0"
+        vol_raw = r.get(vol_col) if vol_col else None
+        kd_raw = r.get(kd_col) if kd_col else None
         try:
-            vol = int(float(str(vol_raw).replace(",", "").replace(" ", "")))
+            vol = int(float(str(vol_raw or "0").replace(",", "").replace(" ", "")))
         except (ValueError, TypeError):
             vol = 0
         try:
-            kd = float(str(kd_raw).replace(",", ".").replace(" ", ""))
+            kd = float(str(kd_raw or "50").replace(",", ".").replace(" ", ""))
         except (ValueError, TypeError):
-            kd = 0.0
+            kd = 50.0
 
-        pos = None
+        pos = 0
         if pos_col and r.get(pos_col):
             try:
                 pos = int(float(str(r.get(pos_col)).replace(",", "")))
             except (ValueError, TypeError):
                 pass
 
-        cpc = None
+        cpc = 0.0
         if cpc_col and r.get(cpc_col):
             try:
                 cpc = float(str(r.get(cpc_col)).replace(",", "."))
             except (ValueError, TypeError):
                 pass
 
-        url = (r.get(url_col) or "").strip() if url_col else None
-        intent = (r.get(intent_col) or "").strip() if intent_col else None
+        url = (r.get(url_col) or "").strip() if url_col else ""
+        intent = (r.get(intent_col) or "").strip() if intent_col else ""
 
         result.append({
             "keyword": kw,
@@ -148,12 +175,27 @@ def _normalize_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 def parse_keywords_file(content: bytes, filename: str) -> List[Dict[str, Any]]:
     """
-    Parse CSV or XLSX file into keyword list.
-    Raises ValueError on missing required columns or invalid format.
+    Parse CSV, XLSX, or Numbers file into keyword list.
+    Only a recognizable keyword column is required; other columns use defaults if missing.
+    Raises ValueError on no keyword column or invalid format.
     """
     ext = (filename or "").lower().split(".")[-1] if "." in (filename or "") else ""
     if ext == "csv":
-        return parse_csv(content)
+        return _normalize_rows(parse_csv(content))
     if ext in ("xlsx", "xls"):
-        return parse_xlsx(content)
-    raise ValueError(f"Unsupported file type: .{ext}. Use CSV or XLSX.")
+        return _normalize_rows(parse_xlsx(content))
+    if ext == "numbers":
+        tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".numbers", delete=False) as tmp:
+                tmp.write(content)
+                tmp_path = tmp.name
+            data = parse_numbers_file(tmp_path)
+            return _normalize_rows(data)
+        finally:
+            if tmp_path and os.path.isfile(tmp_path):
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+    raise ValueError(f"Unsupported file type: .{ext}. Use CSV, XLSX, or Numbers.")

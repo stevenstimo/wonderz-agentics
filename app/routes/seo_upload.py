@@ -130,6 +130,20 @@ async def _mark_failed(job_id: str, error: str):
             )
 
 
+@router.get("/jobs")
+async def list_seo_jobs():
+    """Return last 20 SEO jobs for history and download links."""
+    pool = await init_db_pool()
+    if not pool:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT job_id, brand_name, keyword_count, status, created_at "
+            "FROM seo_jobs ORDER BY created_at DESC LIMIT 20"
+        )
+    return {"jobs": [dict(r) for r in rows]}
+
+
 @router.post("/upload")
 async def upload_seo_file(
     background_tasks: BackgroundTasks,
@@ -162,7 +176,10 @@ async def upload_seo_file(
     job_id = _next_job_id()
     out_dir = "/tmp/seo_plans"
     os.makedirs(out_dir, exist_ok=True)
-    input_path = os.path.join(out_dir, f"{job_id}_input.csv")
+    ext = (file.filename or "").lower().split(".")[-1] if "." in (file.filename or "") else "csv"
+    if ext not in ("csv", "xlsx", "xls", "numbers"):
+        ext = "csv"
+    input_path = os.path.join(out_dir, f"{job_id}_input.{ext}")
     with open(input_path, "wb") as f:
         f.write(raw)
 
