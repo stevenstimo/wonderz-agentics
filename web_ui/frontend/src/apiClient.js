@@ -13,7 +13,8 @@ const SESSION_CACHE_MS = 20_000
 let cachedToken = null
 let cachedAt = 0
 
-async function getAccessToken() {
+/** Get current Supabase access token (cached). Used by apiFetch and by callers that need to send auth with FormData etc. */
+export async function getAccessToken() {
   if (cachedToken && Date.now() - cachedAt < SESSION_CACHE_MS) return cachedToken
   try {
     const result = await supabase.auth.getSession()

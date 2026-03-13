@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { BarChart3, Upload, Loader2, Download, CheckCircle } from 'lucide-react'
 import PageLayout from './PageLayout'
-import { apiUrl, apiFetch } from './apiClient'
+import { apiUrl, apiFetch, getAccessToken } from './apiClient'
 
 const MANUAL_ENTRY_VALUE = '__manual__'
 
@@ -156,6 +156,12 @@ export default function SEOTool() {
     setError(null)
     setUploading(true)
     try {
+      const token = await getAccessToken()
+      if (!token) {
+        setError('Log in om een SEO plan te maken.')
+        setUploading(false)
+        return
+      }
       const form = new FormData()
       form.append('file', file)
       form.append('brand_name', brandName.trim())
@@ -169,6 +175,7 @@ export default function SEOTool() {
       const res = await apiFetch('/api/seo/upload', {
         method: 'POST',
         body: form,
+        headers: { Authorization: `Bearer ${token}` },
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail || 'Upload mislukt')
