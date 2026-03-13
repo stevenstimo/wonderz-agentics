@@ -77,6 +77,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <Route path="/" element={<App />} />
           <Route path="/dashboard" element={<App />} />
           <Route path="/job-center" element={<JobCenter />} />
+          <Route path="/jobs" element={<JobCenter />} />
           <Route path="/mission-control" element={<MissionControl />} />
           <Route path="/jobs/new" element={<NewJob />} />
           <Route path="/jobs/:jobId" element={<RouteErrorBoundary paramKey="jobId"><JobSplitView /></RouteErrorBoundary>} />
