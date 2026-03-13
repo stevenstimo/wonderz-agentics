@@ -37,6 +37,7 @@ import JobSplitView from './JobSplitView.jsx'
 import NewJob from './NewJob.jsx'
 import MissionControl from './MissionControl.jsx'
 import HRDashboard from './HRDashboard.jsx'
+import IssueDetail from './pages/IssueDetail.jsx'
 import PersonalProjects from './PersonalProjects.jsx'
 import WorkTeamOrg from './WorkTeamOrg.jsx'
 import Study from './Study.jsx'
@@ -103,6 +104,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <Route path="/knowledge" element={<KnowledgeLibrary />} />
           <Route path="/approvals" element={<ApprovalDashboard />} />
           <Route path="/hr" element={<HRDashboard />} />
+          <Route path="/hr/issues/:pointId" element={<IssueDetail />} />
           <Route path="/hr-feedback" element={<HRDashboard />} />
           <Route path="/hr/improvements" element={<HRImprovements />} />
           <Route path="/explainer" element={<Navigate to="/explainer/how-it-works" replace />} />

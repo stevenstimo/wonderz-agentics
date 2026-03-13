@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Issue Detail — Wonderz Agentics</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --color-brand-primary: #2563EB;
+    --color-brand-primary-light: #EFF6FF;
+    --color-brand-primary-hover: #1D4ED8;
+    --color-status-success: #22D3A5;
+    --color-status-success-bg: #D1FAF0;
+    --color-status-warning: #F59E0B;
+    --color-status-warning-bg: #FEF3C7;
+    --color-status-error: #EF4444;
+    --color-status-error-bg: #FEE2E2;
+    --color-status-running: #3B82F6;
+    --color-status-running-bg: #DBEAFE;
+    --color-bg-page: #F4F6FB;
+    --color-bg-card: #FFFFFF;
+    --color-bg-subtle: #F9FAFB;
+    --color-bg-input: #F3F4F6;
+    --color-text-primary: #111827;
+    --color-text-secondary: #374151;
+    --color-text-muted: #6B7280;
+    --color-text-placeholder: #9CA3AF;
+    --color-border: #E5E7EB;
+    --color-border-subtle: #F3F4F6;
+    --font-primary: 'DM Sans', 'Segoe UI', sans-serif;
+    --font-mono: 'DM Mono', 'Fira Code', monospace;
+    --text-xs: 11px;
+    --text-sm: 12px;
+    --text-base: 14px;
+    --text-md: 15px;
+    --text-lg: 16px;
+    --text-xl: 18px;
+    --text-2xl: 20px;
+    --text-3xl: 24px;
+    --font-normal: 400;
+    --font-medium: 500;
+    --font-semibold: 600;
+    --font-bold: 700;
+    --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+    --space-5: 20px; --space-6: 24px; --space-8: 32px; --space-10: 40px; --space-12: 48px;
+    --radius-sm: 6px; --radius-md: 10px; --radius-lg: 16px; --radius-full: 9999px;
+    --shadow-card: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+    --shadow-hover: 0 4px 12px rgba(0,0,0,0.08);
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--color-bg-page); color: var(--color-text-primary); font-family: var(--font-primary); font-size: var(--text-base); line-height: 1.6; }
+
+  /* TOPBAR */
+  .topbar { background: var(--color-bg-card); border-bottom: 1px solid var(--color-border); padding: 0 var(--space-6); height: 56px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; box-shadow: var(--shadow-card); }
+  .topbar-left { display: flex; align-items: center; gap: var(--space-5); }
+  .logo { font-weight: var(--font-bold); font-size: var(--text-md); color: var(--color-text-primary); letter-spacing: -0.3px; }
+  .logo span { color: var(--color-brand-primary); }
+  .breadcrumb { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); color: var(--color-text-muted); }
+  .breadcrumb a { color: var(--color-text-secondary); text-decoration: none; }
+  .breadcrumb a:hover { color: var(--color-brand-primary); }
+  .breadcrumb .sep { color: var(--color-border); }
+  .breadcrumb .current { color: var(--color-brand-primary); font-weight: var(--font-medium); }
+  .topbar-right { display: flex; gap: var(--space-2); }
+
+  /* BUTTONS */
+  .btn-ghost { background: var(--color-bg-card); border: 1px solid var(--color-border); color: var(--color-text-secondary); padding: 6px var(--space-3); border-radius: var(--radius-sm); font-size: var(--text-sm); font-family: var(--font-primary); font-weight: var(--font-medium); cursor: pointer; transition: all 150ms ease; }
+  .btn-ghost:hover { background: var(--color-bg-subtle); }
+  .btn-primary { background: var(--color-brand-primary); border: none; color: #fff; padding: 6px var(--space-4); border-radius: var(--radius-sm); font-size: var(--text-sm); font-family: var(--font-primary); font-weight: var(--font-semibold); cursor: pointer; }
+  .btn-primary:hover { background: var(--color-brand-primary-hover); }
+
+  /* PAGE */
+  .page-wrapper { max-width: 1200px; margin: 0 auto; padding: 0 var(--space-6) var(--space-12); }
+
+  /* PAGE HEADER */
+  .page-header { padding: var(--space-8) 0 var(--space-6); border-bottom: 1px solid var(--color-border); margin-bottom: var(--space-6); }
+  .header-meta { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-3); }
+  .issue-id { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-text-muted); background: var(--color-bg-input); border: 1px solid var(--color-border); padding: 3px var(--space-2); border-radius: var(--radius-sm); }
+  .page-title { font-size: var(--text-3xl); font-weight: var(--font-bold); color: var(--color-text-primary); letter-spacing: -0.4px; margin-bottom: var(--space-2); }
+  .page-subtitle { color: var(--color-text-muted); font-size: var(--text-base); margin-bottom: var(--space-5); }
+  .header-stats { display: flex; gap: var(--space-6); align-items: center; flex-wrap: wrap; }
+  .header-stat { display: flex; flex-direction: column; gap: 2px; }
+  .hs-label { font-size: var(--text-xs); color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.6px; }
+  .hs-value { font-size: var(--text-base); font-weight: var(--font-semibold); color: var(--color-text-primary); }
+  .header-divider { width: 1px; height: 28px; background: var(--color-border); }
+
+  /* BADGES */
+  .badge { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border-radius: var(--radius-full); font-size: var(--text-xs); font-weight: var(--font-semibold); letter-spacing: 0.3px; text-transform: uppercase; font-family: var(--font-mono); }
+  .badge-dot { width: 5px; height: 5px; border-radius: 50%; }
+  .badge-open { background: var(--color-status-warning-bg); color: #92400E; border: 1px solid var(--color-status-warning); }
+  .badge-open .badge-dot { background: var(--color-status-warning); animation: pulse 2s infinite; }
+  .badge-ok, .badge-resolved { background: var(--color-status-success-bg); color: #065F46; border: 1px solid var(--color-status-success); }
+  .badge-fail { background: var(--color-status-error-bg); color: #991B1B; border: 1px solid var(--color-status-error); }
+  .badge-low { background: var(--color-status-running-bg); color: #1E40AF; border: 1px solid var(--color-status-running); }
+  .badge-medium { background: var(--color-status-warning-bg); color: #92400E; border: 1px solid var(--color-status-warning); }
+  .badge-high { background: var(--color-status-error-bg); color: #991B1B; border: 1px solid var(--color-status-error); }
+  @keyframes pulse { 0%,100%{opacity:1}50%{opacity:.35} }
+
+  /* SECTION LABEL */
+  .section-label { font-size: var(--text-xs); font-weight: var(--font-bold); text-transform: uppercase; letter-spacing: 1px; color: var(--color-text-muted); margin-bottom: var(--space-3); display: flex; align-items: center; gap: var(--space-2); }
+  .section-label::after { content:''; flex:1; height:1px; background:var(--color-border-subtle); }
+  .section-group { margin-bottom: var(--space-3); }
+
+  /* GRIDS */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: var(--space-4); }
+  .grid-4 { display: grid; grid-template-columns: repeat(4,1fr); gap: var(--space-3); }
+
+  /* CARD */
+  .card { background: var(--color-bg-card); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: var(--space-5); box-shadow: var(--shadow-card); transition: box-shadow 150ms ease; }
+  .card:hover { box-shadow: var(--shadow-hover); }
+  .card-title { font-size: var(--text-sm); font-weight: var(--font-semibold); color: var(--color-text-primary); margin-bottom: var(--space-4); display: flex; align-items: center; justify-content: space-between; }
+  .card-title-icon { display: flex; align-items: center; gap: var(--space-2); }
+  .card-icon { width: 24px; height: 24px; border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; font-size: 12px; }
+  .icon-warning { background: var(--color-status-warning-bg); }
+  .icon-success { background: var(--color-status-success-bg); }
+  .icon-info { background: var(--color-brand-primary-light); }
+  .icon-error { background: var(--color-status-error-bg); }
+  .icon-purple { background: #EDE9FE; }
+
+  /* DATA ROWS */
+  .data-row { display: flex; justify-content: space-between; align-items: center; padding: var(--space-2) 0; border-bottom: 1px solid var(--color-border-subtle); }
+  .data-row:last-child { border-bottom: none; }
+  .data-label { color: var(--color-text-muted); font-size: var(--text-sm); }
+  .data-value { color: var(--color-text-primary); font-size: var(--text-sm); font-weight: var(--font-medium); }
+  .data-mono { font-family: var(--font-mono); font-size: var(--text-xs); }
+
+  /* METRIC TILE */
+  .metric-tile { background: var(--color-bg-subtle); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: var(--space-4); }
+  .mt-label { font-size: var(--text-xs); color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: var(--space-1); }
+  .mt-value { font-size: var(--text-3xl); font-weight: var(--font-bold); color: var(--color-text-primary); line-height: 1; }
+  .mt-sub { font-size: var(--text-xs); color: var(--color-text-muted); margin-top: var(--space-1); }
+  .mt-trend-up { color: var(--color-status-error); font-size: var(--text-xs); margin-top: var(--space-1); }
+
+  /* PROGRESS */
+  .progress-track { height: 5px; background: var(--color-bg-input); border-radius: var(--radius-full); overflow: hidden; margin-top: var(--space-2); }
+  .progress-fill { height: 100%; border-radius: var(--radius-full); }
+  .pf-success { background: var(--color-status-success); }
+  .pf-warning { background: var(--color-status-warning); }
+  .pf-error { background: var(--color-status-error); }
+  .pf-primary { background: var(--color-brand-primary); }
+  .progress-labels { display: flex; justify-content: space-between; font-size: var(--text-xs); color: var(--color-text-muted); font-family: var(--font-mono); margin-top: 3px; }
+
+  /* SLIDER */
+  .slider-row { display: grid; grid-template-columns: 120px 1fr 44px; align-items: center; gap: var(--space-3); padding: var(--space-2) 0; border-bottom: 1px solid var(--color-border-subtle); }
+  .slider-row:last-child { border-bottom: none; }
+  .slider-name { font-size: var(--text-sm); color: var(--color-text-secondary); }
+  .slider-desc { font-size: var(--text-xs); color: var(--color-text-muted); }
+  .slider-track { height: 6px; background: var(--color-bg-input); border-radius: var(--radius-full); position: relative; }
+  .slider-fill { height: 6px; border-radius: var(--radius-full); position: relative; }
+  .slider-fill::after { content:''; width:12px; height:12px; background:var(--color-bg-card); border:2px solid currentColor; border-radius:50%; position:absolute; right:-6px; top:-3px; box-shadow: var(--shadow-card); }
+  .sf-warning { background: var(--color-status-warning); color: var(--color-status-warning); }
+  .sf-primary { background: var(--color-brand-primary); color: var(--color-brand-primary); }
+  .slider-val { font-family: var(--font-mono); font-size: var(--text-sm); color: var(--color-text-primary); font-weight: var(--font-medium); text-align: right; }
+
+  /* ALERT */
+  .alert { padding: var(--space-3); border-radius: var(--radius-sm); margin-bottom: var(--space-2); font-size: var(--text-sm); line-height: 1.55; }
+  .alert:last-child { margin-bottom: 0; }
+  .alert-title { font-weight: var(--font-semibold); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 4px; }
+  .alert-warning { background: var(--color-status-warning-bg); border: 1px solid var(--color-status-warning); color: #92400E; }
+  .alert-success { background: var(--color-status-success-bg); border: 1px solid var(--color-status-success); color: #065F46; }
+  .alert-error { background: var(--color-status-error-bg); border: 1px solid var(--color-status-error); color: #991B1B; }
+  .alert-info { background: var(--color-brand-primary-light); border: 1px solid var(--color-brand-primary); color: var(--color-brand-primary); }
+
+  /* CODE */
+  .code-block { background: var(--color-bg-input); border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: var(--space-3); font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-text-secondary); line-height: 1.7; white-space: pre-wrap; }
+  .code-highlight { color: var(--color-brand-primary); font-weight: var(--font-medium); }
+  .code-dim { color: var(--color-text-placeholder); }
+
+  /* TIMELINE */
+  .timeline-table { width: 100%; border-collapse: collapse; }
+  .timeline-table th { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.7px; color: var(--color-text-muted); font-weight: var(--font-semibold); padding: 0 var(--space-3) var(--space-2); text-align: left; border-bottom: 1px solid var(--color-border); }
+  .timeline-table td { padding: var(--space-2) var(--space-3); font-size: var(--text-sm); border-bottom: 1px solid var(--color-border-subtle); vertical-align: middle; }
+  .timeline-table tr:last-child td { border-bottom: none; }
+  .timeline-table tr:hover td { background: var(--color-bg-subtle); }
+  .time-val { font-family: var(--font-mono); color: var(--color-text-muted); font-size: var(--text-xs); }
+
+  /* RUN ID */
+  .run-id-wrap { display: flex; align-items: center; justify-content: space-between; background: var(--color-bg-input); border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: var(--space-2) var(--space-3); font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-text-muted); margin-bottom: var(--space-4); }
+  .copy-btn { background: none; border: none; color: var(--color-text-muted); cursor: pointer; font-size: var(--text-xs); font-family: var(--font-primary); padding: 2px var(--space-2); border-radius: var(--radius-sm); }
+  .copy-btn:hover { color: var(--color-brand-primary); }
+
+  /* ACTION BUTTONS */
+  .action-row { display: flex; gap: var(--space-2); flex-wrap: wrap; margin-top: var(--space-2); }
+  .btn-action { padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); font-size: var(--text-sm); font-weight: var(--font-medium); cursor: pointer; font-family: var(--font-primary); transition: all 150ms ease; border: 1px solid var(--color-border); background: var(--color-bg-subtle); color: var(--color-text-secondary); }
+  .btn-action:hover { background: var(--color-bg-input); color: var(--color-text-primary); }
+  .btn-action.approve { background: var(--color-status-success-bg); border-color: var(--color-status-success); color: #065F46; }
+  .btn-action.danger { background: var(--color-status-error-bg); border-color: var(--color-status-error); color: #991B1B; }
+  .btn-action.warn { background: var(--color-status-warning-bg); border-color: var(--color-status-warning); color: #92400E; }
+  .btn-action.cta { background: var(--color-brand-primary); border-color: var(--color-brand-primary); color: #fff; font-weight: var(--font-semibold); }
+  .btn-action.cta:hover { background: var(--color-brand-primary-hover); }
+
+  /* CONFIDENCE RING */
+  .confidence-ring { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-4); }
+  .ring-label { font-size: var(--text-2xl); font-weight: var(--font-bold); color: #92400E; line-height: 1; }
+  .ring-sub { font-size: var(--text-xs); color: var(--color-text-muted); }
+
+  /* SIGNALS */
+  .signal-item { display: flex; justify-content: space-between; align-items: center; padding: var(--space-2) 0; border-bottom: 1px solid var(--color-border-subtle); }
+  .signal-item:last-child { border-bottom: none; }
+  .signal-left { display: flex; align-items: center; gap: var(--space-2); }
+  .signal-name { font-size: var(--text-sm); color: var(--color-text-primary); font-weight: var(--font-medium); }
+  .signal-desc { font-size: var(--text-xs); color: var(--color-text-muted); }
+  .signal-weight { display: flex; align-items: center; gap: var(--space-2); font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-text-muted); }
+  .weight-bar { width: 60px; height: 3px; background: var(--color-bg-input); border-radius: var(--radius-full); overflow: hidden; }
+  .weight-fill { height: 100%; background: var(--color-status-warning); border-radius: var(--radius-full); }
+
+  /* CROSS-AGENT */
+  .cross-table { width: 100%; border-collapse: collapse; }
+  .cross-table th { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.7px; color: var(--color-text-muted); padding: 0 var(--space-3) var(--space-2); text-align: left; border-bottom: 1px solid var(--color-border); }
+  .cross-table td { padding: var(--space-2) var(--space-3); font-size: var(--text-sm); border-bottom: 1px solid var(--color-border-subtle); }
+  .cross-table tr:last-child td { border-bottom: none; }
+  .agent-name { font-weight: var(--font-medium); color: var(--color-text-primary); }
+  .agent-id { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-text-muted); }
+  .tag { background: var(--color-bg-input); border: 1px solid var(--color-border); color: var(--color-text-muted); padding: 2px var(--space-2); border-radius: var(--radius-full); font-size: var(--text-xs); font-family: var(--font-mono); }
+
+  /* PROJECTION */
+  .projection-row { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-2); }
+  .proj-label { font-size: var(--text-sm); color: var(--color-text-secondary); width: 90px; flex-shrink: 0; }
+  .proj-bar-outer { flex: 1; height: 8px; background: var(--color-bg-input); border-radius: var(--radius-full); overflow: hidden; }
+  .proj-bar-fill { height: 100%; border-radius: var(--radius-full); }
+  .proj-val { font-family: var(--font-mono); font-size: var(--text-sm); color: var(--color-text-primary); width: 60px; text-align: right; font-weight: var(--font-medium); }
+
+  /* ROADMAP */
+  .roadmap-item { display: flex; gap: var(--space-3); padding: var(--space-3) 0; border-bottom: 1px solid var(--color-border-subtle); }
+  .roadmap-item:last-child { border-bottom: none; }
+  .roadmap-num { width: 22px; height: 22px; border-radius: 50%; background: var(--color-bg-input); border: 1px solid var(--color-border); display: flex; align-items: center; justify-content: center; font-size: var(--text-xs); font-weight: var(--font-bold); color: var(--color-text-muted); flex-shrink: 0; margin-top: 2px; }
+  .roadmap-num.active { background: var(--color-brand-primary); border-color: var(--color-brand-primary); color: #fff; }
+  .roadmap-title { font-size: var(--text-sm); font-weight: var(--font-medium); color: var(--color-text-primary); margin-bottom: 3px; }
+  .roadmap-desc { font-size: var(--text-xs); color: var(--color-text-muted); line-height: 1.55; }
+  .rb { font-size: var(--text-xs); padding: 2px 7px; border-radius: var(--radius-full); margin-left: var(--space-2); font-family: var(--font-mono); }
+  .rb-quick { background: var(--color-status-success-bg); color: #065F46; border: 1px solid var(--color-status-success); }
+  .rb-medium { background: var(--color-status-warning-bg); color: #92400E; border: 1px solid var(--color-status-warning); }
+  .rb-deep { background: var(--color-status-error-bg); color: #991B1B; border: 1px solid var(--color-status-error); }
+
+  /* FEEDBACK */
+  .feedback-quote { background: var(--color-bg-subtle); border-left: 3px solid var(--color-brand-primary); padding: var(--space-3); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; font-size: var(--text-sm); color: var(--color-text-secondary); font-style: italic; line-height: 1.6; margin-bottom: var(--space-4); }
+  .feedback-author { font-size: var(--text-xs); color: var(--color-text-muted); margin-top: var(--space-2); font-style: normal; }
+
+  /* EVIDENCE */
+  .evidence-item { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); background: var(--color-bg-subtle); border: 1px solid var(--color-border); border-radius: var(--radius-sm); margin-bottom: var(--space-2); font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-text-muted); cursor: pointer; transition: background 100ms ease; }
+  .evidence-item:hover { background: var(--color-brand-primary-light); color: var(--color-brand-primary); }
+  .evidence-item:last-child { margin-bottom: 0; }
+  .evidence-dot { width: 6px; height: 6px; background: var(--color-brand-primary); border-radius: 50%; flex-shrink: 0; }
+
+  /* REPRODUCE */
+  .reproduce-area { border: 2px dashed var(--color-border); border-radius: var(--radius-md); padding: var(--space-6); text-align: center; margin-top: var(--space-3); }
+  .reproduce-icon { font-size: 28px; margin-bottom: var(--space-2); }
+  .reproduce-title { font-weight: var(--font-semibold); color: var(--color-text-primary); margin-bottom: var(--space-1); }
+  .reproduce-desc { font-size: var(--text-xs); color: var(--color-text-muted); margin-bottom: var(--space-4); line-height: 1.55; }
+
+  /* PERF */
+  .perf-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: var(--space-3); }
+  .perf-item { background: var(--color-bg-subtle); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: var(--space-4); }
+  .perf-label { font-size: var(--text-xs); color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: var(--space-2); }
+  .perf-value { font-size: 22px; font-weight: var(--font-bold); color: var(--color-text-primary); }
+
+  /* VALIDATION RULES */
+  .rule-item { display: flex; align-items: center; gap: var(--space-2); padding: 5px 0; font-size: var(--text-sm); color: var(--color-text-secondary); }
+  .rule-fail { color: var(--color-status-error); font-size: 15px; }
+
+  /* UTILS */
+  .mt-2 { margin-top: var(--space-2); }
+  .mt-3 { margin-top: var(--space-3); }
+  .mt-4 { margin-top: var(--space-4); }
+  .sub-label { font-size: var(--text-xs); color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.6px; margin: var(--space-3) 0 var(--space-2); }
+  .sep-line { height: 1px; background: var(--color-border-subtle); margin: var(--space-3) 0; }
+
+  @media (max-width: 900px) {
+    .grid-2,.grid-3,.grid-4,.perf-grid { grid-template-columns: 1fr; }
+    .header-stats { gap: var(--space-4); }
+  }
+</style>
+</head>
+<body>
+
+<nav class="topbar">
+  <div class="topbar-left">
+    <div class="logo">Wonderz<span>Agentics</span></div>
+    <div class="breadcrumb">
+      <a href="#">HR Manager</a><span class="sep">›</span>
+      <a href="#">Development Points</a><span class="sep">›</span>
+      <span class="current">DP-2026-03-047</span>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <button class="btn-ghost">← Terug</button>
+    <button class="btn-ghost">Delen</button>
+    <button class="btn-primary">Stuur naar CEO</button>
+  </div>
+</nav>
+
+<div class="page-wrapper">
+
+  <!-- HEADER -->
+  <div class="page-header">
+    <div class="header-meta">
+      <span class="issue-id">DP-2026-03-047</span>
+      <span class="badge badge-open"><span class="badge-dot"></span>Open</span>
+      <span class="badge badge-low">Low impact</span>
+    </div>
+    <h1 class="page-title">Scan Retry Loop</h1>
+    <p class="page-subtitle">Validation failure: agent output mist scan-vriendelijke structuur — veroorzaakt herhaalde retry-cycli.</p>
+    <div class="header-stats">
+      <div class="header-stat"><span class="hs-label">Gedetecteerd door</span><span class="hs-value">HR Manager</span></div>
+      <div class="header-divider"></div>
+      <div class="header-stat"><span class="hs-label">Eerste melding</span><span class="hs-value">11 feb 2026</span></div>
+      <div class="header-divider"></div>
+      <div class="header-stat"><span class="hs-label">Laatste melding</span><span class="hs-value">13 mrt 2026, 14:02</span></div>
+      <div class="header-divider"></div>
+      <div class="header-stat"><span class="hs-label">Frequentie (30d)</span><span class="hs-value" style="color:#92400E;">255 keer</span></div>
+      <div class="header-divider"></div>
+      <div class="header-stat"><span class="hs-label">Extra kosten</span><span class="hs-value">€2,10 / 100 runs</span></div>
+    </div>
+  </div>
+
+  <!-- AGENT & CONFIGURATIE -->
+  <div class="section-label">Agent & configuratie</div>
+  <div class="grid-3 section-group">
+    <div class="card">
+      <div class="card-title"><div class="card-title-icon"><div class="card-icon icon-warning">👤</div>Agent</div></div>
+      <div class="data-row"><span class="data-label">Naam</span><span class="data-value">Max – Senior Copywriter</span></div>
+      <div class="data-row"><span class="data-label">Versie</span><span class="data-value data-mono">v2.3.1</span></div>
+      <div class="data-row"><span class="data-label">Tier</span><span class="data-value">Skills-Enhanced</span></div>
+      <div class="data-row"><span class="data-label">Workflow</span><span class="data-value">Blog Content Creation</span></div>
+      <div class="data-row"><span class="data-label">Success rate</span><span class="data-value" style="color:#065F46;font-weight:600;">87%</span></div>
+    </div>
+    <div class="card">
+      <div class="card-title"><div class="card-title-icon"><div class="card-icon icon-info">⚙️</div>Model settings</div></div>
+      <div class="data-row"><span class="data-label">Model</span><span class="data-value data-mono">claude-sonnet-4-5</span></div>
+      <div class="data-row"><span class="data-label">Max tokens</span><span class="data-value data-mono">4,000</span></div>
+      <div style="margin-top:var(--space-3);">
+        <div class="slider-row">
+          <div><div class="slider-name">Temperature</div><div class="slider-desc">Creativiteit</div></div>
+          <div class="slider-track"><div class="slider-fill sf-warning" style="width:70%"></div></div>
+          <span class="slider-val">0.7</span>
+        </div>
+        <div class="slider-row">
+          <div><div class="slider-name">Top-P</div><div class="slider-desc">Sampling</div></div>
+          <div class="slider-track"><div class="slider-fill sf-primary" style="width:90%"></div></div>
+          <span class="slider-val">0.9</span>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title"><div class="card-title-icon"><div class="card-icon icon-warning">⚠️</div>Issue samenvatting</div></div>
+      <div class="data-row"><span class="data-label">Type</span><span class="data-value">Validation failure</span></div>
+      <div class="data-row"><span class="data-label">Sub-type</span><span class="data-value">Scan retry loop</span></div>
+      <div class="data-row"><span class="data-label">Status</span><span class="data-value"><span class="badge badge-open"><span class="badge-dot"></span>Open</span></span></div>
+      <div class="data-row"><span class="data-label">Impact</span><span class="data-value"><span class="badge badge-low">Low</span></span></div>
+      <div class="data-row"><span class="data-label">Retries per run</span><span class="data-value" style="color:#92400E;font-weight:600;">3 gem.</span></div>
+      <div class="data-row"><span class="data-label">Getroffen jobs</span><span class="data-value">3 unieke jobs</span></div>
+    </div>
+  </div>
+
+  <!-- DIAGNOSE -->
+  <div class="section-label">Diagnose</div>
+  <div class="grid-2 section-group">
+    <div class="card">
+      <div class="card-title"><div class="card-title-icon"><div class="card-icon icon-purple">🔍</div>Root cause analyse</div><span style="font-size:var(--text-xs);color:var(--color-text-muted);">AI diagnose</span></div>
+      <div class="confidence-ring">
+        <svg width="56" height="56" viewBox="0 0 56 56">
+          <circle cx="28" cy="28" r="22" fill="none" stroke="var(--color-bg-input)" stroke-width="5"/>
+          <circle cx="28" cy="28" r="22" fill="none" stroke="var(--color-status-warning)" stroke-width="5" stroke-dasharray="138.2" stroke-dashoffset="45.6" stroke-linecap="round" transform="rotate(-90 28 28)"/>
+          <text x="28" y="33" text-anchor="middle" fill="var(--color-text-primary)" font-size="12" font-weight="700" font-family="DM Mono">67%</text>
+        </svg>
+        <div><div class="ring-label">67%</div><div class="ring-sub">AI Betrouwbaarheid</div></div>
+      </div>
+      <div class="alert alert-warning">
+        <div class="alert-title">Waarschijnlijke oorzaak</div>
+        De agent output mist scanbare structuur (headings, bullets), terwijl de validatieregel expliciet scan-vriendelijk formaat vereist.
+      </div>
+      <div class="alert alert-info">
+        <div class="alert-title">Aanbevolen fix</div>
+        <strong>Optie A:</strong> Voeg promptinstructie toe die H2 + bullets afdwingt.<br>
+        <strong>Optie B:</strong> Pas validatieregel aan voor dichte proza in deze workflow.
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title"><div class="card-title-icon"><div class="card-icon icon-purple">📡</div>Diagnose-signalen</div><span style="font-size:var(--text-xs);color:var(--color-text-muted);">Waarom deze conclusie?</span></div>
+      <p style="font-size:var(--text-xs);color:var(--color-text-muted);margin-bottom:var(--space-3);">Hoger gewicht = sterker bewijs voor de AI-diagnose.</p>
+      <div class="signal-item">
+        <div class="signal-left"><span>🔁</span><div><div class="signal-name">Consistent retry-patroon</div><div class="signal-desc">Alle 3 retries faalden met dezelfde reden</div></div></div>
+        <div class="signal-weight"><div class="weight-bar"><div class="weight-fill" style="width:92%"></div></div><span>92%</span></div>
+      </div>
+      <div class="signal-item">
+        <div class="signal-left"><span>📋</span><div><div class="signal-name">Validatieregel-mismatch</div><div class="signal-desc">Regel verwacht H2 + bullets; output heeft geen van beide</div></div></div>
+        <div class="signal-weight"><div class="weight-bar"><div class="weight-fill" style="width:88%"></div></div><span>88%</span></div>
+      </div>
+      <div class="signal-item">
+        <div class="signal-left"><span>📝</span><div><div class="signal-name">Prompt format-gap</div><div class="signal-desc">Taakprompt vraagt "informele toon", geen structuurrichtlijn</div></div></div>
+        <div class="signal-weight"><div class="weight-bar"><div class="weight-fill" style="width:75%"></div></div><span>75%</span></div>
+      </div>
+      <div class="signal-item">
+        <div class="signal-left"><span>📊</span><div><div class="signal-name">Woordtelling-correlatie</div><div class="signal-desc">700+ woord-taken hebben 3,2× hogere failure rate</div></div></div>
+        <div class="signal-weight"><div class="weight-bar"><div class="weight-fill" style="width:61%"></div></div><span>61%</span></div>
+      </div>
+      <div class="signal-item">
+        <div class="signal-left"><span>📅</span><div><div class="signal-name">Versie-regressie</div><div class="signal-desc">Issue begon met v2.3.1 — v2.2.0 niet getroffen</div></div></div>
+        <div class="signal-weight"><div class="weight-bar"><div class="weight-fill" style="width:44%"></div></div><span>44%</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TREND -->
+  <div class="section-label">Frequentietrend — afgelopen 30 dagen</div>
+  <div class="section-group">
+    <div class="card">
+      <div class="card-title">
+        <div class="card-title-icon"><div class="card-icon icon-warning">📈</div>Occurrence trend</div>
+        <div style="display:flex;gap:var(--space-4);font-size:var(--text-xs);color:var(--color-text-muted);font-family:var(--font-mono);">
+          <span style="color:#92400E;">■ Failures</span><span style="color:#065F46;">■ Successes</span>
+        </div>
+      </div>
+      <svg viewBox="0 0 900 110" style="width:100%;height:110px;display:block;">
+        <defs>
+          <linearGradient id="fg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#F59E0B" stop-opacity="0.18"/><stop offset="100%" stop-color="#F59E0B" stop-opacity="0.02"/></linearGradient>
+          <linearGradient id="sg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#22D3A5" stop-opacity="0.15"/><stop offset="100%" stop-color="#22D3A5" stop-opacity="0.02"/></linearGradient>
+        </defs>
+        <line x1="0" y1="25" x2="900" y2="25" stroke="#F3F4F6" stroke-width="1"/>
+        <line x1="0" y1="55" x2="900" y2="55" stroke="#F3F4F6" stroke-width="1"/>
+        <line x1="0" y1="85" x2="900" y2="85" stroke="#F3F4F6" stroke-width="1"/>
+        <text x="2" y="23" fill="#9CA3AF" font-size="9" font-family="DM Mono">15</text>
+        <text x="2" y="53" fill="#9CA3AF" font-size="9" font-family="DM Mono">10</text>
+        <text x="2" y="83" fill="#9CA3AF" font-size="9" font-family="DM Mono">5</text>
+        <path d="M20,80 L60,76 L100,73 L140,70 L180,67 L220,64 L260,60 L300,57 L340,54 L380,51 L420,48 L460,45 L500,42 L540,40 L580,37 L620,35 L660,32 L700,30 L740,28 L780,26 L820,24 L870,22 L870,100 L20,100Z" fill="url(#sg)"/>
+        <polyline points="20,80 60,76 100,73 140,70 180,67 220,64 260,60 300,57 340,54 380,51 420,48 460,45 500,42 540,40 580,37 620,35 660,32 700,30 740,28 780,26 820,24 870,22" fill="none" stroke="#22D3A5" stroke-width="2"/>
+        <path d="M20,72 L60,65 L100,68 L140,60 L180,63 L220,57 L260,61 L300,53 L340,57 L380,49 L420,53 L460,45 L500,49 L540,42 L580,46 L620,38 L660,41 L700,33 L740,37 L780,30 L820,33 L870,26 L870,100 L20,100Z" fill="url(#fg)"/>
+        <polyline points="20,72 60,65 100,68 140,60 180,63 220,57 260,61 300,53 340,57 380,49 420,53 460,45 500,49 540,42 580,46 620,38 660,41 700,33 740,37 780,30 820,33 870,26" fill="none" stroke="#F59E0B" stroke-width="2.5"/>
+        <line x1="870" y1="8" x2="870" y2="100" stroke="#E5E7EB" stroke-width="1" stroke-dasharray="3,3"/>
+        <text x="844" y="6" fill="#9CA3AF" font-size="9" font-family="DM Mono">Vandaag</text>
+        <text x="16" y="106" fill="#9CA3AF" font-size="9" font-family="DM Mono">11 feb</text>
+        <text x="290" y="106" fill="#9CA3AF" font-size="9" font-family="DM Mono">25 feb</text>
+        <text x="565" y="106" fill="#9CA3AF" font-size="9" font-family="DM Mono">7 mrt</text>
+        <text x="840" y="106" fill="#9CA3AF" font-size="9" font-family="DM Mono">13 mrt</text>
+      </svg>
+      <div class="grid-4 mt-3">
+        <div class="metric-tile" style="background:var(--color-status-warning-bg);border-color:var(--color-status-warning);">
+          <div class="mt-label">Totaal failures (30d)</div><div class="mt-value" style="color:#92400E;">255</div>
+          <div class="mt-trend-up">↑ +18% vs vorige periode</div>
+        </div>
+        <div class="metric-tile"><div class="mt-label">Piekdag</div><div class="mt-value">14</div><div class="mt-sub">7 maart 2026</div></div>
+        <div class="metric-tile"><div class="mt-label">Dagelijks gem.</div><div class="mt-value">8.5</div><div class="mt-sub">failures per dag</div></div>
+        <div class="metric-tile" style="background:var(--color-status-error-bg);border-color:var(--color-status-error);">
+          <div class="mt-label">Trend</div><div class="mt-value" style="font-size:var(--text-lg);color:#991B1B;">Verslechterend</div>
+          <div class="mt-trend-up">↑ Stijgend patroon</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RUN EVIDENCE -->
+  <div class="section-label">Run evidence</div>
+  <div class="grid-2 section-group">
+    <div class="card">
+      <div class="card-title"><div class="card-title-icon"><div class="card-icon icon-info">📥</div>Input ontvangen</div></div>
+      <p class="sub-label">Taakprompt</p>
+      <div class="code-block">Schrijf een <span class="code-highlight">800-woord</span> blogartikel over AI-marketingtrends voor 2026.
+Gebruik een <span class="code-highlight">informele toon</span>.</div>
+      <p class="sub-label">Input briefing</p>
+      <div class="data-row"><span class="data-label">Klant</span><span class="data-value">GrowthLab</span></div>
+      <div class="data-row"><span class="data-label">Doelgroep</span><span class="data-value">Marketing managers</span></div>
+      <div class="data-row"><span class="data-label">Doel</span><span class="data-value">Thought leadership</span></div>
+      <p class="sub-label">Extra parameters</p>
+      <div class="data-row"><span class="data-label">Woordtelling</span><span class="data-value data-mono">800</span></div>
+      <div class="data-row"><span class="data-label">Toon</span><span class="data-value">Conversational</span></div>
+      <div class="data-row"><span class="data-label">Formaatvereiste</span><span class="data-value" style="color:#991B1B;font-weight:600;">Scan-vriendelijk ⚠️</span></div>
+    </div>
+    <div class="card">
+      <div class="card-title"><div class="card-title-icon"><div class="card-icon icon-error">📤</div>Agent output</div><span class="badge badge-fail">Validatie gefaald</span></div>
+      <p class="sub-label">Output preview</p>
+      <div class="code-block">AI-marketing verandert snel. Bedrijven gebruiken steeds meer
+automatisering om campagnes te verbeteren. In 2026 zien we
+drie grote trends<span class="code-dim">...</span>
+
+<span class="code-dim">[Geen subheadings gedetecteerd]
+[Geen bullet points gedetecteerd]
+[Dichte alinea-opmaak]</span></div>
+      <p class="sub-label">Validatieregels — verwacht vs ontvangen</p>
+      <div class="rule-item"><span class="rule-fail">✗</span> H2 headings <span style="color:var(--color-text-muted);font-size:var(--text-xs);margin-left:var(--space-2);">— niet gevonden</span></div>
+      <div class="rule-item"><span class="rule-fail">✗</span> Bullet lists <span style="color:var(--color-text-muted);font-size:var(--text-xs);margin-left:var(--space-2);">— niet gevonden</span></div>
+      <div class="rule-item"><span class="rule-fail">✗</span> Scanbare alinea's <span style="color:var(--color-text-muted);font-size:var(--text-xs);margin-left:var(--space-2);">— voldoet niet</span></div>
+      <div class="alert alert-error mt-3">
+        <div class="alert-title">Probleem</div>
+        Geldige proza maar zonder structuurelementen die de validator verwacht. De prompt dwong geen opmaak af.
+      </div>
+    </div>
+  </div>
+
+  <!-- TIMELINE -->
+  <div class="section-label">Execution timeline</div>
+  <div class="section-group">
+    <div class="card">
+      <div class="card-title"><div class="card-title-icon"><div class="card-icon icon-info">⏱</div>Run trace</div></div>
+      <div class="run-id-wrap">
+        <span>cdff169b-b49b-4ec4-b61b-4099dcc071eb</span>
+        <button class="copy-btn" onclick="navigator.clipboard.writeText('cdff169b-b49b-4ec4-b61b-4099dcc071eb');this.textContent='Gekopieerd!';setTimeout(()=>this.textContent='Kopieer',1500)">Kopieer</button>
+      </div>
+      <table class="timeline-table">
+        <thead><tr><th>Tijd</th><th>Stap</th><th>Status</th><th>Duur</th><th>Notities</th></tr></thead>
+        <tbody>
+          <tr><td class="time-val">14:01:02</td><td>Agent gestart</td><td><span class="badge badge-ok">OK</span></td><td class="time-val">—</td><td style="font-size:var(--text-xs);color:var(--color-text-muted);">Workflow geïnitialiseerd</td></tr>
+          <tr><td class="time-val">14:01:07</td><td>Content generatie</td><td><span class="badge badge-ok">OK</span></td><td class="time-val">5s</td><td style="font-size:var(--text-xs);color:var(--color-text-muted);">Output gegenereerd, 837 woorden</td></tr>
+          <tr><td class="time-val">14:01:08</td><td>Format validator</td><td><span class="badge badge-fail">FAIL</span></td><td class="time-val">1s</td><td style="font-size:var(--text-xs);color:#991B1B;">Geen H2-headings of bullets</td></tr>
+          <tr><td class="time-val">14:01:09</td><td>Retry poging #1</td><td><span class="badge badge-fail">FAIL</span></td><td class="time-val">2s</td><td style="font-size:var(--text-xs);color:#991B1B;">Zelfde structuurprobleem</td></tr>
+          <tr><td class="time-val">14:01:11</td><td>Retry poging #2</td><td><span class="badge badge-fail">FAIL</span></td><td class="time-val">3s</td><td style="font-size:var(--text-xs);color:#991B1B;">Geen verbetering</td></tr>
+          <tr><td class="time-val">14:01:14</td><td>Retry poging #3</td><td><span class="badge badge-fail">FAIL</span></td><td class="time-val">3s</td><td style="font-size:var(--text-xs);color:#991B1B;">Max retries bereikt — als dev point gelogd</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- PATROON & CORRELATIE -->
+  <div class="section-label">Patroon & correlatie-analyse</div>
+  <div class="grid-2 section-group">
+    <div class="card">
+      <div class="card-title"><div class="card-title-icon"><div class="card-icon icon-purple">🔬</div>Patroonanalyse</div></div>
+      <div class="data-row"><span class="data-label">Workflow</span><span class="data-value">Blog Content Creation</span></div>
+      <div class="data-row"><span class="data-label">Inputlengte</span><span class="data-value" style="color:#92400E;font-weight:600;">700+ woorden</span></div>
+      <div class="data-row"><span class="data-label">Agent versie</span><span class="data-value data-mono">v2.3.1</span></div>
+      <div class="data-row"><span class="data-label">Success rate (workflow)</span><span class="data-value">87%</span></div>
+      <div class="data-row"><span class="data-label">Failure rate (700+ woorden)</span><span class="data-value" style="color:#92400E;">13%</span></div>
+      <div class="mt-3">
+        <div style="font-size:var(--text-xs);color:var(--color-text-muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px;">Success rate — Blog workflow</div>
+        <div class="progress-track"><div class="progress-fill pf-success" style="width:87%"></div></div>
+        <div class="progress-labels"><span>0%</span><span>87%</span><span>100%</span></div>
+      </div>
+      <div class="mt-3">
+        <div style="font-size:var(--text-xs);color:var(--color-text-muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px;">Failure rate — 700+ woord-taken</div>
+        <div class="progress-track"><div class="progress-fill pf-warning" style="width:13%"></div></div>
+        <div class="progress-labels"><span>0%</span><span>13%</span><span>100%</span></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title"><div class="card-title-icon"><div class="card-icon icon-info">🔗</div>Cross-agent correlatie</div></div>
+      <p style="font-size:var(--text-xs);color:var(--color-text-muted);margin-bottom:var(--space-3);">Andere agents met hetzelfde scan-validatiepatroon — cross-training kans.</p>
+      <table class="cross-table">
+        <thead><tr><th>Agent</th><th>Versie</th><th>Failures (30d)</th><th>Impact</th></tr></thead>
+        <tbody>
+          <tr><td><div class="agent-name">Max – Sr. Copywriter</div><div class="agent-id">Dit issue</div></td><td><span class="tag">v2.3.1</span></td><td style="color:#92400E;font-family:var(--font-mono);font-weight:600;">255</td><td><span class="badge badge-low">Low</span></td></tr>
+          <tr><td><div class="agent-name">Sophie – Content Creator</div><div class="agent-id">agent:content-creator:sophie</div></td><td><span class="tag">v1.8.2</span></td><td style="color:#92400E;font-family:var(--font-mono);">91</td><td><span class="badge badge-low">Low</span></td></tr>
+          <tr><td><div class="agent-name">Lars – Blog Specialist</div><div class="agent-id">agent:blog-specialist:lars</div></td><td><span class="tag">v1.5.0</span></td><td style="color:var(--color-text-muted);font-family:var(--font-mono);">34</td><td><span class="badge badge-low">Low</span></td></tr>
+        </tbody>
+      </table>
+      <div class="alert alert-info mt-3">
+        <div class="alert-title">Cross-training kans</div>
+        3 agents delen dit patroon. Één promptfix lost 380 maandelijkse failures tegelijk op.
+      </div>
+    </div>
+  </div>
+
+  <!-- IMPACT & KOSTEN -->
+  <div class="section-label">Impact & kostenanalyse</div>
+  <div class="grid-2 section-group">
+    <div class="card">
+      <div class="card-title"><div class="card-title-icon"><div class="card-icon icon-warning">💥</div>Impact analyse</div></div>
+      <div class="grid-2 mt-2" style="gap:var(--space-2);margin-bottom:var(--space-4);">
+        <div class="metric-tile"><div class="mt-label">Getroffen jobs</div><div class="mt-value">3</div><div class="mt-sub">unieke jobs</div></div>
+        <div class="metric-tile" style="background:var(--color-status-warning-bg);border-color:var(--color-status-warning);"><div class="mt-label">Totaal retries</div><div class="mt-value" style="color:#92400E;">255</div><div class="mt-sub">afgelopen 30 dagen</div></div>
+        <div class="metric-tile"><div class="mt-label">Extra kosten</div><div class="mt-value">€2,10</div><div class="mt-sub">per 100 runs</div></div>
+        <div class="metric-tile" style="background:var(--color-status-success-bg);border-color:var(--color-status-success);"><div class="mt-label">Gebruikerservaring</div><div class="mt-value" style="font-size:var(--text-md);color:#065F46;">Geen impact</div><div class="mt-sub">Alleen rekenkracht</div></div>
+      </div>
+      <div class="alert alert-warning">
+        <div class="alert-title">Context</div>
+        Geen directe fouten voor eindgebruikers. Retries zijn onzichtbaar maar verhogen compute-kosten en verlagen throughput.
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title"><div class="card-title-icon"><div class="card-icon icon-error">📊</div>Kostenprojectie</div><span style="font-size:var(--text-xs);color:var(--color-text-muted);">Als onopgelost</span></div>
+      <p style="font-size:var(--text-xs);color:var(--color-text-muted);margin-bottom:var(--space-4);">Op basis van +18%/maand trend en €2,10 extra per 100 runs.</p>
+      <div class="projection-row"><span class="proj-label">Deze maand</span><div class="proj-bar-outer"><div class="proj-bar-fill" style="width:28%;background:var(--color-status-warning);"></div></div><span class="proj-val">€5,36</span></div>
+      <div class="projection-row"><span class="proj-label">Volgende maand</span><div class="proj-bar-outer"><div class="proj-bar-fill" style="width:43%;background:#E67E22;"></div></div><span class="proj-val">€8,05</span></div>
+      <div class="projection-row"><span class="proj-label">3 maanden</span><div class="proj-bar-outer"><div class="proj-bar-fill" style="width:65%;background:#E67E22;"></div></div><span class="proj-val">€28,40</span></div>
+      <div class="projection-row"><span class="proj-label">12 maanden</span><div class="proj-bar-outer"><div class="proj-bar-fill" style="width:100%;background:var(--color-status-error);"></div></div><span class="proj-val">€186,00</span></div>
+      <div class="alert alert-warning mt-3">
+        <div class="alert-title">Cross-agent totaal (3 agents)</div>
+        Gecombineerd jaarlijks: <strong>€558+</strong>. Een promptfix kost naar schatting 30 minuten.
+      </div>
+    </div>
+  </div>
+
+  <!-- FIX ROADMAP -->
+  <div class="section-label">Aanbevolen fix roadmap</div>
+  <div class="section-group">
+    <div class="card">
+      <div class="card-title"><div class="card-title-icon"><div class="card-icon icon-success">🗺</div>Geprioriteerde acties</div></div>
+      <div class="roadmap-item"><div class="roadmap-num active">1</div><div><div class="roadmap-title">Prompt updaten: voeg structuurrichtlijn toe <span class="rb rb-quick">Quick win</span></div><div class="roadmap-desc">Voeg toe aan Max's systeemprompt: "Gebruik altijd H2-headings en bullet lists bij scan-vriendelijke content." Verwachte reductie: 80–90%. Geschatte inspanning: 15 minuten.</div></div></div>
+      <div class="roadmap-item"><div class="roadmap-num">2</div><div><div class="roadmap-title">Sophie & Lars cross-trainen <span class="rb rb-quick">Quick win</span></div><div class="roadmap-desc">Dezelfde fix toepassen op de andere twee agents. Voorkomt 125 extra maandelijkse failures. Geschatte inspanning: 30 minuten totaal.</div></div></div>
+      <div class="roadmap-item"><div class="roadmap-num">3</div><div><div class="roadmap-title">Workflow-level format template <span class="rb rb-medium">Medium term</span></div><div class="roadmap-desc">Gedeeld format-template injecteren via SkillRegistry zodat alle Blog-workflow agents automatisch de formaatbeperkingen ontvangen.</div></div></div>
+      <div class="roadmap-item"><div class="roadmap-num">4</div><div><div class="roadmap-title">Validatieregel-drempel herzien <span class="rb rb-medium">Medium term</span></div><div class="roadmap-desc">Evalueer of de validator te streng is voor conversational-toon verzoeken. Een configureerbare tolerantie vermindert false-positives.</div></div></div>
+      <div class="roadmap-item"><div class="roadmap-num">5</div><div><div class="roadmap-title">A/B validatie na training <span class="rb rb-deep">Longer term</span></div><div class="roadmap-desc">HR Manager monitort 14 dagen na fix. Bij voldoende daling: auto-RESOLVED. Zo niet: CEO-notificatie voor heroverweging.</div></div></div>
+    </div>
+  </div>
+
+  <!-- PERFORMANCE -->
+  <div class="section-label">Agent performance metrics</div>
+  <div class="section-group">
+    <div class="card">
+      <div class="card-title"><div class="card-title-icon"><div class="card-icon icon-success">📉</div>Max – Sr. Copywriter</div><span style="font-size:var(--text-xs);color:var(--color-text-muted);">Afgelopen 30 dagen</span></div>
+      <div class="perf-grid">
+        <div class="perf-item"><div class="perf-label">Success rate</div><div class="perf-value" style="color:#065F46;">92%</div><div class="progress-track"><div class="progress-fill pf-success" style="width:92%"></div></div></div>
+        <div class="perf-item"><div class="perf-label">Retry rate</div><div class="perf-value" style="color:#92400E;">6%</div><div class="progress-track"><div class="progress-fill pf-warning" style="width:6%"></div></div></div>
+        <div class="perf-item"><div class="perf-label">Validatie failures</div><div class="perf-value" style="color:#991B1B;">4%</div><div class="progress-track"><div class="progress-fill pf-error" style="width:4%"></div></div></div>
+        <div class="perf-item"><div class="perf-label">Gem. kosten / run</div><div class="perf-value">€0,34</div><div class="progress-track"><div class="progress-fill pf-primary" style="width:34%"></div></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ACTIES -->
+  <div class="section-label">Acties</div>
+  <div class="grid-3 section-group">
+    <div class="card">
+      <div class="card-title"><div class="card-title-icon"><div class="card-icon icon-info">▶️</div>Reproduceer issue</div></div>
+      <div class="run-id-wrap"><span>cdff169b-b49b-4ec4-b61b-4099dcc071eb</span><button class="copy-btn">Kopieer</button></div>
+      <div class="reproduce-area">
+        <div class="reproduce-icon">🔁</div>
+        <div class="reproduce-title">Reproduceer deze run</div>
+        <div class="reproduce-desc">Herstart de exacte input met dezelfde agent-versie en model-instellingen om het issue te bevestigen voor training.</div>
+        <button class="btn-action cta" style="width:100%;" onclick="this.textContent='⏳ Bezig...';setTimeout(()=>this.textContent='▶ Reproduceer Run',2000)">▶ Reproduceer Run</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title"><div class="card-title-icon"><div class="card-icon icon-success">💬</div>Menselijke feedback</div><span style="font-size:var(--text-xs);color:var(--color-text-muted);">Trainingssignaal</span></div>
+      <div class="feedback-quote">
+        "De validator is te streng. Maak subheadings verplicht in de prompt."
+        <div class="feedback-author">— Operator, 13 mrt 2026, 14:15</div>
+      </div>
+      <div class="action-row">
+        <button class="btn-action approve" style="flex:1;">✓ Goedkeuren & trainen</button>
+        <button class="btn-action danger">✗ False positive</button>
+      </div>
+      <div class="action-row">
+        <button class="btn-action warn" style="flex:1;">✏ Prompt verbeteren</button>
+        <button class="btn-action" style="flex:1;">⚙ Validator aanpassen</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title"><div class="card-title-icon"><div class="card-icon icon-warning">📎</div>Bewijs</div><span style="font-size:var(--text-xs);color:var(--color-text-muted);">3 voorvallen (30d)</span></div>
+      <div class="evidence-item"><div class="evidence-dot"></div><span>Job cdff169b-b49b-4ec4-b61b-4099dcc071eb</span></div>
+      <div class="evidence-item"><div class="evidence-dot"></div><span>Job a1b2c3d4-e5f6-7890-abcd-ef1234567890</span></div>
+      <div class="evidence-item"><div class="evidence-dot"></div><span>Job 9f8e7d6c-5b4a-3210-fedc-ba9876543210</span></div>
+      <div class="sep-line"></div>
+      <div class="data-row"><span class="data-label">Patroon aanwezig since</span><span class="data-value data-mono">v2.3.1</span></div>
+      <div class="data-row"><span class="data-label">v2.2.0 getroffen?</span><span class="data-value" style="color:#065F46;">Nee</span></div>
+      <div class="data-row"><span class="data-label">Gerelateerde lesson</span><span class="data-value data-mono" style="font-size:var(--text-xs);">lesson:scan-format-blog</span></div>
+      <button class="btn-action mt-3" style="width:100%;">Alle evidence runs bekijken →</button>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

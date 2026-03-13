@@ -2,9 +2,11 @@
 
 import logging
 import json
+import re
+import uuid
 from datetime import datetime
 from typing import Optional, List, Dict, Set, Any
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from fastapi.responses import JSONResponse
 
 from app.middleware.auth import require_admin_or_super_admin, require_super_admin
@@ -12,6 +14,7 @@ from pydantic import BaseModel, model_validator, Field, root_validator
 
 from app.database import get_db
 from app.services.hr_manager import HRManager
+from app.services.job_pipeline import run_intake_inline
 from app.agents.hr_manager import HRManager as SpecHRManager, _serialize as _serialize_spec
 from app.orchestration.manager import OperationsManager
 from models.unified import JobStatus, StrategicBrief
@@ -152,9 +155,11 @@ async def _get_spec_hr() -> SpecHRManager:
 
 
 class UpdatePointBody(BaseModel):
-    status: str
+    status: Optional[str] = None
     approved_by: Optional[str] = None
     source_url: Optional[str] = None
+    action: Optional[str] = None
+    reason: Optional[str] = None
 
 
 @router.get("/improvements")
@@ -245,6 +250,257 @@ async def list_development_points(
         )
     serialized = _serialize_spec(rows)
     return {"development_points": serialized, "count": len(serialized)}
+
+
+def _extract_job_id_from_evidence(evidence_example: Optional[str]) -> Optional[str]:
+    """Extract job UUID from evidence_example text, e.g. 'Job cdff169b-b49b-4ec4-..., 255x gezien'."""
+    if not evidence_example:
+        return None
+    match = re.search(
+        r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+        evidence_example,
+        re.I,
+    )
+    return match.group(0) if match else None
+
+
+@router.get("/development-points/{point_id}")
+async def get_development_point_detail(point_id: str):
+    """
+    Get one development point with agent info, timeline, pattern, impact_stats, etc.
+    Spec: GET /api/hr/development-points/:pointId for Issue Detail page.
+    """
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        dp_row = await conn.fetchrow(
+            """
+            SELECT dp.*, ha.name AS agent_name, ha.role AS agent_role, ha.agent_id AS ha_agent_id
+            FROM development_points dp
+            LEFT JOIN hired_agents ha ON dp.agent_id = ha.agent_id
+            WHERE dp.point_id = $1 OR dp.id::text = $1
+            """,
+            point_id,
+        )
+        if not dp_row:
+            raise HTTPException(status_code=404, detail=f"Development point {point_id} niet gevonden")
+        point_id = str(dp_row["point_id"])
+
+        ha_cols = await _get_table_columns(conn, "hired_agents")
+        agent_row = await conn.fetchrow(
+            "SELECT * FROM hired_agents WHERE agent_id = $1",
+            dp_row["agent_id"],
+        ) if dp_row.get("agent_id") else None
+
+        run_id = _extract_job_id_from_evidence(dp_row.get("evidence_example"))
+        if not run_id and dp_row.get("agent_id"):
+            first_job = await conn.fetchval(
+                """
+                SELECT job_id FROM job_steps
+                WHERE agent_id = $1 AND retry_reason IS NOT NULL AND trim(retry_reason) != ''
+                ORDER BY started_at DESC NULLS LAST
+                LIMIT 1
+                """,
+                dp_row["agent_id"],
+            )
+            if first_job:
+                run_id = str(first_job)
+
+        timeline: List[Dict[str, Any]] = []
+        if run_id:
+            step_cols = await _get_table_columns(conn, "job_steps")
+            steps = await conn.fetch(
+                """
+                SELECT step_index, step_name, status, retry_count, retry_reason, started_at, completed_at
+                FROM job_steps WHERE job_id = $1 ORDER BY step_index
+                """,
+                run_id,
+            )
+            for s in steps:
+                started = s.get("started_at")
+                completed = s.get("completed_at")
+                time_str = (started or completed or "").strftime("%H:%M:%S") if hasattr(started or completed, "strftime") else ""
+                duration_s = None
+                if started and completed and hasattr(started, "timestamp") and hasattr(completed, "timestamp"):
+                    duration_s = round(completed.timestamp() - started.timestamp(), 1)
+                timeline.append({
+                    "time": time_str,
+                    "step": (s.get("step_name") or "").strip() or "Step",
+                    "status": "ok" if (s.get("status") or "").lower() == "completed" else "fail",
+                    "duration_s": duration_s,
+                    "notes": (s.get("retry_reason") or "").strip() or None,
+                })
+
+        confidence = dp_row.get("confidence_score")
+        if confidence is not None:
+            confidence = float(confidence)
+        point = {
+            "point_id": point_id,
+            "issue_description": dp_row.get("issue_description") or "",
+            "root_cause": dp_row.get("root_cause"),
+            "evidence_example": dp_row.get("evidence_example"),
+            "frequency": int(dp_row.get("frequency") or 0),
+            "impact": (dp_row.get("impact") or "low").lower(),
+            "status": (dp_row.get("status") or "OPEN").upper(),
+            "proposed_by": dp_row.get("proposed_by"),
+            "confidence_score": confidence,
+            "created_at": dp_row["created_at"].isoformat() if dp_row.get("created_at") and hasattr(dp_row["created_at"], "isoformat") else None,
+            "resolved_at": dp_row["resolved_at"].isoformat() if dp_row.get("resolved_at") and hasattr(dp_row["resolved_at"], "isoformat") else None,
+        }
+
+        agent: Dict[str, Any] = {}
+        if agent_row:
+            agent = {
+                "agent_id": agent_row.get("agent_id"),
+                "agent_name": agent_row.get("name") or agent_row.get("agent_name") or str(agent_row.get("agent_id", "")),
+                "agent_version": getattr(agent_row.get("agent_version"), "isoformat", None) or agent_row.get("agent_version") or "—",
+                "role": agent_row.get("role"),
+                "model": agent_row.get("model"),
+                "temperature": float(agent_row["temperature"]) if agent_row.get("temperature") is not None else None,
+                "top_p": float(agent_row["top_p"]) if agent_row.get("top_p") is not None else None,
+                "max_tokens": agent_row.get("max_tokens"),
+                "workflow": agent_row.get("workflow") or agent_row.get("role") or "—",
+                "success_rate": float(agent_row["success_rate"]) if agent_row.get("success_rate") is not None else None,
+            }
+            for k in list(agent):
+                if agent[k] is None and k not in ("agent_id", "agent_name", "workflow"):
+                    agent[k] = None
+
+        freq = int(dp_row.get("frequency") or 0)
+        pattern = {
+            "workflow": agent.get("workflow") or "—",
+            "trigger_condition": None,
+            "affected_version": agent.get("agent_version"),
+            "workflow_success_rate": agent.get("success_rate"),
+            "failure_rate_condition": (1 - (agent.get("success_rate") or 0)) if agent.get("success_rate") is not None else None,
+        }
+        impact_stats = {
+            "affected_jobs": None,
+            "total_retries": freq,
+            "extra_cost_per_100": None,
+            "user_facing": False,
+        }
+        performance = {
+            "success_rate": agent.get("success_rate"),
+            "retry_rate": None,
+            "validation_failure_rate": None,
+            "avg_cost_per_run": None,
+        }
+        evidence = [run_id] if run_id else []
+        feedback: Optional[Dict[str, Any]] = None
+
+        # Cross-agent correlations for CrossAgentCard (same pattern: e.g. same issue or other open points)
+        cross_agent: List[Dict[str, Any]] = []
+        agent_id_val = dp_row.get("agent_id")
+        if agent_id_val:
+            # Current agent as first row (is_current=True); then others with same issue pattern
+            open_same = await conn.fetch(
+                """
+                SELECT dp.point_id, dp.agent_id, dp.frequency, dp.impact,
+                       ha.name AS agent_name
+                FROM development_points dp
+                LEFT JOIN hired_agents ha ON dp.agent_id = ha.agent_id
+                WHERE dp.status = 'OPEN' AND dp.agent_id != $1
+                  AND lower(trim(dp.issue_description)) = lower(trim($2))
+                ORDER BY dp.frequency DESC
+                LIMIT 5
+                """,
+                agent_id_val,
+                (dp_row.get("issue_description") or "")[:200],
+            )
+            cross_agent.append({
+                "agent_id": agent_id_val,
+                "agent_name": agent_row.get("name") or agent_row.get("agent_name") if agent_row else str(agent_id_val),
+                "version": agent.get("agent_version") if agent else "—",
+                "failures_30d": freq,
+                "impact": (dp_row.get("impact") or "low").lower(),
+                "is_current": True,
+            })
+            for r in open_same:
+                cross_agent.append({
+                    "agent_id": r["agent_id"],
+                    "agent_name": r["agent_name"] or r["agent_id"],
+                    "version": "—",
+                    "failures_30d": int(r["frequency"] or 0),
+                    "impact": (r["impact"] or "low").lower(),
+                    "is_current": False,
+                })
+
+        # Optional: derive diagnosis signals for UI (DiagnosisSignalsCard)
+        signals: List[Dict[str, Any]] = []
+        if point.get("root_cause"):
+            conf = point.get("confidence_score")
+            signals.append({
+                "icon": "🔁",
+                "name": "Consistent retry pattern",
+                "description": (point.get("issue_description") or "")[:120] or "Retries detected",
+                "weight": float(conf) if conf is not None else 0.85,
+            })
+
+        # Trend for FrequencyTrendCard (daily filled by future aggregation; here minimal for tiles)
+        total_f = int(point.get("frequency") or 0)
+        trend = {
+            "daily": [],
+            "total_failures": total_f,
+            "peak_day": None,
+            "daily_avg": round(total_f / 30.0, 1) if total_f else 0,
+            "vs_prev_period_pct": None,
+        }
+
+        input_data: Optional[Dict[str, Any]] = None
+        output_data: Optional[Dict[str, Any]] = None
+        if run_id:
+            job_row = await conn.fetchrow(
+                "SELECT job_post, context FROM jobs WHERE id = $1",
+                run_id,
+            )
+            if job_row:
+                ctx = job_row.get("context")
+                if isinstance(ctx, str):
+                    try:
+                        ctx = json.loads(ctx) if ctx else {}
+                    except (TypeError, ValueError):
+                        ctx = {}
+                if not isinstance(ctx, dict):
+                    ctx = {}
+                task_prompt = job_row.get("job_post") or ctx.get("job_post") or ""
+                briefing = ctx.get("briefing") or ctx.get("brief") or {}
+                extra_params = ctx.get("extra_params") or ctx.get("extra_params") or {}
+                input_data = {
+                    "task_prompt": task_prompt,
+                    "briefing": briefing if isinstance(briefing, dict) else {},
+                    "extra_params": extra_params if isinstance(extra_params, dict) else {},
+                }
+            step_row = await conn.fetchrow(
+                "SELECT output FROM job_steps WHERE job_id = $1 ORDER BY step_index DESC LIMIT 1",
+                run_id,
+            )
+            if step_row and step_row.get("output"):
+                out = step_row["output"]
+                if isinstance(out, dict):
+                    output_data = {
+                        "summary": out.get("summary") or out.get("content") or "",
+                        "validation_rules": out.get("validation_rules") or [],
+                        "problem_description": out.get("problem_description") or out.get("error") or "",
+                    }
+                elif isinstance(out, str):
+                    output_data = {"summary": out[:500], "validation_rules": [], "problem_description": ""}
+
+    return {
+        "point": point,
+        "agent": agent,
+        "timeline": timeline,
+        "run_id": run_id,
+        "pattern": pattern,
+        "impact_stats": impact_stats,
+        "performance": performance,
+        "evidence": evidence,
+        "feedback": feedback,
+        "signals": signals,
+        "trend": trend,
+        "input": input_data,
+        "output": output_data,
+        "cross_agent": cross_agent,
+    }
 
 
 @router.get("/report")
@@ -661,17 +917,131 @@ async def list_training_requests(status: Optional[str] = Query(default="pending"
 
 @router.patch("/development-points/{point_id}")
 async def update_development_point(point_id: str, body: UpdatePointBody):
-    """Spec endpoint: update development point status."""
-    valid = {"OPEN", "AWAITING_APPROVAL", "IN_TRAINING", "RESOLVED", "DISMISSED"}
-    if body.status not in valid:
-        raise HTTPException(status_code=400, detail=f"Ongeldige status. Kies uit: {valid}")
-    hr = await _get_spec_hr()
+    """
+    Spec endpoint: update development point status.
+    Supports action-based body: approve, request_approval, dismiss; or direct status.
+    Response: { success: true, point_id, new_status }.
+    """
+    valid_statuses = {"OPEN", "AWAITING_APPROVAL", "IN_TRAINING", "RESOLVED", "DISMISSED"}
     pool = await get_db()
     async with pool.acquire() as conn:
-        existing = await conn.fetchrow("SELECT point_id FROM development_points WHERE point_id = $1", point_id)
+        existing = await conn.fetchrow("SELECT point_id FROM development_points WHERE point_id = $1 OR id::text = $1", point_id)
     if not existing:
         raise HTTPException(status_code=404, detail=f"Point {point_id} niet gevonden")
-    return await hr.update_point_status(point_id, body.status, body.approved_by, body.source_url)
+    point_id = str(existing["point_id"])
+
+    hr_spec = await _get_spec_hr()
+    hr_service = await _get_hr_manager()
+    new_status: Optional[str] = None
+
+    if body.action:
+        action = (body.action or "").strip().lower()
+        if action == "approve":
+            new_status = "IN_TRAINING"
+            await hr_spec.update_point_status(point_id, new_status, body.approved_by or "ceo", body.source_url)
+        elif action == "request_approval":
+            new_status = "AWAITING_APPROVAL"
+            await hr_spec.update_point_status(point_id, new_status, body.approved_by, body.source_url)
+        elif action == "dismiss":
+            success = await hr_service.dismiss_point(point_id)
+            if not success:
+                raise HTTPException(status_code=500, detail="Dismiss failed")
+            new_status = "DISMISSED"
+        else:
+            raise HTTPException(status_code=400, detail=f"Ongeldige action. Gebruik: approve, request_approval, dismiss.")
+    elif body.status:
+        if body.status not in valid_statuses:
+            raise HTTPException(status_code=400, detail=f"Ongeldige status. Kies uit: {valid_statuses}")
+        new_status = body.status
+        await hr_spec.update_point_status(point_id, new_status, body.approved_by, body.source_url)
+    else:
+        raise HTTPException(status_code=400, detail="Geef action of status op.")
+
+    return {"success": True, "point_id": point_id, "new_status": new_status or body.status}
+
+
+@router.post("/development-points/{point_id}/reproduce")
+async def reproduce_development_point(point_id: str, background_tasks: BackgroundTasks):
+    """
+    Start a new job based on the same run_id as this development point.
+    Spec: POST /api/hr/development-points/:pointId/reproduce.
+    Returns { job_id, status: "RUNNING" }.
+    """
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        dp = await conn.fetchrow(
+            "SELECT point_id, agent_id, evidence_example FROM development_points WHERE point_id = $1 OR id::text = $1",
+            point_id,
+        )
+        if not dp:
+            raise HTTPException(status_code=404, detail=f"Development point {point_id} niet gevonden")
+
+        run_id = _extract_job_id_from_evidence(dp.get("evidence_example"))
+        if not run_id:
+            first_job = await conn.fetchval(
+                """
+                SELECT job_id FROM job_steps
+                WHERE agent_id = $1 AND retry_reason IS NOT NULL AND trim(retry_reason) != ''
+                ORDER BY started_at DESC NULLS LAST
+                LIMIT 1
+                """,
+                dp["agent_id"],
+            )
+            run_id = str(first_job) if first_job else None
+        if not run_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Geen run_id of evidence beschikbaar om te reproduceren.",
+            )
+
+        source = await conn.fetchrow(
+            "SELECT id, user_id, job_post, context, source_platform FROM jobs WHERE id = $1",
+            run_id,
+        )
+        if not source:
+            raise HTTPException(status_code=404, detail=f"Bronjob {run_id} niet gevonden")
+
+        user_id = str(source["user_id"])
+        job_post = source.get("job_post") or ""
+        if not job_post:
+            ctx = source.get("context")
+            if isinstance(ctx, dict) and ctx.get("job_post"):
+                job_post = ctx["job_post"] or ""
+            elif isinstance(ctx, str):
+                try:
+                    parsed = json.loads(ctx)
+                    if isinstance(parsed, dict) and parsed.get("job_post"):
+                        job_post = parsed["job_post"] or ""
+                except (json.JSONDecodeError, ValueError):
+                    pass
+        if not job_post or len(job_post) < 10:
+            raise HTTPException(status_code=400, detail="Bronjob heeft geen bruikbare job_post om te reproduceren.")
+
+        source_platform = source.get("source_platform") or "custom"
+        token_budget = 50_000
+        new_job_id = str(uuid.uuid4())
+        context = {"job_post": job_post, "source_platform": source_platform, "reproduced_from": run_id}
+
+        await conn.execute(
+            """
+            INSERT INTO jobs (id, user_id, job_post, status, source_platform, context, token_budget, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, now(), now())
+            """,
+            new_job_id,
+            user_id,
+            job_post,
+            JobStatus.INTAKE_CLARIFICATION.value,
+            source_platform,
+            json.dumps(context),
+            token_budget,
+        )
+
+    try:
+        background_tasks.add_task(run_intake_inline, new_job_id, job_post)
+    except Exception as e:
+        logger.warning("Reproduce: intake task queue failed for %s: %s", new_job_id, e)
+
+    return {"job_id": new_job_id, "status": "RUNNING"}
 
 
 @router.post("/development-points/{point_id}/resolve")

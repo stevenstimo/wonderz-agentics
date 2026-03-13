@@ -233,10 +233,10 @@ class NEXUSPipeline:
 
         async with self._pool.acquire() as conn:
             job_row = await conn.fetchrow(
-                "SELECT job_post, context FROM jobs WHERE id = $1",
+                "SELECT job_post, payload FROM jobs WHERE id = $1",
                 ctx.job_id,
             )
-        job_context = _coerce_context(job_row.get("context") if job_row else None)
+        job_context = _coerce_context(job_row.get("payload") if job_row else None)
         job_post = (job_row.get("job_post") or "") if job_row else ""
         objective = (ctx.strategic_brief or {}).get("objective", job_post) or job_post
 
@@ -296,7 +296,7 @@ class NEXUSPipeline:
     async def phase_6_approval_gate(self, ctx: HandoffContext) -> None:
         """
         Bepaalt de laatste content uit step_outputs.
-        Schrijft die als final_content naar jobs.context.
+        Schrijft die als final_content naar jobs.payload.
         Zet status op JOB_READY.
         """
         final_content = ""
@@ -325,8 +325,8 @@ class NEXUSPipeline:
 
     async def _execute_step(self, ctx: HandoffContext, step: dict) -> None:
         """
-        Voert één step uit. Koppelt aan bestaande agent-aanroep logica.
-        Hergebruikt _run_step_agent_with_timeout uit job_pipeline (geen job_id/pool in signature).
+        Voert één step uit. Max 3 pogingen bij technisch falen (timeout, API error).
+        QA-loop retries in phase_4 blijven voor output-kwaliteit; dit is alleen technisch.
         """
         step_id = step.get("step_id")
         step_name = step.get("step_name", "")
@@ -359,10 +359,10 @@ class NEXUSPipeline:
 
         async with self._pool.acquire() as conn:
             job_row = await conn.fetchrow(
-                "SELECT job_post, context, status FROM jobs WHERE id = $1",
+                "SELECT job_post, payload, status FROM jobs WHERE id = $1",
                 ctx.job_id,
             )
-        job_context = _coerce_context(job_row.get("context") if job_row else None)
+        job_context = _coerce_context(job_row.get("payload") if job_row else None)
         job_post = (job_row.get("job_post") or "") if job_row else ""
         agent_context: Dict[str, Any] = {
             "brief": ctx.strategic_brief,
@@ -380,27 +380,43 @@ class NEXUSPipeline:
             agent_context["previous_content"] = previous_content
 
         output_to_store: Dict[str, Any]
-        try:
-            output_dict, tokens_used = await _run_step_agent_with_timeout(
-                agent_role=agent_role,
-                step_name=step_name,
-                context=agent_context,
-                previous_content=previous_content or None,
-            )
-            output_to_store = output_dict
-            output_text = (
-                output_dict.get("content")
-                or output_dict.get("review")
-                or (json.dumps(output_dict, default=_json_default) if output_dict else "")
-            )
-            if not isinstance(output_text, str):
-                output_text = str(output_text)
-            feedback = output_dict.get("feedback", "")
-            error = output_dict.get("error")
-        except Exception as e:
-            logger.error("Step '%s' fout: %s", step_name, e, exc_info=True)
-            output_text, tokens_used, feedback, error = "", 0, "", str(e)
-            output_to_store = {"status": "failed", "error": str(e), "agent_role": agent_role}
+        tokens_used = 0
+        output_text = ""
+        feedback = ""
+        error: Optional[str] = None
+        retries_done = 0
+
+        for attempt in range(1, self.MAX_RETRIES + 1):
+            try:
+                output_dict, tokens_used = await _run_step_agent_with_timeout(
+                    agent_role=agent_role,
+                    step_name=step_name,
+                    context=agent_context,
+                    previous_content=previous_content or None,
+                )
+                output_to_store = output_dict
+                output_text = (
+                    output_dict.get("content")
+                    or output_dict.get("review")
+                    or (json.dumps(output_dict, default=_json_default) if output_dict else "")
+                )
+                if not isinstance(output_text, str):
+                    output_text = str(output_text)
+                feedback = output_dict.get("feedback", "")
+                error = output_dict.get("error")
+                break
+            except Exception as e:
+                retries_done = attempt
+                error = str(e)
+                logger.warning(
+                    "Step '%s' attempt %s/%s failed: %s",
+                    step_name, attempt, self.MAX_RETRIES, e,
+                    exc_info=(attempt == self.MAX_RETRIES),
+                )
+                if attempt < self.MAX_RETRIES:
+                    continue
+                output_text, tokens_used = "", 0
+                output_to_store = {"status": "failed", "error": error, "agent_role": agent_role}
 
         ctx.register_tokens(tokens_used)
         try:
@@ -415,40 +431,72 @@ class NEXUSPipeline:
         completed_at = datetime.now(timezone.utc)
         timing_ms = int((completed_at - started_at).total_seconds() * 1000)
         final_status = "failed" if error else "completed"
+        error_log_value: Optional[str] = error if final_status == "failed" else None
         if step_id:
             async with self._pool.acquire() as conn:
                 await conn.execute(
                     """
                     UPDATE job_steps
-                    SET status = $1, completed_at = $2, output = $3::jsonb, tokens_used = $4, timing_ms = $5, progress_pct = 100
-                    WHERE id = $6
+                    SET status = $1, completed_at = $2, output = $3::jsonb, tokens_used = $4,
+                        timing_ms = $5, progress_pct = 100, error_log = $6, retry_count = $7
+                    WHERE id = $8
                     """,
                     final_status,
                     completed_at,
                     json.dumps(output_to_store, default=_json_default),
                     tokens_used,
                     timing_ms,
+                    error_log_value,
+                    retries_done,
                     step_id,
                 )
 
     async def _update_job_status(
         self, job_id: str, status: str, ctx: HandoffContext
     ) -> None:
-        """Update jobs.status. Token usage wordt bijgehouden door TokenGuard.register_usage."""
+        """
+        Update jobs.status and jobs.payload (token_summary, proposed_data at JOB_READY,
+        error_reason at FAILED). Set jobs.finished_at when status is COMPLETED.
+        Production schema: payload (JSONB), finished_at; no tokens_used/token_budget columns.
+        """
         if not self._pool:
             return
+        payload_updates: Dict[str, Any] = {
+            "token_summary": {
+                "used": ctx.token_used_total,
+                "budget": ctx.token_budget,
+            },
+        }
+        if status == "JOB_READY":
+            final_content = ""
+            for step in reversed(ctx.execution_plan):
+                step_name = step.get("step_name", "")
+                output = ctx.step_outputs.get(step_name, "")
+                if output and step_name != "gtm_analysis":
+                    final_content = output if isinstance(output, str) else str(output)
+                    break
+            payload_updates["proposed_data"] = final_content
+        if status == "FAILED" and ctx.error:
+            payload_updates["error_reason"] = ctx.error
+        payload_json = json.dumps(payload_updates, default=_json_default)
         async with self._pool.acquire() as conn:
             await conn.execute(
-                "UPDATE jobs SET status = $1, updated_at = now() WHERE id = $2",
+                """
+                UPDATE jobs
+                SET status = $1, updated_at = now(),
+                    payload = COALESCE(payload, '{}'::jsonb) || $2::jsonb,
+                    finished_at = CASE WHEN $1 = 'COMPLETED' THEN now() ELSE finished_at END
+                WHERE id = $3
+                """,
                 status,
+                payload_json,
                 job_id,
             )
         logger.info("Job %s → %s", job_id, status)
 
     async def _update_job_context(self, job_id: str, updates: Dict[str, Any]) -> None:
         """
-        Mergt updates in het bestaande jobs.context JSONB veld.
-        Hergebruikt geen job_pipeline helper (die neemt conn); hier gebruiken we pool + JSONB merge.
+        Mergt updates in het bestaande jobs.payload JSONB veld (productie: payload, niet context).
         """
         if not self._pool:
             return
@@ -456,7 +504,7 @@ class NEXUSPipeline:
             await conn.execute(
                 """
                 UPDATE jobs
-                SET context = COALESCE(context, '{}'::jsonb) || $1::jsonb,
+                SET payload = COALESCE(payload, '{}'::jsonb) || $1::jsonb,
                     updated_at = now()
                 WHERE id = $2
                 """,

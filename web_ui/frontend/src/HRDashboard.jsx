@@ -1,4 +1,5 @@
-import { useEffect, useState, useCallback } from 'react'
+import React, { useEffect, useState, useCallback } from 'react'
+import { Link } from 'react-router-dom'
 import { apiFetch } from './apiClient'
 import PageLayout from './PageLayout'
 import { RefreshCw } from 'lucide-react'
@@ -44,6 +45,7 @@ export default function HRDashboard() {
   const [approveModal, setApproveModal] = useState(null)
   const [approveUrl, setApproveUrl] = useState('')
   const [resolveInput, setResolveInput] = useState({})
+  const [expandedPointId, setExpandedPointId] = useState(null)
 
   const loadPoints = useCallback(async () => {
     setLoading(true)
@@ -172,24 +174,26 @@ export default function HRDashboard() {
     }
   }
 
-  async function handleApprove(pointId, sourceUrl) {
+  const handleApprove = async (id, url) => {
     try {
-      await apiFetch('/api/hr/approve-training', {
+      const res = await apiFetch('/api/hr/approve-training', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          point_id: pointId,
+          point_id: id,
           approved: true,
-          source_url: sourceUrl || undefined,
-          approved_by: 'hr-dashboard',
-        }),
+          source_url: url || undefined,
+          approved_by: 'hr-dashboard'
+        })
       })
+      console.log('handleApprove response:', res?.status, res)
+    } catch (err) {
+      console.error('handleApprove error:', err)
+    } finally {
       setApproveModal(null)
       setApproveUrl('')
-      if (tab === 'training') await loadTrainingRequests()
-      else await loadPoints()
-    } catch {
-      setError('Goedkeuren mislukt')
+      if (tab === 'training') loadTrainingRequests()
+      else loadPoints()
     }
   }
 
@@ -197,7 +201,16 @@ export default function HRDashboard() {
   async function handleDismiss(pointId) {
     if (tab !== 'points') return
     try {
-      await apiFetch(`/api/hr/development-points/${pointId}/dismiss`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+      const res = await apiFetch(`/api/hr/development-points/${pointId}/dismiss`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      })
+      if (res?.status === 404) {
+        setApproveModal(null)
+        await loadPoints()
+        return
+      }
       setApproveModal(null)
       await loadPoints()
     } catch {
@@ -258,12 +271,16 @@ export default function HRDashboard() {
 
   async function resolvePoint(pointId, resolution) {
     try {
-      await apiFetch(`/api/hr/development-points/${pointId}/resolve`, {
+      const res = await apiFetch(`/api/hr/development-points/${pointId}/resolve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ resolution: resolution || 'Opgelost via HR Dashboard' }),
       })
       setResolveInput((prev) => { const n = { ...prev }; delete n[pointId]; return n })
+      if (res?.status === 404) {
+        await loadPoints()
+        return
+      }
       await loadPoints()
     } catch {
       setError('Opgelost markeren mislukt')
@@ -365,6 +382,9 @@ export default function HRDashboard() {
       {approveModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true">
           <div className="rounded-xl bg-white p-6 shadow-xl max-w-md mx-4">
+            {approveUrl ? (
+              <p className="text-slate-500 text-xs mb-1">Aanbevolen door HR scan</p>
+            ) : null}
             <p className="text-slate-700 mb-2">Trainings-URL (optioneel):</p>
             <input
               type="url"
@@ -453,61 +473,77 @@ export default function HRDashboard() {
                     const pointId = p.point_id || p.id
                     const showTrainingInput = trainingUrlInput[pointId] !== undefined && statusKey === 'AWAITING_APPROVAL'
                     const showResolveInput = resolveInput[pointId] !== undefined && (statusKey === 'IN_TRAINING' || statusKey === 'AWAITING_APPROVAL')
+                    const isExpanded = expandedPointId === pointId
                     return (
-                      <tr key={pointId} className="hover:bg-slate-50">
-                        <td className="px-4 py-2">{p.agent_name || p.agent_id || p.agent_role || '—'}</td>
-                        <td className="px-4 py-2 max-w-xs">{p.issue_description || '—'}</td>
-                        <td className="px-4 py-2">{p.frequency ?? '—'}</td>
-                        <td className="px-4 py-2">
-                          <span style={{ color: IMPACT_COLOR[impactKey] || IMPACT_COLOR.medium, fontWeight: 600 }} className={`px-2 py-0.5 text-xs font-medium rounded ${IMPACT_BADGE[impactKey] || IMPACT_BADGE.medium}`}>
-                            {(p.impact || impactKey)}
-                          </span>
-                        </td>
-                        <td className="px-4 py-2">
-                          <span className={`px-2 py-0.5 text-xs font-medium rounded ${STATUS_BADGE[statusKey] || 'bg-gray-100 text-gray-500'}`}>
-                            {statusKey}
-                          </span>
-                        </td>
-                        <td className="px-4 py-2">
-                          <div className="flex flex-wrap items-center gap-2">
-                            {statusKey === 'OPEN' && (
-                              <>
-                                <button
-                                  type="button"
-                                  onClick={() => { setApproveModal(pointId); setApproveUrl(p.suggested_url || '') }}
-                                  className="text-xs font-medium text-indigo-600 hover:underline"
-                                >
-                                  Goedkeuren
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleDismiss(pointId)}
-                                  className="text-xs font-medium text-red-600 hover:underline"
-                                >
-                                  Afwijzen
-                                </button>
-                              </>
-                            )}
-                            {statusKey === 'AWAITING_APPROVAL' && !showTrainingInput && !showResolveInput && (
-                              <button
-                                type="button"
-                                onClick={() => setTrainingUrlInput((prev) => ({ ...prev, [pointId]: p.suggested_url || '' }))}
-                                className="text-xs font-medium text-purple-600 hover:underline"
+                      <React.Fragment key={pointId}>
+                        <tr className="hover:bg-slate-50">
+                          <td className="px-4 py-2">{p.agent_name || p.agent_id || p.agent_role || '—'}</td>
+                          <td
+                            className="px-4 py-2 max-w-xs cursor-pointer hover:bg-slate-100 rounded"
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => setExpandedPointId(isExpanded ? null : pointId)}
+                            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpandedPointId(isExpanded ? null : pointId) } }}
+                          >
+                            {p.issue_description || '—'}
+                          </td>
+                          <td className="px-4 py-2">{p.frequency ?? '—'}</td>
+                          <td className="px-4 py-2">
+                            <span style={{ color: IMPACT_COLOR[impactKey] || IMPACT_COLOR.medium, fontWeight: 600 }} className={`px-2 py-0.5 text-xs font-medium rounded ${IMPACT_BADGE[impactKey] || IMPACT_BADGE.medium}`}>
+                              {(p.impact || impactKey)}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2">
+                            <span className={`px-2 py-0.5 text-xs font-medium rounded ${STATUS_BADGE[statusKey] || 'bg-gray-100 text-gray-500'}`}>
+                              {statusKey}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Link
+                                to={`/hr/issues/${pointId}`}
+                                className="text-xs font-medium text-indigo-600 hover:underline"
                               >
-                                Start Training
-                              </button>
-                            )}
-                            {showTrainingInput && (
-                              <div className="flex items-center gap-1">
-                                <input
-                                  type="url"
-                                  placeholder="Source URL (optioneel)"
-                                  className="border border-slate-300 rounded px-2 py-1 text-xs w-48"
-                                  value={trainingUrlInput[pointId] || ''}
-                                  onChange={(e) => setTrainingUrlInput((prev) => ({ ...prev, [pointId]: e.target.value }))}
-                                />
+                                Detail →
+                              </Link>
+                              {statusKey === 'OPEN' && (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => { setApproveModal(p.id ?? pointId); setApproveUrl(p.suggested_url || '') }}
+                                    className="text-xs font-medium text-indigo-600 hover:underline"
+                                  >
+                                    Goedkeuren
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDismiss(pointId)}
+                                    className="text-xs font-medium text-red-600 hover:underline"
+                                  >
+                                    Afwijzen
+                                  </button>
+                                </>
+                              )}
+                              {statusKey === 'AWAITING_APPROVAL' && !showTrainingInput && !showResolveInput && (
                                 <button
                                   type="button"
+                                  onClick={() => setTrainingUrlInput((prev) => ({ ...prev, [pointId]: p.suggested_url || '' }))}
+                                  className="text-xs font-medium text-purple-600 hover:underline"
+                                >
+                                  Start Training
+                                </button>
+                              )}
+                              {showTrainingInput && (
+                                <div className="flex items-center gap-1">
+                                  <input
+                                    type="url"
+                                    placeholder="Source URL (optioneel)"
+                                    className="border border-slate-300 rounded px-2 py-1 text-xs w-48"
+                                    value={trainingUrlInput[pointId] || ''}
+                                    onChange={(e) => setTrainingUrlInput((prev) => ({ ...prev, [pointId]: e.target.value }))}
+                                  />
+                                  <button
+                                    type="button"
                                   onClick={() => approveTraining(pointId)}
                                   className="text-xs font-medium text-green-600 hover:underline"
                                 >
@@ -523,42 +559,91 @@ export default function HRDashboard() {
                               </div>
                             )}
                             {(statusKey === 'IN_TRAINING' || statusKey === 'AWAITING_APPROVAL') && !showResolveInput && !showTrainingInput && (
-                              <button
-                                type="button"
-                                onClick={() => setResolveInput((prev) => ({ ...prev, [pointId]: '' }))}
-                                className="text-xs font-medium text-slate-600 hover:underline"
-                              >
-                                Opgelost markeren
-                              </button>
-                            )}
-                            {showResolveInput && (
-                              <div className="flex items-center gap-1">
-                                <input
-                                  type="text"
-                                  placeholder="Oplossing (optioneel)"
-                                  className="border border-slate-300 rounded px-2 py-1 text-xs w-48"
-                                  value={resolveInput[pointId] ?? ''}
-                                  onChange={(e) => setResolveInput((prev) => ({ ...prev, [pointId]: e.target.value }))}
-                                />
                                 <button
                                   type="button"
-                                  onClick={() => resolvePoint(pointId, resolveInput[pointId])}
-                                  className="text-xs font-medium text-green-600 hover:underline"
+                                  onClick={() => setResolveInput((prev) => ({ ...prev, [pointId]: '' }))}
+                                  className="text-xs font-medium text-slate-600 hover:underline"
                                 >
-                                  Bevestig
+                                  Opgelost markeren
                                 </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setResolveInput((prev) => { const n = { ...prev }; delete n[pointId]; return n })}
-                                  className="text-xs font-medium text-slate-400 hover:underline"
-                                >
-                                  Annuleer
-                                </button>
+                              )}
+                              {showResolveInput && (
+                                <div className="flex items-center gap-1">
+                                  <input
+                                    type="text"
+                                    placeholder="Oplossing (optioneel)"
+                                    className="border border-slate-300 rounded px-2 py-1 text-xs w-48"
+                                    value={resolveInput[pointId] ?? ''}
+                                    onChange={(e) => setResolveInput((prev) => ({ ...prev, [pointId]: e.target.value }))}
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => resolvePoint(pointId, resolveInput[pointId])}
+                                    className="text-xs font-medium text-green-600 hover:underline"
+                                  >
+                                    Bevestig
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setResolveInput((prev) => { const n = { ...prev }; delete n[pointId]; return n })}
+                                    className="text-xs font-medium text-slate-400 hover:underline"
+                                  >
+                                    Annuleer
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                        {isExpanded && (
+                          <tr className="bg-slate-50">
+                            <td colSpan={6} className="px-4 py-3 align-top">
+                              <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm shadow-sm">
+                                <p className="font-medium text-slate-700 mb-1">Issue</p>
+                                <p className="text-slate-600 mb-3">{p.issue_description || '—'}</p>
+                                <p className="font-medium text-slate-700 mb-1">Root cause</p>
+                                <p className="text-slate-600 mb-3 whitespace-pre-wrap">{p.root_cause || 'Geen root cause beschikbaar'}</p>
+                                <p className="font-medium text-slate-700 mb-1">Evidence</p>
+                                <div className="text-slate-600 mb-3 rounded bg-slate-100 p-2 overflow-x-auto max-h-40 overflow-y-auto">
+                                  {p.evidence_example == null ? (
+                                    '—'
+                                  ) : typeof p.evidence_example === 'string' ? (
+                                    p.evidence_example
+                                  ) : (
+                                    <pre className="text-xs whitespace-pre-wrap m-0">{JSON.stringify(p.evidence_example, null, 2)}</pre>
+                                  )}
+                                </div>
+                                <p className="text-slate-600 mb-2">
+                                  Confidence: {p.confidence_score != null ? `${Math.round(Number(p.confidence_score) * 100)}%` : '—'}
+                                  {' · '}
+                                  Frequency: {p.frequency != null ? p.frequency : '—'}
+                                  {' · '}
+                                  Impact: {(p.impact || '—').toUpperCase()}
+                                </p>
+                                <p className="font-medium text-slate-700 mb-1">Aanbevolen trainings-URL</p>
+                                <p className="text-slate-600 mb-3">
+                                  {p.suggested_url ? (
+                                    <a href={p.suggested_url} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline break-all">
+                                      {p.suggested_url}
+                                    </a>
+                                  ) : (
+                                    'Geen URL beschikbaar'
+                                  )}
+                                </p>
+                                <div className="flex justify-end">
+                                  <button
+                                    type="button"
+                                    onClick={() => setExpandedPointId(null)}
+                                    className="rounded-lg px-3 py-1.5 border border-slate-300 text-slate-700 text-xs font-medium hover:bg-slate-50"
+                                  >
+                                    Sluiten
+                                  </button>
+                                </div>
                               </div>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
                     )
                   })}
                 </tbody>

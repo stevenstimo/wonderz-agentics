@@ -95,3 +95,12 @@
 .wz-input:focus { border-color: var(--color-brand-primary); background: #fff; }
 .wz-page-width { width: 100%; max-width: var(--layout-max-width); margin-left: auto; margin-right: auto; }
 .wz-page-pad { padding: var(--layout-padding-y) var(--layout-padding-x); }
+
+/* HR Issue Detail — grid and section layout */
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
+.grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: var(--space-4); }
+.grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-3); }
+.section-group { margin-bottom: var(--space-6); }
+@media (max-width: 900px) {
+  .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
+}
