@@ -68,15 +68,19 @@ def validate_url(url: str) -> str:
     return url
 
 
+BROWSER_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.5",
+}
+
+
 async def scrape_url(url: str) -> str:
     """Fetch a URL and return raw HTML."""
     validated = validate_url(url)
     try:
         async with httpx.AsyncClient(follow_redirects=True, timeout=30) as client:
-            response = await client.get(
-                validated,
-                headers={"User-Agent": "Mozilla/5.0 (compatible; WonderzBot/1.0)"},
-            )
+            response = await client.get(validated, headers=BROWSER_HEADERS)
             response.raise_for_status()
             return response.text
     except httpx.HTTPError as exc:
@@ -272,15 +276,23 @@ async def update_knowledge_sources(
 
         sources = []
         if current_sources:
-            if isinstance(current_sources, str):
-                try:
-                    sources = json.loads(current_sources)
-                except json.JSONDecodeError:
-                    sources = []
-            elif isinstance(current_sources, list):
-                sources = current_sources
+            val = current_sources
+            # Unwrap double/triple-encoded JSON strings
+            for _ in range(3):
+                if isinstance(val, list):
+                    break
+                if isinstance(val, str):
+                    try:
+                        val = json.loads(val)
+                    except (json.JSONDecodeError, ValueError):
+                        val = []
+                        break
+                else:
+                    break
+            if isinstance(val, list):
+                sources = val
 
-        sources = [s for s in sources if s.get("url") != source_url]
+        sources = [s for s in sources if isinstance(s, dict) and s.get("url") != source_url]
         sources.append(
             {
                 "url": source_url,
