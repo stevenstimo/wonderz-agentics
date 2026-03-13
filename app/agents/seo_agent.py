@@ -33,6 +33,39 @@ def calculate_priority(volume: int, kd: float, position: Optional[int]) -> str:
     return "LOW"
 
 
+def calculate_kd_client(kd: float, gsc_position: Optional[float]) -> Optional[float]:
+    """
+    KD-Client = KD adjusted by current GSC position (top 100 as threshold).
+    Outside top 100 or no GSC data → return None.
+    """
+    if gsc_position is None or gsc_position > 100:
+        return None
+    if gsc_position <= 3:
+        factor = 0.40
+    elif gsc_position <= 10:
+        factor = 0.60
+    elif gsc_position <= 30:
+        factor = 0.75
+    elif gsc_position <= 100:
+        factor = 0.90
+    else:
+        return None
+    return round(kd * factor, 1)
+
+
+def get_gsc_label(gsc_position: Optional[float]) -> str:
+    """Label per keyword based on GSC position for Status (GSC) column."""
+    if gsc_position is None or gsc_position > 100:
+        return "⬜ Ontbreekt"
+    if gsc_position <= 3:
+        return "✅ Sterk"
+    if gsc_position <= 10:
+        return "🟡 Optimaliseer"
+    if gsc_position <= 30:
+        return "🟠 Aanpakken"
+    return "🔴 Zwak"
+
+
 def _call_anthropic_sync(system: str, user_prompt: str, model: str = SEO_MODEL) -> Dict[str, Any]:
     """Sync Anthropic call — runs in thread pool from async context."""
     client = Anthropic()
@@ -151,6 +184,31 @@ Volg strikt het gevraagde format. Geen uitleg, alleen de JSON array."""
     return enriched
 
 
+def _apply_gsc_to_keyword(k: Dict[str, Any], gsc_lookup: Dict[str, Dict[str, Any]]) -> None:
+    """Mutate keyword dict: add gsc_position, gsc_clicks, gsc_impressions, gsc_ctr, kd_client, gsc_label."""
+    kw = (k.get("keyword") or "").strip()
+    key_lower = kw.lower() if kw else ""
+    gsc = gsc_lookup.get(key_lower) if gsc_lookup else None
+
+    if not gsc:
+        k["gsc_position"] = None
+        k["gsc_clicks"] = 0
+        k["gsc_impressions"] = 0
+        k["gsc_ctr"] = 0
+        k["kd_client"] = None
+        k["gsc_label"] = "⬜ Ontbreekt"
+        return
+
+    gsc_pos = gsc.get("position")
+    k["gsc_position"] = gsc_pos
+    k["gsc_clicks"] = gsc.get("clicks", 0)
+    k["gsc_impressions"] = gsc.get("impressions", 0)
+    k["gsc_ctr"] = gsc.get("ctr", 0)
+    kd = k.get("kd") or 0
+    k["kd_client"] = calculate_kd_client(kd, gsc_pos)
+    k["gsc_label"] = get_gsc_label(gsc_pos)
+
+
 async def run_seo_agent(
     job_id: str,
     keywords: List[Dict[str, Any]],
@@ -158,16 +216,24 @@ async def run_seo_agent(
     domain: str,
     audience: str,
     language: str,
+    gsc_data: Optional[Dict[str, Any]] = None,
     progress_callback: Optional[Callable[..., Awaitable[None]]] = None,
 ) -> List[Dict[str, Any]]:
     """
     Run SEO Agent on all keywords in batches. Calls progress_callback(processed, total, current_silo)
-    after each batch. Returns full list of enriched keywords.
+    after each batch. Returns full list of enriched keywords with GSC fields when gsc_data is set.
     """
     pool = await get_db()
     skills_context = await fetch_seo_skills(pool)
     if skills_context:
         logger.info("SEO Agent: injected skills context")
+
+    # Case-insensitive lookup for gsc_data (keyword -> { position, clicks, impressions, ctr })
+    gsc_lookup: Dict[str, Dict[str, Any]] = {}
+    if gsc_data:
+        for kw, v in gsc_data.items():
+            if isinstance(v, dict):
+                gsc_lookup[(kw or "").lower().strip()] = v
 
     all_enriched: List[Dict[str, Any]] = []
     total = len(keywords)
@@ -176,6 +242,8 @@ async def run_seo_agent(
         enriched = await process_keyword_batch(
             batch, brand_name, domain, audience, language, skills_context
         )
+        for k in enriched:
+            _apply_gsc_to_keyword(k, gsc_lookup)
         all_enriched.extend(enriched)
         current_silo = enriched[-1].get("silo", "") if enriched else ""
         if progress_callback:

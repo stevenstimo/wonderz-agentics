@@ -3,7 +3,21 @@ import { BarChart3, Upload, Loader2, Download, CheckCircle } from 'lucide-react'
 import PageLayout from './PageLayout'
 import { apiUrl, apiFetch } from './apiClient'
 
+const MANUAL_ENTRY_VALUE = '__manual__'
+
+function domainFromSiteUrl(siteUrl) {
+  if (!siteUrl || typeof siteUrl !== 'string') return ''
+  try {
+    const u = new URL(siteUrl.startsWith('http') ? siteUrl : `https://${siteUrl}`)
+    return u.hostname || ''
+  } catch {
+    return ''
+  }
+}
+
 export default function SEOTool() {
+  const [clients, setClients] = useState([])
+  const [selectedClientSlug, setSelectedClientSlug] = useState('')
   const [brandName, setBrandName] = useState('')
   const [domain, setDomain] = useState('')
   const [audience, setAudience] = useState('')
@@ -22,6 +36,8 @@ export default function SEOTool() {
   const [history, setHistory] = useState([])
   const fileInputRef = useRef(null)
   const pollIntervalRef = useRef(null)
+  const manualEntry = selectedClientSlug === MANUAL_ENTRY_VALUE
+  const clientSelected = selectedClientSlug && selectedClientSlug !== MANUAL_ENTRY_VALUE
 
   async function fetchJobHistory() {
     try {
@@ -38,10 +54,40 @@ export default function SEOTool() {
       setStatus('processing')
     }
     fetchJobHistory()
+    const loadClients = async () => {
+      try {
+        const res = await apiFetch('/api/clients')
+        const data = await res.json()
+        setClients(Array.isArray(data) ? data : (data?.clients ?? []))
+      } catch (_) {}
+    }
+    loadClients()
     return () => {
       if (pollIntervalRef.current) clearInterval(pollIntervalRef.current)
     }
   }, [])
+
+  useEffect(() => {
+    if (!selectedClientSlug || selectedClientSlug === MANUAL_ENTRY_VALUE) return
+    const c = clients.find((x) => x.slug === selectedClientSlug)
+    if (c) {
+      setBrandName(c.client_name ?? '')
+      setDomain('')
+      const fetchDomain = async () => {
+        try {
+          const res = await apiFetch(`/api/clients/${encodeURIComponent(c.slug)}`)
+          if (!res.ok) return
+          const detail = await res.json()
+          const configs = detail?.platform_configs ?? []
+          const gsc = configs.find((p) => p.platform === 'gsc')
+          const config = gsc?.config
+          const siteUrl = config?.site_url
+          if (siteUrl) setDomain(domainFromSiteUrl(siteUrl))
+        } catch (_) {}
+      }
+      fetchDomain()
+    }
+  }, [selectedClientSlug, clients])
 
   async function pollStatus(id) {
     try {
@@ -116,6 +162,9 @@ export default function SEOTool() {
       form.append('domain', domain.trim())
       form.append('audience', audience.trim())
       form.append('language', language.trim() || 'nl')
+      if (clientSelected && selectedClientSlug) {
+        form.append('client_slug', selectedClientSlug)
+      }
 
       const res = await apiFetch('/api/seo/upload', {
         method: 'POST',
@@ -179,28 +228,84 @@ export default function SEOTool() {
         {/* Step 1: Upload */}
         {showUpload && (
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Brand naam</label>
-                <input
-                  type="text"
-                  value={brandName}
-                  onChange={(e) => setBrandName(e.target.value)}
-                  placeholder="bijv. IKARIA Clinics"
-                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Domein</label>
-                <input
-                  type="text"
-                  value={domain}
-                  onChange={(e) => setDomain(e.target.value)}
-                  placeholder="bijv. ikaria.nl"
-                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                />
-              </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Client selecteren</label>
+              <select
+                value={selectedClientSlug}
+                onChange={(e) => setSelectedClientSlug(e.target.value)}
+                className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              >
+                <option value="">— Kies een client —</option>
+                {clients.filter((c) => c.is_active !== false).map((c) => (
+                  <option key={c.slug} value={c.slug}>
+                    {c.client_name ?? c.slug}
+                  </option>
+                ))}
+                <option value={MANUAL_ENTRY_VALUE}>— Handmatig invoeren —</option>
+              </select>
             </div>
+
+            {manualEntry && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Brand naam</label>
+                  <input
+                    type="text"
+                    value={brandName}
+                    onChange={(e) => setBrandName(e.target.value)}
+                    placeholder="bijv. IKARIA Clinics"
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Domein</label>
+                  <input
+                    type="text"
+                    value={domain}
+                    onChange={(e) => setDomain(e.target.value)}
+                    placeholder="bijv. ikaria.nl"
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  />
+                </div>
+              </div>
+            )}
+
+            {clientSelected && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Brand naam</label>
+                  <input
+                    type="text"
+                    readOnly
+                    value={brandName}
+                    className="w-full px-4 py-2 border border-slate-200 rounded-lg bg-slate-50 text-slate-700"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Domein</label>
+                  {domain ? (
+                    <input
+                      type="text"
+                      readOnly
+                      value={domain}
+                      className="w-full px-4 py-2 border border-slate-200 rounded-lg bg-slate-50 text-slate-700"
+                    />
+                  ) : (
+                    <input
+                      type="text"
+                      value={domain}
+                      onChange={(e) => setDomain(e.target.value)}
+                      placeholder="Vul domein in (geen GSC gekoppeld)"
+                      className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    />
+                  )}
+                </div>
+              </div>
+            )}
+
+            {!selectedClientSlug && (
+              <p className="text-sm text-slate-500">Kies een client of kies Handmatig invoeren om brand en domein zelf in te vullen.</p>
+            )}
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Doelgroep</label>
               <input
@@ -249,7 +354,7 @@ export default function SEOTool() {
 
             <button
               type="submit"
-              disabled={uploading || !file}
+              disabled={uploading || !file || !brandName.trim() || !domain.trim()}
               className="w-full py-3 px-6 bg-indigo-600 text-white font-semibold rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               {uploading ? 'Uploaden…' : 'Analyseer Keywords'}
@@ -322,6 +427,7 @@ export default function SEOTool() {
                 <thead>
                   <tr className="border-b border-slate-200 text-slate-600">
                     <th className="py-2 pr-4">Brand</th>
+                    {history.some((j) => j.client_slug) && <th className="py-2 pr-4">Client</th>}
                     <th className="py-2 pr-4">Keywords</th>
                     <th className="py-2 pr-4">Status</th>
                     <th className="py-2 pr-4">Datum</th>
@@ -337,6 +443,9 @@ export default function SEOTool() {
                     return (
                       <tr key={job.job_id} className="border-b border-slate-100">
                         <td className="py-2 pr-4 font-medium text-slate-800">{job.brand_name || '—'}</td>
+                        {history.some((j) => j.client_slug) && (
+                          <td className="py-2 pr-4 text-slate-600">{job.client_slug || '—'}</td>
+                        )}
                         <td className="py-2 pr-4 text-slate-600">{job.keyword_count ?? '—'}</td>
                         <td className="py-2 pr-4 text-slate-600">{statusLabel}</td>
                         <td className="py-2 pr-4 text-slate-600">{date}</td>
