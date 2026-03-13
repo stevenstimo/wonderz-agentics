@@ -76,13 +76,32 @@ export default function SEOTool() {
       setDomain('')
       const fetchDomain = async () => {
         try {
+          let siteUrl = null
           const res = await apiFetch(`/api/clients/${encodeURIComponent(c.slug)}`)
-          if (!res.ok) return
-          const detail = await res.json()
-          const configs = detail?.platform_configs ?? []
-          const gsc = configs.find((p) => p.platform === 'gsc')
-          const config = gsc?.config
-          const siteUrl = config?.site_url
+          if (res.ok) {
+            const detail = await res.json()
+            console.log('clientDetail', detail)
+            const configs = detail?.platform_configs ?? []
+            const gsc = configs.find((p) => p.platform === 'gsc')
+            let config = gsc?.config
+            if (typeof config === 'string') {
+              try {
+                config = JSON.parse(config)
+              } catch {
+                config = null
+              }
+            }
+            siteUrl = config?.site_url ?? config?.siteUrl ?? null
+          }
+          if (!siteUrl) {
+            const intRes = await apiFetch(`/api/integrations?client_slug=${encodeURIComponent(c.slug)}`)
+            if (intRes.ok) {
+              const integrations = await intRes.json()
+              const gscInt = Array.isArray(integrations) ? integrations.find((i) => i.integration_type === 'google_search_console') : null
+              const extra = gscInt?.extra_config
+              siteUrl = (extra && (typeof extra === 'object' ? extra.site_url : null)) ?? null
+            }
+          }
           if (siteUrl) setDomain(domainFromSiteUrl(siteUrl))
         } catch (_) {}
       }
