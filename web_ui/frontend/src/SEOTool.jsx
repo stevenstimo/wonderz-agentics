@@ -96,10 +96,11 @@ export default function SEOTool() {
           if (!siteUrl) {
             const intRes = await apiFetch(`/api/integrations?client_slug=${encodeURIComponent(c.slug)}`)
             if (intRes.ok) {
-              const integrations = await intRes.json()
-              const gscInt = Array.isArray(integrations) ? integrations.find((i) => i.integration_type === 'google_search_console') : null
-              const extra = gscInt?.extra_config
-              siteUrl = (extra && (typeof extra === 'object' ? extra.site_url : null)) ?? null
+              const data = await intRes.json()
+              const gscIntegration = Array.isArray(data)
+                ? data.find((i) => i.integration_type === 'google_search_console')
+                : null
+              siteUrl = gscIntegration?.extra_config?.site_url ?? null
             }
           }
           if (siteUrl) setDomain(domainFromSiteUrl(siteUrl))
