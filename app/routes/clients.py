@@ -40,6 +40,19 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/clients", tags=["clients"])
 
 
+def _unwrap_extra(raw) -> dict:
+    """Unwrap potentially double/triple-encoded JSONB extra_config to a dict."""
+    for _ in range(3):
+        if isinstance(raw, str):
+            try:
+                raw = json.loads(raw)
+            except (json.JSONDecodeError, TypeError):
+                return {}
+        else:
+            break
+    return raw if isinstance(raw, dict) else {}
+
+
 def _slug_from_name(name: str) -> str:
     """Generate slug from client name: lowercase, spaces to underscores."""
     s = (name or "").strip().lower()
@@ -183,12 +196,7 @@ async def get_ads_accounts(
         )
     if not row:
         raise HTTPException(status_code=404, detail="Google Ads not connected for this client")
-    extra = row["extra_config"]
-    if isinstance(extra, str):
-        try:
-            extra = json.loads(extra)
-        except Exception:
-            extra = {}
+    extra = _unwrap_extra(row["extra_config"])
     refresh = _get_refresh_token(row["api_key_encrypted"], extra)
     if not refresh:
         raise HTTPException(status_code=401, detail="token_expired")
@@ -450,13 +458,7 @@ async def get_client_dashboard(
     ga4_int = int_by_type.get("ga4")
     ga4_cfg = config_by_platform.get("ga4", {})
     # Primary: client_integrations.extra_config; fallback: client_platform_configs.config
-    ga4_extra = ga4_int.get("extra_config") if ga4_int else None
-    if isinstance(ga4_extra, str):
-        try:
-            ga4_extra = json.loads(ga4_extra) if ga4_extra else {}
-        except Exception:
-            ga4_extra = {}
-    ga4_extra = ga4_extra or {}
+    ga4_extra = _unwrap_extra(ga4_int.get("extra_config") if ga4_int else None)
     property_id = ga4_extra.get("property_id") or (ga4_cfg.get("property_id") if isinstance(ga4_cfg, dict) else None)
     ga4_used_fallback = False
 
@@ -508,13 +510,7 @@ async def get_client_dashboard(
     ads_int = int_by_type.get("google_ads")
     ads_cfg = config_by_platform.get("google_ads", {})
     # Prefer customer_id from extra_config (google_ads_customer_id or customer_id), then platform config
-    extra_config = ads_int.get("extra_config") if ads_int else None
-    if isinstance(extra_config, str):
-        try:
-            extra_config = json.loads(extra_config)
-        except Exception:
-            extra_config = {}
-    extra_config = extra_config or {}
+    extra_config = _unwrap_extra(ads_int.get("extra_config") if ads_int else None)
     customer_id = (
         extra_config.get("google_ads_customer_id")
         or extra_config.get("customer_id")
@@ -525,12 +521,7 @@ async def get_client_dashboard(
     if not ads_int:
         result["google_ads"] = {"not_connected": True}
     else:
-        extra = ads_int.get("extra_config")
-        if isinstance(extra, str):
-            try:
-                extra = json.loads(extra)
-            except Exception:
-                extra = {}
+        extra = _unwrap_extra(ads_int.get("extra_config"))
         refresh = _get_refresh_token(ads_int["api_key_encrypted"], extra)
         if not refresh:
             result["google_ads"] = {"not_connected": True}
@@ -605,13 +596,8 @@ async def get_client_dashboard(
     # Prefer site_url from client_integrations.extra_config, then client_platform_configs, then first GSC site
     site_url = None
     if gsc_int and gsc_int.get("extra_config"):
-        extra = gsc_int["extra_config"]
-        if isinstance(extra, str):
-            try:
-                extra = json.loads(extra)
-            except Exception:
-                extra = {}
-        if isinstance(extra, dict) and extra.get("site_url"):
+        extra = _unwrap_extra(gsc_int["extra_config"])
+        if extra.get("site_url"):
             site_url = extra["site_url"]
     if not site_url and isinstance(gsc_cfg, dict) and gsc_cfg.get("site_url"):
         site_url = gsc_cfg["site_url"]
@@ -817,14 +803,7 @@ async def save_integration_config(
         if not row:
             raise HTTPException(status_code=404, detail="Integration not found")
 
-        extra = row["extra_config"] or {}
-        if isinstance(extra, str):
-            try:
-                extra = json.loads(extra) if extra.strip() else {}
-            except Exception:
-                extra = {}
-        if not isinstance(extra, dict):
-            extra = {}
+        extra = _unwrap_extra(row["extra_config"])
         extra.update(config_dict)
         extra_json = json.dumps(extra)
         if service_type == "google_ads" and config_dict.get("login_customer_id"):
