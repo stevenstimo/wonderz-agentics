@@ -549,17 +549,23 @@ async def list_integrations(
                 """,
                 current_user.user_id,
             )
-    return [
-        {
+    out = []
+    for r in rows:
+        extra = r["extra_config"]
+        if isinstance(extra, str):
+            try:
+                extra = json.loads(extra)
+            except Exception:
+                extra = {}
+        out.append({
             "id": str(r.get("integration_id") or r.get("id", "")),
             "integration_type": r["integration_type"],
             "api_key_masked": _mask_key(r["api_key_encrypted"]),
-            "extra_config": _sanitize_extra_config(r["extra_config"], r["integration_type"]),
+            "extra_config": _sanitize_extra_config(extra, r["integration_type"]),
             "created_at": r.get("created_at").isoformat() if r.get("created_at") else None,
             "updated_at": r.get("updated_at").isoformat() if r.get("updated_at") else None,
-        }
-        for r in rows
-    ]
+        })
+    return out
 
 
 @router.get("/{integration_type}")
@@ -581,11 +587,17 @@ async def get_integration(
         )
     if not row:
         raise HTTPException(status_code=404, detail="Integration not found")
+    extra = row["extra_config"]
+    if isinstance(extra, str):
+        try:
+            extra = json.loads(extra)
+        except Exception:
+            extra = {}
     return {
         "id": str(row.get("integration_id") or row.get("id", "")),
         "integration_type": row["integration_type"],
         "api_key_masked": _mask_key(row["api_key_encrypted"]),
-        "extra_config": _sanitize_extra_config(row["extra_config"], row["integration_type"]),
+        "extra_config": _sanitize_extra_config(extra, row["integration_type"]),
         "created_at": row.get("created_at").isoformat() if row.get("created_at") else None,
         "updated_at": row.get("updated_at").isoformat() if row.get("updated_at") else None,
     }
@@ -611,7 +623,18 @@ async def upsert_integration(
             integration_type,
         )
         api_key = body.api_key if body.api_key else (existing["api_key_encrypted"] if existing else None)
-        extra_config = body.extra_config if body.extra_config is not None else ((existing["extra_config"] or {}) if existing else {})
+        if body.extra_config is not None:
+            extra_config = body.extra_config
+        elif existing:
+            extra = existing["extra_config"]
+            if isinstance(extra, str):
+                try:
+                    extra = json.loads(extra)
+                except Exception:
+                    extra = {}
+            extra_config = extra or {}
+        else:
+            extra_config = {}
         extra_config_json = json.dumps(extra_config) if isinstance(extra_config, dict) else extra_config
         if existing:
             await conn.execute(

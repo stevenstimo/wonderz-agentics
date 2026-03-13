@@ -183,7 +183,13 @@ async def get_ads_accounts(
         )
     if not row:
         raise HTTPException(status_code=404, detail="Google Ads not connected for this client")
-    refresh = _get_refresh_token(row["api_key_encrypted"], row["extra_config"])
+    extra = row["extra_config"]
+    if isinstance(extra, str):
+        try:
+            extra = json.loads(extra)
+        except Exception:
+            extra = {}
+    refresh = _get_refresh_token(row["api_key_encrypted"], extra)
     if not refresh:
         raise HTTPException(status_code=401, detail="token_expired")
     try:
@@ -519,7 +525,13 @@ async def get_client_dashboard(
     if not ads_int:
         result["google_ads"] = {"not_connected": True}
     else:
-        refresh = _get_refresh_token(ads_int["api_key_encrypted"], ads_int["extra_config"])
+        extra = ads_int.get("extra_config")
+        if isinstance(extra, str):
+            try:
+                extra = json.loads(extra)
+            except Exception:
+                extra = {}
+        refresh = _get_refresh_token(ads_int["api_key_encrypted"], extra)
         if not refresh:
             result["google_ads"] = {"not_connected": True}
         elif not customer_id:
