@@ -258,7 +258,7 @@ async def trigger_run_intake(job_id: str):
     logger.info("run-intake endpoint called for job %s", job_id)
     pool = await get_db()
     async with pool.acquire() as conn:
-        job = await conn.fetchrow("SELECT id, status, job_post, context FROM jobs WHERE id=$1", job_id)
+        job = await conn.fetchrow("SELECT * FROM jobs WHERE id=$1", job_id)
         if not job:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
         if job["status"] != JobStatus.INTAKE_CLARIFICATION.value:
@@ -267,7 +267,7 @@ async def trigger_run_intake(job_id: str):
                 detail=f"Run intake only when status is INTAKE_CLARIFICATION (current: {job['status']})",
             )
         job_post = job.get("job_post") or ""
-        ctx = job.get("context")
+        ctx = job.get("payload") or job.get("context")
         if ctx and isinstance(ctx, dict) and ctx.get("job_post"):
             job_post = ctx["job_post"] or job_post
         elif ctx and isinstance(ctx, str):
@@ -305,11 +305,14 @@ def _coerce_context(raw) -> dict:
 
 
 def _job_for_response(job_row) -> dict:
-    """Prepare job dict for API response: inject job_number from job_number_int into context."""
+    """Prepare job dict for API response: inject job_number from job_number_int into context.
+    Uses payload or context (production may have payload only) so UI gets a single context object.
+    """
     d = dict(job_row)
     d.pop("file_artifact_path", None)  # Don't expose server path to frontend
     jni = d.get("job_number_int")
-    ctx = _coerce_context(d.get("context"))
+    raw_ctx = d.get("payload") or d.get("context")
+    ctx = _coerce_context(raw_ctx)
     if jni is not None:
         ctx["job_number"] = f"{jni:04d}"
     elif "job_number" not in ctx:
@@ -376,7 +379,7 @@ async def send_chat_message(
 
     pool = await get_db()
     async with pool.acquire() as conn:
-        job = await conn.fetchrow("SELECT id, status, context FROM jobs WHERE id=$1", job_id)
+        job = await conn.fetchrow("SELECT * FROM jobs WHERE id=$1", job_id)
         if not job:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
         status_val = job["status"]
@@ -387,8 +390,9 @@ async def send_chat_message(
         except Exception:
             pass
         # #endregion
+        job_ctx = job.get("payload") or job.get("context")
         if status_val == JobStatus.INTAKE_CLARIFICATION.value:
-            ctx = _coerce_context(job["context"])
+            ctx = _coerce_context(job_ctx)
             chat_history = list(ctx.get("chat_history") or [])
             user_entry = {"role": "user", "content": msg}
             if attachment_info:
@@ -409,7 +413,7 @@ async def send_chat_message(
             }
         if status_val == JobStatus.RUNNING.value:
             from app.services.job_pipeline import ceo_reply_during_run
-            ctx = _coerce_context(job["context"])
+            ctx = _coerce_context(job_ctx)
             chat_history = list(ctx.get("chat_history") or [])
             user_entry = {"role": "user", "content": msg}
             if attachment_info:
@@ -544,7 +548,7 @@ async def approve_plan(
     pool = await get_db()
     
     async with pool.acquire() as conn:
-        job = await conn.fetchrow("SELECT id, status, context FROM jobs WHERE id=$1", job_id)
+        job = await conn.fetchrow("SELECT * FROM jobs WHERE id=$1", job_id)
         if not job:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -600,19 +604,19 @@ async def approve_plan(
                 JobStatus.RUNNING.value,
                 job_id,
             )
-        context = _coerce_context(job["context"])
+        context = _coerce_context(job.get("payload") or job.get("context"))
         use_nexus = os.getenv("USE_NEXUS_PIPELINE", "false").lower() == "true"
         if use_nexus:
             import asyncio
             from app.orchestration.nexus_pipeline import NEXUSPipeline
             row = await pool.fetchrow(
-                "SELECT user_id, job_post, source_platform, token_budget FROM jobs WHERE id=$1",
+                "SELECT * FROM jobs WHERE id=$1",
                 job_id,
             )
             user_id = str(row["user_id"]) if row and row.get("user_id") else ""
             job_post = (row["job_post"] or "") if row else ""
             platform = (row["source_platform"] or "browser") if row else "browser"
-            token_budget = int(row["token_budget"] or 50000) if row else 50000
+            token_budget = int(row.get("token_budget") or 50000) if row else 50000
             pipeline = NEXUSPipeline()
             asyncio.create_task(
                 pipeline.run(job_id, user_id, platform, job_post, token_budget, pool=pool)
@@ -707,7 +711,7 @@ async def submit_feedback(
     
     try:
         async with pool.acquire() as conn:
-            job = await conn.fetchrow("SELECT id, status, context FROM jobs WHERE id=$1", job_id)
+            job = await conn.fetchrow("SELECT * FROM jobs WHERE id=$1", job_id)
             if not job:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
@@ -720,7 +724,7 @@ async def submit_feedback(
                     detail=f"Job is not ready for feedback (status: {job['status']})"
                 )
             
-            ctx = _coerce_context(job.get("context"))
+            ctx = _coerce_context(job.get("payload") or job.get("context"))
             chat_history = list(ctx.get("chat_history") or [])
             chat_history.append({"role": "user", "content": req.feedback})
             await _update_job_context(
@@ -786,9 +790,9 @@ async def approve_and_deploy(
             logger.info(f"Deploying artifacts for job {job_id}")
             deploy_result = await deployment_service.deploy_job(conn, job_id)
             
-            # Update job status to COMPLETED (status only; context may be text, so avoid jsonb_set)
+            # Update job status to COMPLETED and set finished_at (production schema)
             await conn.execute(
-                "UPDATE jobs SET status=$1, updated_at=now() WHERE id=$2",
+                "UPDATE jobs SET status=$1, updated_at=now(), finished_at=now() WHERE id=$2",
                 JobStatus.COMPLETED.value,
                 job_id,
             )
@@ -818,24 +822,25 @@ async def list_jobs(status: Optional[str] = None, source: Optional[str] = None, 
     pool = await get_db()
     async with pool.acquire() as conn:
         use_source = source in ("browser", "email")
+        # SELECT * so both schema variants work (context and/or payload; production may have payload only)
         if status and use_source:
             rows = await conn.fetch(
-                "SELECT id, user_id, job_post, status, source_platform, created_at, updated_at, tokens_used, token_budget, context, job_number_int FROM jobs WHERE status=$1 AND intake_source=$2 ORDER BY created_at DESC LIMIT $3",
+                "SELECT * FROM jobs WHERE status=$1 AND intake_source=$2 ORDER BY created_at DESC LIMIT $3",
                 status, source, limit
             )
         elif status:
             rows = await conn.fetch(
-                "SELECT id, user_id, job_post, status, source_platform, created_at, updated_at, tokens_used, token_budget, context, job_number_int FROM jobs WHERE status=$1 ORDER BY created_at DESC LIMIT $2",
+                "SELECT * FROM jobs WHERE status=$1 ORDER BY created_at DESC LIMIT $2",
                 status, limit
             )
         elif use_source:
             rows = await conn.fetch(
-                "SELECT id, user_id, job_post, status, source_platform, created_at, updated_at, tokens_used, token_budget, context, job_number_int FROM jobs WHERE intake_source=$1 ORDER BY created_at DESC LIMIT $2",
+                "SELECT * FROM jobs WHERE intake_source=$1 ORDER BY created_at DESC LIMIT $2",
                 source, limit
             )
         else:
             rows = await conn.fetch(
-                "SELECT id, user_id, job_post, status, source_platform, created_at, updated_at, tokens_used, token_budget, context, job_number_int FROM jobs ORDER BY created_at DESC LIMIT $1",
+                "SELECT * FROM jobs ORDER BY created_at DESC LIMIT $1",
                 limit
             )
     return [_job_for_response(r) for r in rows]

@@ -199,12 +199,14 @@ async def _run_step_agent_with_timeout(
 
 
 async def _update_job_context(conn, job_id: str, updates: Dict[str, Any]) -> Dict[str, Any]:
-    row = await conn.fetchrow("SELECT context FROM jobs WHERE id=$1", job_id)
-    current = _coerce_context(row.get("context") if row else None)
+    """Read from payload or context (production may have payload only), merge updates, write to payload."""
+    row = await conn.fetchrow("SELECT * FROM jobs WHERE id=$1", job_id)
+    raw = (row.get("payload") or row.get("context")) if row else None
+    current = _coerce_context(raw)
     current.update(updates)
     await conn.execute(
-        "UPDATE jobs SET context=$1::jsonb, updated_at=now() WHERE id=$2",
-        json.dumps(current, default=_json_default),
+        "UPDATE jobs SET payload=COALESCE(payload, '{}'::jsonb)||$1::jsonb, updated_at=now() WHERE id=$2",
+        json.dumps(updates, default=_json_default),
         job_id,
     )
     return current
