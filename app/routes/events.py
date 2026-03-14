@@ -1,6 +1,24 @@
 """Platform Spec V4 — Events API: GET /api/events voor traceability."""
+import json
 import logging
 from typing import Any, Optional
+
+
+def _coerce_payload(raw) -> dict:
+    """Unwrap potentially double-encoded JSONB payload to a dict."""
+    for _ in range(3):
+        if isinstance(raw, str):
+            try:
+                raw = json.loads(raw)
+            except (json.JSONDecodeError, TypeError):
+                return {}
+        else:
+            break
+    if isinstance(raw, dict):
+        return raw
+    if raw is None:
+        return {}
+    return {"value": raw}
 
 from fastapi import APIRouter, Depends, Query
 
@@ -70,7 +88,7 @@ async def list_events(
             "job_id": r.get("job_id"),
             "lesson_id": r.get("lesson_id"),
             "confidence_score": float(r["confidence_score"]) if r.get("confidence_score") is not None else None,
-            "payload": dict(r["payload"]) if r.get("payload") is not None else {},
+            "payload": _coerce_payload(r.get("payload")),
             "created_at": r["created_at"].isoformat() if r.get("created_at") else None,
         }
         for r in rows
