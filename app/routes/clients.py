@@ -1027,7 +1027,7 @@ async def list_datasources(
         client_id = await _client_id_for_slug(conn, slug, current_user.user_id)
         rows = await conn.fetch(
             """
-            SELECT id, name, source_type, status, chunks_created, finished_at
+            SELECT id, name, source_type, status, chunks_created, finished_at, file_name, error_detail
             FROM client_datasources
             WHERE client_id = $1
             ORDER BY created_at DESC
@@ -1042,6 +1042,8 @@ async def list_datasources(
             "status": r["status"],
             "chunks_created": r["chunks_created"],
             "finished_at": r["finished_at"].isoformat() if r["finished_at"] else None,
+            "file_name": r["file_name"],
+            "error_detail": r["error_detail"],
         }
         for r in rows
     ]

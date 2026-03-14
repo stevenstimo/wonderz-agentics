@@ -487,25 +487,25 @@ Unieke identificator:  [<g:id>              ]  bv. <g:id>
 ## Fase 6 — Verificatie
 
 ```bash
-# 1. Tabellen aanwezig
+# 1. Tabellen aanwezig (lokaal)
 psql "$DATABASE_URL" -c "SELECT COUNT(*) FROM client_datasources;"
 psql "$DATABASE_URL" -c "SELECT COUNT(*) FROM client_knowledge;"
 
-# 2. Test website crawl
+# 2. Test website crawl (Shelley — vereist token op server)
 curl -X POST http://localhost:8090/api/clients/<client_id>/datasources \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <token>" \
   -d '{"name": "Website Asured", "source_type": "website_crawl", "domain": "www.asured.nl"}'
 
-# Daarna process starten:
+# Daarna process starten (Shelley)
 curl -X POST http://localhost:8090/api/clients/<client_id>/datasources/<ds_id>/process \
   -H "Authorization: Bearer <token>"
 
-# 3. Status pollen
+# 3. Status pollen (Shelley)
 curl http://localhost:8090/api/clients/<client_id>/datasources/<ds_id>/status \
   -H "Authorization: Bearer <token>"
 
-# 4. Chunks in DB na done
+# 4. Chunks in DB na done (lokaal)
 psql "$DATABASE_URL" -c "
 SELECT source_url, COUNT(*) as chunks
 FROM client_knowledge
@@ -514,7 +514,7 @@ GROUP BY source_url
 ORDER BY chunks DESC LIMIT 10;
 "
 
-# 5. CEO context test — maak een job aan met @asured in de tekst
+# 5. CEO context test (Shelley) — maak een job aan met @asured in de tekst
 # Verwacht: CEO prompt bevat [CONTEXT] Client: Asured sectie
 ```
 

@@ -243,9 +243,7 @@ export default function ClientKnowledge() {
                   {ds.status === 'failed' && <XCircle className="w-4 h-4 text-red-600" />}
                   {ds.status === 'processing' && <Loader2 className="w-4 h-4 text-indigo-600 animate-spin" />}
                   {statusLabel(ds)}
-                  {ds.source_type === 'website_crawl' && ds.domain && ` · ${ds.domain}`}
-                  {ds.source_type === 'website_sitemap' && ds.sitemap_url && ` · sitemap`}
-                  {ds.source_type === 'file' && ds.file_name && ` · ${ds.file_name}`}
+                  {ds.file_name && ` · ${ds.file_name}`}
                 </p>
                 {ds.error_detail && (
                   <p className="text-xs mt-1 text-amber-700 bg-amber-50 px-2 py-1 rounded">{ds.error_detail}</p>
