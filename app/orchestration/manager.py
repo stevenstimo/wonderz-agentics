@@ -11,6 +11,9 @@ from models.unified import JobStatus, StrategicBrief, ExecutionPlan
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
+# Max intake clarification rounds before logging intake_loop_detected (platform monitoring)
+MAX_INTAKE_ROUNDS = 5
+
 
 def _json_default(obj: Any) -> Any:
     """For json.dumps: handle non-JSON-serializable values (e.g. datetime)."""
@@ -125,6 +128,22 @@ class OperationsManager:
             else:
                 # Ask next round of questions
                 round_number = await self._next_clarification_round(conn, job_id)
+                if round_number >= MAX_INTAKE_ROUNDS:
+                    try:
+                        from app.services.system_events_service import get_system_events, SystemEventsService
+                        svc = get_system_events()
+                        if svc:
+                            await svc.log_event(
+                                event_type=SystemEventsService.INTAKE_LOOP_DETECTED,
+                                severity=SystemEventsService.WARNING,
+                                job_id=job_id,
+                                agent_id="agent:ceo",
+                                message=f"Intake loop gestopt na {round_number} rondes voor job {job_id}",
+                                details={"rounds": round_number, "max_rounds": MAX_INTAKE_ROUNDS},
+                            )
+                    except Exception as _log:
+                        import logging
+                        logging.getLogger(__name__).debug("System event log (intake loop) skipped: %s", _log)
                 await self._store_clarifications(conn, job_id, brief.clarifications, round_number=round_number)
                 await self.update_job_status(conn, job_id, JobStatus.INTAKE_CLARIFICATION.value)
                 await self.write_job_step(

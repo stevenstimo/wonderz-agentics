@@ -64,10 +64,20 @@ class ClientCrawler:
             soup = BeautifulSoup(html, "html.parser")
             for tag in soup(["script", "style", "nav", "footer", "header"]):
                 tag.decompose()
-            # Prefer main, article, section over body
-            body = soup.find("main") or soup.find("article") or soup.find("section") or soup.find("body")
-            text = (body.get_text(separator="\n", strip=True) if body else soup.get_text(separator="\n", strip=True)) or ""
+            # Prefer main, article, section; fallback to body if empty or too short
+            content_el = soup.find("main") or soup.find("article") or soup.find("section")
+            if content_el:
+                text = (content_el.get_text(separator="\n", strip=True) or "").strip()
+            else:
+                text = ""
+            if not text or len(text) < MIN_TEXT_LEN:
+                body_el = soup.find("body")
+                if body_el:
+                    text = (body_el.get_text(separator="\n", strip=True) or "").strip()
+                else:
+                    text = (soup.get_text(separator="\n", strip=True) or "").strip()
             text = re.sub(r"\s+", " ", text).strip()
+            logger.info("Page %s: extracted %s chars", url, len(text))
             if len(text) < MIN_TEXT_LEN:
                 return None
             title_tag = soup.find("title")
@@ -182,6 +192,7 @@ class ClientCrawler:
         pages_found = len(urls)
         pages_processed = 0
         chunks_created = 0
+        pages_skipped_short = 0
 
         async with self.pool.acquire() as conn:
             await conn.execute(
@@ -194,6 +205,7 @@ class ClientCrawler:
             await asyncio.sleep(0.5)
             result = await self._process_url(url)
             if not result:
+                pages_skipped_short += 1
                 continue
             chunks = self._chunk_text(result["text"])
             if not chunks:
@@ -213,14 +225,18 @@ class ClientCrawler:
                     self.datasource_id,
                 )
 
+        error_detail = None
+        if pages_skipped_short > 0:
+            error_detail = f"{pages_skipped_short} pagina's overgeslagen (minder dan 100 tekens)."
         async with self.pool.acquire() as conn:
             await conn.execute(
                 """
                 UPDATE client_datasources
-                SET status = 'done', finished_at = now(), updated_at = now()
+                SET status = 'done', finished_at = now(), updated_at = now(), error_detail = $2
                 WHERE id = $1
                 """,
                 self.datasource_id,
+                error_detail,
             )
         return {
             "pages_found": pages_found,
@@ -248,6 +264,7 @@ class ClientCrawler:
         pages_found = len(urls)
         pages_processed = 0
         chunks_created = 0
+        pages_skipped_short = 0
 
         async with self.pool.acquire() as conn:
             await conn.execute(
@@ -260,6 +277,7 @@ class ClientCrawler:
             await asyncio.sleep(0.5)
             result = await self._process_url(url)
             if not result:
+                pages_skipped_short += 1
                 continue
             chunks = self._chunk_text(result["text"])
             if not chunks:
@@ -279,14 +297,18 @@ class ClientCrawler:
                     self.datasource_id,
                 )
 
+        error_detail = None
+        if pages_skipped_short > 0:
+            error_detail = f"{pages_skipped_short} pagina's overgeslagen (minder dan 100 tekens)."
         async with self.pool.acquire() as conn:
             await conn.execute(
                 """
                 UPDATE client_datasources
-                SET status = 'done', finished_at = now(), updated_at = now()
+                SET status = 'done', finished_at = now(), updated_at = now(), error_detail = $2
                 WHERE id = $1
                 """,
                 self.datasource_id,
+                error_detail,
             )
         return {
             "pages_found": pages_found,

@@ -198,6 +198,7 @@ export default function JobSplitView() {
   const [chatAttachedFile, setChatAttachedFile] = useState(null)
   const chatFileInputRef = useRef(null)
   const [events, setEvents] = useState([])
+  const [jobSystemEvents, setJobSystemEvents] = useState([])
   const [serverKeys, setServerKeys] = useState(null)
   const [clients, setClients] = useState([])
   const [mentionSuggestions, setMentionSuggestions] = useState([])
@@ -288,6 +289,15 @@ export default function JobSplitView() {
       .then((res) => (res.ok ? res.json() : { events: [] }))
       .then((d) => setEvents(d.events || []))
       .catch(() => setEvents([]))
+  }, [jobId])
+
+  // Platform system events for this job (Optie C: job-detail view)
+  useEffect(() => {
+    if (!jobId) return
+    apiFetch(`/api/jobs/${jobId}/system-events`)
+      .then((res) => (res.ok ? res.json() : { events: [] }))
+      .then((d) => setJobSystemEvents(d.events || []))
+      .catch(() => setJobSystemEvents([]))
   }, [jobId])
 
   // Derived values before any useEffect that uses them (avoids TDZ: job was used in deps before declaration)
@@ -1232,6 +1242,22 @@ export default function JobSplitView() {
             )}
 
             {events?.length > 0 && <EventTimeline events={events} />}
+
+            {jobSystemEvents?.length > 0 && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-4 mt-4">
+                <h3 className="text-sm font-medium text-slate-700 mb-3">Platform Events ({jobSystemEvents.length})</h3>
+                <ul className="space-y-2">
+                  {jobSystemEvents.map((evt) => (
+                    <li key={evt.event_id} className="text-sm">
+                      <span className="font-medium text-slate-800">{evt.event_type}</span>: {evt.message}
+                      <span className="ml-2 text-xs text-slate-500">
+                        {evt.created_at ? new Date(evt.created_at).toLocaleString('nl-NL') : ''}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             {job?.status && !['INTAKE_CLARIFICATION', 'PLAN_PROPOSED', 'RUNNING', 'JOB_READY', 'COMPLETED', 'FAILED'].includes(job.status) && (
               <p className="text-slate-600 text-sm">Status: <strong>{job.status}</strong>. No specific view for this status.</p>

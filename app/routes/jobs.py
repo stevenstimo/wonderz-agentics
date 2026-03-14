@@ -873,6 +873,17 @@ async def download_job_artifact(job_id: str):
     )
 
 
+@router.get("/{job_id}/system-events")
+async def get_job_system_events(job_id: str, request: Request):
+    """Events voor een specifieke job. Gebruikt door de job-detail view."""
+    job_id = _validate_job_id(job_id)
+    svc = getattr(request.app.state, "system_events", None)
+    if not svc:
+        return {"events": [], "count": 0}
+    events = await svc.get_events(job_id=job_id)
+    return {"events": events, "count": len(events)}
+
+
 @router.get("/{job_id}")
 async def get_job(job_id: str):
     """

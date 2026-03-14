@@ -80,10 +80,39 @@ class NEXUSPipeline:
             await self.phase_7_deploy(ctx)
         except BudgetExceededError:
             ctx.error = "token_budget_exceeded"
+            try:
+                from app.services.system_events_service import get_system_events, SystemEventsService
+                svc = get_system_events()
+                if svc:
+                    await svc.log_event(
+                        event_type=SystemEventsService.TOKEN_BUDGET_EXCEEDED,
+                        severity=SystemEventsService.CRITICAL,
+                        job_id=ctx.job_id,
+                        agent_id="agent:ceo",
+                        message=f"Token budget overschreden voor job {ctx.job_id}: {getattr(ctx, 'token_used_total', 0)}/{ctx.token_budget}",
+                        details={"token_count": getattr(ctx, "token_used_total", 0), "budget": ctx.token_budget},
+                    )
+            except Exception as _log:
+                logger.debug("System event log (token budget) skipped: %s", _log)
             await self._update_job_status(ctx.job_id, "FAILED", ctx)
         except Exception as e:
             ctx.error = str(e)
             logger.error("Pipeline fout job %s: %s", job_id, e, exc_info=True)
+            try:
+                import traceback
+                from app.services.system_events_service import get_system_events, SystemEventsService
+                svc = get_system_events()
+                if svc:
+                    await svc.log_event(
+                        event_type=SystemEventsService.ORCHESTRATOR_ERROR,
+                        severity=SystemEventsService.ERROR,
+                        job_id=job_id,
+                        agent_id="agent:ceo",
+                        message=f"CEO kon geen plan genereren voor job {job_id}",
+                        details={"error": str(e), "traceback": traceback.format_exc()},
+                    )
+            except Exception as _log:
+                logger.debug("System event log (orchestrator error) skipped: %s", _log)
             await self._update_job_status(ctx.job_id, "FAILED", ctx)
         return ctx
 

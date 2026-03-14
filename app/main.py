@@ -24,7 +24,11 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup: init DB pool, then start EmailPoller if Gmail credentials set. Shutdown: close pool."""
-    await init_db_pool()
+    pool = await init_db_pool()
+    if pool:
+        from app.services.system_events_service import SystemEventsService, set_global_instance
+        app.state.system_events = SystemEventsService(pool)
+        set_global_instance(app.state.system_events)
     gmail_address = (os.getenv("GMAIL_ADDRESS") or "").strip()
     app_password = (os.getenv("GMAIL_APP_PASSWORD") or "").strip()
     if gmail_address and app_password:
@@ -103,6 +107,7 @@ from app.routes import (
     monitoring,
     settings,
     status,
+    system_events as system_events_routes,
     talents,
     training,
     gtm,
@@ -132,6 +137,7 @@ app.include_router(lessons.router)
 app.include_router(monitoring.router)
 app.include_router(settings.router)
 app.include_router(status.router)
+app.include_router(system_events_routes.router)
 app.include_router(talents.router)
 app.include_router(training.router)
 app.include_router(gtm.router)

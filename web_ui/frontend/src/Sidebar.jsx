@@ -20,6 +20,7 @@ import {
   BookMarked,
   ClipboardList,
   Activity,
+  AlertTriangle,
   Settings,
   Zap,
   Key,
@@ -78,6 +79,7 @@ const KNOWLEDGE_ITEMS = [
 
 const SYSTEM = [
   { label: 'Status', icon: Activity, path: '/status' },
+  { label: 'Platform Events', icon: AlertTriangle, path: '/system-events', badgeKey: 'systemEvents' },
   { label: 'Integrations', icon: Zap, path: '/integrations' },
   { label: 'API Keys', icon: Key, path: '/settings/api-keys' },
 ]
@@ -167,6 +169,7 @@ export default function Sidebar() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [inboxUnread, setInboxUnread] = useState(0)
   const [hrNotifications, setHrNotifications] = useState(0)
+  const [systemEventsCount, setSystemEventsCount] = useState(0)
 
   useEffect(() => {
     let active = true
@@ -204,6 +207,27 @@ export default function Sidebar() {
     }
     fetchHrNotifications()
     const interval = setInterval(fetchHrNotifications, 60000)
+    return () => {
+      active = false
+      clearInterval(interval)
+    }
+  }, [])
+
+  useEffect(() => {
+    let active = true
+    const fetchSystemEvents = async () => {
+      try {
+        const res = await apiFetch('/api/system-events?unresolved_only=true&limit=50')
+        if (res.ok && active) {
+          const data = await res.json()
+          setSystemEventsCount(data.count ?? 0)
+        }
+      } catch {
+        if (active) setSystemEventsCount(0)
+      }
+    }
+    fetchSystemEvents()
+    const interval = setInterval(fetchSystemEvents, 30000)
     return () => {
       active = false
       clearInterval(interval)
@@ -313,9 +337,16 @@ export default function Sidebar() {
             ))}
 
             <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 px-3 mt-4 mb-2">System</div>
-            <NavItem item={SYSTEM[0]} />
-            {canManageSettings && <NavItem item={SYSTEM[1]} />}
-            <NavItem item={SYSTEM[2]} />
+            {SYSTEM.map((item) =>
+              item.path === '/integrations' && !canManageSettings ? null : (
+                <NavItem
+                  key={item.path}
+                  item={item}
+                  badge={item.badgeKey === 'systemEvents' ? systemEventsCount : undefined}
+                  badgeRed={item.badgeKey === 'systemEvents' && systemEventsCount > 0}
+                />
+              )
+            )}
           </nav>
 
           {/* User profile at bottom */}

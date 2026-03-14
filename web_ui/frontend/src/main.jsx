@@ -32,6 +32,7 @@ import ClientDashboardPage from './ClientDashboardPage.jsx'
 import ClientIntegrations from './ClientIntegrations.jsx'
 import ClientKnowledge from './ClientKnowledge.jsx'
 import Status from './Status.jsx'
+import SystemEventsPage from './pages/SystemEventsPage.jsx'
 import MyAccount from './MyAccount.jsx'
 import HiringHall from './HiringHall.jsx'
 import JobSplitView from './JobSplitView.jsx'
@@ -136,6 +137,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <Route path="knowledge" element={<ClientKnowledge />} />
           </Route>
           <Route path="/status" element={<Status />} />
+          <Route path="/system-events" element={<SystemEventsPage />} />
           <Route path="/my-account" element={<MyAccount />} />
           <Route path="/devbot/dave" element={<DaveDevConsole />} />
         </Route>

@@ -1006,6 +1006,20 @@ async def run_job_inline(job_id: str, context_extra: Optional[dict] = None):
                         "Job %s stopped: token budget exceeded (%s)",
                         job_id, check.get("reason", "unknown"),
                     )
+                    try:
+                        from app.services.system_events_service import get_system_events, SystemEventsService
+                        svc = get_system_events()
+                        if svc:
+                            await svc.log_event(
+                                event_type=SystemEventsService.TOKEN_BUDGET_EXCEEDED,
+                                severity=SystemEventsService.CRITICAL,
+                                job_id=job_id,
+                                agent_id="agent:ceo",
+                                message=f"Token budget overschreden voor job {job_id}: {check.get('used', 0)}/{check.get('budget', 0)}",
+                                details={"token_count": check.get("used"), "budget": check.get("budget")},
+                            )
+                    except Exception as _log:
+                        logger.debug("System event log (token budget) skipped: %s", _log)
                     await _update_job_context(conn, job_id, {
                         "token_budget_exceeded": True,
                         "tokens_used": check.get("used"),
@@ -1252,6 +1266,24 @@ async def run_job_inline(job_id: str, context_extra: Optional[dict] = None):
                                 ceo_msg,
                                 step_id,
                             )
+                            try:
+                                from app.services.system_events_service import get_system_events, SystemEventsService
+                                svc = get_system_events()
+                                if svc:
+                                    await svc.log_event(
+                                        event_type=SystemEventsService.VALIDATION_LOOP,
+                                        severity=SystemEventsService.ERROR,
+                                        job_id=job_id,
+                                        agent_id=step_agent_id or agent_role or "agent:talent",
+                                        message=f"Agent heeft 3x een rejected output geproduceerd voor job {job_id}",
+                                        details={
+                                            "retry_count": step_retries + 1,
+                                            "last_feedback": talent_result.get("blocking_issues"),
+                                            "step_id": str(step_id),
+                                        },
+                                    )
+                            except Exception as _log:
+                                logger.debug("System event log (validation loop) skipped: %s", _log)
                             # V4: Event model — TASK_REJECTED na 3 pogingen (fire-and-forget)
                             try:
                                 from app.services.event_emitter import EventEmitter, EventType
