@@ -6,7 +6,7 @@ import re
 import uuid
 from datetime import datetime
 from typing import Optional, List, Dict, Set, Any
-from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, BackgroundTasks
 from fastapi.responses import JSONResponse
 
 from app.middleware.auth import require_admin_or_super_admin, require_super_admin, get_current_user
@@ -133,6 +133,12 @@ class ApproveTrainingRequest(BaseModel):
 
 class ResolveRequest(BaseModel):
     resolution: str
+
+
+class AddKnowledgeSourceRequest(BaseModel):
+    source_type: str  # 'url' | 'text' | 'file'
+    source_url: Optional[str] = None
+    source_text: Optional[str] = None
 
 
 class ResolveHiringRequest(BaseModel):
@@ -369,6 +375,7 @@ async def get_development_point_detail(point_id: str):
             "impact": (dp_row.get("impact") or "low").lower(),
             "status": (dp_row.get("status") or "OPEN").upper(),
             "proposed_by": dp_row.get("proposed_by"),
+            "source_url": dp_row.get("source_url"),
             "confidence_score": confidence,
             "created_at": dp_row["created_at"].isoformat() if dp_row.get("created_at") and hasattr(dp_row["created_at"], "isoformat") else None,
             "resolved_at": dp_row["resolved_at"].isoformat() if dp_row.get("resolved_at") and hasattr(dp_row["resolved_at"], "isoformat") else None,
@@ -1107,6 +1114,69 @@ async def submit_for_approval(point_id: str):
     if result == "UPDATE 0":
         raise HTTPException(status_code=404, detail="Point niet gevonden of niet in status OPEN")
     return {"submitted": True, "point_id": point_id}
+
+
+@router.post("/development-points/{point_id}/knowledge-source", dependencies=[Depends(get_current_user)])
+async def add_knowledge_source(
+    point_id: str,
+    body: AddKnowledgeSourceRequest,
+):
+    """Sla een kennisbron op bij een development point (URL of tekst als data-URI in source_url)."""
+    import base64
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        point = await conn.fetchrow(
+            "SELECT point_id FROM development_points WHERE point_id = $1 OR id::text = $1",
+            point_id,
+        )
+        if not point:
+            raise HTTPException(status_code=404, detail="Development point niet gevonden")
+        point_id = str(point["point_id"])
+
+        if body.source_type == "url" and body.source_url:
+            update_value = body.source_url
+        elif body.source_type == "text" and body.source_text:
+            encoded = base64.b64encode(body.source_text.encode("utf-8")).decode("ascii")
+            update_value = f"data:text/plain;base64,{encoded}"
+        else:
+            raise HTTPException(status_code=400, detail="source_url of source_text vereist")
+
+        await conn.execute(
+            "UPDATE development_points SET source_url = $1, updated_at = now() WHERE point_id = $2",
+            update_value,
+            point_id,
+        )
+    return {"saved": True, "point_id": point_id, "source_type": body.source_type}
+
+
+@router.post("/development-points/{point_id}/knowledge-source/file", dependencies=[Depends(get_current_user)])
+async def add_knowledge_source_file(
+    point_id: str,
+    file: UploadFile = File(...),
+):
+    """Bestandsupload als kennisbron (opgeslagen als data-URI in source_url)."""
+    import base64
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        point = await conn.fetchrow(
+            "SELECT point_id FROM development_points WHERE point_id = $1 OR id::text = $1",
+            point_id,
+        )
+        if not point:
+            raise HTTPException(status_code=404, detail="Development point niet gevonden")
+        point_id = str(point["point_id"])
+
+        content = await file.read()
+        encoded = base64.b64encode(content).decode("ascii")
+        media_type = file.content_type or "application/octet-stream"
+        data_uri = f"data:{media_type};base64,{encoded}"
+
+        await conn.execute(
+            "UPDATE development_points SET source_url = $1, updated_at = now() WHERE point_id = $2",
+            data_uri,
+            point_id,
+        )
+    return {"saved": True, "point_id": point_id, "filename": file.filename}
 
 
 @router.post("/development-points/{point_id}/approve", dependencies=[Depends(get_current_user)])

@@ -253,7 +253,7 @@ export default function ClientKnowledge() {
           datasources.map((ds) => (
             <div
               key={ds.id}
-              className={`p-4 flex items-center gap-4 ${ds.error_detail?.startsWith('Sitemap index:') ? 'pl-8 border-l-4 border-indigo-200 bg-indigo-50/50' : ''}`}
+              className={`p-4 flex items-center gap-4 ${ds.error_detail?.startsWith('Sitemap index:') ? 'pl-8 ml-2 border-l-4 border-indigo-200 bg-indigo-50/50' : ''}`}
             >
               <SourceIcon type={ds.source_type} />
               <div className="flex-1 min-w-0">

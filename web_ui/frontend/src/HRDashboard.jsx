@@ -45,9 +45,6 @@ export default function HRDashboard() {
   const [filterStatus, setFilterStatus] = useState('')
   const [report, setReport] = useState(null)
   const [reportLoading, setReportLoading] = useState(false)
-  const [approveModal, setApproveModal] = useState(null)
-  const [approveUrl, setApproveUrl] = useState('')
-  const [approvingId, setApprovingId] = useState(null)
   const [resolveInput, setResolveInput] = useState({})
   const [expandedPointId, setExpandedPointId] = useState(null)
 
@@ -207,55 +204,8 @@ export default function HRDashboard() {
     }
   }
 
-  const handleApprove = async (id, url) => {
-    setApprovingId(id)
-    try {
-      const res = await apiFetch('/api/hr/approve-training', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          point_id: id,
-          approved: true,
-          source_url: url || undefined,
-          approved_by: 'hr-dashboard'
-        })
-      })
-      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || `HTTP ${res.status}`)
-      setApproveModal(null)
-      setApproveUrl('')
-      if (tab === 'training') loadTrainingRequests()
-      else loadPoints()
-    } catch (err) {
-      setError(err.message || 'Goedkeuren mislukt')
-    } finally {
-      setApprovingId(null)
-    }
-  }
-
-  /** Development Points tab only: dismiss point via dedicated endpoint. */
-  async function handleDismiss(pointId) {
-    if (tab !== 'points') return
-    try {
-      const res = await apiFetch(`/api/hr/development-points/${pointId}/dismiss`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: '{}',
-      })
-      if (res?.status === 404) {
-        setApproveModal(null)
-        await loadPoints()
-        return
-      }
-      setApproveModal(null)
-      await loadPoints()
-    } catch {
-      setError('Afwijzen mislukt')
-    }
-  }
-
   async function approveTraining(id) {
-    setApprovingId(id)
-    const sourceUrl = trainingUrlInput[id] || approveUrl || ''
+    const sourceUrl = trainingUrlInput[id] || ''
     const body = tab === 'training'
       ? { request_id: id, approved: true, source_url: sourceUrl || undefined, approved_by: 'hr-dashboard' }
       : { point_id: id, approved: true, source_url: sourceUrl || undefined, approved_by: 'hr-dashboard' }
@@ -267,14 +217,10 @@ export default function HRDashboard() {
       })
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || 'Request failed')
       setTrainingUrlInput((prev) => { const n = { ...prev }; delete n[id]; return n })
-      setApproveModal(null)
-      setApproveUrl('')
       if (tab === 'training') await loadTrainingRequests()
       else await loadPoints()
     } catch (err) {
       setError(err?.message || 'Goedkeuren mislukt')
-    } finally {
-      setApprovingId(null)
     }
   }
 
@@ -458,49 +404,6 @@ export default function HRDashboard() {
         )}
       </section>
 
-      {approveModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true">
-          <div className="rounded-xl bg-white p-6 shadow-xl max-w-md mx-4">
-            {approveUrl ? (
-              <p className="text-slate-500 text-xs mb-1">Aanbevolen door HR scan</p>
-            ) : null}
-            <p className="text-slate-700 mb-2">Trainings-URL (optioneel):</p>
-            <input
-              type="url"
-              value={approveUrl}
-              onChange={(e) => setApproveUrl(e.target.value)}
-              placeholder="https://..."
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm mb-4"
-            />
-            <div className="flex gap-2 justify-end">
-              <button
-                type="button"
-                onClick={() => handleApprove(approveModal, approveUrl)}
-                disabled={approvingId === approveModal}
-                className="rounded-lg px-4 py-2 bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-2"
-              >
-                {approvingId === approveModal ? (
-                  <>
-                    <span className="inline-block w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    Verwerken...
-                  </>
-                ) : (
-                  'Goedkeuren'
-                )}
-              </button>
-              <button
-                type="button"
-                onClick={() => setApproveModal(null)}
-                disabled={approvingId === approveModal}
-                className="rounded-lg px-4 py-2 border border-slate-300 text-slate-700 text-sm font-medium hover:bg-slate-50 disabled:opacity-50"
-              >
-                Annuleren
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Tab 1: Development Points */}
       {tab === 'points' && (
         <div>
@@ -559,7 +462,6 @@ export default function HRDashboard() {
                     const impactKey = (p.impact || 'medium').toLowerCase()
                     const statusKey = (p.status || 'OPEN').toUpperCase()
                     const pointId = p.point_id || p.id
-                    const showTrainingInput = trainingUrlInput[pointId] !== undefined && statusKey === 'AWAITING_APPROVAL'
                     const showResolveInput = resolveInput[pointId] !== undefined && (statusKey === 'IN_TRAINING' || statusKey === 'AWAITING_APPROVAL')
                     const isExpanded = expandedPointId === pointId
                     return (
@@ -594,67 +496,7 @@ export default function HRDashboard() {
                               >
                                 Detail →
                               </Link>
-                              {statusKey === 'OPEN' && (
-                                <>
-                                  <button
-                                    type="button"
-                                    onClick={() => { setApproveModal(p.id ?? pointId); setApproveUrl(p.suggested_url || '') }}
-                                    className="text-xs font-medium text-indigo-600 hover:underline"
-                                  >
-                                    Goedkeuren
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleDismiss(pointId)}
-                                    className="text-xs font-medium text-red-600 hover:underline"
-                                  >
-                                    Afwijzen
-                                  </button>
-                                </>
-                              )}
-                              {statusKey === 'AWAITING_APPROVAL' && !showTrainingInput && !showResolveInput && (
-                                <button
-                                  type="button"
-                                  onClick={() => setTrainingUrlInput((prev) => ({ ...prev, [pointId]: p.suggested_url || '' }))}
-                                  className="text-xs font-medium text-purple-600 hover:underline"
-                                >
-                                  Start Training
-                                </button>
-                              )}
-                              {showTrainingInput && (
-                                <div className="flex items-center gap-1">
-                                  <input
-                                    type="url"
-                                    placeholder="Source URL (optioneel)"
-                                    className="border border-slate-300 rounded px-2 py-1 text-xs w-48"
-                                    value={trainingUrlInput[pointId] || ''}
-                                    onChange={(e) => setTrainingUrlInput((prev) => ({ ...prev, [pointId]: e.target.value }))}
-                                  />
-                                  <button
-                                    type="button"
-                                    onClick={() => approveTraining(pointId)}
-                                    disabled={approvingId === pointId}
-                                    className="text-xs font-medium text-green-600 hover:underline disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1"
-                                  >
-                                    {approvingId === pointId ? (
-                                      <>
-                                        <span className="inline-block w-3 h-3 border-2 border-green-600 border-t-transparent rounded-full animate-spin" />
-                                        Verwerken...
-                                      </>
-                                    ) : (
-                                      'Bevestig'
-                                    )}
-                                  </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setTrainingUrlInput((prev) => { const n = { ...prev }; delete n[pointId]; return n })}
-                                  className="text-xs font-medium text-slate-400 hover:underline"
-                                >
-                                  Annuleer
-                                </button>
-                              </div>
-                            )}
-                            {(statusKey === 'IN_TRAINING' || statusKey === 'AWAITING_APPROVAL') && !showResolveInput && !showTrainingInput && (
+                              {(statusKey === 'IN_TRAINING' || statusKey === 'AWAITING_APPROVAL') && !showResolveInput && (
                                 <button
                                   type="button"
                                   onClick={() => setResolveInput((prev) => ({ ...prev, [pointId]: '' }))}

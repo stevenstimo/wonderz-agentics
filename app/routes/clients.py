@@ -1175,7 +1175,7 @@ async def start_process(
                     """
                     UPDATE client_datasources
                     SET status = 'done', finished_at = now(), updated_at = now(),
-                        error_detail = $2, chunks_created = 0
+                        error_detail = $2, chunks_created = 0, pages_found = 0, pages_processed = 0
                     WHERE id = $1
                     """,
                     datasource_id,
