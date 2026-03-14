@@ -30,6 +30,7 @@ import ClientsNew from './ClientsNew.jsx'
 import ClientDetailLayout from './ClientDetailLayout.jsx'
 import ClientDashboardPage from './ClientDashboardPage.jsx'
 import ClientIntegrations from './ClientIntegrations.jsx'
+import ClientKnowledge from './ClientKnowledge.jsx'
 import Status from './Status.jsx'
 import MyAccount from './MyAccount.jsx'
 import HiringHall from './HiringHall.jsx'
@@ -132,6 +133,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <Route index element={<Navigate to="dashboard" replace />} />
             <Route path="dashboard" element={<ClientDashboardPage />} />
             <Route path="integrations" element={<ClientIntegrations />} />
+            <Route path="knowledge" element={<ClientKnowledge />} />
           </Route>
           <Route path="/status" element={<Status />} />
           <Route path="/my-account" element={<MyAccount />} />

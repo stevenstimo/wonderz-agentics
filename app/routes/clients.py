@@ -3,7 +3,6 @@
 Uses clients.slug as identifier. client_platform_configs stores platform-specific IDs per client.
 """
 
-import asyncio
 import json
 import logging
 import os
@@ -1206,8 +1205,9 @@ async def upload_datasource_file(
     background_tasks.add_task(_run_file)
     async with pool.acquire() as conn:
         await conn.execute(
-            "UPDATE client_datasources SET status = 'processing', file_name = $1 WHERE id = $2",
+            "UPDATE client_datasources SET status = 'processing', file_name = $1, file_type = $2 WHERE id = $3",
             name,
+            ext,
             datasource_id,
         )
     return {"status": "processing", "file_name": name}

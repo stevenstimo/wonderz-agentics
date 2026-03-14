@@ -135,12 +135,102 @@ def _coerce_context(raw: Any) -> Dict[str, Any]:
 
 async def _load_job(conn, job_id: str):
     job = await conn.fetchrow(
-        "SELECT id, job_post, context, status, tokens_used FROM jobs WHERE id=$1",
+        "SELECT id, user_id, job_post, context, status, tokens_used FROM jobs WHERE id=$1",
         job_id,
     )
     if not job:
         raise ValueError(f"Job not found: {job_id}")
     return job
+
+
+# Client knowledge (client_knowledge table) — inject @client context for CEO
+CLIENT_CONTEXT_TEMPLATE = """
+## [CONTEXT] Client: {client_name}
+
+De volgende informatie is afkomstig van de kennisbronnen van {client_name}.
+Gebruik deze informatie als primaire bron. Verzin geen feiten die hier niet instaan.
+Als de context onvoldoende is, geef dit aan in je plan.
+
+{chunks}
+
+---
+## [TAAK]
+"""
+
+
+async def _build_client_knowledge_block(
+    pool,
+    user_id: str,
+    client_slug: str,
+    query: str,
+    match_count: int = 5,
+    similarity_threshold: float = 0.4,
+) -> str:
+    """
+    Retrieve client_knowledge chunks for the given client and query.
+    Returns formatted block for CEO prompt, or a note if no chunks above threshold.
+    """
+    if not user_id or not client_slug:
+        return ""
+    query_clean = (query or "").strip()[:8000]
+    if not query_clean:
+        query_clean = "algemene context"
+
+    try:
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT client_id, client_name FROM clients
+                WHERE user_id = $1 AND LOWER(slug) = $2
+                LIMIT 1
+                """,
+                user_id,
+                client_slug.lower(),
+            )
+            if not row:
+                return ""
+            client_id = row["client_id"]
+            client_name = row["client_name"] or client_slug
+
+        from app.services.training import generate_embedding
+        query_embedding = await generate_embedding(query_clean)
+        import json
+        emb_json = json.dumps(query_embedding)
+
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT ck.chunk_text, ck.source_url, ck.page_title,
+                       1 - (ck.embedding <=> $1::vector) AS similarity
+                FROM client_knowledge ck
+                WHERE ck.client_id = $2
+                  AND ck.is_active = true
+                  AND 1 - (ck.embedding <=> $1::vector) > $3
+                ORDER BY ck.embedding <=> $1::vector
+                LIMIT $4
+                """,
+                emb_json,
+                client_id,
+                similarity_threshold,
+                match_count,
+            )
+        if not rows:
+            return (
+                f"\n## [CONTEXT] Client: {client_name}\n\n"
+                "Er is geen relevante kennis beschikbaar voor deze client (geen chunks boven drempel).\n\n---\n\n"
+            )
+        chunks_formatted = []
+        for r in rows:
+            src = r["source_url"] or r["page_title"] or "—"
+            chunks_formatted.append(f'Bron ({src}): "{r["chunk_text"][:500]}{"..." if len(r["chunk_text"] or "") > 500 else ""}"')
+        chunks_block = "\n\n".join(chunks_formatted)
+        return CLIENT_CONTEXT_TEMPLATE.format(
+            client_name=client_name,
+            chunks=chunks_block,
+        ).replace("\n## [TAAK]\n", "\n")
+    except Exception as e:
+        logger.warning("Client knowledge retrieval failed for slug=%s: %s", client_slug, e)
+        return ""
 
 
 async def _save_checkpoint(conn, job_id: str, content: str, step_name: str) -> None:
@@ -606,6 +696,11 @@ async def run_intake_inline(job_id: str, job_post: str):
                 gsc_context = await get_client_seo_summary_for_agent(pool, str(job_row["user_id"]), client_slug)
                 client_name = existing_ctx.get("client_name") or ""
                 injected = (existing_ctx.get("injected_context") or "").strip()
+                client_knowledge_block = await _build_client_knowledge_block(
+                    pool, str(job_row["user_id"]), client_slug, job_post or "", match_count=5, similarity_threshold=0.4
+                )
+                if client_knowledge_block:
+                    injected = (injected + "\n\n" + client_knowledge_block).strip() if injected else client_knowledge_block
                 if injected or client_name:
                     client_info_block = (
                         "BESCHIKBARE CLIENT INFORMATIE:\n"
@@ -862,6 +957,17 @@ async def run_job_inline(job_id: str, context_extra: Optional[dict] = None):
 
             if knowledge_context.get("prompt_block"):
                 context["_knowledge_block"] = knowledge_context["prompt_block"]
+
+            # Client knowledge: inject @client chunks when client_slug is set
+            _client_slug = context.get("client_slug") or (isinstance(context.get("brief"), dict) and context.get("brief", {}).get("client_slug"))
+            _user_id = str(job.get("user_id") or "")
+            if _client_slug and _user_id:
+                _job_post = context.get("job_post") or job.get("job_post") or ""
+                client_block = await _build_client_knowledge_block(
+                    pool, _user_id, _client_slug, _job_post, match_count=5, similarity_threshold=0.4
+                )
+                if client_block:
+                    context["_knowledge_block"] = (client_block + "\n\n" + (context.get("_knowledge_block") or "")).strip()
 
             # V6: TASK_EVIDENCE_COLLECTED — eenmalig na retrieval-cyclus (sectie 7)
             total_chunks = knowledge_context.get("total_chunks") or 0

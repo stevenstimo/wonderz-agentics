@@ -17,7 +17,6 @@ import {
   FileText,
   Home,
   Building,
-  Building2,
   BookMarked,
   ClipboardList,
   Activity,
@@ -80,7 +79,6 @@ const KNOWLEDGE_ITEMS = [
 const SYSTEM = [
   { label: 'Status', icon: Activity, path: '/status' },
   { label: 'Integrations', icon: Zap, path: '/integrations' },
-  { label: 'Clients', icon: Building2, path: '/clients' },
   { label: 'API Keys', icon: Key, path: '/settings/api-keys' },
 ]
 

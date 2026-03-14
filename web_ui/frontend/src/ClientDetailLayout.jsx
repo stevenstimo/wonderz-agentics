@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link, useNavigate, useLocation, NavLink, Outlet } from 'react-router-dom'
 import PageLayout from './PageLayout'
-import { Building, ArrowLeft, BarChart3, Link2 } from 'lucide-react'
+import { Building, ArrowLeft, BarChart3, Link2, BookOpen } from 'lucide-react'
 import { apiFetch } from './apiClient'
 
 export default function ClientDetailLayout() {
@@ -119,6 +119,21 @@ export default function ClientDetailLayout() {
           <span className="inline-flex items-center gap-2">
             <Link2 className="w-4 h-4" />
             Integraties
+          </span>
+        </NavLink>
+        <NavLink
+          to={`${base}/knowledge`}
+          className={({ isActive }) =>
+            `px-4 py-2.5 text-sm font-medium rounded-t-lg transition ${
+              isActive
+                ? 'bg-white border border-slate-200 border-b-0 -mb-px text-indigo-600'
+                : 'text-slate-600 hover:text-slate-800 hover:bg-slate-50'
+            }`
+          }
+        >
+          <span className="inline-flex items-center gap-2">
+            <BookOpen className="w-4 h-4" />
+            Kennisbronnen
           </span>
         </NavLink>
       </nav>
