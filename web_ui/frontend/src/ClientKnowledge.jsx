@@ -124,16 +124,23 @@ export default function ClientKnowledge() {
     setSubmitting(true)
     setError('')
     try {
+      const name = (form.name ?? '').trim() || form.source_type
       const body = {
-        name: form.name.trim() || form.source_type,
+        name,
         source_type: form.source_type,
-        domain: form.source_type === 'website_crawl' ? (form.domain || '').trim() || undefined : undefined,
-        sitemap_url: form.source_type === 'website_sitemap' ? (form.sitemap_url || '').trim() || undefined : undefined,
-        raw_text: form.source_type === 'text' ? (form.raw_text || '').trim() || undefined : undefined,
-        feed_url: form.source_type === 'product_feed' ? (form.feed_url || '').trim() || undefined : undefined,
-        feed_splitting_tag: form.source_type === 'product_feed' ? (form.feed_splitting_tag || 'item').trim() : undefined,
-        feed_identifier_tag: form.source_type === 'product_feed' ? (form.feed_identifier_tag || 'g:id').trim() : undefined,
+        domain: form.source_type === 'website_crawl' ? (form.domain ?? '').trim() || undefined : undefined,
+        sitemap_url: form.source_type === 'website_sitemap' ? (form.sitemap_url ?? '').trim() || undefined : undefined,
+        raw_text: form.source_type === 'text' ? (form.raw_text ?? '').trim() || undefined : undefined,
+        feed_url: form.source_type === 'product_feed' ? (form.feed_url ?? '').trim() || undefined : undefined,
+        feed_splitting_tag: form.source_type === 'product_feed' ? (form.feed_splitting_tag ?? 'item').trim() : undefined,
+        feed_identifier_tag: form.source_type === 'product_feed' ? (form.feed_identifier_tag ?? 'g:id').trim() : undefined,
       }
+      if (form.source_type === 'website_sitemap') {
+        body.name = name
+        body.source_type = 'website_sitemap'
+        body.sitemap_url = (form.sitemap_url ?? '').trim() || undefined
+      }
+      console.log('body:', body)
       const res = await apiFetch(`/api/clients/${slug}/datasources`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
