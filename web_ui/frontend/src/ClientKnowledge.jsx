@@ -140,6 +140,7 @@ export default function ClientKnowledge() {
         body.source_type = 'website_sitemap'
         body.sitemap_url = (form.sitemap_url ?? '').trim() || undefined
       }
+      Object.keys(body).forEach(k => body[k] === undefined && delete body[k])
       console.log('body:', body)
       const res = await apiFetch(`/api/clients/${slug}/datasources`, {
         method: 'POST',
