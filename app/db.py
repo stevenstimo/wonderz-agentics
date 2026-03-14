@@ -14,11 +14,16 @@ async def init_db_pool() -> asyncpg.Pool | None:
         return _pool
     dsn = os.getenv("DATABASE_URL", "postgresql://wonderz:wonderz123@localhost:5432/wonderz")
     try:
+        # Strip pgbouncer query param (not a libpq param, confuses asyncpg)
+        if "pgbouncer=true" in dsn:
+            dsn = dsn.replace("?pgbouncer=true", "").replace("&pgbouncer=true", "")
         _pool = await asyncpg.create_pool(
             dsn,
             min_size=1,
             max_size=10,
             command_timeout=60,
+            # Disable prepared‑statement cache for PgBouncer/Supavisor compat
+            statement_cache_size=0,
         )
         logger.info("Database pool initialised")
         return _pool
