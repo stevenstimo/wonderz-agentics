@@ -6,19 +6,20 @@ import { Link } from 'react-router-dom'
 import { Badge } from './shared'
 
 function formatDate(iso) {
-  if (!iso) return '—'
+  if (iso == null || typeof iso === 'object') return '—'
   try {
     const d = new Date(iso)
-    return d.toLocaleDateString('nl-NL', { day: 'numeric', month: 'short', year: 'numeric' })
+    const s = d.toLocaleDateString('nl-NL', { day: 'numeric', month: 'short', year: 'numeric' })
+    return typeof s === 'string' ? s : '—'
   } catch (_) {
-    return iso
+    return '—'
   }
 }
 
 export default function IssueHeader({ point, agent, impactStats, onRequestApproval }) {
-  const pointId = point?.point_id ?? '—'
-  const status = (point?.status || 'OPEN').toUpperCase()
-  const impact = (point?.impact || 'low').toLowerCase()
+  const pointId = typeof point?.point_id === 'string' || typeof point?.point_id === 'number' ? String(point.point_id) : '—'
+  const status = typeof point?.status === 'string' ? point.status.toUpperCase() : 'OPEN'
+  const impact = typeof point?.impact === 'string' ? point.impact.toLowerCase() : 'low'
   const statusVariant = {
     OPEN: 'open',
     AWAITING_APPROVAL: 'pending',
@@ -60,16 +61,18 @@ export default function IssueHeader({ point, agent, impactStats, onRequestApprov
         <Badge variant={impactVariant}>{impact}</Badge>
       </div>
       <h1 className="text-2xl font-bold text-[var(--color-text-primary)] mb-1" style={{ fontFamily: 'var(--font-primary)' }}>
-        {point?.issue_description ?? '—'}
+        {typeof point?.issue_description === 'string' ? point.issue_description : '—'}
       </h1>
-      {point?.root_cause && (
+      {point?.root_cause != null && typeof point.root_cause === 'string' && (
         <p className="text-sm text-[var(--color-text-muted)] mb-4">{point.root_cause}</p>
       )}
       {/* Header stat row */}
       <div className="flex flex-wrap items-center gap-6 text-sm mb-4">
         <div className="flex flex-col">
           <span className="text-xs uppercase tracking-wide text-[var(--color-text-muted)]">Detected by</span>
-          <span className="font-medium text-[var(--color-text-primary)]">{point?.proposed_by ?? '—'}</span>
+          <span className="font-medium text-[var(--color-text-primary)]">
+            {point?.proposed_by != null && typeof point.proposed_by !== 'object' ? String(point.proposed_by) : '—'}
+          </span>
         </div>
         <div className="w-px h-7 bg-[var(--color-border)]" />
         <div className="flex flex-col">
@@ -79,12 +82,14 @@ export default function IssueHeader({ point, agent, impactStats, onRequestApprov
         <div className="w-px h-7 bg-[var(--color-border)]" />
         <div className="flex flex-col">
           <span className="text-xs uppercase tracking-wide text-[var(--color-text-muted)]">Last seen</span>
-          <span className="font-medium text-[var(--color-text-primary)]">{formatDate(point?.resolved_at) ?? '—'}</span>
+          <span className="font-medium text-[var(--color-text-primary)]">{formatDate(point?.resolved_at)}</span>
         </div>
         <div className="w-px h-7 bg-[var(--color-border)]" />
         <div className="flex flex-col">
           <span className="text-xs uppercase tracking-wide text-[var(--color-text-muted)]">Frequency (30d)</span>
-          <span className="font-medium text-[var(--color-text-primary)]">{point?.frequency ?? '—'}</span>
+          <span className="font-medium text-[var(--color-text-primary)]">
+            {point?.frequency != null && typeof point.frequency !== 'object' ? String(point.frequency) : '—'}
+          </span>
         </div>
         {(impactStats?.extra_cost_per_100 != null) && (
           <>

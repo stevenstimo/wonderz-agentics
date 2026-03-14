@@ -12,8 +12,8 @@ export default function IssueSummaryCard({ point, impactStats }) {
     )
   }
 
-  const status = (point.status || 'OPEN').toUpperCase()
-  const impact = (point.impact || 'low').toLowerCase()
+  const status = typeof point.status === 'string' ? point.status.toUpperCase() : 'OPEN'
+  const impact = typeof point.impact === 'string' ? point.impact.toLowerCase() : 'low'
   const statusVariant = {
     OPEN: 'open',
     AWAITING_APPROVAL: 'pending',

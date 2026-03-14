@@ -1,5 +1,9 @@
+import React from 'react'
+import { safeDisplay } from './safeDisplay'
+
 /**
  * Badge — status/impact badge. Spec: variant 'open'|'ok'|'fail'|'low'|'medium'|'high'|'resolved'|'dismissed'|'pending'
+ * children coerced to string when object to avoid React #31.
  */
 export default function Badge({ variant = 'open', children, className = '' }) {
   const base = 'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold uppercase tracking-wide font-[family-name:var(--font-mono)]'
@@ -15,5 +19,6 @@ export default function Badge({ variant = 'open', children, className = '' }) {
     pending: 'bg-[var(--color-brand-primary-light)] text-[var(--color-brand-primary)] border border-[var(--color-brand-primary)]',
   }
   const v = variants[variant] || variants.open
-  return <span className={`${base} ${v} ${className}`}>{children}</span>
+  const safeChild = typeof children === 'object' && children !== null && !React.isValidElement(children) ? safeDisplay(children) : (children ?? '')
+  return <span className={`${base} ${v} ${className}`}>{safeChild}</span>
 }

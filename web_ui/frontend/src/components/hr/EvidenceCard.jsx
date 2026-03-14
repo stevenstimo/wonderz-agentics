@@ -5,11 +5,12 @@ import { Link } from 'react-router-dom'
 import { DataRow } from './shared'
 
 function formatDate(iso) {
-  if (!iso) return '—'
+  if (iso == null || typeof iso === 'object') return '—'
   try {
-    return new Date(iso).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short', year: 'numeric' })
+    const s = new Date(iso).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short', year: 'numeric' })
+    return typeof s === 'string' ? s : '—'
   } catch (_) {
-    return iso
+    return '—'
   }
 }
 
@@ -23,12 +24,12 @@ export default function EvidenceCard({ evidence, point }) {
       {list.length > 0 ? (
         <ul className="space-y-1 mb-4">
           {list.map((jobId, i) => (
-            <li key={jobId || i}>
+            <li key={typeof jobId === 'string' ? jobId : i}>
               <Link
-                to={`/jobs/${jobId}`}
+                to={`/jobs/${typeof jobId === 'string' || typeof jobId === 'number' ? jobId : ''}`}
                 className="font-[family-name:var(--font-mono)] text-xs text-[var(--color-brand-primary)] hover:underline break-all"
               >
-                {jobId}
+                {typeof jobId === 'string' || typeof jobId === 'number' ? String(jobId) : '—'}
               </Link>
             </li>
           ))}

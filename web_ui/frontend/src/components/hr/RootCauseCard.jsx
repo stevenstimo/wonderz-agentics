@@ -19,7 +19,7 @@ export default function RootCauseCard({ point }) {
   const confidence = point.confidence_score != null ? Math.min(1, Math.max(0, Number(point.confidence_score))) : null
   const dashOffset = confidence != null ? CIRCUMFERENCE * (1 - confidence) : CIRCUMFERENCE
   const confidencePct = confidence != null ? Math.round(confidence * 100) : null
-  const rootCause = point.root_cause || null
+  const rootCause = point.root_cause != null && typeof point.root_cause === 'string' ? point.root_cause : null
 
   return (
     <div className="rounded-[var(--radius-md)] border border-[var(--color-border)] p-5 bg-[var(--color-bg-card)] shadow-[var(--shadow-card)]">

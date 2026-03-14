@@ -29,12 +29,14 @@ export default function DiagnosisSignalsCard({ signals }) {
           return (
             <div key={i} className="flex items-start gap-3">
               <div className="flex-shrink-0 w-8 h-8 rounded-[var(--radius-sm)] bg-[var(--color-bg-subtle)] flex items-center justify-center text-base">
-                {sig.icon ?? '📌'}
+                {sig.icon != null && typeof sig.icon !== 'object' ? String(sig.icon) : '📌'}
               </div>
               <div className="flex-1 min-w-0">
-                <div className="font-medium text-sm text-[var(--color-text-primary)]">{sig.name ?? '—'}</div>
-                {sig.description && (
-                  <div className="text-xs text-[var(--color-text-muted)] mt-0.5">{sig.description}</div>
+                <div className="font-medium text-sm text-[var(--color-text-primary)]">
+                  {sig.name != null && typeof sig.name !== 'object' ? String(sig.name) : '—'}
+                </div>
+                {sig.description != null && typeof sig.description !== 'object' && (
+                  <div className="text-xs text-[var(--color-text-muted)] mt-0.5">{String(sig.description)}</div>
                 )}
                 <div className="mt-2 flex items-center gap-2">
                   <div className="flex-1 min-w-0">

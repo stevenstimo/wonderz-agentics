@@ -32,7 +32,7 @@ export default function InputCard({ input }) {
       <div className="mb-4">
         <div className="text-xs uppercase tracking-wide text-[var(--color-text-muted)] mb-1">Task prompt</div>
         <pre className="text-xs font-[family-name:var(--font-mono)] p-3 rounded-[var(--radius-sm)] bg-[var(--color-bg-subtle)] border border-[var(--color-border-subtle)] overflow-x-auto whitespace-pre-wrap">
-          {taskPrompt || '—'}
+          {typeof taskPrompt === 'string' ? taskPrompt : (taskPrompt != null && typeof taskPrompt !== 'object' ? String(taskPrompt) : '—')}
         </pre>
       </div>
 

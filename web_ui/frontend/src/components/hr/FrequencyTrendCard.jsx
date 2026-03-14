@@ -9,12 +9,13 @@ const CHART_HEIGHT = 120
 const GRID_Y = [5, 10, 15]
 
 function formatDateLabel(dateStr) {
-  if (!dateStr) return '—'
+  if (dateStr == null || typeof dateStr === 'object') return '—'
   try {
     const d = new Date(dateStr)
-    return d.toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' })
+    const s = d.toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' })
+    return typeof s === 'string' ? s : '—'
   } catch (_) {
-    return dateStr
+    return '—'
   }
 }
 

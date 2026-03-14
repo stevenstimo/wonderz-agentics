@@ -31,9 +31,9 @@ export default function ReproduceCard({ runId, pointId, onReproduce }) {
   return (
     <div className="rounded-[var(--radius-md)] border border-[var(--color-border)] p-5 bg-[var(--color-bg-card)] shadow-[var(--shadow-card)]">
       <h3 className="text-sm font-semibold text-[var(--color-text-primary)] mb-4">Reproduce</h3>
-      {runId && (
+      {runId != null && typeof runId !== 'object' && (
         <div className="font-[family-name:var(--font-mono)] text-xs text-[var(--color-text-muted)] mb-3 break-all">
-          {runId}
+          {String(runId)}
         </div>
       )}
       <button

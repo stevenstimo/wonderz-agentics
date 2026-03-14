@@ -26,7 +26,7 @@ export default function TimelineTable({ timeline, runId, onCopy }) {
       {runId && (
         <div className="flex items-center gap-2 mb-4">
           <code className="flex-1 min-w-0 text-xs font-[family-name:var(--font-mono)] p-2 rounded-[var(--radius-sm)] bg-[var(--color-bg-subtle)] border border-[var(--color-border-subtle)] truncate">
-            {runId}
+            {typeof runId === 'string' || typeof runId === 'number' ? String(runId) : '—'}
           </code>
           <button
             type="button"
@@ -56,16 +56,20 @@ export default function TimelineTable({ timeline, runId, onCopy }) {
               {list.map((row, i) => (
                 <tr key={i} className="border-b border-[var(--color-border-subtle)] last:border-b-0">
                   <td className="py-2 pr-4 font-[family-name:var(--font-mono)] text-xs text-[var(--color-text-primary)]">
-                    {row.time ?? '—'}
+                    {row.time != null && typeof row.time !== 'object' ? String(row.time) : '—'}
                   </td>
-                  <td className="py-2 pr-4 text-[var(--color-text-primary)]">{row.step ?? '—'}</td>
+                  <td className="py-2 pr-4 text-[var(--color-text-primary)]">
+                    {row.step != null && typeof row.step !== 'object' ? String(row.step) : '—'}
+                  </td>
                   <td className="py-2 pr-4">
                     <Badge variant={row.status === 'ok' ? 'ok' : 'fail'}>{row.status === 'ok' ? 'ok' : 'fail'}</Badge>
                   </td>
                   <td className="py-2 pr-4 font-[family-name:var(--font-mono)] text-xs">
-                    {row.duration_s != null ? `${row.duration_s}s` : '—'}
+                    {row.duration_s != null && typeof row.duration_s !== 'object' ? `${Number(row.duration_s)}s` : '—'}
                   </td>
-                  <td className="py-2 text-[var(--color-text-muted)]">{row.notes ?? '—'}</td>
+                  <td className="py-2 text-[var(--color-text-muted)]">
+                    {row.notes != null && typeof row.notes !== 'object' ? String(row.notes) : '—'}
+                  </td>
                 </tr>
               ))}
             </tbody>

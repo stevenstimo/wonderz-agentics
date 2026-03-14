@@ -14,9 +14,9 @@ export default function OutputCard({ output }) {
     )
   }
 
-  const summary = output.summary ?? ''
+  const summary = output.summary != null && typeof output.summary !== 'object' ? String(output.summary) : ''
   const rules = Array.isArray(output.validation_rules) ? output.validation_rules : []
-  const problem = output.problem_description ?? ''
+  const problem = output.problem_description != null && typeof output.problem_description !== 'object' ? String(output.problem_description) : ''
   const hasFailed = rules.some((r) => r.passed === false)
 
   return (
@@ -47,7 +47,7 @@ export default function OutputCard({ output }) {
                   {r.passed ? '✓' : '✗'}
                 </span>
                 <span className={r.passed ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-status-error)]'}>
-                  {r.rule ?? '—'}
+                  {r.rule != null && typeof r.rule !== 'object' ? String(r.rule) : '—'}
                 </span>
               </li>
             ))}

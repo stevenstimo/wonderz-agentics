@@ -34,17 +34,25 @@ export default function CrossAgentCard({ correlations }) {
           </thead>
           <tbody>
             {list.map((row, i) => (
-              <tr key={row.agent_id ?? i} className="border-b border-[var(--color-border-subtle)] last:border-b-0">
+              <tr key={typeof row.agent_id === 'string' ? row.agent_id : i} className="border-b border-[var(--color-border-subtle)] last:border-b-0">
                 <td className="py-2 pr-4">
-                  <span className="text-[var(--color-text-primary)]">{row.agent_name ?? '—'}</span>
+                  <span className="text-[var(--color-text-primary)]">
+                    {row.agent_name != null && typeof row.agent_name !== 'object' ? String(row.agent_name) : '—'}
+                  </span>
                   {row.is_current && (
                     <span className="ml-2 text-xs text-[var(--color-brand-primary)] font-medium">(Dit issue)</span>
                   )}
                 </td>
-                <td className="py-2 pr-4 font-[family-name:var(--font-mono)] text-xs">{row.version ?? '—'}</td>
-                <td className="py-2 pr-4">{row.failures_30d ?? '—'}</td>
+                <td className="py-2 pr-4 font-[family-name:var(--font-mono)] text-xs">
+                  {row.version != null && typeof row.version !== 'object' ? String(row.version) : '—'}
+                </td>
+                <td className="py-2 pr-4">
+                  {row.failures_30d != null && typeof row.failures_30d !== 'object' ? String(row.failures_30d) : '—'}
+                </td>
                 <td className="py-2">
-                  <Badge variant={impactVariant(row.impact || 'low')}>{row.impact || 'low'}</Badge>
+                  <Badge variant={impactVariant(typeof row.impact === 'string' ? row.impact : 'low')}>
+                    {row.impact != null && typeof row.impact !== 'object' ? String(row.impact) : 'low'}
+                  </Badge>
                 </td>
               </tr>
             ))}
