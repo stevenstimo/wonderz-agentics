@@ -343,11 +343,10 @@ export default function JobSplitView() {
     }
   }, [sendingChat, ceoTyping])
 
+  // Auto-scroll chat to bottom on each new message (or when typing indicator appears)
   useEffect(() => {
-    if (isIntake && chatHistory.length) {
-      chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-    }
-  }, [isIntake, chatHistory.length])
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [displayChatHistory.length, ceoTyping])
 
   const handleApprovePlan = async () => {
     setApprovingPlan(true)
@@ -658,7 +657,7 @@ export default function JobSplitView() {
               }}>✉ Via Email</span>
             )}
           </div>
-          <div className="flex-1 overflow-y-auto space-y-4 p-4 min-h-[10rem]">
+          <div className="flex-1 min-h-0 overflow-y-auto space-y-4 p-4">
             {displayChatHistory.length === 0 && !ceoTyping && !jobId && (
               <p className="text-slate-500 text-sm">Describe your task below. Mr. Klein will create a plan for you.</p>
             )}

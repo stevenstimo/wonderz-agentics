@@ -135,7 +135,7 @@ def _coerce_context(raw: Any) -> Dict[str, Any]:
 
 async def _load_job(conn, job_id: str):
     job = await conn.fetchrow(
-        "SELECT id, user_id, job_post, context, status, tokens_used FROM jobs WHERE id=$1",
+        "SELECT id, user_id, job_post, context, payload, status, tokens_used FROM jobs WHERE id=$1",
         job_id,
     )
     if not job:
@@ -804,7 +804,7 @@ async def run_intake_answers_inline(job_id: str, answers: dict):
     try:
         async with pool.acquire() as conn:
             job = await _load_job(conn, job_id)
-            context = _coerce_context(job.get("context"))
+            context = _coerce_context(job.get("payload") or job.get("context"))
             previous_answers = context.get("previous_answers") or {}
             merged_answers = {**previous_answers, **(answers or {})}
             job_post = job.get("job_post") or context.get("job_post") or ""
@@ -908,7 +908,7 @@ async def run_job_inline(job_id: str, context_extra: Optional[dict] = None):
     try:
         async with pool.acquire() as conn:
             job = await _load_job(conn, job_id)
-            context = _coerce_context(job.get("context"))
+            context = _coerce_context(job.get("payload") or job.get("context"))
             if context_extra:
                 context = {**context, **context_extra}
 

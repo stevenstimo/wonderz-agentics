@@ -234,38 +234,49 @@ async def list_development_points(
         params: list = []
         idx = 1
         if agent_id:
-            conditions.append(f"dp.agent_id = ${idx}")
+            conditions.append(f"ai.agent_id = ${idx}")
             params.append(agent_id)
             idx += 1
         if impact:
-            conditions.append(f"dp.impact = ${idx}")
+            conditions.append(f"ai.severity = ${idx}")
             params.append(impact)
             idx += 1
         if status:
-            conditions.append(f"dp.status = ${idx}")
+            conditions.append(f"ai.status = ${idx}")
             params.append(status)
             idx += 1
         rows = await conn.fetch(
             f"""
-            SELECT dp.*, ha.name as agent_name FROM development_points dp
-            LEFT JOIN hired_agents ha ON dp.agent_id = ha.agent_id
+            SELECT ai.*, ha.name as ha_agent_name FROM agent_improvements ai
+            LEFT JOIN hired_agents ha ON ai.agent_id = ha.agent_id
             WHERE {' AND '.join(conditions)}
-            ORDER BY CASE dp.impact WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
-                     dp.frequency DESC, dp.created_at DESC
+            ORDER BY CASE ai.severity WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
+                     ai.created_at DESC
             """,
             *params,
         )
-    serialized = _serialize_spec(rows)
+    # Map to legacy shape for _serialize_spec / API
+    mapped = []
+    for r in rows:
+        d = dict(r)
+        d["point_id"] = str(d.get("id", ""))
+        d["issue_description"] = d.get("title") or ""
+        d["root_cause"] = d.get("summary")
+        d["impact"] = (d.get("severity") or "low").lower()
+        d["evidence_example"] = d.get("details")
+        d["frequency"] = 1
+        mapped.append(d)
+    serialized = _serialize_spec(mapped)
     return {"development_points": serialized, "count": len(serialized)}
 
 
-def _extract_job_id_from_evidence(evidence_example: Optional[str]) -> Optional[str]:
-    """Extract job UUID from evidence_example text, e.g. 'Job cdff169b-b49b-4ec4-..., 255x gezien'."""
-    if not evidence_example:
+def _extract_job_id_from_evidence(details_or_evidence: Optional[str]) -> Optional[str]:
+    """Extract job UUID from details/evidence text, e.g. 'Job cdff169b-b49b-4ec4-..., 255x gezien'."""
+    if not details_or_evidence:
         return None
     match = re.search(
         r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
-        evidence_example,
+        details_or_evidence,
         re.I,
     )
     return match.group(0) if match else None
@@ -273,26 +284,27 @@ def _extract_job_id_from_evidence(evidence_example: Optional[str]) -> Optional[s
 
 @router.get("/development-points/awaiting-approval", dependencies=[Depends(get_current_user)])
 async def get_awaiting_approval():
-    """CEO: list development points waiting for approval, sorted by impact and created_at."""
+    """CEO: list development points waiting for approval, sorted by severity and created_at."""
     pool = await get_db()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             """
-            SELECT dp.*, ha.name AS agent_name, ha.role
-            FROM development_points dp
-            JOIN hired_agents ha ON dp.agent_id = ha.agent_id
-            WHERE dp.status = 'AWAITING_APPROVAL'
+            SELECT ai.*, ha.name AS agent_name, ha.role
+            FROM agent_improvements ai
+            JOIN hired_agents ha ON ai.agent_id = ha.agent_id
+            WHERE ai.status = 'AWAITING_APPROVAL'
             ORDER BY
-                CASE dp.impact WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
-                dp.created_at ASC
+                CASE ai.severity WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
+                ai.created_at ASC
             """
         )
     items = []
     for r in rows:
         d = dict(r)
-        for k in ("created_at", "updated_at", "resolved_at"):
+        for k in ("created_at", "updated_at"):
             if d.get(k) and hasattr(d[k], "isoformat"):
                 d[k] = d[k].isoformat()
+        d["point_id"] = str(d.get("id", ""))
         items.append(d)
     return {"items": items, "count": len(items)}
 
@@ -307,16 +319,16 @@ async def get_development_point_detail(point_id: str):
     async with pool.acquire() as conn:
         dp_row = await conn.fetchrow(
             """
-            SELECT dp.*, ha.name AS agent_name, ha.role AS agent_role, ha.agent_id AS ha_agent_id
-            FROM development_points dp
-            LEFT JOIN hired_agents ha ON dp.agent_id = ha.agent_id
-            WHERE dp.point_id = $1 OR dp.id::text = $1
+            SELECT ai.*, ha.name AS agent_name, ha.role AS agent_role, ha.agent_id AS ha_agent_id
+            FROM agent_improvements ai
+            LEFT JOIN hired_agents ha ON ai.agent_id = ha.agent_id
+            WHERE ai.id = $1 OR ai.id::text = $1
             """,
             point_id,
         )
         if not dp_row:
             raise HTTPException(status_code=404, detail=f"Development point {point_id} niet gevonden")
-        point_id = str(dp_row["point_id"])
+        point_id = str(dp_row["id"])
 
         ha_cols = await _get_table_columns(conn, "hired_agents")
         agent_row = await conn.fetchrow(
@@ -324,7 +336,7 @@ async def get_development_point_detail(point_id: str):
             dp_row["agent_id"],
         ) if dp_row.get("agent_id") else None
 
-        run_id = _extract_job_id_from_evidence(dp_row.get("evidence_example"))
+        run_id = _extract_job_id_from_evidence(dp_row.get("details"))
         if not run_id and dp_row.get("agent_id"):
             first_job = await conn.fetchval(
                 """
@@ -368,11 +380,11 @@ async def get_development_point_detail(point_id: str):
             confidence = float(confidence)
         point = {
             "point_id": point_id,
-            "issue_description": dp_row.get("issue_description") or "",
-            "root_cause": dp_row.get("root_cause"),
-            "evidence_example": dp_row.get("evidence_example"),
-            "frequency": int(dp_row.get("frequency") or 0),
-            "impact": (dp_row.get("impact") or "low").lower(),
+            "issue_description": dp_row.get("title") or "",
+            "root_cause": dp_row.get("summary"),
+            "evidence_example": dp_row.get("details"),
+            "frequency": 1,
+            "impact": (dp_row.get("severity") or "low").lower(),
             "status": (dp_row.get("status") or "OPEN").upper(),
             "proposed_by": dp_row.get("proposed_by"),
             "source_url": dp_row.get("source_url"),
@@ -399,7 +411,7 @@ async def get_development_point_detail(point_id: str):
                 if agent[k] is None and k not in ("agent_id", "agent_name", "workflow"):
                     agent[k] = None
 
-        freq = int(dp_row.get("frequency") or 0)
+        freq = 1
         pattern = {
             "workflow": agent.get("workflow") or "—",
             "trigger_condition": None,
@@ -429,24 +441,23 @@ async def get_development_point_detail(point_id: str):
             # Current agent as first row (is_current=True); then others with same issue pattern
             open_same = await conn.fetch(
                 """
-                SELECT dp.point_id, dp.agent_id, dp.frequency, dp.impact,
-                       ha.name AS agent_name
-                FROM development_points dp
-                LEFT JOIN hired_agents ha ON dp.agent_id = ha.agent_id
-                WHERE dp.status = 'OPEN' AND dp.agent_id != $1
-                  AND lower(trim(dp.issue_description)) = lower(trim($2))
-                ORDER BY dp.frequency DESC
+                SELECT ai.id, ai.agent_id, ai.severity, ha.name AS agent_name
+                FROM agent_improvements ai
+                LEFT JOIN hired_agents ha ON ai.agent_id = ha.agent_id
+                WHERE ai.status = 'OPEN' AND ai.agent_id != $1
+                  AND lower(trim(ai.title)) = lower(trim($2))
+                ORDER BY ai.created_at DESC
                 LIMIT 5
                 """,
                 agent_id_val,
-                (dp_row.get("issue_description") or "")[:200],
+                (dp_row.get("title") or "")[:200],
             )
             cross_agent.append({
                 "agent_id": agent_id_val,
                 "agent_name": agent_row.get("name") or agent_row.get("agent_name") if agent_row else str(agent_id_val),
                 "version": agent.get("agent_version") if agent else "—",
                 "failures_30d": freq,
-                "impact": (dp_row.get("impact") or "low").lower(),
+                "impact": (dp_row.get("severity") or "low").lower(),
                 "is_current": True,
             })
             for r in open_same:
@@ -454,8 +465,8 @@ async def get_development_point_detail(point_id: str):
                     "agent_id": r["agent_id"],
                     "agent_name": r["agent_name"] or r["agent_id"],
                     "version": "—",
-                    "failures_30d": int(r["frequency"] or 0),
-                    "impact": (r["impact"] or "low").lower(),
+                    "failures_30d": 1,
+                    "impact": (r["severity"] or "low").lower(),
                     "is_current": False,
                 })
 
@@ -959,10 +970,10 @@ async def update_development_point(point_id: str, body: UpdatePointBody):
     valid_statuses = {"OPEN", "AWAITING_APPROVAL", "IN_TRAINING", "RESOLVED", "DISMISSED"}
     pool = await get_db()
     async with pool.acquire() as conn:
-        existing = await conn.fetchrow("SELECT point_id FROM development_points WHERE point_id = $1 OR id::text = $1", point_id)
+        existing = await conn.fetchrow("SELECT id FROM agent_improvements WHERE id = $1 OR id::text = $1", point_id)
     if not existing:
         raise HTTPException(status_code=404, detail=f"Point {point_id} niet gevonden")
-    point_id = str(existing["point_id"])
+    point_id = str(existing["id"])
 
     hr_spec = await _get_spec_hr()
     hr_service = await _get_hr_manager()
@@ -1004,13 +1015,13 @@ async def reproduce_development_point(point_id: str, background_tasks: Backgroun
     pool = await get_db()
     async with pool.acquire() as conn:
         dp = await conn.fetchrow(
-            "SELECT point_id, agent_id, evidence_example FROM development_points WHERE point_id = $1 OR id::text = $1",
+            "SELECT id, agent_id, details FROM agent_improvements WHERE id = $1 OR id::text = $1",
             point_id,
         )
         if not dp:
             raise HTTPException(status_code=404, detail=f"Development point {point_id} niet gevonden")
 
-        run_id = _extract_job_id_from_evidence(dp.get("evidence_example"))
+        run_id = _extract_job_id_from_evidence(dp.get("details"))
         if not run_id:
             first_job = await conn.fetchval(
                 """
@@ -1105,9 +1116,9 @@ async def submit_for_approval(point_id: str):
     async with pool.acquire() as conn:
         result = await conn.execute(
             """
-            UPDATE development_points
+            UPDATE agent_improvements
             SET status = 'AWAITING_APPROVAL', updated_at = now()
-            WHERE (point_id = $1 OR id::text = $1) AND status = 'OPEN'
+            WHERE (id = $1 OR id::text = $1) AND status = 'OPEN'
             """,
             point_id,
         )
@@ -1126,12 +1137,12 @@ async def add_knowledge_source(
     pool = await get_db()
     async with pool.acquire() as conn:
         point = await conn.fetchrow(
-            "SELECT point_id FROM development_points WHERE point_id = $1 OR id::text = $1",
+            "SELECT id FROM agent_improvements WHERE id = $1 OR id::text = $1",
             point_id,
         )
         if not point:
             raise HTTPException(status_code=404, detail="Development point niet gevonden")
-        point_id = str(point["point_id"])
+        point_id = str(point["id"])
 
         if body.source_type == "url" and body.source_url:
             update_value = body.source_url
@@ -1142,7 +1153,7 @@ async def add_knowledge_source(
             raise HTTPException(status_code=400, detail="source_url of source_text vereist")
 
         await conn.execute(
-            "UPDATE development_points SET source_url = $1, updated_at = now() WHERE point_id = $2",
+            "UPDATE agent_improvements SET source_url = $1, updated_at = now() WHERE id = $2",
             update_value,
             point_id,
         )
@@ -1159,12 +1170,12 @@ async def add_knowledge_source_file(
     pool = await get_db()
     async with pool.acquire() as conn:
         point = await conn.fetchrow(
-            "SELECT point_id FROM development_points WHERE point_id = $1 OR id::text = $1",
+            "SELECT id FROM agent_improvements WHERE id = $1 OR id::text = $1",
             point_id,
         )
         if not point:
             raise HTTPException(status_code=404, detail="Development point niet gevonden")
-        point_id = str(point["point_id"])
+        point_id = str(point["id"])
 
         content = await file.read()
         encoded = base64.b64encode(content).decode("ascii")
@@ -1172,7 +1183,7 @@ async def add_knowledge_source_file(
         data_uri = f"data:{media_type};base64,{encoded}"
 
         await conn.execute(
-            "UPDATE development_points SET source_url = $1, updated_at = now() WHERE point_id = $2",
+            "UPDATE agent_improvements SET source_url = $1, updated_at = now() WHERE id = $2",
             data_uri,
             point_id,
         )
@@ -1189,33 +1200,31 @@ async def approve_development_point(
     async with pool.acquire() as conn:
         point = await conn.fetchrow(
             """
-            SELECT * FROM development_points
-            WHERE (point_id = $1 OR id::text = $1) AND status = 'AWAITING_APPROVAL'
+            SELECT * FROM agent_improvements
+            WHERE (id = $1 OR id::text = $1) AND status = 'AWAITING_APPROVAL'
             """,
             point_id,
         )
         if not point:
             raise HTTPException(status_code=404, detail="Point niet gevonden of niet in AWAITING_APPROVAL")
-        point_id = str(point["point_id"])
-        agent_id = point.get("agent_id") or point.get("agent_role")
+        point_id = str(point["id"])
+        agent_id = point.get("agent_id")
         approved_by = body.approved_by or "operator"
 
     if body.approved:
         async with pool.acquire() as conn:
             await conn.execute(
                 """
-                UPDATE development_points
+                UPDATE agent_improvements
                 SET status = 'IN_TRAINING',
                     source_url = COALESCE($2, source_url),
-                    approved_by = $3,
                     updated_at = now()
-                WHERE point_id = $1
+                WHERE id = $1
                 """,
                 point_id,
                 body.source_url or point.get("source_url"),
-                approved_by,
             )
-        final_url = body.source_url or point.get("source_url") or point.get("suggested_url")
+        final_url = body.source_url or point.get("source_url")
         if final_url:
             try:
                 import asyncio
@@ -1233,17 +1242,17 @@ async def approve_development_point(
         return {"approved": True, "point_id": point_id, "training_started": bool(final_url)}
     else:
         async with pool.acquire() as conn:
-            cols = await _get_table_columns(conn, "development_points")
-            set_clauses = ["status = 'DISMISSED'", "approved_by = $2", "updated_at = now()"]
-            params = [point_id, approved_by]
-            if "root_cause" in cols:
-                set_clauses.append("root_cause = COALESCE(root_cause || ' | Afgewezen: ' || $3, 'Afgewezen: ' || $3)")
+            cols = await _get_table_columns(conn, "agent_improvements")
+            set_clauses = ["status = 'DISMISSED'", "updated_at = now()"]
+            params = [point_id]
+            if "summary" in cols:
+                set_clauses.append("summary = COALESCE(summary || ' | Afgewezen: ' || $2, 'Afgewezen: ' || $2)")
                 params.append(body.rejection_reason or "Geen reden opgegeven")
             await conn.execute(
                 f"""
-                UPDATE development_points
+                UPDATE agent_improvements
                 SET {', '.join(set_clauses)}
-                WHERE point_id = $1
+                WHERE id = $1
                 """,
                 *params,
             )
@@ -1474,7 +1483,7 @@ async def check_training_effectiveness(point_id: str):
     try:
         async with pool.acquire() as conn:
             point = await conn.fetchrow(
-                "SELECT * FROM development_points WHERE id = $1",
+                "SELECT * FROM agent_improvements WHERE id = $1",
                 point_id,
             )
             if not point:
@@ -1484,7 +1493,7 @@ async def check_training_effectiveness(point_id: str):
                 )
 
             agent_id = point["agent_id"]
-            issue = point["description"]
+            issue = point.get("title") or point.get("details") or ""
             baseline_at = point["created_at"]
 
             before_count = await conn.fetchval(
@@ -1516,7 +1525,7 @@ async def check_training_effectiveness(point_id: str):
             if resolved:
                 await conn.execute(
                     """
-                    UPDATE development_points
+                    UPDATE agent_improvements
                     SET status = 'RESOLVED'
                     WHERE id = $1
                     """,
