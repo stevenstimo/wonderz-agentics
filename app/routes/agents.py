@@ -830,8 +830,8 @@ async def get_agent_knowledge(
 @router.delete("/{agent_id}/knowledge")
 async def deactivate_knowledge_source(
     agent_id: str,
-    source_url: str = Query(..., description="URL van de bron om te deactiveren"),
     current_user: Annotated[TokenPayload, Depends(get_current_user)],
+    source_url: str = Query(..., description="URL van de bron om te deactiveren"),
 ) -> Dict[str, Any]:
     """Deactiveer alle chunks van een specifieke source_url (is_active = false)."""
     pool = await get_db()
