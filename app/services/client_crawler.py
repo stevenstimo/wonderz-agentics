@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import re
+import xml.etree.ElementTree as ET
 from urllib.parse import urljoin, urlparse
 
 import httpx
@@ -121,21 +122,62 @@ class ClientCrawler:
         return list(seen)
 
     async def _parse_sitemap(self, sitemap_url: str) -> list[str]:
-        """Read sitemap.xml and return list of URLs."""
-        try:
-            async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
-                resp = await client.get(sitemap_url, headers={"User-Agent": USER_AGENT})
-                resp.raise_for_status()
-                text = resp.text
-        except Exception as e:
-            logger.warning("client_crawler: sitemap fetch failed %s: %s", sitemap_url, e)
-            return []
+        """Read sitemap.xml; if sitemap index, follow sub-sitemaps one level and return all page URLs."""
+        kind, locs = await get_sitemap_structure(sitemap_url)
+        if kind == "index":
+            urls: list[str] = []
+            for sub_url in locs:
+                sub_kind, sub_locs = await get_sitemap_structure(sub_url)
+                if sub_kind == "urlset":
+                    urls.extend(sub_locs)
+                if len(urls) >= self.MAX_PAGES:
+                    break
+            return urls[: self.MAX_PAGES]
+        return locs[: self.MAX_PAGES]
 
-        urls: list[str] = []
-        # Simple extraction of <loc>...</loc>
-        for m in re.finditer(r"<loc>\s*([^<]+)\s*</loc>", text, re.IGNORECASE):
-            urls.append(m.group(1).strip())
-        return urls[: self.MAX_PAGES]
+
+async def get_sitemap_structure(sitemap_url: str) -> tuple[str, list[str]]:
+    """
+    Fetch sitemap and return ('index', [sub_sitemap_urls]) or ('urlset', [page_urls]).
+    Used by _parse_sitemap and by routes to detect index and create child datasources.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+            resp = await client.get(sitemap_url, headers={"User-Agent": USER_AGENT})
+            resp.raise_for_status()
+            text = resp.text
+    except Exception as e:
+        logger.warning("client_crawler: sitemap fetch failed %s: %s", sitemap_url, e)
+        return ("urlset", [])
+
+    try:
+        root = ET.fromstring(text)
+    except ET.ParseError as e:
+        logger.warning("client_crawler: sitemap parse error %s: %s", sitemap_url, e)
+        return ("urlset", [])
+
+    def local_tag(tag: str) -> str:
+        return tag.split("}")[-1] if "}" in tag else tag
+
+    root_local = local_tag(root.tag)
+    locs: list[str] = []
+    if root_local == "sitemapindex":
+        for elem in root:
+            if local_tag(elem.tag) == "sitemap":
+                for child in elem:
+                    if local_tag(child.tag) == "loc" and child.text:
+                        locs.append(child.text.strip())
+                        break
+        return ("index", locs)
+    if root_local == "urlset":
+        for elem in root:
+            if local_tag(elem.tag) == "url":
+                for child in elem:
+                    if local_tag(child.tag) == "loc" and child.text:
+                        locs.append(child.text.strip())
+                        break
+        return ("urlset", locs)
+    return ("urlset", [])
 
     async def _embed_and_store(
         self,

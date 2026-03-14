@@ -11,7 +11,7 @@ import secrets
 import tempfile
 from datetime import date, timedelta
 from typing import Any, Optional
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 
 from app.database import get_db
 from app.middleware.auth import TokenPayload, get_current_user
-from app.services.client_crawler import ClientCrawler
+from app.services.client_crawler import ClientCrawler, get_sitemap_structure
 from app.services.client_feed_processor import ClientFeedProcessor
 from app.services.client_file_processor import ClientFileProcessor
 from app.services.client_text_processor import ClientTextProcessor
@@ -1112,6 +1112,12 @@ async def _process_datasource_background(
             )
 
 
+def _sitemap_filename(url: str) -> str:
+    """Extract filename from sitemap URL for child datasource name."""
+    path = (urlparse(url).path or "").strip("/")
+    return path.split("/")[-1] or "sitemap.xml"
+
+
 @router.post("/{slug}/datasources/{datasource_id:int}/process")
 async def start_process(
     slug: str,
@@ -1134,6 +1140,48 @@ async def start_process(
         )
         if not row:
             raise HTTPException(status_code=404, detail="Datasource not found")
+
+    if row["source_type"] == "website_sitemap" and row["sitemap_url"]:
+        kind, sub_urls = await get_sitemap_structure(row["sitemap_url"])
+        if kind == "index" and sub_urls:
+            async with pool.acquire() as conn:
+                for sub_url in sub_urls:
+                    name = _sitemap_filename(sub_url)
+                    child_row = await conn.fetchrow(
+                        """
+                        INSERT INTO client_datasources
+                        (client_id, name, source_type, sitemap_url, status)
+                        VALUES ($1, $2, 'website_sitemap', $3, 'pending')
+                        RETURNING id
+                        """,
+                        client_id,
+                        name,
+                        sub_url,
+                    )
+                    if child_row:
+                        background_tasks.add_task(
+                            _process_datasource_background,
+                            client_id,
+                            child_row["id"],
+                            "website_sitemap",
+                            None,
+                            sub_url,
+                            None,
+                            None,
+                            None,
+                            None,
+                        )
+                await conn.execute(
+                    """
+                    UPDATE client_datasources
+                    SET status = 'done', finished_at = now(), updated_at = now(),
+                        error_detail = $2, chunks_created = 0
+                    WHERE id = $1
+                    """,
+                    datasource_id,
+                    f"Sitemap index: {len(sub_urls)} sub-sitemaps aangemaakt als aparte bronnen.",
+                )
+            return {"status": "processing"}
 
     background_tasks.add_task(
         _process_datasource_background,
