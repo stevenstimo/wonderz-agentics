@@ -85,6 +85,10 @@ export default function IssueDetail() {
     }
   }, [pointId, fetchIssue, success, toastError])
 
+  const handleRequestApproval = useCallback(() => {
+    handleAction({ action: 'request_approval' })
+  }, [handleAction])
+
   if (loading) {
     return (
       <PageLayout size="wide" padded>
@@ -108,10 +112,6 @@ export default function IssueDetail() {
       </PageLayout>
     )
   }
-
-  const handleRequestApproval = useCallback(() => {
-    handleAction({ action: 'request_approval' })
-  }, [handleAction])
 
   return (
     <PageLayout size="wide" padded>
