@@ -47,6 +47,7 @@ export default function HRDashboard() {
   const [reportLoading, setReportLoading] = useState(false)
   const [approveModal, setApproveModal] = useState(null)
   const [approveUrl, setApproveUrl] = useState('')
+  const [approvingId, setApprovingId] = useState(null)
   const [resolveInput, setResolveInput] = useState({})
   const [expandedPointId, setExpandedPointId] = useState(null)
 
@@ -207,6 +208,7 @@ export default function HRDashboard() {
   }
 
   const handleApprove = async (id, url) => {
+    setApprovingId(id)
     try {
       const res = await apiFetch('/api/hr/approve-training', {
         method: 'POST',
@@ -218,14 +220,15 @@ export default function HRDashboard() {
           approved_by: 'hr-dashboard'
         })
       })
-      console.log('handleApprove response:', res?.status, res)
-    } catch (err) {
-      console.error('handleApprove error:', err)
-    } finally {
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || `HTTP ${res.status}`)
       setApproveModal(null)
       setApproveUrl('')
       if (tab === 'training') loadTrainingRequests()
       else loadPoints()
+    } catch (err) {
+      setError(err.message || 'Goedkeuren mislukt')
+    } finally {
+      setApprovingId(null)
     }
   }
 
@@ -251,23 +254,27 @@ export default function HRDashboard() {
   }
 
   async function approveTraining(id) {
+    setApprovingId(id)
     const sourceUrl = trainingUrlInput[id] || approveUrl || ''
     const body = tab === 'training'
       ? { request_id: id, approved: true, source_url: sourceUrl || undefined, approved_by: 'hr-dashboard' }
       : { point_id: id, approved: true, source_url: sourceUrl || undefined, approved_by: 'hr-dashboard' }
     try {
-      await apiFetch('/api/hr/approve-training', {
+      const res = await apiFetch('/api/hr/approve-training', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       })
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || 'Request failed')
       setTrainingUrlInput((prev) => { const n = { ...prev }; delete n[id]; return n })
       setApproveModal(null)
       setApproveUrl('')
       if (tab === 'training') await loadTrainingRequests()
       else await loadPoints()
-    } catch {
-      setError('Goedkeuren mislukt')
+    } catch (err) {
+      setError(err?.message || 'Goedkeuren mislukt')
+    } finally {
+      setApprovingId(null)
     }
   }
 
@@ -469,14 +476,23 @@ export default function HRDashboard() {
               <button
                 type="button"
                 onClick={() => handleApprove(approveModal, approveUrl)}
-                className="rounded-lg px-4 py-2 bg-green-600 text-white text-sm font-medium hover:bg-green-700"
+                disabled={approvingId === approveModal}
+                className="rounded-lg px-4 py-2 bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-2"
               >
-                Goedkeuren
+                {approvingId === approveModal ? (
+                  <>
+                    <span className="inline-block w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Verwerken...
+                  </>
+                ) : (
+                  'Goedkeuren'
+                )}
               </button>
               <button
                 type="button"
                 onClick={() => setApproveModal(null)}
-                className="rounded-lg px-4 py-2 border border-slate-300 text-slate-700 text-sm font-medium hover:bg-slate-50"
+                disabled={approvingId === approveModal}
+                className="rounded-lg px-4 py-2 border border-slate-300 text-slate-700 text-sm font-medium hover:bg-slate-50 disabled:opacity-50"
               >
                 Annuleren
               </button>
@@ -616,11 +632,19 @@ export default function HRDashboard() {
                                   />
                                   <button
                                     type="button"
-                                  onClick={() => approveTraining(pointId)}
-                                  className="text-xs font-medium text-green-600 hover:underline"
-                                >
-                                  Bevestig
-                                </button>
+                                    onClick={() => approveTraining(pointId)}
+                                    disabled={approvingId === pointId}
+                                    className="text-xs font-medium text-green-600 hover:underline disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1"
+                                  >
+                                    {approvingId === pointId ? (
+                                      <>
+                                        <span className="inline-block w-3 h-3 border-2 border-green-600 border-t-transparent rounded-full animate-spin" />
+                                        Verwerken...
+                                      </>
+                                    ) : (
+                                      'Bevestig'
+                                    )}
+                                  </button>
                                 <button
                                   type="button"
                                   onClick={() => setTrainingUrlInput((prev) => { const n = { ...prev }; delete n[pointId]; return n })}

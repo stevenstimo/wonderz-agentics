@@ -9,7 +9,7 @@ from typing import Optional, List, Dict, Set, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from fastapi.responses import JSONResponse
 
-from app.middleware.auth import require_admin_or_super_admin, require_super_admin
+from app.middleware.auth import require_admin_or_super_admin, require_super_admin, get_current_user
 from pydantic import BaseModel, model_validator, Field, root_validator
 
 from app.database import get_db
@@ -120,6 +120,7 @@ class ApproveTrainingRequest(BaseModel):
     source_url: Optional[str] = Field(default=None, description="Training URL")
     notes: Optional[str] = Field(default=None, description="Approval notes")
     approved_by: str = Field(default="ceo", description="Approver")
+    rejection_reason: Optional[str] = Field(default=None, description="Reason when rejecting")
 
     @model_validator(mode='after')
     def validate_payload(self):
@@ -262,6 +263,32 @@ def _extract_job_id_from_evidence(evidence_example: Optional[str]) -> Optional[s
         re.I,
     )
     return match.group(0) if match else None
+
+
+@router.get("/development-points/awaiting-approval", dependencies=[Depends(get_current_user)])
+async def get_awaiting_approval():
+    """CEO: list development points waiting for approval, sorted by impact and created_at."""
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT dp.*, ha.name AS agent_name, ha.role
+            FROM development_points dp
+            JOIN hired_agents ha ON dp.agent_id = ha.agent_id
+            WHERE dp.status = 'AWAITING_APPROVAL'
+            ORDER BY
+                CASE dp.impact WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
+                dp.created_at ASC
+            """
+        )
+    items = []
+    for r in rows:
+        d = dict(r)
+        for k in ("created_at", "updated_at", "resolved_at"):
+            if d.get(k) and hasattr(d[k], "isoformat"):
+                d[k] = d[k].isoformat()
+        items.append(d)
+    return {"items": items, "count": len(items)}
 
 
 @router.get("/development-points/{point_id}")
@@ -1062,6 +1089,95 @@ async def dismiss_point(point_id: str):
     if not success:
         raise HTTPException(status_code=404, detail="Development point not found")
     return {"point_id": point_id, "status": "DISMISSED"}
+
+
+@router.post("/development-points/{point_id}/submit-for-approval", dependencies=[Depends(get_current_user)])
+async def submit_for_approval(point_id: str):
+    """HR Manager: set OPEN development point to AWAITING_APPROVAL."""
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            """
+            UPDATE development_points
+            SET status = 'AWAITING_APPROVAL', updated_at = now()
+            WHERE (point_id = $1 OR id::text = $1) AND status = 'OPEN'
+            """,
+            point_id,
+        )
+    if result == "UPDATE 0":
+        raise HTTPException(status_code=404, detail="Point niet gevonden of niet in status OPEN")
+    return {"submitted": True, "point_id": point_id}
+
+
+@router.post("/development-points/{point_id}/approve", dependencies=[Depends(get_current_user)])
+async def approve_development_point(
+    point_id: str,
+    body: ApproveTrainingRequest,
+):
+    """CEO: approve (set IN_TRAINING, start TrainingWorkflow) or reject (set DISMISSED) a development point."""
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        point = await conn.fetchrow(
+            """
+            SELECT * FROM development_points
+            WHERE (point_id = $1 OR id::text = $1) AND status = 'AWAITING_APPROVAL'
+            """,
+            point_id,
+        )
+        if not point:
+            raise HTTPException(status_code=404, detail="Point niet gevonden of niet in AWAITING_APPROVAL")
+        point_id = str(point["point_id"])
+        agent_id = point.get("agent_id") or point.get("agent_role")
+        approved_by = body.approved_by or "operator"
+
+    if body.approved:
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                UPDATE development_points
+                SET status = 'IN_TRAINING',
+                    source_url = COALESCE($2, source_url),
+                    approved_by = $3,
+                    updated_at = now()
+                WHERE point_id = $1
+                """,
+                point_id,
+                body.source_url or point.get("source_url"),
+                approved_by,
+            )
+        final_url = body.source_url or point.get("source_url") or point.get("suggested_url")
+        if final_url:
+            try:
+                import asyncio
+                from app.services.training_workflow import TrainingWorkflow
+                workflow = TrainingWorkflow(pool)
+                asyncio.create_task(
+                    workflow.start_training(
+                        agent_id=agent_id,
+                        url=final_url,
+                        approved_by=approved_by,
+                    )
+                )
+            except Exception as e:
+                logger.warning("TrainingWorkflow start mislukt voor point %s: %s", point_id, e)
+        return {"approved": True, "point_id": point_id, "training_started": bool(final_url)}
+    else:
+        async with pool.acquire() as conn:
+            cols = await _get_table_columns(conn, "development_points")
+            set_clauses = ["status = 'DISMISSED'", "approved_by = $2", "updated_at = now()"]
+            params = [point_id, approved_by]
+            if "root_cause" in cols:
+                set_clauses.append("root_cause = COALESCE(root_cause || ' | Afgewezen: ' || $3, 'Afgewezen: ' || $3)")
+                params.append(body.rejection_reason or "Geen reden opgegeven")
+            await conn.execute(
+                f"""
+                UPDATE development_points
+                SET {', '.join(set_clauses)}
+                WHERE point_id = $1
+                """,
+                *params,
+            )
+        return {"approved": False, "point_id": point_id}
 
 
 @router.post("/scan")

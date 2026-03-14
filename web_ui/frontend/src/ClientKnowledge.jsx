@@ -52,6 +52,7 @@ export default function ClientKnowledge() {
   const [submitting, setSubmitting] = useState(false)
   const [menuId, setMenuId] = useState(null)
   const [pollingIds, setPollingIds] = useState(new Set())
+  const [processingStatus, setProcessingStatus] = useState({})
 
   const fetchDatasources = useCallback(async () => {
     if (!slug) return
@@ -82,6 +83,17 @@ export default function ClientKnowledge() {
     Promise.all([fetchDatasources(), fetchKnowledge()]).finally(() => setLoading(false))
   }, [slug, fetchDatasources, fetchKnowledge])
 
+  // Start polling for any datasource that is already processing (e.g. after refresh)
+  useEffect(() => {
+    const processing = datasources.filter((ds) => ds.status === 'processing').map((ds) => ds.id)
+    if (processing.length === 0) return
+    setPollingIds((prev) => {
+      const next = new Set(prev)
+      processing.forEach((id) => next.add(id))
+      return next
+    })
+  }, [datasources])
+
   // Poll status for processing datasources
   useEffect(() => {
     if (!slug || pollingIds.size === 0) return
@@ -91,6 +103,7 @@ export default function ClientKnowledge() {
           const res = await apiFetch(`/api/clients/${slug}/datasources/${id}/status`)
           if (res.ok) {
             const s = await res.json()
+            setProcessingStatus((prev) => ({ ...prev, [id]: s }))
             if (s.status === 'done' || s.status === 'failed') {
               setPollingIds((prev) => {
                 const next = new Set(prev)
@@ -245,6 +258,11 @@ export default function ClientKnowledge() {
                   {statusLabel(ds)}
                   {ds.file_name && ` · ${ds.file_name}`}
                 </p>
+                {ds.status === 'processing' && processingStatus[ds.id] && (
+                  <p className="text-xs mt-1 text-indigo-600">
+                    🔄 Bezig... {processingStatus[ds.id].pages_processed ?? 0} / {processingStatus[ds.id].pages_found ?? 0} pagina&apos;s · {processingStatus[ds.id].chunks_created ?? 0} chunks aangemaakt
+                  </p>
+                )}
                 {ds.error_detail && (
                   <p className="text-xs mt-1 text-amber-700 bg-amber-50 px-2 py-1 rounded">{ds.error_detail}</p>
                 )}

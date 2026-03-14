@@ -782,6 +782,74 @@ async def get_agent_context(
     return {"agent_id": agent_id, "query": query, "chunks": chunks, "count": len(chunks)}
 
 
+@router.get("/{agent_id}/knowledge")
+async def get_agent_knowledge(
+    agent_id: str,
+    current_user: Annotated[TokenPayload, Depends(get_current_user)],
+) -> Dict[str, Any]:
+    """Overzicht van alle kennisbronnen van een agent (gegroepeerd per URL)."""
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        agent = await conn.fetchrow(
+            "SELECT agent_id, name FROM hired_agents WHERE agent_id = $1",
+            agent_id,
+        )
+        if not agent:
+            raise HTTPException(status_code=404, detail="Agent niet gevonden")
+
+        rows = await conn.fetch(
+            """
+            SELECT
+                source_url,
+                COUNT(*) AS chunk_count,
+                MAX(created_at) AS last_added,
+                bool_and(is_active) AS all_active
+            FROM agent_knowledge
+            WHERE agent_id = $1
+            GROUP BY source_url
+            ORDER BY MAX(created_at) DESC
+            """,
+            agent_id,
+        )
+    sources = []
+    total_chunks = 0
+    for r in rows:
+        d = dict(r)
+        total_chunks += int(d.get("chunk_count") or 0)
+        if d.get("last_added") and hasattr(d["last_added"], "isoformat"):
+            d["last_added"] = d["last_added"].isoformat()
+        sources.append(d)
+    return {
+        "agent_id": agent_id,
+        "agent_name": agent.get("name"),
+        "sources": sources,
+        "total_chunks": total_chunks,
+    }
+
+
+@router.delete("/{agent_id}/knowledge")
+async def deactivate_knowledge_source(
+    agent_id: str,
+    source_url: str = Query(..., description="URL van de bron om te deactiveren"),
+    current_user: Annotated[TokenPayload, Depends(get_current_user)],
+) -> Dict[str, Any]:
+    """Deactiveer alle chunks van een specifieke source_url (is_active = false)."""
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            """
+            UPDATE agent_knowledge
+            SET is_active = false
+            WHERE agent_id = $1 AND source_url = $2 AND is_active = true
+            """,
+            agent_id,
+            source_url,
+        )
+    if result == "UPDATE 0":
+        raise HTTPException(status_code=404, detail="Bron niet gevonden of al inactief")
+    return {"deactivated": True, "source_url": source_url}
+
+
 @router.get("/{agent_id}", response_model=AgentResponse)
 async def get_agent(
     agent_id: str,

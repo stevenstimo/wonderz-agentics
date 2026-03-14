@@ -49,6 +49,7 @@ const MANAGEMENT = [
   { label: 'Newbies', icon: Star, path: '/newbies' },
   { label: 'Training Hub', icon: GraduationCap, path: '/training' },
   { label: 'HR', icon: ClipboardList, path: '/hr', badgeKey: 'hrNotifications' },
+  { label: 'CEO Approval', icon: Shield, path: '/hr/approval', badgeKey: 'approvalCount' },
   { label: 'Improvements', icon: TrendingUp, path: '/hr/improvements' },
   { label: 'Hiring Hall', icon: UserPlus, path: '/hiring' },
 ]
@@ -170,6 +171,7 @@ export default function Sidebar() {
   const [inboxUnread, setInboxUnread] = useState(0)
   const [hrNotifications, setHrNotifications] = useState(0)
   const [systemEventsCount, setSystemEventsCount] = useState(0)
+  const [approvalCount, setApprovalCount] = useState(0)
 
   useEffect(() => {
     let active = true
@@ -228,6 +230,27 @@ export default function Sidebar() {
     }
     fetchSystemEvents()
     const interval = setInterval(fetchSystemEvents, 30000)
+    return () => {
+      active = false
+      clearInterval(interval)
+    }
+  }, [])
+
+  useEffect(() => {
+    let active = true
+    const fetchApproval = async () => {
+      try {
+        const res = await apiFetch('/api/hr/development-points/awaiting-approval')
+        if (res.ok && active) {
+          const data = await res.json()
+          setApprovalCount(data.count ?? 0)
+        }
+      } catch {
+        if (active) setApprovalCount(0)
+      }
+    }
+    fetchApproval()
+    const interval = setInterval(fetchApproval, 60000)
     return () => {
       active = false
       clearInterval(interval)
@@ -308,10 +331,16 @@ export default function Sidebar() {
             <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 px-3 mt-4 mb-2">Management</div>
             {MANAGEMENT.map((item) => (
               <NavItem
-                key={item.label}
+                key={item.path || item.label}
                 item={item}
-                badge={item.badgeKey === 'hrNotifications' ? hrNotifications : undefined}
-                badgeRed={item.badgeKey === 'hrNotifications'}
+                badge={
+                  item.badgeKey === 'hrNotifications'
+                    ? hrNotifications
+                    : item.badgeKey === 'approvalCount'
+                      ? approvalCount
+                      : undefined
+                }
+                badgeRed={item.badgeKey === 'hrNotifications' || (item.badgeKey === 'approvalCount' && approvalCount > 0)}
               />
             ))}
 

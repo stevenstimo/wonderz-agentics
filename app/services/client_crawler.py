@@ -217,12 +217,11 @@ class ClientCrawler:
                 await conn.execute(
                     """
                     UPDATE client_datasources
-                    SET pages_processed = $1, chunks_created = $2, updated_at = now()
-                    WHERE id = $3
+                    SET pages_processed = pages_processed + 1, chunks_created = chunks_created + $2, updated_at = now()
+                    WHERE id = $1
                     """,
-                    pages_processed,
-                    chunks_created,
                     self.datasource_id,
+                    stored,
                 )
 
         error_detail = None
@@ -289,12 +288,11 @@ class ClientCrawler:
                 await conn.execute(
                     """
                     UPDATE client_datasources
-                    SET pages_processed = $1, chunks_created = $2, updated_at = now()
-                    WHERE id = $3
+                    SET pages_processed = pages_processed + 1, chunks_created = chunks_created + $2, updated_at = now()
+                    WHERE id = $1
                     """,
-                    pages_processed,
-                    chunks_created,
                     self.datasource_id,
+                    stored,
                 )
 
         error_detail = None

@@ -147,7 +147,7 @@ export default function AgentDirectChat({ agentId, agent }) {
         setChatError(detail)
       }
     } catch (err) {
-      console.error('Create chat failed:', err)
+      console.error('[AgentDirectChat] Create chat failed:', err?.message ?? err)
       setChatError(err.message || 'Kon geen chat starten. Controleer je verbinding.')
     } finally {
       setSending(false)
@@ -179,7 +179,7 @@ export default function AgentDirectChat({ agentId, agent }) {
       await loadChats()
       return chatId
     } catch (err) {
-      console.error('Chat aanmaken mislukt:', err)
+      console.error('[AgentDirectChat] Chat aanmaken mislukt:', err?.message ?? err)
       setChatError(err.message || 'Kon geen chat starten.')
       return null
     }
@@ -206,9 +206,6 @@ export default function AgentDirectChat({ agentId, agent }) {
           }
         )
         const data = await res.json().catch(() => ({}))
-        if (process.env.NODE_ENV === 'development') {
-          console.log('API response na send:', JSON.stringify(data, null, 2))
-        }
         if (res.ok && !data.error) {
           const replyText = typeof data.agent_response === 'string' ? data.agent_response : (data.agent_response ? String(data.agent_response) : '')
           const agentMsg = {

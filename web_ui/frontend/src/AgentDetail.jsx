@@ -5,6 +5,7 @@ import PageLayout from './PageLayout'
 import { apiUrl, apiFetch } from './apiClient'
 import { VALID_TOOLS, VALID_CATEGORIES } from './agentConstants'
 import AgentDirectChat from './components/AgentDirectChat'
+import AgentKnowledgeTab from './components/AgentKnowledgeTab'
 
 const AVATAR_COLORS = [
   { name: 'indigo', bg: 'bg-indigo-600' },
@@ -74,6 +75,7 @@ function resizeImageToDataUrl(file) {
 const TAB_PROFIEL = 'profiel'
 const TAB_TRAINING = 'training'
 const TAB_KENNIS = 'kennis'
+const TAB_KNOWLEDGEBANK = 'kennisbank'
 const TAB_PRESTATIES = 'prestaties'
 const TAB_CHAT = 'chat'
 
@@ -563,6 +565,13 @@ export default function AgentDetail() {
           </button>
           <button
             type="button"
+            onClick={() => setTab(TAB_KNOWLEDGEBANK)}
+            className={`px-6 py-3 font-semibold rounded-t-xl transition-colors ${tabClass(TAB_KNOWLEDGEBANK)}`}
+          >
+            Kennisbank
+          </button>
+          <button
+            type="button"
             onClick={() => setTab(TAB_PRESTATIES)}
             className={`px-6 py-3 font-semibold rounded-t-xl transition-colors ${tabClass(TAB_PRESTATIES)}`}
           >
@@ -821,6 +830,10 @@ export default function AgentDetail() {
 
       {tab === TAB_KENNIS && (
       <KennisTab agentId={agentId} knowledgeSources={knowledgeSources} relativeTime={relativeTime} />
+      )}
+
+      {tab === TAB_KNOWLEDGEBANK && (
+      <AgentKnowledgeTab agentId={agentId} />
       )}
 
       {tab === TAB_PRESTATIES && (
