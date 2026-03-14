@@ -171,6 +171,12 @@ export default function ClientKnowledge() {
       setModalStep(1)
       setForm({ name: '', source_type: 'website_crawl', domain: '', sitemap_url: '', raw_text: '', feed_url: '', feed_splitting_tag: 'item', feed_identifier_tag: 'g:id' })
       await fetchDatasources()
+      let refreshCount = 0
+      const refreshInterval = setInterval(async () => {
+        await fetchDatasources()
+        refreshCount++
+        if (refreshCount >= 6) clearInterval(refreshInterval)
+      }, 5000)
     } catch (e) {
       setError(e?.message || 'Aanmaken mislukt')
     } finally {
