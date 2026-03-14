@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react'
+import React, { useEffect, useState, useCallback, useRef } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { apiFetch } from './apiClient'
 import PageLayout from './PageLayout'
@@ -298,6 +298,7 @@ export default function HRDashboard() {
   const [reportLoading, setReportLoading] = useState(false)
   const [resolveInput, setResolveInput] = useState({})
   const [expandedPointId, setExpandedPointId] = useState(null)
+  const scanIntervalRef = useRef(null)
 
   const loadPoints = useCallback(async () => {
     setLoading(true)

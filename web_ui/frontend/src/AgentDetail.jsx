@@ -204,6 +204,12 @@ export default function AgentDetail() {
     loadDetail()
   }, [loadDetail])
 
+  useEffect(() => {
+    return () => {
+      if (trainingPollRef.current) clearInterval(trainingPollRef.current)
+    }
+  }, [])
+
   const agent = data?.agent || {}
   const recentWork = data?.recent_work || []
   const developmentPoints = data?.development_points || []
@@ -214,6 +220,7 @@ export default function AgentDetail() {
   const avatarImageUrl = avatarConfig.imageDataUrl || avatarConfig.imageUrl || null
   const avatarBg = AVATAR_COLORS.find((c) => c.name === avatarColor)?.bg || 'bg-indigo-600'
   const fileInputRef = useRef(null)
+  const trainingPollRef = useRef(null)
   const knowledgeSources = Array.isArray(agent.knowledge_base_sources) ? agent.knowledge_base_sources : []
 
   const totalTokens = recentWork.reduce((acc, s) => acc + (Number(s.tokens_used) || 0), 0)
@@ -321,7 +328,7 @@ export default function AgentDetail() {
       const pollIntervalMs = 3000
       const maxPolls = 20 // 60s
       let polls = 0
-      const poll = setInterval(async () => {
+      trainingPollRef.current = setInterval(async () => {
         polls += 1
         try {
           const agentRes = await apiFetch(`/api/agents/${encodeURIComponent(agentId)}`)
@@ -330,20 +337,23 @@ export default function AgentDetail() {
           const sources = Array.isArray(agentData?.knowledge_base_sources) ? agentData.knowledge_base_sources : []
           const source = sources.find((s) => s && s.url === urlToTrain)
           if (source && source.status !== 'processing') {
-            clearInterval(poll)
+            if (trainingPollRef.current) clearInterval(trainingPollRef.current)
+            trainingPollRef.current = null
             setIsTraining(false)
             setTrainMessage(source.status === 'active' ? 'Training voltooid ✓' : `Training mislukt${source.error ? `: ${source.error}` : ''}`)
             setData((prev) => (prev ? { ...prev, agent: { ...prev.agent, ...agentData } } : prev))
             return
           }
           if (polls >= maxPolls) {
-            clearInterval(poll)
+            if (trainingPollRef.current) clearInterval(trainingPollRef.current)
+            trainingPollRef.current = null
             setIsTraining(false)
             setTrainMessage('Training duurt langer dan verwacht. Ververs de pagina later.')
           }
         } catch (_) {
           if (polls >= maxPolls) {
-            clearInterval(poll)
+            if (trainingPollRef.current) clearInterval(trainingPollRef.current)
+            trainingPollRef.current = null
             setIsTraining(false)
             setTrainMessage('Training duurt langer dan verwacht. Ververs de pagina later.')
           }
