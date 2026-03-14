@@ -136,9 +136,9 @@ Brand context: {brand_name} | Domein: {domain} | Doelgroep: {audience} | Taal: {
 
 Per keyword, bepaal:
 1. intent: informational / commercial / transactional / navigational
-2. silo: thematische cluster (max 6 silo's voor de hele set — gebruik consistente silo namen)
+2. silo: cluster op zoekintentie + topic-overlap (binnen elke intentie max 8 clusters; beschrijvende naam max 4 woorden; overloop "Overige [intentie]")
 3. content_type: Blog / Landing Page / Pillar Page
-4. title: SEO-geoptimaliseerde {language.upper()}-talige titelsuggestie (max 60 tekens)
+4. title: specifieke, klikwaardige SEO-titel (max 60 tekens). Verwerk het zoekwoord exact of als variant. Kies één structuur naar intentie: informatief "Wat is [keyword]? Complete uitleg" / instructief "Hoe [keyword]: stap-voor-stap" / lijst "[Getal] beste [keyword] voor [doelgroep]" / vergelijkend "[A] vs [B]: welke [keyword]?". Geen clickbait, geen caps lock, geen uitroeptekens.
 5. primary_source: NHG / Overheid / Universiteit / Expert / Intern
 6. audience_match: welke persona past bij dit keyword
 

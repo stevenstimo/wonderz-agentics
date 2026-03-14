@@ -132,16 +132,27 @@ def _position_for_quick_wins(k: Dict[str, Any]) -> Optional[float]:
     return None
 
 
+def _quick_win_priority_score(k: Dict[str, Any]) -> float:
+    """Priority score: volume * (1 - KD/100) / position. Higher = more urgent."""
+    pos = _position_for_quick_wins(k)
+    if pos is None or pos <= 0:
+        return 0.0
+    vol = k.get("volume") or 0
+    kd = k.get("kd") or 0
+    return vol * (1 - kd / 100) / pos
+
+
 def _filter_quick_wins(keywords: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Position 4-20 (GSC or CSV), volume > 500, KD < 40."""
+    """Position 4-20 (GSC or CSV), volume > 100, KD < 45. Sorted by priority score DESC."""
     result = []
     for k in keywords:
         pos = _position_for_quick_wins(k)
         if pos is None:
             continue
-        if 4 <= pos <= 20 and (k.get("volume") or 0) > 500 and (k.get("kd") or 100) < 40:
+        if 4 <= pos <= 20 and (k.get("volume") or 0) > 100 and (k.get("kd") or 100) < 45:
+            k["quick_win_priority"] = _quick_win_priority_score(k)
             result.append(k)
-    return result
+    return sorted(result, key=lambda x: x.get("quick_win_priority") or 0, reverse=True)
 
 
 def _generate_strategy_notes(keywords: List[Dict[str, Any]], silos: List[Dict]) -> str:
@@ -154,7 +165,7 @@ def _generate_strategy_notes(keywords: List[Dict[str, Any]], silos: List[Dict]) 
         f"- Focus silo's: {', '.join(s['Silo naam'] for s in silos[:5])}",
         "",
         "## Quick wins",
-        f"- {len(quick)} keywords in positie 4-20 met volume > 500 en KD < 40",
+        f"- {len(quick)} keywords in positie 4-20 met volume > 100 en KD < 45",
         "- Optimaliseer bestaande content voor deze keywords",
         "",
         "## Aanbevolen publicatievolgorde",
@@ -278,14 +289,18 @@ def generate_seo_excel(
     ws2.freeze_panes = "A2"
     _auto_column_width(ws2)
 
-    # Sheet 3: Quick Wins (same columns and styling as Sheet 1)
+    # Sheet 3: Quick Wins (Keyword Plan columns + Prioriteit Quick Win, sorted by priority DESC)
     quick = _filter_quick_wins(keywords)
+    quick_wins_headers = KEYWORD_PLAN_COLUMNS + ["Prioriteit Quick Win"]
     ws3 = wb.create_sheet("Quick Wins")
-    for col, h in enumerate(KEYWORD_PLAN_COLUMNS, 1):
+    for col, h in enumerate(quick_wins_headers, 1):
         ws3.cell(row=1, column=col, value=h)
     _apply_header_style(ws3)
     for row_idx, k in enumerate(quick, 2):
-        row_data = _keyword_plan_row_data(k)
+        priority_val = k.get("quick_win_priority")
+        row_data = _keyword_plan_row_data(k) + [
+            round(priority_val, 1) if priority_val is not None else None,
+        ]
         kd_val = k.get("kd")
         kd_client_val = k.get("kd_client")
         gsc_label = k.get("gsc_label")
@@ -304,7 +319,7 @@ def generate_seo_excel(
                 except (TypeError, ValueError):
                     pass
     ws3.freeze_panes = "A2"
-    ws3.auto_filter.ref = ws3.dimensions
+    ws3.auto_filter.ref = f"A1:{get_column_letter(len(quick_wins_headers))}{ws3.max_row}"
     _auto_column_width(ws3)
 
     # Sheet 4: Strategie Notes

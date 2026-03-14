@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 
 from app.database import get_db
 from app.middleware.auth import TokenPayload, get_current_user
+from app.services.dashboard import list_gsc_sites
 
 logger = logging.getLogger(__name__)
 
@@ -479,6 +480,31 @@ async def google_oauth_callback(code: Optional[str] = None, state: Optional[str]
         client_slug,
         [(r["integration_id"], r["integration_type"]) for r in saved],
     )
+
+    # After GSC OAuth for a client: fetch site list and store site_url in extra_config
+    if client_slug and "google_search_console" in integration_types:
+        try:
+            sites = await list_gsc_sites(access_token)
+            if sites:
+                primary_url = sites[0].get("site_url", "")
+                all_urls = [s.get("site_url", "") for s in sites if s.get("site_url")]
+                gsc_extra = {"site_url": primary_url}
+                if all_urls:
+                    gsc_extra["gsc_sites"] = all_urls
+                async with pool.acquire() as conn:
+                    await conn.execute(
+                        """
+                        UPDATE client_integrations
+                        SET extra_config = extra_config || $1::jsonb, updated_at = now()
+                        WHERE user_id = $2 AND client_slug = $3 AND integration_type = 'google_search_console'
+                        """,
+                        json.dumps(gsc_extra),
+                        user_id,
+                        client_slug,
+                    )
+                logger.info("GSC site_url saved for user_id=%s client_slug=%s: %s", user_id, client_slug, primary_url)
+        except Exception as e:
+            logger.warning("GSC site_url ophalen mislukt (niet fataal): %s", e)
 
     # Prefer return_to from state, else client-specific or generic integrations
     connected_param = service_type or "google"

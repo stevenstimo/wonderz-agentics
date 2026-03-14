@@ -376,6 +376,12 @@ export default function HRDashboard() {
     return () => { cancelled = true }
   }, [authReady])
 
+  useEffect(() => {
+    return () => {
+      if (scanIntervalRef.current) clearInterval(scanIntervalRef.current)
+    }
+  }, [])
+
   const SCAN_STEP_LABELS = ['Scannen van job steps...', 'Development points aanmaken...', 'Scan afgerond']
 
   async function triggerScan() {
@@ -386,13 +392,14 @@ export default function HRDashboard() {
     setScanStep(0)
     setError('')
 
-    const stepInterval = setInterval(() => {
+    scanIntervalRef.current = setInterval(() => {
       setScanStep((prev) => Math.min(prev + 1, 2))
     }, 1200)
 
     try {
       const res = await apiFetch('/api/hr/scan', { method: 'POST' })
-      clearInterval(stepInterval)
+      if (scanIntervalRef.current) clearInterval(scanIntervalRef.current)
+      scanIntervalRef.current = null
       setScanStep(2)
 
       const data = res.ok ? await res.json().catch(() => ({})) : {}
@@ -413,7 +420,8 @@ export default function HRDashboard() {
         setScanMessage('')
       }, 3000)
     } catch {
-      clearInterval(stepInterval)
+      if (scanIntervalRef.current) clearInterval(scanIntervalRef.current)
+      scanIntervalRef.current = null
       setScanStep(2)
       setScanOutcome('error')
       setScanResultText('Scan mislukt')

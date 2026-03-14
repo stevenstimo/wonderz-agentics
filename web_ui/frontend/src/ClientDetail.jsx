@@ -48,6 +48,8 @@ export default function ClientDetail() {
   const [saving, setSaving] = useState(null)
   const [error, setError] = useState('')
   const [platformForms, setPlatformForms] = useState({})
+  const [defaultAudience, setDefaultAudience] = useState('')
+  const [savingAudience, setSavingAudience] = useState(false)
 
   const isIntegrationConnected = (integrationType) => {
     const found = integrations.find((i) => i.integration_type === integrationType)
@@ -131,6 +133,7 @@ export default function ClientDetail() {
           const integrationsData = await integrationsRes.json()
           setClient(clientData)
           setIntegrations(integrationsData)
+          setDefaultAudience(clientData.default_audience ?? '')
           const forms = {}
           for (const pc of clientData.platform_configs || []) {
             forms[pc.platform] = { ...pc.config }
@@ -169,6 +172,7 @@ export default function ClientDetail() {
             ])
             setClient(clientData)
             setIntegrations(integrationsData)
+            setDefaultAudience(clientData.default_audience ?? '')
             const forms = {}
             for (const pc of clientData.platform_configs || []) {
               forms[pc.platform] = { ...pc.config }
@@ -324,6 +328,50 @@ export default function ClientDetail() {
           <p className="text-xs text-indigo-600 mt-2">
             Gebruik dit in job posts om de client te adresseren
           </p>
+        </div>
+        <div className="mt-4 p-4 rounded-xl bg-slate-50 border border-slate-200">
+          <label className="block text-sm font-medium text-slate-700 mb-1">Standaard doelgroep</label>
+          <p className="text-xs text-slate-500 mb-2">
+            Wordt in de SEO Tool als doelgroep vooringevuld wanneer je deze client kiest.
+          </p>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={defaultAudience}
+              onChange={(e) => setDefaultAudience(e.target.value)}
+              placeholder="Bijv. MKB-ondernemers, 30-50 jaar, Nederland"
+              className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            />
+            <button
+              type="button"
+              disabled={savingAudience}
+              onClick={async () => {
+                setSavingAudience(true)
+                setError('')
+                try {
+                  const res = await apiFetch(`/api/clients/${slug}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ default_audience: defaultAudience || null }),
+                  })
+                  if (res.ok) {
+                    const clientRes = await apiFetch(`/api/clients/${slug}`)
+                    if (clientRes.ok) setClient(await clientRes.json())
+                  } else {
+                    const j = await res.json().catch(() => ({}))
+                    setError(j.detail || 'Opslaan mislukt')
+                  }
+                } catch (err) {
+                  setError(err?.message || 'Opslaan mislukt')
+                } finally {
+                  setSavingAudience(false)
+                }
+              }}
+              className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
+            >
+              {savingAudience ? 'Opslaan...' : 'Bewaar'}
+            </button>
+          </div>
         </div>
       </div>
 

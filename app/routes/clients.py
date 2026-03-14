@@ -94,6 +94,13 @@ class DatasourceCreateBody(BaseModel):
     feed_identifier_tag: Optional[str] = None
 
 
+class ClientPatchBody(BaseModel):
+    """Optional fields for updating a client."""
+    client_name: Optional[str] = Field(None, min_length=1)
+    description: Optional[str] = None
+    default_audience: Optional[str] = None
+
+
 # --- Endpoints ---
 
 
@@ -104,7 +111,7 @@ async def list_clients(current_user: TokenPayload = Depends(get_current_user)):
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             """
-            SELECT client_id, slug, client_name, description, is_active, created_at
+            SELECT client_id, slug, client_name, description, is_active, created_at, default_audience
             FROM clients
             WHERE user_id = $1
             ORDER BY client_name
@@ -119,6 +126,7 @@ async def list_clients(current_user: TokenPayload = Depends(get_current_user)):
             "description": r["description"],
             "is_active": r["is_active"],
             "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+            "default_audience": r["default_audience"],
         }
         for r in rows
     ]
@@ -869,7 +877,7 @@ async def get_client(
     async with pool.acquire() as conn:
         client = await conn.fetchrow(
             """
-            SELECT client_id, slug, client_name, description, is_active, created_at
+            SELECT client_id, slug, client_name, description, is_active, created_at, default_audience
             FROM clients
             WHERE user_id = $1 AND slug = $2
             """,
@@ -897,6 +905,7 @@ async def get_client(
         "description": client["description"],
         "is_active": client["is_active"],
         "created_at": client["created_at"].isoformat() if client["created_at"] else None,
+        "default_audience": client["default_audience"],
         "platform_configs": [
             {
                 "config_id": r["config_id"],
@@ -908,6 +917,48 @@ async def get_client(
             for r in configs
         ],
     }
+
+
+@router.patch("/{slug}")
+async def patch_client(
+    slug: str,
+    body: ClientPatchBody,
+    current_user: TokenPayload = Depends(get_current_user),
+):
+    """Update client fields (client_name, description, default_audience)."""
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT client_id FROM clients WHERE user_id = $1 AND slug = $2",
+            current_user.user_id,
+            slug,
+        )
+        if not row:
+            raise HTTPException(status_code=404, detail="Client not found")
+        updates = []
+        params = []
+        idx = 1
+        if body.client_name is not None:
+            updates.append(f"client_name = ${idx}")
+            params.append(body.client_name)
+            idx += 1
+        if body.description is not None:
+            updates.append(f"description = ${idx}")
+            params.append(body.description)
+            idx += 1
+        if body.default_audience is not None:
+            updates.append(f"default_audience = ${idx}")
+            params.append(body.default_audience)
+            idx += 1
+        if not updates:
+            return {"status": "ok", "slug": slug}
+        params.append(current_user.user_id)
+        params.append(slug)
+        await conn.execute(
+            f"UPDATE clients SET {', '.join(updates)} WHERE user_id = ${idx} AND slug = ${idx + 1}",
+            *params,
+        )
+    return {"status": "ok", "slug": slug}
 
 
 @router.post("/{slug}/platforms")

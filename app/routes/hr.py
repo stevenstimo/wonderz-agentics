@@ -592,6 +592,7 @@ async def approve_training(req: ApproveTrainingRequest, background_tasks: Backgr
                     raise HTTPException(status_code=404, detail="Request not found")
 
                 new_status = "APPROVED" if req.approved else "REJECTED"
+                notes_value = req.notes if req.approved else (req.rejection_reason or req.notes)
                 await conn.execute(
                     """
                     UPDATE training_requests
@@ -603,7 +604,7 @@ async def approve_training(req: ApproveTrainingRequest, background_tasks: Backgr
                     """,
                     new_status,
                     req.approved_by,
-                    req.notes,
+                    notes_value,
                     req.request_id,
                 )
 

@@ -83,7 +83,7 @@ export default function SEOTool() {
           const res = await apiFetch(`/api/clients/${encodeURIComponent(c.slug)}`)
           if (res.ok) {
             const detail = await res.json()
-            console.log('clientDetail', detail)
+            if (detail?.default_audience) setAudience((prev) => prev || detail.default_audience)
             const configs = detail?.platform_configs ?? []
             const gsc = configs.find((p) => p.platform === 'gsc')
             let config = gsc?.config

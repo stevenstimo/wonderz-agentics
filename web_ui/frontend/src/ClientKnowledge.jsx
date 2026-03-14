@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import {
   Globe,
@@ -53,6 +53,7 @@ export default function ClientKnowledge() {
   const [menuId, setMenuId] = useState(null)
   const [pollingIds, setPollingIds] = useState(new Set())
   const [processingStatus, setProcessingStatus] = useState({})
+  const refreshIntervalRef = useRef(null)
 
   const fetchDatasources = useCallback(async () => {
     if (!slug) return
@@ -120,6 +121,12 @@ export default function ClientKnowledge() {
     return () => clearInterval(t)
   }, [slug, pollingIds, fetchDatasources, fetchKnowledge])
 
+  useEffect(() => {
+    return () => {
+      if (refreshIntervalRef.current) clearInterval(refreshIntervalRef.current)
+    }
+  }, [])
+
   const createDatasource = async () => {
     setSubmitting(true)
     setError('')
@@ -172,10 +179,13 @@ export default function ClientKnowledge() {
       setForm({ name: '', source_type: 'website_crawl', domain: '', sitemap_url: '', raw_text: '', feed_url: '', feed_splitting_tag: 'item', feed_identifier_tag: 'g:id' })
       await fetchDatasources()
       let refreshCount = 0
-      const refreshInterval = setInterval(async () => {
+      refreshIntervalRef.current = setInterval(async () => {
         await fetchDatasources()
         refreshCount++
-        if (refreshCount >= 6) clearInterval(refreshInterval)
+        if (refreshCount >= 6) {
+          if (refreshIntervalRef.current) clearInterval(refreshIntervalRef.current)
+          refreshIntervalRef.current = null
+        }
       }, 5000)
     } catch (e) {
       setError(e?.message || 'Aanmaken mislukt')
