@@ -149,31 +149,35 @@ export default function ClientKnowledge() {
         return
       }
       const data = await res.json()
+      const datasourceId = data.datasource_id
+
+      if (form.source_type === 'file') {
+        setMenuId(datasourceId)
+      } else if (datasourceId && form.source_type !== 'text') {
+        await startProcess(datasourceId)
+      } else if (form.source_type === 'text' && body.raw_text) {
+        await startProcess(datasourceId)
+      }
+
       setModalOpen(false)
       setModalStep(1)
       setForm({ name: '', source_type: 'website_crawl', domain: '', sitemap_url: '', raw_text: '', feed_url: '', feed_splitting_tag: 'item', feed_identifier_tag: 'g:id' })
       await fetchDatasources()
-      if (form.source_type === 'file') {
-        setMenuId(data.datasource_id)
-      } else if (data.datasource_id && form.source_type !== 'text') {
-        await startProcess(data.datasource_id)
-      }
-      if (form.source_type === 'text' && body.raw_text) {
-        await startProcess(data.datasource_id)
-      }
     } catch (e) {
-      setError(e.message || 'Aanmaken mislukt')
+      setError(e?.message || 'Aanmaken mislukt')
     } finally {
       setSubmitting(false)
     }
   }
 
   const startProcess = async (datasourceId) => {
-    try {
-      const res = await apiFetch(`/api/clients/${slug}/datasources/${datasourceId}/process`, { method: 'POST' })
-      if (res.ok) setPollingIds((prev) => new Set(prev).add(datasourceId))
-      fetchDatasources()
-    } catch (_) {}
+    const res = await apiFetch(`/api/clients/${slug}/datasources/${datasourceId}/process`, { method: 'POST' })
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}))
+      throw new Error(j.detail || 'Verwerken starten mislukt')
+    }
+    setPollingIds((prev) => new Set(prev).add(datasourceId))
+    await fetchDatasources()
   }
 
   const uploadFile = async (datasourceId, file) => {
