@@ -104,3 +104,9 @@
 @media (max-width: 900px) {
   .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
 }
+
+/* HR Dashboard — scan progress bar (indeterminate stripe animation) */
+@keyframes hr-scan-progress {
+  0% { background-position: 0 0; }
+  100% { background-position: -32px 0; }
+}

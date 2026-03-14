@@ -34,6 +34,9 @@ export default function HRDashboard() {
   const [loading, setLoading] = useState(false)
   const [scanning, setScanning] = useState(false)
   const [scanMessage, setScanMessage] = useState('')
+  const [scanStep, setScanStep] = useState(0)
+  const [scanOutcome, setScanOutcome] = useState(null)
+  const [scanResultText, setScanResultText] = useState('')
   const [error, setError] = useState('')
   const [trainingUrlInput, setTrainingUrlInput] = useState({})
   const [crossProposals, setCrossProposals] = useState([])
@@ -140,25 +143,54 @@ export default function HRDashboard() {
     return () => { cancelled = true }
   }, [authReady])
 
+  const SCAN_STEP_LABELS = ['Scannen van job steps...', 'Development points aanmaken...', 'Scan afgerond']
+
   async function triggerScan() {
     setScanning(true)
     setScanMessage('')
+    setScanOutcome(null)
+    setScanResultText('')
+    setScanStep(0)
     setError('')
+
+    const stepInterval = setInterval(() => {
+      setScanStep((prev) => Math.min(prev + 1, 2))
+    }, 1200)
+
     try {
       const res = await apiFetch('/api/hr/scan', { method: 'POST' })
+      clearInterval(stepInterval)
+      setScanStep(2)
+
       const data = res.ok ? await res.json().catch(() => ({})) : {}
       const created = data.created ?? 0
       const incremented = data.incremented ?? 0
       const total = created + incremented
-      setScanMessage(total > 0
-        ? `Scan voltooid — ${created} nieuwe development point${created !== 1 ? 's' : ''} gevonden${incremented > 0 ? `, ${incremented} bijgewerkt` : ''}`
-        : 'Scan voltooid — geen nieuwe patronen gevonden')
+
+      setScanOutcome('success')
+      setScanResultText(total > 0
+        ? `${created} nieuwe development point${created !== 1 ? 's' : ''} gevonden${incremented > 0 ? `, ${incremented} bijgewerkt` : ''}`
+        : 'Geen nieuwe patronen gevonden')
       await loadPoints()
-      setTimeout(() => setScanMessage(''), 3000)
+
+      setTimeout(() => {
+        setScanning(false)
+        setScanOutcome(null)
+        setScanResultText('')
+        setScanMessage('')
+      }, 3000)
     } catch {
+      clearInterval(stepInterval)
+      setScanStep(2)
+      setScanOutcome('error')
+      setScanResultText('Scan mislukt')
       setError('Scan mislukt')
+      setTimeout(() => {
+        setScanning(false)
+        setScanOutcome(null)
+        setScanResultText('')
+      }, 3000)
     }
-    setScanning(false)
   }
 
   async function updatePointStatus(pointId, status) {
@@ -306,15 +338,55 @@ export default function HRDashboard() {
     <PageLayout size="wide" padded>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-slate-900">HR Dashboard</h1>
-        <button
-          type="button"
-          onClick={triggerScan}
-          disabled={scanning}
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 disabled:opacity-50 text-sm"
-        >
-          <RefreshCw className={`w-4 h-4 ${scanning ? 'animate-spin' : ''}`} />
-          {scanning ? 'Scannen...' : 'Scan nu'}
-        </button>
+        <div className="flex flex-col items-end gap-2">
+          <button
+            type="button"
+            onClick={triggerScan}
+            disabled={scanning}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white font-medium disabled:opacity-50 text-sm"
+            style={{
+              background: scanning ? 'var(--color-text-muted)' : 'var(--color-brand-primary)',
+            }}
+          >
+            <RefreshCw className={`w-4 h-4 ${scanning ? 'animate-spin' : ''}`} />
+            {scanning ? 'Scannen...' : 'Scan nu'}
+          </button>
+          {(scanning || scanOutcome) && (
+            <div
+              className="w-64 rounded-[var(--radius-sm)] overflow-hidden border text-sm"
+              style={{
+                borderColor: scanOutcome === 'error' ? 'var(--color-status-error)' : scanOutcome === 'success' ? 'var(--color-status-success)' : 'var(--color-border)',
+              }}
+            >
+              <div
+                className="h-2 w-full overflow-hidden"
+                style={{ background: 'var(--color-bg-input)' }}
+              >
+                <div
+                  className="h-full w-full"
+                  style={{
+                    background: scanOutcome === 'error'
+                      ? 'var(--color-status-error)'
+                      : scanOutcome === 'success'
+                        ? 'var(--color-status-success)'
+                        : 'repeating-linear-gradient(90deg, var(--color-brand-primary), var(--color-brand-primary) 8px, var(--color-brand-primary-light) 8px, var(--color-brand-primary-light) 16px)',
+                    backgroundSize: scanOutcome ? '100% 100%' : '32px 100%',
+                    animation: scanOutcome ? 'none' : 'hr-scan-progress 0.8s linear infinite',
+                  }}
+                />
+              </div>
+              <div
+                className="px-2 py-1.5"
+                style={{
+                  background: scanOutcome === 'error' ? 'var(--color-status-error-bg)' : scanOutcome === 'success' ? 'var(--color-status-success-bg)' : 'var(--color-bg-subtle)',
+                  color: scanOutcome === 'error' ? '#991B1B' : scanOutcome === 'success' ? '#065F46' : 'var(--color-text-secondary)',
+                }}
+              >
+                {scanOutcome ? scanResultText : SCAN_STEP_LABELS[scanStep]}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="flex gap-2 mb-6">
