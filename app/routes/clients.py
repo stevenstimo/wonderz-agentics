@@ -3,22 +3,27 @@
 Uses clients.slug as identifier. client_platform_configs stores platform-specific IDs per client.
 """
 
+import asyncio
 import json
 import logging
 import os
 import re
 import secrets
+import tempfile
 from datetime import date, timedelta
 from typing import Any, Optional
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
-
 import httpx
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
+from pydantic import BaseModel, Field
 
 from app.database import get_db
 from app.middleware.auth import TokenPayload, get_current_user
+from app.services.client_crawler import ClientCrawler
+from app.services.client_feed_processor import ClientFeedProcessor
+from app.services.client_file_processor import ClientFileProcessor
+from app.services.client_text_processor import ClientTextProcessor
 from app.services.dashboard import (
     _get_first_ga4_property,
     _get_first_google_ads_customer,
@@ -76,6 +81,18 @@ class IntegrationConfigBody(BaseModel):
     customer_id: Optional[str] = None
     login_customer_id: Optional[str] = None
     ad_account_id: Optional[str] = None
+
+
+class DatasourceCreateBody(BaseModel):
+    """Create a client knowledge datasource."""
+    name: str = Field(..., min_length=1)
+    source_type: str = Field(..., pattern="^(website_crawl|website_sitemap|text|file|product_feed)$")
+    domain: Optional[str] = None
+    sitemap_url: Optional[str] = None
+    raw_text: Optional[str] = None
+    feed_url: Optional[str] = None
+    feed_splitting_tag: Optional[str] = None
+    feed_identifier_tag: Optional[str] = None
 
 
 # --- Endpoints ---
@@ -953,3 +970,317 @@ async def delete_platform_config(
     if result == "DELETE 0":
         raise HTTPException(status_code=404, detail="Platform config not found")
     return {"status": "ok", "slug": slug, "platform": platform}
+
+
+# --- Client knowledge / datasources ---
+
+
+async def _client_id_for_slug(conn, slug: str, user_id) -> str:
+    """Return client_id for slug and user; raise 404 if not found."""
+    row = await conn.fetchrow(
+        "SELECT client_id FROM clients WHERE user_id = $1 AND slug = $2",
+        user_id,
+        slug,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Client not found")
+    return row["client_id"]
+
+
+@router.post("/{slug}/datasources")
+async def create_datasource(
+    slug: str,
+    body: DatasourceCreateBody,
+    current_user: TokenPayload = Depends(get_current_user),
+):
+    """Create a knowledge datasource for the client. Returns datasource_id and status pending."""
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        client_id = await _client_id_for_slug(conn, slug, current_user.user_id)
+        row = await conn.fetchrow(
+            """
+            INSERT INTO client_datasources
+            (client_id, name, source_type, domain, sitemap_url, raw_text, feed_url, feed_splitting_tag, feed_identifier_tag, status)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending')
+            RETURNING id, status
+            """,
+            client_id,
+            body.name,
+            body.source_type,
+            body.domain,
+            body.sitemap_url,
+            body.raw_text,
+            body.feed_url,
+            body.feed_splitting_tag,
+            body.feed_identifier_tag,
+        )
+    return {"datasource_id": row["id"], "status": row["status"]}
+
+
+@router.get("/{slug}/datasources")
+async def list_datasources(
+    slug: str,
+    current_user: TokenPayload = Depends(get_current_user),
+):
+    """List all datasources for the client."""
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        client_id = await _client_id_for_slug(conn, slug, current_user.user_id)
+        rows = await conn.fetch(
+            """
+            SELECT id, name, source_type, status, chunks_created, finished_at
+            FROM client_datasources
+            WHERE client_id = $1
+            ORDER BY created_at DESC
+            """,
+            client_id,
+        )
+    return [
+        {
+            "id": r["id"],
+            "name": r["name"],
+            "source_type": r["source_type"],
+            "status": r["status"],
+            "chunks_created": r["chunks_created"],
+            "finished_at": r["finished_at"].isoformat() if r["finished_at"] else None,
+        }
+        for r in rows
+    ]
+
+
+@router.delete("/{slug}/datasources/{datasource_id:int}")
+async def delete_datasource(
+    slug: str,
+    datasource_id: int,
+    current_user: TokenPayload = Depends(get_current_user),
+):
+    """Remove datasource and all its chunks."""
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        client_id = await _client_id_for_slug(conn, slug, current_user.user_id)
+        result = await conn.execute(
+            "DELETE FROM client_datasources WHERE id = $1 AND client_id = $2",
+            datasource_id,
+            client_id,
+        )
+    if result == "DELETE 0":
+        raise HTTPException(status_code=404, detail="Datasource not found")
+    return {"status": "ok"}
+
+
+async def _process_datasource_background(
+    client_id: str,
+    datasource_id: int,
+    source_type: str,
+    domain: Optional[str],
+    sitemap_url: Optional[str],
+    raw_text: Optional[str],
+    feed_url: Optional[str],
+    feed_splitting_tag: Optional[str],
+    feed_identifier_tag: Optional[str],
+) -> None:
+    """Background: run crawler, text, or feed processor."""
+    pool = await get_db()
+    try:
+        if source_type == "website_crawl" and domain:
+            crawler = ClientCrawler(client_id, datasource_id, pool)
+            await crawler.run_crawl(domain)
+        elif source_type == "website_sitemap" and sitemap_url:
+            crawler = ClientCrawler(client_id, datasource_id, pool)
+            await crawler.run_sitemap(sitemap_url)
+        elif source_type == "text" and raw_text is not None:
+            proc = ClientTextProcessor(client_id, datasource_id, pool)
+            await proc.process(raw_text, "Tekst")
+        elif source_type == "product_feed" and feed_url and feed_splitting_tag and feed_identifier_tag:
+            proc = ClientFeedProcessor(client_id, datasource_id, pool)
+            await proc.process(feed_url, feed_splitting_tag, feed_identifier_tag)
+        else:
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    "UPDATE client_datasources SET status = 'failed', error_detail = $1 WHERE id = $2",
+                    "Missing parameters for source_type " + source_type,
+                    datasource_id,
+                )
+    except Exception as e:
+        logger.exception("client knowledge process failed: %s", e)
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE client_datasources SET status = 'failed', error_detail = $1 WHERE id = $2",
+                str(e),
+                datasource_id,
+            )
+
+
+@router.post("/{slug}/datasources/{datasource_id:int}/process")
+async def start_process(
+    slug: str,
+    datasource_id: int,
+    background_tasks: BackgroundTasks,
+    current_user: TokenPayload = Depends(get_current_user),
+):
+    """Start processing (crawl, sitemap, text, or product_feed). Returns immediately; status via GET status."""
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        client_id = await _client_id_for_slug(conn, slug, current_user.user_id)
+        row = await conn.fetchrow(
+            """
+            SELECT id, source_type, domain, sitemap_url, raw_text, feed_url, feed_splitting_tag, feed_identifier_tag
+            FROM client_datasources
+            WHERE id = $1 AND client_id = $2
+            """,
+            datasource_id,
+            client_id,
+        )
+        if not row:
+            raise HTTPException(status_code=404, detail="Datasource not found")
+
+    background_tasks.add_task(
+        _process_datasource_background,
+        client_id,
+        datasource_id,
+        row["source_type"],
+        row["domain"],
+        row["sitemap_url"],
+        row["raw_text"],
+        row["feed_url"],
+        row["feed_splitting_tag"],
+        row["feed_identifier_tag"],
+    )
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE client_datasources SET status = 'processing' WHERE id = $1",
+            datasource_id,
+        )
+    return {"status": "processing"}
+
+
+@router.post("/{slug}/datasources/{datasource_id:int}/upload")
+async def upload_datasource_file(
+    slug: str,
+    datasource_id: int,
+    background_tasks: BackgroundTasks,
+    current_user: TokenPayload = Depends(get_current_user),
+    file: UploadFile = File(...),
+):
+    """Upload PDF or CSV; start processing in background. Returns status processing."""
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        client_id = await _client_id_for_slug(conn, slug, current_user.user_id)
+        row = await conn.fetchrow(
+            "SELECT id, source_type FROM client_datasources WHERE id = $1 AND client_id = $2",
+            datasource_id,
+            client_id,
+        )
+        if not row:
+            raise HTTPException(status_code=404, detail="Datasource not found")
+        if row["source_type"] != "file":
+            raise HTTPException(status_code=400, detail="Datasource is not a file type")
+
+    name = file.filename or "upload"
+    ext = name.lower().split(".")[-1] if "." in name else ""
+    if ext not in ("pdf", "csv"):
+        raise HTTPException(status_code=400, detail="Only PDF or CSV allowed")
+
+    content = await file.read()
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix="." + ext)
+    tmp.write(content)
+    tmp.close()
+    tmp_path = tmp.name
+
+    async def _run_file() -> None:
+        pool_inner = await get_db()
+        try:
+            with open(tmp_path, "rb") as f:
+                data = f.read()
+            proc = ClientFileProcessor(client_id, datasource_id, pool_inner)
+            if ext == "pdf":
+                await proc.process_pdf(data, name)
+            else:
+                await proc.process_csv(data, name)
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+    background_tasks.add_task(_run_file)
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE client_datasources SET status = 'processing', file_name = $1 WHERE id = $2",
+            name,
+            datasource_id,
+        )
+    return {"status": "processing", "file_name": name}
+
+
+@router.get("/{slug}/datasources/{datasource_id:int}/status")
+async def get_datasource_status(
+    slug: str,
+    datasource_id: int,
+    current_user: TokenPayload = Depends(get_current_user),
+):
+    """Poll processing status."""
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        client_id = await _client_id_for_slug(conn, slug, current_user.user_id)
+        row = await conn.fetchrow(
+            """
+            SELECT status, pages_found, pages_processed, chunks_created, error_detail
+            FROM client_datasources
+            WHERE id = $1 AND client_id = $2
+            """,
+            datasource_id,
+            client_id,
+        )
+        if not row:
+            raise HTTPException(status_code=404, detail="Datasource not found")
+
+    total = row["pages_found"] or 0
+    done = row["pages_processed"] or 0
+    percent = (int((done / total * 100)) if total else 0) if row["status"] == "processing" else 100
+    return {
+        "status": row["status"],
+        "pages_found": row["pages_found"],
+        "pages_processed": row["pages_processed"],
+        "chunks_created": row["chunks_created"],
+        "error_detail": row["error_detail"],
+        "percent": percent,
+    }
+
+
+@router.get("/{slug}/knowledge")
+async def get_client_knowledge_overview(
+    slug: str,
+    current_user: TokenPayload = Depends(get_current_user),
+):
+    """Overview: chunks_total and per-datasource summary."""
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        client_id = await _client_id_for_slug(conn, slug, current_user.user_id)
+        total = await conn.fetchval(
+            "SELECT COUNT(*) FROM client_knowledge WHERE client_id = $1 AND is_active = true",
+            client_id,
+        )
+        rows = await conn.fetch(
+            """
+            SELECT d.name, d.source_type, COUNT(k.id) AS chunks, MAX(k.added_at) AS last_updated
+            FROM client_datasources d
+            LEFT JOIN client_knowledge k ON k.datasource_id = d.id AND k.is_active = true
+            WHERE d.client_id = $1
+            GROUP BY d.id, d.name, d.source_type
+            ORDER BY d.name
+            """,
+            client_id,
+        )
+    return {
+        "chunks_total": total or 0,
+        "datasources": [
+            {
+                "name": r["name"],
+                "type": r["source_type"],
+                "chunks": r["chunks"],
+                "last_updated": r["last_updated"].isoformat() if r["last_updated"] else None,
+            }
+            for r in rows
+        ],
+    }

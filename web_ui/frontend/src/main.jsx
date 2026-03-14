@@ -105,7 +105,6 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <Route path="/approvals" element={<ApprovalDashboard />} />
           <Route path="/hr" element={<HRDashboard />} />
           <Route path="/hr/issues/:pointId" element={<IssueDetail />} />
-          <Route path="/hr-feedback" element={<HRDashboard />} />
           <Route path="/hr/improvements" element={<HRImprovements />} />
           <Route path="/explainer" element={<Navigate to="/explainer/how-it-works" replace />} />
           <Route path="/explainer/how-it-works" element={<ExplainerHowItWorks />} />
