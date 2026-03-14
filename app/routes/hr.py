@@ -18,7 +18,7 @@ from app.services.job_pipeline import run_intake_inline
 from app.agents.hr_manager import HRManager as SpecHRManager, _serialize as _serialize_spec
 from app.orchestration.manager import OperationsManager
 from models.unified import JobStatus, StrategicBrief
-from app.services.training import train_agent_from_url
+from app.services.training_workflow import TrainingWorkflow
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/hr", tags=["hr"])
@@ -569,7 +569,7 @@ async def scan_patterns():
 
 
 @router.post("/approve-training")
-async def approve_training(req: ApproveTrainingRequest):
+async def approve_training(req: ApproveTrainingRequest, background_tasks: BackgroundTasks):
     """Approve a development point and start training."""
     logger.info("[approve-training] request_id=%s point_id=%s approved=%s source_url=%s", req.request_id, req.point_id, req.approved, req.source_url)
     # Training request approval path (only when request_id is explicitly provided)
@@ -591,7 +591,7 @@ async def approve_training(req: ApproveTrainingRequest):
                 if not request:
                     raise HTTPException(status_code=404, detail="Request not found")
 
-                new_status = "approved" if req.approved else "rejected"
+                new_status = "APPROVED" if req.approved else "REJECTED"
                 await conn.execute(
                     """
                     UPDATE training_requests
@@ -607,16 +607,27 @@ async def approve_training(req: ApproveTrainingRequest):
                     req.request_id,
                 )
 
+                if req.approved and req.point_id:
+                    await conn.execute(
+                        """
+                        UPDATE agent_improvements
+                        SET status = 'IN_TRAINING', updated_at = NOW()
+                        WHERE id = $1 OR id::text = $1
+                        """,
+                        req.point_id,
+                    )
+
             if req.approved:
                 url = req.source_url or request.get("suggested_url")
                 if not url:
                     raise HTTPException(status_code=400, detail="No training URL provided")
 
-                await train_agent_from_url(
-                    pool=pool,
-                    agent_id=request["agent_id"],
-                    url=url,
-                    approved_by=req.approved_by,
+                workflow = TrainingWorkflow(pool)
+                background_tasks.add_task(
+                    workflow.start_training,
+                    request["agent_id"],
+                    url,
+                    req.approved_by or "ceo",
                 )
 
             return {
@@ -875,6 +886,8 @@ class TrainingRequestOut(BaseModel):
     approved_at: Optional[str] = None
     approved_by: Optional[str] = None
     approval_notes: Optional[str] = None
+    agent_name: Optional[str] = None
+    role: Optional[str] = None
 
 
 @router.post("/training-request")
@@ -897,7 +910,7 @@ async def submit_training_request(req: TrainingRequestIn):
                     request_id, agent_id, reason,
                     confidence_score, suggested_url,
                     status, created_at
-                ) VALUES ($1, $2, $3, $4, $5, 'pending', NOW())
+                ) VALUES ($1, $2, $3, $4, $5, 'PENDING', NOW())
                 """,
                 request_id,
                 req.agent_id,
@@ -908,7 +921,7 @@ async def submit_training_request(req: TrainingRequestIn):
 
         return {
             "request_id": request_id,
-            "status": "pending",
+            "status": "PENDING",
             "agent_id": req.agent_id,
         }
     except Exception as e:
@@ -918,7 +931,7 @@ async def submit_training_request(req: TrainingRequestIn):
 
 
 @router.get("/training-requests", response_model=List[TrainingRequestOut])
-async def list_training_requests(status: Optional[str] = Query(default="pending")):
+async def list_training_requests(status: Optional[str] = None):
     try:
         pool = await get_db()
 
@@ -932,17 +945,21 @@ async def list_training_requests(status: Optional[str] = Query(default="pending"
             if status:
                 rows = await conn.fetch(
                     """
-                    SELECT * FROM training_requests
-                    WHERE status = $1
-                    ORDER BY created_at DESC
+                    SELECT tr.*, ha.name AS agent_name, ha.role
+                    FROM training_requests tr
+                    LEFT JOIN hired_agents ha ON tr.agent_id = ha.agent_id
+                    WHERE tr.status = $1
+                    ORDER BY tr.created_at DESC
                     """,
                     status,
                 )
             else:
                 rows = await conn.fetch(
                     """
-                    SELECT * FROM training_requests
-                    ORDER BY created_at DESC
+                    SELECT tr.*, ha.name AS agent_name, ha.role
+                    FROM training_requests tr
+                    LEFT JOIN hired_agents ha ON tr.agent_id = ha.agent_id
+                    ORDER BY tr.created_at DESC
                     """
                 )
 

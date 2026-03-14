@@ -49,12 +49,32 @@ class HRManager:
         return None
 
     async def _get_development_points_agent_column(self, conn) -> Optional[str]:
-        cols = await self._get_table_columns(conn, "development_points")
+        cols = await self._get_table_columns(conn, "agent_improvements")
         if "agent_id" in cols:
             return "agent_id"
-        if "agent_role" in cols:
-            return "agent_role"
         return None
+
+    def _row_to_legacy(self, row: Dict[str, Any]) -> Dict[str, Any]:
+        """Map agent_improvements row to legacy keys for frontend compatibility."""
+        out = {
+            "point_id": str(row.get("id", "")),
+            "issue_description": row.get("title") or "",
+            "root_cause": row.get("summary"),
+            "evidence_example": row.get("details"),
+            "frequency": 1,
+            "impact": (row.get("severity") or "low").lower(),
+            "status": (row.get("status") or "OPEN").upper(),
+            "source_url": row.get("source_url"),
+            "agent_id": row.get("agent_id"),
+        }
+        for k in ("created_at", "updated_at", "resolved_at"):
+            if k in row and row.get(k) and hasattr(row[k], "isoformat"):
+                out[k] = row[k].isoformat()
+            elif k in row:
+                out[k] = row.get(k)
+        if "id" in row:
+            out["id"] = str(row["id"])
+        return out
 
     def _calculate_impact(self, frequency: int) -> str:
         if frequency >= 10:
@@ -149,17 +169,17 @@ class HRManager:
         evidence: Optional[str] = None,
         suggested_url: Optional[str] = None,
     ) -> Tuple[str, str]:
-        columns = await self._get_table_columns(conn, "development_points")
+        columns = await self._get_table_columns(conn, "agent_improvements")
         agent_col = await self._get_development_points_agent_column(conn)
         if not agent_col:
-            raise RuntimeError("development_points missing agent_id/agent_role column")
+            raise RuntimeError("agent_improvements missing agent_id column")
 
         existing = await conn.fetchrow(
-            f"""
-            SELECT point_id, frequency, created_at
-            FROM development_points
-            WHERE {agent_col} = $1
-              AND issue_description = $2
+            """
+            SELECT id, created_at
+            FROM agent_improvements
+            WHERE agent_id = $1
+              AND title = $2
               AND status IN ('OPEN', 'AWAITING_APPROVAL')
             """,
             agent_id,
@@ -167,54 +187,47 @@ class HRManager:
         )
 
         if existing:
-            set_clauses = ["frequency = frequency + $1"]
-            if "updated_at" in columns:
-                set_clauses.append("updated_at = NOW()")
             await conn.execute(
-                f"""
-                UPDATE development_points
-                SET {', '.join(set_clauses)}
-                WHERE point_id = $2
-                """,
-                frequency,
-                existing["point_id"],
+                "UPDATE agent_improvements SET updated_at = NOW() WHERE id = $1",
+                existing["id"],
             )
-            logger.info("Updated existing point %s frequency", existing["point_id"])
-            return existing["point_id"], "updated"
+            logger.info("Updated existing point %s", existing["id"])
+            return str(existing["id"]), "updated"
 
-        point_id = f"DP-{datetime.now().strftime('%Y-%m-%d')}-{agent_id[:8]}"
-        if await conn.fetchval("SELECT 1 FROM development_points WHERE point_id = $1", point_id):
-            point_id = f"{point_id}-{uuid.uuid4().hex[:4]}"
+        agent_name = agent_id
+        name_row = await conn.fetchrow(
+            "SELECT name FROM hired_agents WHERE agent_id = $1 LIMIT 1",
+            agent_id,
+        )
+        if name_row and name_row.get("name"):
+            agent_name = name_row["name"]
 
-        impact = self._calculate_impact(frequency)
+        severity = self._calculate_impact(frequency)
+        insert_cols = ["agent_id", "agent_name", "title", "severity", "status"]
+        values: List[Any] = [agent_id, agent_name, issue, severity, "OPEN"]
 
-        insert_cols = ["point_id", agent_col, "issue_description", "frequency", "impact", "status", "proposed_by"]
-        values: List[Any] = [point_id, agent_id, issue, frequency, impact, "OPEN", "hr-manager"]
-
-        if evidence and "evidence_example" in columns:
-            insert_cols.append("evidence_example")
+        if "summary" in columns and evidence:
+            insert_cols.append("summary")
+            values.append(evidence[:5000] if evidence else None)
+        if "details" in columns and evidence:
+            insert_cols.append("details")
             values.append(evidence)
 
-        if suggested_url and "source_url" in columns:
-            insert_cols.append("source_url")
+        if suggested_url and ("source_url" in columns or "source" in columns):
+            col = "source_url" if "source_url" in columns else "source"
+            insert_cols.append(col)
             values.append(suggested_url)
 
-        if "created_at" in columns:
-            insert_cols.append("created_at")
-            values.append(datetime.now())
-
-        if "updated_at" in columns:
-            insert_cols.append("updated_at")
-            values.append(datetime.now())
-
         placeholders = ", ".join(f"${i}" for i in range(1, len(values) + 1))
-        await conn.execute(
+        row = await conn.fetchrow(
             f"""
-            INSERT INTO development_points ({', '.join(insert_cols)})
+            INSERT INTO agent_improvements ({', '.join(insert_cols)})
             VALUES ({placeholders})
+            RETURNING id
             """,
             *values,
         )
+        point_id = str(row["id"])
 
         logger.info("Created development point %s for %s", point_id, agent_id)
         return point_id, "created"
@@ -301,13 +314,13 @@ class HRManager:
                 agent_id = agent["agent_id"]
                 agent_key = agent_id
 
-                points = await conn.fetch(
-                    f"""
-                    SELECT point_id, issue_description, impact, frequency
-                    FROM development_points
-                    WHERE {points_agent_col} = $1 AND status = 'OPEN'
+                rows = await conn.fetch(
+                    """
+                    SELECT id, title, severity, created_at
+                    FROM agent_improvements
+                    WHERE agent_id = $1 AND status = 'OPEN'
                     ORDER BY
-                        CASE impact
+                        CASE severity
                             WHEN 'high' THEN 3
                             WHEN 'medium' THEN 2
                             WHEN 'low' THEN 1
@@ -316,10 +329,11 @@ class HRManager:
                             WHEN 'LOW' THEN 1
                             ELSE 0
                         END DESC,
-                        frequency DESC
+                        created_at DESC
                     """,
                     agent_key if points_agent_col == "agent_id" else agent["role"],
                 )
+                points = [self._row_to_legacy(dict(r)) for r in rows]
 
                 if "retry_count" in job_cols:
                     stats = await conn.fetchrow(
@@ -371,35 +385,28 @@ class HRManager:
 
         async with self.pool.acquire() as conn:
             point = await conn.fetchrow(
-                "SELECT * FROM development_points WHERE point_id = $1 OR id::text = $1",
+                "SELECT * FROM agent_improvements WHERE id = $1 OR id::text = $1",
                 point_id,
             )
             if not point:
                 raise ValueError(f"Development point not found: {point_id}")
-            # Normalize to the real point_id for subsequent queries
-            point_id = point["point_id"]
+            point_id = str(point["id"])
 
-            columns = await self._get_table_columns(conn, "development_points")
-            set_clauses = ["status = 'IN_TRAINING'"]
+            columns = await self._get_table_columns(conn, "agent_improvements")
+            set_clauses = ["status = 'IN_TRAINING'", "updated_at = NOW()"]
             params: List[Any] = []
-
             if "source_url" in columns:
                 set_clauses.append("source_url = $1")
                 params.append(source_url)
-
-            if "approved_by" in columns:
-                set_clauses.append(f"approved_by = ${len(params) + 1}")
-                params.append(approved_by)
-
-            if "updated_at" in columns:
-                set_clauses.append("updated_at = NOW()")
-
+            elif "source" in columns:
+                set_clauses.append("source = $1")
+                params.append(source_url)
             params.append(point_id)
             await conn.execute(
                 f"""
-                UPDATE development_points
+                UPDATE agent_improvements
                 SET {', '.join(set_clauses)}
-                WHERE point_id = ${len(params)}
+                WHERE id = ${len(params)}
                 """,
                 *params,
             )
@@ -409,24 +416,14 @@ class HRManager:
         try:
             result = await train_agent_from_url(
                 pool=self.pool,
-                agent_id=point.get("agent_id") or point.get("agent_role"),
+                agent_id=point.get("agent_id"),
                 url=source_url,
                 approved_by=approved_by,
             )
 
             async with self.pool.acquire() as conn:
-                columns = await self._get_table_columns(conn, "development_points")
-                set_clauses = ["status = 'RESOLVED'"]
-                if "resolved_at" in columns:
-                    set_clauses.append("resolved_at = NOW()")
-                if "updated_at" in columns:
-                    set_clauses.append("updated_at = NOW()")
                 await conn.execute(
-                    f"""
-                    UPDATE development_points
-                    SET {', '.join(set_clauses)}
-                    WHERE point_id = $1
-                    """,
+                    "UPDATE agent_improvements SET status = 'RESOLVED', updated_at = NOW() WHERE id = $1",
                     point_id,
                 )
 
@@ -440,16 +437,8 @@ class HRManager:
             logger.error("Training failed for point %s: %s", point_id, e)
 
             async with self.pool.acquire() as conn:
-                columns = await self._get_table_columns(conn, "development_points")
-                set_clauses = ["status = 'OPEN'"]
-                if "updated_at" in columns:
-                    set_clauses.append("updated_at = NOW()")
                 await conn.execute(
-                    f"""
-                    UPDATE development_points
-                    SET {', '.join(set_clauses)}
-                    WHERE point_id = $1
-                    """,
+                    "UPDATE agent_improvements SET status = 'OPEN', updated_at = NOW() WHERE id = $1",
                     point_id,
                 )
 
@@ -477,15 +466,14 @@ class HRManager:
         impact: Optional[str] = None,
         status: str = "OPEN",
     ) -> List[Dict[str, Any]]:
-        """List development points with optional filters."""
+        """List development points with optional filters. Returns legacy key shape."""
         if not self.pool:
             return []
 
         async with self.pool.acquire() as conn:
-            columns = await self._get_table_columns(conn, "development_points")
             agent_col = await self._get_development_points_agent_column(conn)
 
-            query = "SELECT * FROM development_points WHERE 1=1"
+            query = "SELECT * FROM agent_improvements WHERE 1=1"
             params: List[Any] = []
             idx = 1
 
@@ -495,38 +483,24 @@ class HRManager:
                 idx += 1
 
             if impact:
-                query += f" AND impact = ${idx}"
+                query += f" AND severity = ${idx}"
                 params.append(impact)
                 idx += 1
 
-            if agent_col:
-                if agent_id and agent_col == "agent_id":
-                    query += f" AND {agent_col} = ${idx}"
-                    params.append(agent_id)
-                    idx += 1
-                elif agent_role and agent_col == "agent_role":
-                    query += f" AND {agent_col} = ${idx}"
-                    params.append(agent_role)
-                    idx += 1
+            if agent_col and agent_id:
+                query += f" AND agent_id = ${idx}"
+                params.append(agent_id)
+                idx += 1
+            elif agent_role:
+                query += f" AND agent_id = ${idx}"
+                params.append(agent_role)
+                idx += 1
 
-            query += " ORDER BY created_at DESC" if "created_at" in columns else ""
+            query += " ORDER BY created_at DESC"
 
             rows = await conn.fetch(query, *params)
 
-        points: List[Dict[str, Any]] = []
-        for r in rows:
-            data = dict(r)
-            if "created_at" in data and data.get("created_at"):
-                data["created_at"] = data["created_at"].isoformat()
-            if "updated_at" in data and data.get("updated_at"):
-                data["updated_at"] = data["updated_at"].isoformat()
-            if "resolved_at" in data and data.get("resolved_at"):
-                data["resolved_at"] = data["resolved_at"].isoformat()
-            if "id" in data:
-                data["id"] = str(data["id"])
-            points.append(data)
-
-        return points
+        return [self._row_to_legacy(dict(r)) for r in rows]
 
     async def resolve_point(self, point_id: str, resolution: str) -> bool:
         """Mark a development point as resolved."""
@@ -534,30 +508,10 @@ class HRManager:
             return False
 
         async with self.pool.acquire() as conn:
-            columns = await self._get_table_columns(conn, "development_points")
-            set_clauses = ["status = $1"]
-            params: List[Any] = ["RESOLVED"]
-            idx = 2
-
-            if resolution and "resolution" in columns:
-                set_clauses.append(f"resolution = ${idx}")
-                params.append(resolution)
-                idx += 1
-
-            if "resolved_at" in columns:
-                set_clauses.append("resolved_at = NOW()")
-
-            if "updated_at" in columns:
-                set_clauses.append("updated_at = NOW()")
-
-            params.append(point_id)
             result = await conn.execute(
-                f"""
-                UPDATE development_points
-                SET {', '.join(set_clauses)}
-                WHERE point_id = ${idx}
-                """,
-                *params,
+                "UPDATE agent_improvements SET status = $1, updated_at = NOW() WHERE id = $2 OR id::text = $2",
+                "RESOLVED",
+                point_id,
             )
 
         return result != "UPDATE 0"
@@ -568,22 +522,10 @@ class HRManager:
             return False
 
         async with self.pool.acquire() as conn:
-            columns = await self._get_table_columns(conn, "development_points")
-            set_clauses = ["status = $1"]
-            params: List[Any] = ["DISMISSED"]
-            idx = 2
-
-            if "updated_at" in columns:
-                set_clauses.append("updated_at = NOW()")
-
-            params.append(point_id)
             result = await conn.execute(
-                f"""
-                UPDATE development_points
-                SET {', '.join(set_clauses)}
-                WHERE point_id = ${idx}
-                """,
-                *params,
+                "UPDATE agent_improvements SET status = $1, updated_at = NOW() WHERE id = $2 OR id::text = $2",
+                "DISMISSED",
+                point_id,
             )
 
         return result != "UPDATE 0"

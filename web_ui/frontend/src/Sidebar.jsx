@@ -257,6 +257,8 @@ export default function Sidebar() {
     }
   }, [])
 
+  // Assumption-based: Sidebar mounts only inside RequireAuth, so auth is already resolved.
+  // getSession + onAuthStateChange here are for reactive user/role display (e.g. logout in another tab).
   useEffect(() => {
     let active = true
     const sync = async () => {

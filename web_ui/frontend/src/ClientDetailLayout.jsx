@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useParams, Link, useNavigate, useLocation, NavLink, Outlet } from 'react-router-dom'
 import PageLayout from './PageLayout'
 import { Building, ArrowLeft, BarChart3, Link2, BookOpen } from 'lucide-react'
@@ -138,7 +138,9 @@ export default function ClientDetailLayout() {
         </NavLink>
       </nav>
 
-      <Outlet />
+      <Suspense fallback={<div className="flex items-center justify-center min-h-[200px] text-sm text-gray-500">Laden…</div>}>
+        <Outlet />
+      </Suspense>
     </PageLayout>
   )
 }

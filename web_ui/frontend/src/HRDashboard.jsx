@@ -1,13 +1,13 @@
 import React, { useEffect, useState, useCallback } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { apiFetch } from './apiClient'
 import PageLayout from './PageLayout'
-import { RefreshCw } from 'lucide-react'
+import { RefreshCw, Loader2 } from 'lucide-react'
 import { useAuthReady } from './useAuthReady'
 
 const TABS = [
   { id: 'points', label: 'Development Points' },
-  { id: 'training', label: 'Training Requests' },
+  { id: 'training', label: 'Trainingsverzoeken' },
   { id: 'cross', label: 'Cross-Training' },
 ]
 
@@ -26,11 +26,262 @@ const STATUS_BADGE = {
   AWAITING_APPROVAL: 'bg-orange-100 text-orange-700',
 }
 
-export default function HRDashboard() {
+/** Child route content for /hr/trainingsverzoeken — rendered via <Outlet />. */
+export function TrainingRequestsTabContent() {
   const authReady = useAuthReady()
+  const [trainingRequests, setTrainingRequests] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [approveModalRequest, setApproveModalRequest] = useState(null)
+  const [approveSourceUrl, setApproveSourceUrl] = useState('')
+  const [rejectConfirmRequestId, setRejectConfirmRequestId] = useState(null)
+  const [trainingActionLoading, setTrainingActionLoading] = useState(null)
+  const [trainingSuccessMessage, setTrainingSuccessMessage] = useState(null)
+
+  const loadTrainingRequests = useCallback(async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const res = await apiFetch('/api/hr/training-requests?status=PENDING')
+      if (res.ok) {
+        const data = await res.json()
+        setTrainingRequests(Array.isArray(data) ? data : [])
+      }
+    } catch (err) {
+      setError(err.message || 'Laden mislukt')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!authReady) return
+    loadTrainingRequests()
+  }, [authReady, loadTrainingRequests])
+
+  function openApproveModal(r) {
+    setApproveModalRequest(r)
+    setApproveSourceUrl(r.suggested_url || '')
+    setError('')
+  }
+
+  async function confirmApproveTraining() {
+    if (!approveModalRequest) return
+    const id = approveModalRequest.request_id
+    setTrainingActionLoading(id)
+    setError('')
+    try {
+      const res = await apiFetch('/api/hr/approve-training', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          request_id: id,
+          approved: true,
+          source_url: (approveSourceUrl || approveModalRequest.suggested_url) || undefined,
+          approved_by: 'hr-dashboard',
+        }),
+      })
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || 'Request failed')
+      const agentName = approveModalRequest.agent_name || approveModalRequest.agent_id || 'agent'
+      setTrainingSuccessMessage(`Training gestart voor ${agentName}.`)
+      setTimeout(() => setTrainingSuccessMessage(null), 5000)
+      setApproveModalRequest(null)
+      setApproveSourceUrl('')
+      await loadTrainingRequests()
+    } catch (err) {
+      setError(err?.message || 'Goedkeuren mislukt')
+    } finally {
+      setTrainingActionLoading(null)
+    }
+  }
+
+  function dismissTrainingRequest(requestId) {
+    setRejectConfirmRequestId(requestId)
+  }
+
+  async function confirmRejectTraining() {
+    const requestId = rejectConfirmRequestId
+    if (!requestId) return
+    setTrainingActionLoading(requestId)
+    setError('')
+    try {
+      const res = await apiFetch('/api/hr/approve-training', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ request_id: requestId, approved: false, approved_by: 'hr-dashboard' }),
+      })
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || 'Request failed')
+      setRejectConfirmRequestId(null)
+      await loadTrainingRequests()
+    } catch (err) {
+      setError(err?.message || 'Afwijzen mislukt')
+    } finally {
+      setTrainingActionLoading(null)
+    }
+  }
+
+  if (!authReady) return null
+
+  return (
+    <div>
+      {error && (
+        <div className="mb-4 p-4 rounded-lg bg-red-50 text-red-700 border border-red-200 text-sm">{error}</div>
+      )}
+      {trainingSuccessMessage && (
+        <div className="mb-4 p-4 rounded-lg bg-green-50 text-green-700 border border-green-200 text-sm">
+          {trainingSuccessMessage}
+        </div>
+      )}
+      {loading ? (
+        <div className="flex items-center gap-2 text-slate-500 py-8">
+          <Loader2 className="w-5 h-5 animate-spin shrink-0" />
+          <span>Laden...</span>
+        </div>
+      ) : trainingRequests.length === 0 ? (
+        <div className="p-8 rounded-xl border border-slate-200 bg-slate-50 text-center">
+          <p className="text-slate-600">Geen openstaande trainingsverzoeken.</p>
+        </div>
+      ) : (
+        <div className="overflow-x-auto rounded-lg border border-slate-200">
+          <table className="min-w-full text-sm">
+            <thead className="bg-slate-50">
+              <tr>
+                <th className="px-4 py-2 text-left font-medium text-slate-700">Agent</th>
+                <th className="px-4 py-2 text-left font-medium text-slate-700">Rol</th>
+                <th className="px-4 py-2 text-left font-medium text-slate-700">Reden</th>
+                <th className="px-4 py-2 text-left font-medium text-slate-700">Confidence</th>
+                <th className="px-4 py-2 text-left font-medium text-slate-700">Voorgestelde URL</th>
+                <th className="px-4 py-2 text-left font-medium text-slate-700">Datum</th>
+                <th className="px-4 py-2 text-left font-medium text-slate-700">Actie</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200">
+              {trainingRequests.map((r) => {
+                const id = r.request_id || r.point_id || r.id
+                const isBusy = trainingActionLoading === id
+                const created = r.created_at ? (typeof r.created_at === 'string' ? new Date(r.created_at) : r.created_at) : null
+                const dateStr = created ? created.toLocaleDateString('nl-NL', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'
+                return (
+                  <tr key={id} className="hover:bg-slate-50">
+                    <td className="px-4 py-2">{r.agent_name || r.agent_id || '—'}</td>
+                    <td className="px-4 py-2">{r.role || '—'}</td>
+                    <td className="px-4 py-2 max-w-xs">{r.reason || '—'}</td>
+                    <td className="px-4 py-2">
+                      {r.confidence_score != null ? (
+                        <span className={`px-2 py-0.5 text-xs font-medium rounded ${
+                          r.confidence_score >= 0.80 ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'
+                        }`}>
+                          {Math.round(Number(r.confidence_score) * 100)}%
+                        </span>
+                      ) : '—'}
+                    </td>
+                    <td className="px-4 py-2 text-xs text-slate-500 max-w-xs truncate" title={r.suggested_url || ''}>{r.suggested_url || '—'}</td>
+                    <td className="px-4 py-2 text-slate-600">{dateStr}</td>
+                    <td className="px-4 py-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          disabled={isBusy}
+                          onClick={() => openApproveModal(r)}
+                          className="text-xs font-medium text-green-600 hover:underline disabled:opacity-50 disabled:pointer-events-none"
+                        >
+                          Goedkeuren
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isBusy}
+                          onClick={() => dismissTrainingRequest(id)}
+                          className="text-xs font-medium text-red-600 hover:underline disabled:opacity-50 disabled:pointer-events-none"
+                        >
+                          Afwijzen
+                        </button>
+                        {isBusy && <Loader2 className="w-4 h-4 animate-spin text-slate-400 shrink-0" />}
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {approveModalRequest && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" role="dialog" aria-modal="true" aria-labelledby="approve-modal-title">
+          <div className="bg-white rounded-xl shadow-lg max-w-md w-full p-6 border border-slate-200">
+            <h2 id="approve-modal-title" className="text-lg font-semibold text-slate-900 mb-3">Trainingsverzoek goedkeuren</h2>
+            <div className="text-sm text-slate-600 space-y-2 mb-4">
+              <p><strong>Agent:</strong> {approveModalRequest.agent_name || approveModalRequest.agent_id || '—'}</p>
+              <p><strong>Reden:</strong> {approveModalRequest.reason || '—'}</p>
+              <p><strong>Confidence:</strong> {approveModalRequest.confidence_score != null ? `${Math.round(Number(approveModalRequest.confidence_score) * 100)}%` : '—'}</p>
+            </div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Source URL (trainingsbron)</label>
+            <input
+              type="url"
+              value={approveSourceUrl}
+              onChange={(e) => setApproveSourceUrl(e.target.value)}
+              placeholder="https://..."
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm mb-4"
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => { setApproveModalRequest(null); setApproveSourceUrl('') }}
+                className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 text-sm font-medium hover:bg-slate-50"
+              >
+                Annuleren
+              </button>
+              <button
+                type="button"
+                disabled={trainingActionLoading === approveModalRequest.request_id}
+                onClick={confirmApproveTraining}
+                className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:pointer-events-none inline-flex items-center gap-2"
+              >
+                {trainingActionLoading === approveModalRequest.request_id ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                Goedkeuren
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {rejectConfirmRequestId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" role="dialog" aria-modal="true" aria-labelledby="reject-dialog-title">
+          <div className="bg-white rounded-xl shadow-lg max-w-sm w-full p-6 border border-slate-200">
+            <h2 id="reject-dialog-title" className="text-lg font-semibold text-slate-900 mb-2">Verzoek afwijzen?</h2>
+            <p className="text-sm text-slate-600 mb-4">Dit kan niet ongedaan worden gemaakt.</p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setRejectConfirmRequestId(null)}
+                className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 text-sm font-medium hover:bg-slate-50"
+              >
+                Annuleren
+              </button>
+              <button
+                type="button"
+                disabled={!!trainingActionLoading}
+                onClick={confirmRejectTraining}
+                className="px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700 disabled:opacity-50 disabled:pointer-events-none inline-flex items-center gap-2"
+              >
+                {trainingActionLoading === rejectConfirmRequestId ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                Afwijzen
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+export default function HRDashboard() {
+  const location = useLocation()
+  const navigate = useNavigate()
+  const authReady = useAuthReady()
+  const isTrainingRoute = location.pathname === '/hr/trainingsverzoeken'
   const [tab, setTab] = useState('points')
   const [points, setPoints] = useState([])
-  const [trainingRequests, setTrainingRequests] = useState([])
   const [loading, setLoading] = useState(false)
   const [scanning, setScanning] = useState(false)
   const [scanMessage, setScanMessage] = useState('')
@@ -56,22 +307,6 @@ export default function HRDashboard() {
       if (res.ok) {
         const data = await res.json()
         setPoints(data.development_points ?? (Array.isArray(data) ? data : []))
-      }
-    } catch (err) {
-      setError(err.message || 'Laden mislukt')
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  const loadTrainingRequests = useCallback(async () => {
-    setLoading(true)
-    setError('')
-    try {
-      const res = await apiFetch('/api/hr/training-requests?status=pending')
-      if (res.ok) {
-        const data = await res.json()
-        setTrainingRequests(Array.isArray(data) ? data : [])
       }
     } catch (err) {
       setError(err.message || 'Laden mislukt')
@@ -114,9 +349,8 @@ export default function HRDashboard() {
   useEffect(() => {
     if (!authReady) return
     if (tab === 'points') loadPoints()
-    else if (tab === 'training') loadTrainingRequests()
     else if (tab === 'cross') loadCrossProposals()
-  }, [authReady, tab, loadPoints, loadTrainingRequests, loadCrossProposals])
+  }, [authReady, tab, loadPoints, loadCrossProposals])
 
   // Mark CEO notifications as read when user lands on HR dashboard
   useEffect(() => {
@@ -206,36 +440,17 @@ export default function HRDashboard() {
 
   async function approveTraining(id) {
     const sourceUrl = trainingUrlInput[id] || ''
-    const body = tab === 'training'
-      ? { request_id: id, approved: true, source_url: sourceUrl || undefined, approved_by: 'hr-dashboard' }
-      : { point_id: id, approved: true, source_url: sourceUrl || undefined, approved_by: 'hr-dashboard' }
     try {
       const res = await apiFetch('/api/hr/approve-training', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ point_id: id, approved: true, source_url: sourceUrl || undefined, approved_by: 'hr-dashboard' }),
       })
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || 'Request failed')
       setTrainingUrlInput((prev) => { const n = { ...prev }; delete n[id]; return n })
-      if (tab === 'training') await loadTrainingRequests()
-      else await loadPoints()
+      await loadPoints()
     } catch (err) {
       setError(err?.message || 'Goedkeuren mislukt')
-    }
-  }
-
-  /** Training Requests tab only: reject request via approve-training with approved: false. */
-  async function dismissTrainingRequest(requestId) {
-    if (tab !== 'training') return
-    try {
-      await apiFetch('/api/hr/approve-training', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ request_id: requestId, approved: false, approved_by: 'hr-dashboard' }),
-      })
-      await loadTrainingRequests()
-    } catch {
-      setError('Afwijzen mislukt')
     }
   }
 
@@ -343,18 +558,34 @@ export default function HRDashboard() {
       </div>
 
       <div className="flex gap-2 mb-6">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => setTab(t.id)}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              tab === t.id ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
+        {TABS.map((t) => {
+          const isActive = t.id === 'training' ? isTrainingRoute : tab === t.id
+          if (t.id === 'training') {
+            return (
+              <Link
+                key={t.id}
+                to="/hr/trainingsverzoeken"
+                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                  isActive ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                {t.label}
+              </Link>
+            )
+          }
+          return (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => { setTab(t.id); navigate('/hr') }}
+              className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                isActive ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              {t.label}
+            </button>
+          )
+        })}
       </div>
 
       {error && (
@@ -592,100 +823,8 @@ export default function HRDashboard() {
         </div>
       )}
 
-      {/* Tab 2: Training Requests */}
-      {tab === 'training' && (
-        <div>
-          {loading ? (
-            <p className="text-slate-500">Laden...</p>
-          ) : trainingRequests.length === 0 ? (
-            <div className="p-8 rounded-xl border border-slate-200 bg-slate-50 text-center">
-              <p className="text-slate-600">Geen training requests in de wachtrij.</p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto rounded-lg border border-slate-200">
-              <table className="min-w-full text-sm">
-                <thead className="bg-slate-50">
-                  <tr>
-                    <th className="px-4 py-2 text-left font-medium text-slate-700">Agent</th>
-                    <th className="px-4 py-2 text-left font-medium text-slate-700">Reden</th>
-                    <th className="px-4 py-2 text-left font-medium text-slate-700">Confidence</th>
-                    <th className="px-4 py-2 text-left font-medium text-slate-700">Voorgestelde URL</th>
-                    <th className="px-4 py-2 text-left font-medium text-slate-700">Acties</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200">
-                  {trainingRequests.map((r) => {
-                    const id = r.request_id || r.point_id || r.id
-                    const showInput = trainingUrlInput[id] !== undefined
-                    return (
-                      <tr key={id} className="hover:bg-slate-50">
-                        <td className="px-4 py-2">{r.agent_name || r.agent_id || r.agent_role || '—'}</td>
-                        <td className="px-4 py-2 max-w-xs">{r.issue_description || r.reason || '—'}</td>
-                        <td className="px-4 py-2">
-                          {r.confidence_score != null ? (
-                            <span className={`px-2 py-0.5 text-xs font-medium rounded ${
-                              r.confidence_score >= 0.80 ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'
-                            }`}>
-                              {Number(r.confidence_score).toFixed(2)}
-                            </span>
-                          ) : '—'}
-                        </td>
-                        <td className="px-4 py-2 text-xs text-slate-500 max-w-xs truncate">{r.suggested_url || '—'}</td>
-                        <td className="px-4 py-2">
-                          <div className="flex flex-wrap items-center gap-2">
-                            {!showInput ? (
-                              <>
-                                <button
-                                  type="button"
-                                  onClick={() => setTrainingUrlInput((prev) => ({ ...prev, [id]: r.suggested_url || '' }))}
-                                  className="text-xs font-medium text-green-600 hover:underline"
-                                >
-                                  Goedkeuren
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => dismissTrainingRequest(id)}
-                                  className="text-xs font-medium text-red-600 hover:underline"
-                                >
-                                  Afwijzen
-                                </button>
-                              </>
-                            ) : (
-                              <div className="flex items-center gap-1">
-                                <input
-                                  type="url"
-                                  placeholder="Source URL override"
-                                  className="border border-slate-300 rounded px-2 py-1 text-xs w-48"
-                                  value={trainingUrlInput[id] || ''}
-                                  onChange={(e) => setTrainingUrlInput((prev) => ({ ...prev, [id]: e.target.value }))}
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => approveTraining(id)}
-                                  className="text-xs font-medium text-green-600 hover:underline"
-                                >
-                                  Bevestig
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setTrainingUrlInput((prev) => { const n = { ...prev }; delete n[id]; return n })}
-                                  className="text-xs font-medium text-slate-400 hover:underline"
-                                >
-                                  Annuleer
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
+      {/* Tab 2: Trainingsverzoeken — child route via Outlet */}
+      {isTrainingRoute && <Outlet />}
 
       {/* Tab 3: Cross-Training */}
       {tab === 'cross' && (

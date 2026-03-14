@@ -28,6 +28,7 @@ export default function TopHeader() {
   const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || ''
   const healthUrl = `${apiBaseUrl.replace(/\/$/, '')}/api/health`
 
+  // Assumption-based: TopHeader mounts only inside RequireAuth; getSession + onAuthStateChange for reactive user display.
   useEffect(() => {
     let mounted = true
     supabase.auth.getSession().then(({ data }) => {

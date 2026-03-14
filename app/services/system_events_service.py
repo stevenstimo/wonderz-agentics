@@ -4,8 +4,9 @@ SystemEventsService
 Verantwoordelijk voor het loggen van operationele platform-events.
 
 Architectuurnoot: Dit is GEEN vervanging van development_points.
-- development_points  = agent-kwaliteitsproblemen, HR approval flow
+- development_points  = agent-kwaliteitsproblemen, HR approval flow (legacy)
 - system_events       = orchestrator/platform fouten, operator monitoring
+- validation_loop     = wordt ook in agent_improvements gezet voor het HR Dashboard
 
 Gebruik: await system_events_service.log_event(...)
 Vanuit routes: request.app.state.system_events
@@ -86,10 +87,91 @@ class SystemEventsService:
                     f"[SystemEvent] {severity.upper()} | {event_type} | "
                     f"job={job_id} | agent={agent_id} | {message}"
                 )
+                if event_type == self.VALIDATION_LOOP and agent_id:
+                    await self._create_improvement_from_event(
+                        conn=conn,
+                        event_id=str(event_id),
+                        agent_id=agent_id,
+                        job_id=job_id,
+                        message=message,
+                        details=details or {},
+                    )
                 return str(event_id)
         except Exception as e:
             logger.error(f"[SystemEventsService] Kon event niet loggen: {e}")
             return None
+
+    async def _create_improvement_from_event(
+        self,
+        conn,
+        event_id: str,
+        agent_id: str,
+        job_id: Optional[str],
+        message: str,
+        details: dict,
+    ) -> None:
+        """
+        Maakt automatisch een agent_improvements record aan bij een validation_loop event.
+        Faalt altijd stilletjes — mag de hoofdflow nooit breken.
+        """
+        try:
+            agent_row = await conn.fetchrow(
+                "SELECT name FROM hired_agents WHERE agent_id = $1", agent_id
+            )
+            agent_name = agent_row["name"] if agent_row and agent_row.get("name") else agent_id
+
+            retry_count = details.get("retry_count", 3)
+            title = f"Validation loop: {retry_count}x rejected output"
+            evidence = f"Job {job_id}" if job_id else "Zie system_events"
+
+            last_fb = details.get("last_feedback")
+            if isinstance(last_fb, list):
+                feedback_str = "; ".join(str(x) for x in last_fb) if last_fb else "onbekend"
+            else:
+                feedback_str = str(last_fb) if last_fb is not None else "onbekend"
+
+            summary = (
+                f"Agent produceerde {retry_count}x een rejected output. "
+                f"Feedback: {feedback_str}"
+            )
+
+            existing = await conn.fetchrow(
+                """
+                SELECT id FROM agent_improvements
+                WHERE agent_id = $1 AND title = $2 AND status = 'OPEN'
+                """,
+                agent_id,
+                title,
+            )
+
+            if existing:
+                await conn.execute(
+                    "UPDATE agent_improvements SET updated_at = now() WHERE id = $1",
+                    existing["id"],
+                )
+            else:
+                await conn.execute(
+                    """
+                    INSERT INTO agent_improvements
+                        (agent_id, agent_name, title, summary, details, severity, status)
+                    VALUES ($1, $2, $3, $4, $5, 'medium', 'OPEN')
+                    """,
+                    agent_id,
+                    agent_name,
+                    title,
+                    summary,
+                    evidence,
+                )
+            logger.info(
+                "[SystemEventsService] Development point aangemaakt voor "
+                "validation_loop: agent=%s, job=%s",
+                agent_id,
+                job_id,
+            )
+        except Exception as e:
+            logger.error(
+                "[SystemEventsService] _create_improvement_from_event mislukt: %s", e
+            )
 
     async def resolve_event(
         self,

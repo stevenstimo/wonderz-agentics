@@ -1,5 +1,7 @@
 import { supabase } from './supabase'
 
+// Assumption-based: This module cannot use useAuthReady (no React hooks). Callers that fetch data
+// after mount should use useAuthReady so the session is available when getAccessToken/apiFetch runs.
 export const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
 
 export function apiUrl(path) {

@@ -5,6 +5,7 @@ import PageLayout from './PageLayout'
 import { apiUrl, apiFetch } from './apiClient'
 import { supabase } from './supabase'
 import { getCurrentUserRole, isAdmin } from './authz'
+import { useAuthReady } from './useAuthReady'
 
 const CATEGORIES = [
   { key: 'score_management', label: 'Management', apiValue: 'management' },
@@ -40,6 +41,7 @@ function StatusBadge({ status }) {
 
 export default function Newbies() {
   const navigate = useNavigate()
+  const authReady = useAuthReady()
   const [newbies, setNewbies] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -80,6 +82,7 @@ export default function Newbies() {
   }
 
   useEffect(() => {
+    if (!authReady) return
     let mounted = true
 
     const syncRole = async () => {
@@ -102,7 +105,7 @@ export default function Newbies() {
       mounted = false
       listener.subscription.unsubscribe()
     }
-  }, [])
+  }, [authReady])
 
   const submitAdd = async () => {
     if (!canEdit) return

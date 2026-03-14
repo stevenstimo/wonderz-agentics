@@ -18,16 +18,27 @@ def _json_array(ids: list) -> str:
     return json.dumps(ids)
 
 
-async def generate_point_id(conn: asyncpg.Connection) -> str:
-    now = datetime.now(timezone.utc)
-    prefix = f"DP-{now.year}-{now.month:02d}-"
-    row = await conn.fetchrow(
-        "SELECT point_id FROM development_points WHERE point_id LIKE $1 ORDER BY point_id DESC LIMIT 1",
-        f"{prefix}%",
-    )
-    if row:
-        return f"{prefix}{int(row['point_id'].split('-')[-1]) + 1:03d}"
-    return f"{prefix}001"
+def _agent_improvement_to_legacy(row: dict) -> dict:
+    """Map agent_improvements row to legacy keys for API compatibility."""
+    out = {
+        "point_id": str(row.get("id", "")),
+        "issue_description": row.get("title") or "",
+        "root_cause": row.get("summary"),
+        "frequency": 1,
+        "impact": (row.get("severity") or "low").lower(),
+        "status": (row.get("status") or "OPEN").upper(),
+        "source_url": row.get("source_url") or row.get("source"),
+        "created_at": row.get("created_at"),
+    }
+    if out.get("created_at") and hasattr(out["created_at"], "isoformat"):
+        out["created_at"] = out["created_at"].isoformat()
+    return out
+
+
+async def _generate_improvement_id(conn: asyncpg.Connection) -> str:
+    """Generate a new UUID for agent_improvements.id (table uses id uuid primary key)."""
+    import uuid
+    return str(uuid.uuid4())
 
 
 async def generate_request_id(conn: asyncpg.Connection) -> str:
@@ -66,78 +77,48 @@ class HRManager:
                 str(since_days), self.RETRY_THRESHOLD,
             )
             results = []
-            dp_cols = await conn.fetch(
-                "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='development_points'"
+            ai_cols = await conn.fetch(
+                "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='agent_improvements'"
             )
-            col_set = {r["column_name"] for r in dp_cols}
-            has_proposed_by = "proposed_by" in col_set
-            needs_agent_role = "agent_role" in col_set
+            col_set = {r["column_name"] for r in ai_cols}
+            has_source = "source_url" in col_set or "source" in col_set
             for row in retry_data:
                 existing = await conn.fetchrow(
                     """
-                    SELECT point_id, frequency FROM development_points
+                    SELECT id FROM agent_improvements
                     WHERE agent_id = $1 AND status = 'OPEN'
-                      AND lower(trim(issue_description)) = lower(trim($2))
+                      AND lower(trim(title)) = lower(trim($2))
                     LIMIT 1
                     """,
                     row["agent_id"], row["retry_reason"],
                 )
                 if existing:
                     await conn.execute(
-                        "UPDATE development_points SET frequency = frequency + $1 WHERE point_id = $2",
-                        row["freq"], existing["point_id"],
+                        "UPDATE agent_improvements SET updated_at = now() WHERE id = $1",
+                        existing["id"],
                     )
-                    results.append({"action": "incremented", "point_id": existing["point_id"],
-                                    "agent_id": row["agent_id"], "new_frequency": existing["frequency"] + row["freq"]})
+                    results.append({"action": "incremented", "point_id": str(existing["id"]),
+                                    "agent_id": row["agent_id"], "new_frequency": row["freq"]})
                 else:
-                    point_id = await generate_point_id(conn)
-                    impact = "HIGH" if row["freq"] >= 10 else "MEDIUM" if row["freq"] >= 5 else "LOW"
-                    agent_role_val = None
-                    if needs_agent_role:
-                        role_row = await conn.fetchrow(
-                            "SELECT role FROM hired_agents WHERE agent_id = $1", row["agent_id"]
-                        )
-                        agent_role_val = (role_row["role"] if role_row else "") or ""
+                    severity = "HIGH" if row["freq"] >= 10 else "MEDIUM" if row["freq"] >= 5 else "LOW"
+                    agent_name = row["agent_id"]
+                    name_row = await conn.fetchrow("SELECT name FROM hired_agents WHERE agent_id = $1", row["agent_id"])
+                    if name_row and name_row.get("name"):
+                        agent_name = name_row["name"]
                     ev = json.dumps([f"Job {row['first_job']}, {row['freq']}x gezien in {since_days} dagen"])
-                    if has_proposed_by and needs_agent_role:
-                        await conn.execute(
-                            """
-                            INSERT INTO development_points
-                                (point_id, agent_id, agent_role, issue_description, evidence_example, frequency, impact, status, proposed_by)
-                            VALUES ($1, $2, $3, $4, $5, $6, $7, 'OPEN', 'hr-manager')
-                            """,
-                            point_id, row["agent_id"], agent_role_val, row["retry_reason"], ev, row["freq"], impact,
-                        )
-                    elif has_proposed_by:
-                        await conn.execute(
-                            """
-                            INSERT INTO development_points
-                                (point_id, agent_id, issue_description, evidence_example, frequency, impact, status, proposed_by)
-                            VALUES ($1, $2, $3, $4, $5, $6, 'OPEN', 'hr-manager')
-                            """,
-                            point_id, row["agent_id"], row["retry_reason"], ev, row["freq"], impact,
-                        )
-                    elif needs_agent_role:
-                        await conn.execute(
-                            """
-                            INSERT INTO development_points
-                                (point_id, agent_id, agent_role, issue_description, evidence_example, frequency, impact, status)
-                            VALUES ($1, $2, $3, $4, $5, $6, $7, 'OPEN')
-                            """,
-                            point_id, row["agent_id"], agent_role_val, row["retry_reason"], ev, row["freq"], impact,
-                        )
-                    else:
-                        await conn.execute(
-                            """
-                            INSERT INTO development_points
-                                (point_id, agent_id, issue_description, evidence_example, frequency, impact, status)
-                            VALUES ($1, $2, $3, $4, $5, $6, 'OPEN')
-                            """,
-                            point_id, row["agent_id"], row["retry_reason"], ev, row["freq"], impact,
-                        )
+                    insert_sql = """
+                        INSERT INTO agent_improvements (agent_id, agent_name, title, details, severity, status)
+                        VALUES ($1, $2, $3, $4, $5, 'OPEN')
+                        RETURNING id
+                    """
+                    rid = await conn.fetchrow(
+                        insert_sql,
+                        row["agent_id"], agent_name, row["retry_reason"], ev, severity,
+                    )
+                    point_id = str(rid["id"])
                     results.append({"action": "created", "point_id": point_id,
                                     "agent_id": row["agent_id"], "issue": row["retry_reason"],
-                                    "frequency": row["freq"], "impact": impact})
+                                    "frequency": row["freq"], "impact": severity})
             return results
 
     async def scan_direct_chats(self, since_days: int = 7) -> list[dict]:
@@ -173,51 +154,27 @@ class HRManager:
             for row in unknow_rows:
                 existing = await conn.fetchrow(
                     """
-                    SELECT point_id FROM development_points
+                    SELECT id FROM agent_improvements
                     WHERE agent_id = $1 AND status = 'OPEN'
-                      AND lower(issue_description) LIKE '%direct chat%'
+                      AND lower(title) LIKE '%direct chat%'
                     LIMIT 1
                     """,
                     row["agent_id"],
                 )
                 if not existing:
-                    point_id = await generate_point_id(conn)
-                    dp_cols_chat = await conn.fetch(
-                        "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='development_points'"
-                    )
-                    col_set_chat = {r["column_name"] for r in dp_cols_chat}
-                    has_proposed_by_chat = "proposed_by" in col_set_chat
-                    needs_agent_role_chat = "agent_role" in col_set_chat
-                    agent_role_chat = ""
-                    if needs_agent_role_chat:
-                        rrow = await conn.fetchrow("SELECT role FROM hired_agents WHERE agent_id = $1", row["agent_id"])
-                        agent_role_chat = (rrow["role"] if rrow else "") or ""
+                    agent_name = row["agent_id"]
+                    rrow = await conn.fetchrow("SELECT name FROM hired_agents WHERE agent_id = $1", row["agent_id"])
+                    if rrow and rrow.get("name"):
+                        agent_name = rrow["name"]
                     desc = "Agent antwoordt herhaaldelijk met 'ik weet het niet' in Direct Chat"
                     sample = json.dumps([(row["sample"] or "")[:200]])
-                    if has_proposed_by_chat and needs_agent_role_chat:
-                        await conn.execute(
-                            """INSERT INTO development_points (point_id, agent_id, agent_role, issue_description, evidence_example, frequency, impact, status, proposed_by)
-                            VALUES ($1, $2, $3, $4, $5, $6, 'MEDIUM', 'OPEN', 'hr-manager')""",
-                            point_id, row["agent_id"], agent_role_chat, desc, sample, row["freq"],
-                        )
-                    elif has_proposed_by_chat:
-                        await conn.execute(
-                            """INSERT INTO development_points (point_id, agent_id, issue_description, evidence_example, frequency, impact, status, proposed_by)
-                            VALUES ($1, $2, $3, $4, $5, 'MEDIUM', 'OPEN', 'hr-manager')""",
-                            point_id, row["agent_id"], desc, sample, row["freq"],
-                        )
-                    elif needs_agent_role_chat:
-                        await conn.execute(
-                            """INSERT INTO development_points (point_id, agent_id, agent_role, issue_description, evidence_example, frequency, impact, status)
-                            VALUES ($1, $2, $3, $4, $5, $6, 'MEDIUM', 'OPEN')""",
-                            point_id, row["agent_id"], agent_role_chat, desc, sample, row["freq"],
-                        )
-                    else:
-                        await conn.execute(
-                            """INSERT INTO development_points (point_id, agent_id, issue_description, evidence_example, frequency, impact, status)
-                            VALUES ($1, $2, $3, $4, $5, 'MEDIUM', 'OPEN')""",
-                            point_id, row["agent_id"], desc, sample, row["freq"],
-                        )
+                    rid = await conn.fetchrow(
+                        """INSERT INTO agent_improvements (agent_id, agent_name, title, details, severity, status)
+                        VALUES ($1, $2, $3, $4, 'MEDIUM', 'OPEN')
+                        RETURNING id""",
+                        row["agent_id"], agent_name, desc, sample,
+                    )
+                    point_id = str(rid["id"])
                     results.append({"action": "created", "point_id": point_id, "agent_id": row["agent_id"], "source": "direct_chat"})
         return results
 
@@ -229,14 +186,14 @@ class HRManager:
             report = {}
             for agent in agents:
                 aid = agent["agent_id"]
-                open_points = await conn.fetch(
+                open_points_rows = await conn.fetch(
                     """
-                    SELECT point_id, issue_description, root_cause, frequency,
-                           impact, status, source_url, created_at
-                    FROM development_points WHERE agent_id = $1 AND status = 'OPEN'
-                    ORDER BY CASE impact WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END, frequency DESC
+                    SELECT id, title, summary, severity, status, source_url, created_at
+                    FROM agent_improvements WHERE agent_id = $1 AND status = 'OPEN'
+                    ORDER BY CASE severity WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END, created_at DESC
                     """, aid,
                 )
+                open_points = [_agent_improvement_to_legacy(dict(r)) for r in open_points_rows]
                 stats = await conn.fetchrow(
                     """
                     SELECT COUNT(*) AS total_steps,
@@ -321,14 +278,23 @@ class HRManager:
 
     async def update_point_status(self, point_id, new_status, approved_by=None, source_url=None) -> dict:
         async with self.pool.acquire() as conn:
+            cols = await conn.fetch(
+                "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='agent_improvements'"
+            )
+            col_set = {r["column_name"] for r in cols}
             sets = ["status = $1", "updated_at = now()"]
             params: list = [new_status]
             idx = 2
-            if approved_by: sets.append(f"approved_by = ${idx}"); params.append(approved_by); idx += 1
-            if source_url: sets.append(f"source_url = ${idx}"); params.append(source_url); idx += 1
-            if new_status == "RESOLVED": sets.append("resolved_at = now()")
+            if source_url and ("source_url" in col_set or "source" in col_set):
+                col = "source_url" if "source_url" in col_set else "source"
+                sets.append(f"{col} = ${idx}")
+                params.append(source_url)
+                idx += 1
             params.append(point_id)
-            await conn.execute(f"UPDATE development_points SET {', '.join(sets)} WHERE point_id = ${idx}", *params)
+            await conn.execute(
+                f"UPDATE agent_improvements SET {', '.join(sets)} WHERE id = ${idx} OR id::text = ${idx}",
+                *params,
+            )
             return {"point_id": point_id, "status": new_status}
 
     async def run_ab_validation(self, pool: asyncpg.pool.Pool) -> dict[str, int]:
@@ -345,17 +311,16 @@ class HRManager:
             )
             points = await conn.fetch(
                 """
-                SELECT point_id, agent_id, issue_description, frequency,
-                       COALESCE(updated_at, created_at) AS since_at
-                FROM development_points
+                SELECT id, agent_id, title, COALESCE(updated_at, created_at) AS since_at
+                FROM agent_improvements
                 WHERE status = 'IN_TRAINING'
                 """
             )
             for dp in points:
-                point_id = str(dp["point_id"])
+                point_id = str(dp["id"])
                 agent_id = dp["agent_id"]
-                issue = (dp["issue_description"] or "").strip()
-                baseline_freq = int(dp["frequency"] or 0)
+                issue = (dp["title"] or "").strip()
+                baseline_freq = 1
                 since_at = dp["since_at"]
 
                 if not issue:
@@ -378,7 +343,7 @@ class HRManager:
 
                 if new_freq == 0:
                     await conn.execute(
-                        "UPDATE development_points SET status = 'RESOLVED', resolved_at = now(), updated_at = now() WHERE point_id = $1",
+                        "UPDATE agent_improvements SET status = 'RESOLVED', updated_at = now() WHERE id = $1 OR id::text = $1",
                         point_id,
                     )
                     resolved += 1
@@ -388,7 +353,7 @@ class HRManager:
                     logger.info("[AB] %s: verbetering (%s → %s), training loopt nog", agent_id, baseline_freq, new_freq)
                 else:
                     await conn.execute(
-                        "UPDATE development_points SET status = 'OPEN', updated_at = now() WHERE point_id = $1",
+                        "UPDATE agent_improvements SET status = 'OPEN', updated_at = now() WHERE id = $1 OR id::text = $1",
                         point_id,
                     )
                     ineffective += 1

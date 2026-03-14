@@ -117,7 +117,7 @@ async def intelligence_overview():
                 lessons_propagated = row["propagated"] or 0
 
         training_confidence = await _confidence_stats(conn, "training_requests")
-        development_confidence = await _confidence_stats(conn, "development_points")
+        development_confidence = await _confidence_stats(conn, "agent_improvements")
         overall_confidence = _combine_confidence_stats(
             training_confidence, development_confidence
         )

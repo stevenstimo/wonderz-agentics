@@ -3,6 +3,7 @@ import { BarChart3, Upload, Loader2, Download, CheckCircle } from 'lucide-react'
 import PageLayout from './PageLayout'
 import { apiUrl, apiFetch, getAccessToken } from './apiClient'
 import { supabase } from './supabase'
+import { useAuthReady } from './useAuthReady'
 
 const MANUAL_ENTRY_VALUE = '__manual__'
 
@@ -37,6 +38,7 @@ export default function SEOTool() {
   const [history, setHistory] = useState([])
   const fileInputRef = useRef(null)
   const pollIntervalRef = useRef(null)
+  const authReady = useAuthReady()
   const manualEntry = selectedClientSlug === MANUAL_ENTRY_VALUE
   const clientSelected = selectedClientSlug && selectedClientSlug !== MANUAL_ENTRY_VALUE
 
@@ -49,6 +51,7 @@ export default function SEOTool() {
   }
 
   useEffect(() => {
+    if (!authReady) return
     const savedJobId = localStorage.getItem('seo_active_job_id')
     if (savedJobId) {
       setJobId(savedJobId)
@@ -66,7 +69,7 @@ export default function SEOTool() {
     return () => {
       if (pollIntervalRef.current) clearInterval(pollIntervalRef.current)
     }
-  }, [])
+  }, [authReady])
 
   useEffect(() => {
     if (!selectedClientSlug || selectedClientSlug === MANUAL_ENTRY_VALUE) return

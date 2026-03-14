@@ -1,5 +1,7 @@
 import { supabase } from './supabase'
 
+// Assumption-based: authz is a non-React utility. Components using getCurrentUserRole/buildAuthHeaders
+// should call them only after useAuthReady (or mount under RequireAuth) so session is available.
 export const DEFAULT_ROLE = 'member'
 export const SUPER_ADMIN_EMAIL = 'stevenstimo@gmail.com'
 

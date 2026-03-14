@@ -46,6 +46,30 @@ def _json_default(obj: Any) -> Any:
         return obj.isoformat()
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
+
+def _agent_improvement_to_legacy(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Map agent_improvements row to legacy keys (point_id, issue_description, etc.) for API compatibility."""
+    out = {
+        "point_id": str(row.get("id", "")),
+        "issue_description": row.get("title") or "",
+        "root_cause": row.get("summary"),
+        "evidence_example": row.get("details"),
+        "frequency": 1,
+        "impact": (row.get("severity") or "low").lower(),
+        "status": (row.get("status") or "OPEN").upper(),
+        "source_url": row.get("source_url") or row.get("source"),
+        "agent_id": row.get("agent_id"),
+    }
+    for k in ("created_at", "updated_at"):
+        if k in row and row.get(k) and hasattr(row[k], "isoformat"):
+            out[k] = row[k].isoformat()
+        elif k in row:
+            out[k] = row.get(k)
+    if "id" in row:
+        out["id"] = str(row["id"])
+    return out
+
+
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/agents", tags=["agents"])
 
@@ -261,14 +285,14 @@ async def get_agent_detail(
                LIMIT 20""",
             role,
         )
-        dev_points = await conn.fetch(
-            """SELECT * FROM development_points
-               WHERE agent_id = $1 OR agent_role = $2
+        dev_rows = await conn.fetch(
+            """SELECT * FROM agent_improvements
+               WHERE agent_id = $1
                ORDER BY created_at DESC NULLS LAST
                LIMIT 20""",
             agent_id,
-            role,
         )
+        dev_points = [_agent_improvement_to_legacy(dict(r)) for r in dev_rows]
         skills = await conn.fetch(
             """SELECT * FROM agent_skills
                WHERE $1 = ANY(applicable_to) OR $2 = ANY(applicable_to)""",

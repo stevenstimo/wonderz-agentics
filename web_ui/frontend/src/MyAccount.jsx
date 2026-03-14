@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import PageLayout from './PageLayout'
 import { supabase } from './supabase'
 import { getCurrentUserRole } from './authz'
+import { useAuthReady } from './useAuthReady'
 import { useAvatarUpload } from './hooks/useAvatarUpload'
 import { useToast } from './Toast'
 import { ToastContainer } from './Toast'
@@ -23,6 +24,7 @@ function getInitials(user) {
 
 export default function MyAccount() {
   const navigate = useNavigate()
+  const authReady = useAuthReady()
   const [user, setUser] = useState(null)
   const [role, setRole] = useState('member')
   const [busy, setBusy] = useState(false)
@@ -36,6 +38,7 @@ export default function MyAccount() {
   const { uploadAvatar, isUploading } = useAvatarUpload()
 
   useEffect(() => {
+    if (!authReady) return
     let mounted = true
 
     const sync = async () => {
@@ -73,7 +76,7 @@ export default function MyAccount() {
       mounted = false
       listener.subscription.unsubscribe()
     }
-  }, [])
+  }, [authReady])
 
   const canSaveProfile = useMemo(() => !!user && fullName.trim().length > 0, [user, fullName])
   const canChangePassword = useMemo(() => !!user && newPassword.length >= 8, [user, newPassword])

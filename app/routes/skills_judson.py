@@ -740,25 +740,37 @@ async def approve_skills(req: ApproveRequest):
 
 @router.get("/gaps")
 async def get_gaps():
-    """Query development_points and skills; Judson assesses gaps."""
+    """Query agent_improvements and skills; Judson assesses gaps."""
     pool = await get_db()
     async with pool.acquire() as conn:
         await _ensure_judson_schema(conn)
         try:
-            points = await conn.fetch(
-                "SELECT * FROM development_points ORDER BY created_at DESC NULLS LAST LIMIT 30"
+            rows = await conn.fetch(
+                "SELECT * FROM agent_improvements ORDER BY created_at DESC NULLS LAST LIMIT 30"
             )
         except Exception:
-            points = []
+            rows = []
         try:
             skills = await conn.fetch("SELECT skill_id, name, domain FROM agent_skills LIMIT 200")
         except Exception:
             skills = []
 
-        points_data = [dict(p) for p in points]
-        for p in points_data:
-            if hasattr(p.get("created_at"), "isoformat"):
-                p["created_at"] = p["created_at"].isoformat()
+        points_data = []
+        for p in rows:
+            d = dict(p)
+            leg = {
+                "point_id": str(d.get("id", "")),
+                "issue_description": d.get("title") or "",
+                "root_cause": d.get("summary"),
+                "evidence_example": d.get("details"),
+                "frequency": 1,
+                "impact": (d.get("severity") or "low").lower(),
+                "status": (d.get("status") or "OPEN").upper(),
+                "created_at": d.get("created_at"),
+            }
+            if hasattr(leg.get("created_at"), "isoformat"):
+                leg["created_at"] = leg["created_at"].isoformat()
+            points_data.append(leg)
         skills_data = [{"skill_id": s["skill_id"], "name": s["name"], "domain": s["domain"]} for s in skills]
 
         client = Anthropic()
