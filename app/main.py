@@ -68,9 +68,15 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+CORS_ORIGINS = [
+    o.strip() for o in os.getenv(
+        "CORS_ORIGINS",
+        "http://localhost:3000,http://localhost:3001,https://wonderz-agentic.exe.xyz",
+    ).split(",") if o.strip()
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001", "https://wonderz-agentic.exe.xyz"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
