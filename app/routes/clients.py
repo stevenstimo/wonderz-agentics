@@ -107,6 +107,7 @@ class ClientPatchBody(BaseModel):
 @router.get("")
 async def list_clients(current_user: TokenPayload = Depends(get_current_user)):
     """List all clients for the current user."""
+    logger.info("list_clients user_id: %s", current_user.user_id)
     pool = await get_db()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
