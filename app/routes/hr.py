@@ -23,6 +23,14 @@ from app.services.training_workflow import TrainingWorkflow
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/hr", tags=["hr"])
 
+
+async def _run_start_training_safe(workflow: TrainingWorkflow, agent_id: str, url: str, approved_by: str) -> None:
+    """Run TrainingWorkflow.start_training in background; log and swallow errors so the HTTP response is not affected."""
+    try:
+        await workflow.start_training(agent_id, url, approved_by=approved_by)
+    except Exception as e:
+        logger.exception("TrainingWorkflow.start_training failed (background): %s", e)
+
 TRAINING_REQUESTS_UNAVAILABLE = {
     "error": "training_requests niet beschikbaar",
     "detail": "Tabel bestaat nog niet",
@@ -625,7 +633,8 @@ async def approve_training(req: ApproveTrainingRequest, background_tasks: Backgr
 
                 workflow = TrainingWorkflow(pool)
                 background_tasks.add_task(
-                    workflow.start_training,
+                    _run_start_training_safe,
+                    workflow,
                     request["agent_id"],
                     url,
                     req.approved_by or "ceo",

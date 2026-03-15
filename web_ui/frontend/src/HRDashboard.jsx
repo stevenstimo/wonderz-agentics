@@ -287,6 +287,7 @@ export default function HRDashboard() {
   const location = useLocation()
   const navigate = useNavigate()
   const authReady = useAuthReady()
+  const isChildRoute = location.pathname !== '/hr'
   const isTrainingRoute = location.pathname === '/hr/trainingsverzoeken'
   const [tab, setTab] = useState('points')
   const [points, setPoints] = useState([])
@@ -612,6 +613,10 @@ export default function HRDashboard() {
         <div className="mb-4 p-4 rounded-lg bg-green-50 text-green-700 border border-green-200 text-sm">{scanMessage}</div>
       )}
 
+      {isChildRoute ? (
+        <Outlet />
+      ) : (
+        <>
       {/* Weekly Report */}
       <section className="mb-8 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex items-center justify-between mb-3">
@@ -840,9 +845,6 @@ export default function HRDashboard() {
         </div>
       )}
 
-      {/* Tab 2: Trainingsverzoeken — child route via Outlet */}
-      {isTrainingRoute && <Outlet />}
-
       {/* Tab 3: Cross-Training */}
       {tab === 'cross' && (
         <div>
@@ -935,6 +937,8 @@ export default function HRDashboard() {
             </div>
           )}
         </div>
+      )}
+        </>
       )}
     </PageLayout>
   )
