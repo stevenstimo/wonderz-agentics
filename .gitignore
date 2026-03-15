@@ -36,3 +36,5 @@ agency-agents.zip
 .env.vm
 .env
 debug-*.log
+*.swp
+.*.swp
