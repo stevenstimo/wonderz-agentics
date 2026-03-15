@@ -119,6 +119,7 @@ async def list_clients(current_user: TokenPayload = Depends(get_current_user)):
             """,
             current_user.user_id,
         )
+        logger.info("list_clients rows returned: %d", len(rows))
     return [
         {
             "client_id": r["client_id"],
