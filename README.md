@@ -81,6 +81,10 @@ INTAKE_CLARIFICATION
 - Docker & Docker Compose
 - Claude API key (from https://console.anthropic.com)
 
+## Database
+
+Applicatiedata draait op **Supabase** (project: `cqasccazioqjodctawzx`). Lokale PostgreSQL wordt alleen nog als backup bewaard, niet meer als primaire DB. BGE-M3-embeddings draaien lokaal op exe.dev en schrijven naar Supabase.
+
 ## 🚀 Quick Start
 
 ### 1. Install Dependencies
