@@ -116,7 +116,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
               <Route path="/knowledge" element={<KnowledgeLibrary />} />
               <Route path="/approvals" element={<ApprovalDashboard />} />
               <Route path="/hr" element={<HRDashboard />}>
-                <Route path="trainingsverzoeken" element={<TrainingRequestsTabContent />} />
+                <Route path="training-requests" element={<TrainingRequestsTabContent />} />
               </Route>
               <Route path="/hr/approval" element={<HRApprovalPage />} />
               <Route path="/hr/issues/:pointId" element={<IssueDetail />} />

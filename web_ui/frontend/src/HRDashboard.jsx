@@ -26,7 +26,7 @@ const STATUS_BADGE = {
   AWAITING_APPROVAL: 'bg-orange-100 text-orange-700',
 }
 
-/** Child route content for /hr/trainingsverzoeken — rendered via <Outlet />. */
+/** Child route content for /hr/training-requests — rendered via <Outlet />. */
 export function TrainingRequestsTabContent() {
   const authReady = useAuthReady()
   const [trainingRequests, setTrainingRequests] = useState([])
@@ -288,7 +288,7 @@ export default function HRDashboard() {
   const navigate = useNavigate()
   const authReady = useAuthReady()
   const isChildRoute = location.pathname !== '/hr'
-  const isTrainingRoute = location.pathname === '/hr/trainingsverzoeken'
+  const isTrainingRoute = location.pathname === '/hr/training-requests'
   const [tab, setTab] = useState('points')
   const [points, setPoints] = useState([])
   const [loading, setLoading] = useState(false)
@@ -582,7 +582,7 @@ export default function HRDashboard() {
             return (
               <Link
                 key={t.id}
-                to="/hr/trainingsverzoeken"
+                to="/hr/training-requests"
                 className={`px-4 py-2 rounded-lg font-medium transition-colors ${
                   isActive ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}
