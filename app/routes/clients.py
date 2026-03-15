@@ -111,7 +111,7 @@ async def list_clients(current_user: TokenPayload = Depends(get_current_user)):
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             """
-            SELECT client_id, slug, client_name, description, is_active, created_at, default_audience
+            SELECT client_id, slug, client_name, description, is_active, created_at
             FROM clients
             WHERE user_id = $1
             ORDER BY client_name
@@ -126,7 +126,6 @@ async def list_clients(current_user: TokenPayload = Depends(get_current_user)):
             "description": r["description"],
             "is_active": r["is_active"],
             "created_at": r["created_at"].isoformat() if r["created_at"] else None,
-            "default_audience": r["default_audience"],
         }
         for r in rows
     ]
@@ -877,7 +876,7 @@ async def get_client(
     async with pool.acquire() as conn:
         client = await conn.fetchrow(
             """
-            SELECT client_id, slug, client_name, description, is_active, created_at, default_audience
+            SELECT client_id, slug, client_name, description, is_active, created_at
             FROM clients
             WHERE user_id = $1 AND slug = $2
             """,
@@ -905,7 +904,6 @@ async def get_client(
         "description": client["description"],
         "is_active": client["is_active"],
         "created_at": client["created_at"].isoformat() if client["created_at"] else None,
-        "default_audience": client["default_audience"],
         "platform_configs": [
             {
                 "config_id": r["config_id"],

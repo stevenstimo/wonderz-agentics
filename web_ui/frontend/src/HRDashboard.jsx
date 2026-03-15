@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react'
-import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { apiFetch } from './apiClient'
 import PageLayout from './PageLayout'
 import { RefreshCw, Loader2 } from 'lucide-react'
@@ -44,8 +44,9 @@ export function TrainingRequestsTabContent() {
     try {
       const res = await apiFetch('/api/hr/training-requests?status=PENDING')
       if (res.ok) {
-        const data = await res.json()
-        setTrainingRequests(Array.isArray(data) ? data : [])
+        const data = await res.json().catch(() => null)
+        const list = Array.isArray(data) ? data : (data?.training_requests != null ? data.training_requests : [])
+        setTrainingRequests(Array.isArray(list) ? list : [])
       }
     } catch (err) {
       setError(err.message || 'Laden mislukt')
@@ -60,8 +61,9 @@ export function TrainingRequestsTabContent() {
   }, [authReady, loadTrainingRequests])
 
   function openApproveModal(r) {
+    if (!r || typeof r !== 'object') return
     setApproveModalRequest(r)
-    setApproveSourceUrl(r.suggested_url || '')
+    setApproveSourceUrl(r.suggested_url ?? '')
     setError('')
   }
 
@@ -77,12 +79,12 @@ export function TrainingRequestsTabContent() {
         body: JSON.stringify({
           request_id: id,
           approved: true,
-          source_url: (approveSourceUrl || approveModalRequest.suggested_url) || undefined,
+          source_url: (approveSourceUrl ?? approveModalRequest?.suggested_url) || undefined,
           approved_by: 'hr-dashboard',
         }),
       })
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || 'Request failed')
-      const agentName = approveModalRequest.agent_name || approveModalRequest.agent_id || 'agent'
+      const agentName = approveModalRequest?.agent_name ?? approveModalRequest?.agent_id ?? 'agent'
       setTrainingSuccessMessage(`Training gestart voor ${agentName}.`)
       setTimeout(() => setTrainingSuccessMessage(null), 5000)
       setApproveModalRequest(null)
@@ -156,33 +158,39 @@ export function TrainingRequestsTabContent() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
-              {trainingRequests.map((r) => {
-                const id = r.request_id || r.point_id || r.id
-                const isBusy = trainingActionLoading === id
-                const created = r.created_at ? (typeof r.created_at === 'string' ? new Date(r.created_at) : r.created_at) : null
-                const dateStr = created ? created.toLocaleDateString('nl-NL', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'
-                return (
+              {(Array.isArray(trainingRequests) ? trainingRequests : [])
+                .filter((r) => r != null && typeof r === 'object')
+                .map((r, idx) => {
+                  const id = r.request_id ?? r.point_id ?? r.id ?? `row-${idx}`
+                  const isBusy = trainingActionLoading === id
+                  const rawCreated = r.created_at
+                  const created = rawCreated != null
+                    ? (typeof rawCreated === 'string' ? new Date(rawCreated) : rawCreated)
+                    : null
+                  const isValidDate = created instanceof Date && !Number.isNaN(created.getTime())
+                  const dateStr = isValidDate ? created.toLocaleDateString('nl-NL', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'
+                  return (
                   <tr key={id} className="hover:bg-slate-50">
-                    <td className="px-4 py-2">{r.agent_name || r.agent_id || '—'}</td>
-                    <td className="px-4 py-2">{r.role || '—'}</td>
-                    <td className="px-4 py-2 max-w-xs">{r.reason || '—'}</td>
+                    <td className="px-4 py-2">{r.agent_name ?? r.agent_id ?? '—'}</td>
+                    <td className="px-4 py-2">{r.role ?? '—'}</td>
+                    <td className="px-4 py-2 max-w-xs">{r.reason ?? '—'}</td>
                     <td className="px-4 py-2">
                       {r.confidence_score != null ? (
                         <span className={`px-2 py-0.5 text-xs font-medium rounded ${
-                          r.confidence_score >= 0.80 ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'
+                          Number(r.confidence_score) >= 0.80 ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'
                         }`}>
                           {Math.round(Number(r.confidence_score) * 100)}%
                         </span>
                       ) : '—'}
                     </td>
-                    <td className="px-4 py-2 text-xs text-slate-500 max-w-xs truncate" title={r.suggested_url || ''}>{r.suggested_url || '—'}</td>
+                    <td className="px-4 py-2 text-xs text-slate-500 max-w-xs truncate" title={r.suggested_url ?? ''}>{r.suggested_url ?? '—'}</td>
                     <td className="px-4 py-2 text-slate-600">{dateStr}</td>
                     <td className="px-4 py-2">
                       <div className="flex flex-wrap items-center gap-2">
                         <button
                           type="button"
                           disabled={isBusy}
-                          onClick={() => openApproveModal(r)}
+                          onClick={() => openApproveModal(r != null ? r : undefined)}
                           className="text-xs font-medium text-green-600 hover:underline disabled:opacity-50 disabled:pointer-events-none"
                         >
                           Goedkeuren
@@ -211,14 +219,14 @@ export function TrainingRequestsTabContent() {
           <div className="bg-white rounded-xl shadow-lg max-w-md w-full p-6 border border-slate-200">
             <h2 id="approve-modal-title" className="text-lg font-semibold text-slate-900 mb-3">Trainingsverzoek goedkeuren</h2>
             <div className="text-sm text-slate-600 space-y-2 mb-4">
-              <p><strong>Agent:</strong> {approveModalRequest.agent_name || approveModalRequest.agent_id || '—'}</p>
-              <p><strong>Reden:</strong> {approveModalRequest.reason || '—'}</p>
-              <p><strong>Confidence:</strong> {approveModalRequest.confidence_score != null ? `${Math.round(Number(approveModalRequest.confidence_score) * 100)}%` : '—'}</p>
+              <p><strong>Agent:</strong> {approveModalRequest?.agent_name ?? approveModalRequest?.agent_id ?? '—'}</p>
+              <p><strong>Reden:</strong> {approveModalRequest?.reason ?? '—'}</p>
+              <p><strong>Confidence:</strong> {approveModalRequest?.confidence_score != null ? `${Math.round(Number(approveModalRequest.confidence_score) * 100)}%` : '—'}</p>
             </div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Source URL (trainingsbron)</label>
             <input
               type="url"
-              value={approveSourceUrl}
+              value={approveSourceUrl ?? ''}
               onChange={(e) => setApproveSourceUrl(e.target.value)}
               placeholder="https://..."
               className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm mb-4"
@@ -233,7 +241,7 @@ export function TrainingRequestsTabContent() {
               </button>
               <button
                 type="button"
-                disabled={trainingActionLoading === approveModalRequest.request_id}
+                disabled={trainingActionLoading === (approveModalRequest?.request_id)}
                 onClick={confirmApproveTraining}
                 className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:pointer-events-none inline-flex items-center gap-2"
               >
