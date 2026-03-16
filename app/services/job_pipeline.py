@@ -839,6 +839,17 @@ async def run_intake_answers_inline(job_id: str, answers: dict):
                 chat_history=chat_history if chat_history else None,
                 client_context=client_context,
             )
+            logger.info(
+                "intake answers brief: is_complete=%s, clarifications=%d",
+                brief.is_complete,
+                len(brief.clarifications),
+            )
+            payload_complete = bool((context.get("brief") or {}).get("is_complete"))
+            if not brief.is_complete and payload_complete:
+                logger.info(
+                    "force-completing intake: brief.is_complete=False but payload says complete"
+                )
+                brief.is_complete = True
             chat_history = list(chat_history)
             ceo_content = brief.message or ""
             if not brief.is_complete and brief.clarifications:
