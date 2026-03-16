@@ -54,8 +54,15 @@ async def resolve_first_mention(pool, user_id: str, text: str) -> Optional[str]:
     Returns client_slug if found and valid, else None.
     """
     slugs = parse_mention_slugs(text or "")
+    result: Optional[str] = None
     for slug in slugs:
         resolved = await resolve_client_slug(pool, user_id, slug)
         if resolved:
-            return resolved
-    return None
+            result = resolved
+            break
+    logger.info(
+        "resolve_first_mention result: slug=%s for job_post=%s",
+        result,
+        (text or "")[:50],
+    )
+    return result

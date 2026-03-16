@@ -691,6 +691,7 @@ async def run_intake_inline(job_id: str, job_post: str):
             if not client_slug and job_row and job_post:
                 from app.services.client_mention import resolve_first_mention
                 client_slug = await resolve_first_mention(pool, str(job_row["user_id"]), job_post)
+            logger.info("intake client_slug after resolve: %s", client_slug)
             if client_slug and job_row:
                 from app.services.dashboard import get_client_seo_summary_for_agent
                 gsc_context = await get_client_seo_summary_for_agent(pool, str(job_row["user_id"]), client_slug)
