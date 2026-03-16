@@ -35,12 +35,12 @@ async def invite_user(
     pool=Depends(get_db),
 ) -> dict[str, Any]:
     email = (body.get("email") or "").strip()
-    role = (body.get("role") or "member").strip().lower()
+    role = (body.get("role") or "user").strip().lower()
 
     if not email:
         raise HTTPException(status_code=400, detail="email is verplicht")
 
-    if role not in ("member", "super_admin"):
+    if role not in ("super_admin", "admin", "user"):
         raise HTTPException(status_code=400, detail="Ongeldige rol")
 
     supabase_admin = get_supabase_admin()
@@ -86,7 +86,7 @@ async def list_users(
         users.append({
             "user_id": uid,
             "email": getattr(user, "email", None) or "",
-            "role": role_map.get(uid, "member"),
+            "role": role_map.get(uid, "user"),
             "created_at": getattr(user, "created_at", None),
             "last_sign_in_at": getattr(user, "last_sign_in_at", None),
         })
@@ -115,3 +115,55 @@ async def remove_user(
         await conn.execute("DELETE FROM user_roles WHERE user_id = $1::uuid", user_id)
 
     return {"success": True, "user_id": user_id}
+
+
+VALID_ROLES = ("super_admin", "admin", "user")
+
+
+@router.get("/permissions")
+async def get_permissions(
+    current_user=Depends(require_super_admin),
+    pool=Depends(get_db),
+) -> dict[str, Any]:
+    """Return matrix role -> permission -> enabled. Super admin only (for UI)."""
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT role, permission, enabled FROM role_permissions ORDER BY role, permission"
+        )
+    permissions: dict[str, dict[str, bool]] = {}
+    for r in rows:
+        role_name = str(r["role"])
+        if role_name not in permissions:
+            permissions[role_name] = {}
+        permissions[role_name][str(r["permission"])] = bool(r["enabled"])
+    return {"permissions": permissions}
+
+
+@router.put("/permissions")
+async def update_permission(
+    body: dict,
+    current_user=Depends(require_super_admin),
+    pool=Depends(get_db),
+) -> dict[str, Any]:
+    """Set one permission for a role. Super admin only."""
+    role = (body.get("role") or "").strip().lower()
+    permission = (body.get("permission") or "").strip()
+    enabled = body.get("enabled", False)
+
+    if role not in VALID_ROLES:
+        raise HTTPException(status_code=400, detail="Ongeldige rol")
+    if not permission:
+        raise HTTPException(status_code=400, detail="permission is verplicht")
+
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """
+            INSERT INTO role_permissions (role, permission, enabled)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (role, permission) DO UPDATE SET enabled = $3
+            """,
+            role,
+            permission,
+            enabled,
+        )
+    return {"success": True, "role": role, "permission": permission, "enabled": enabled}

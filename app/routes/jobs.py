@@ -209,10 +209,11 @@ async def create_job(req: CreateJobRequest, background_tasks: BackgroundTasks):
                 if row:
                     context["client_name"] = row["client_name"]
             token_budget = get_token_budget(req.job_post)
+            job_type = (req.job_type or "standard").strip() or "standard"
             await conn.execute(
                 """
-                INSERT INTO jobs (id, user_id, job_post, status, source_platform, context, token_budget, created_at, updated_at)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, now(), now())
+                INSERT INTO jobs (id, user_id, job_post, status, source_platform, context, token_budget, job_type, created_at, updated_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), now())
                 """,
                 job_id,
                 str(req.user_id),
@@ -221,6 +222,7 @@ async def create_job(req: CreateJobRequest, background_tasks: BackgroundTasks):
                 source_platform,
                 json.dumps(context, default=_json_default),
                 token_budget,
+                job_type,
             )
         
         logger.info(f"Job {job_id} created successfully")

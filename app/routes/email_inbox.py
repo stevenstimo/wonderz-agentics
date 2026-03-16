@@ -311,9 +311,9 @@ async def convert_to_job(
             """
             INSERT INTO jobs (
                 id, user_id, job_post, status, source_platform, context,
-                token_budget, intake_source, inbound_email_id
+                token_budget, job_type, intake_source, inbound_email_id
             )
-            VALUES ($1, $2::uuid, $3, $4, $5, $6::jsonb, $7, $8, $9)
+            VALUES ($1, $2::uuid, $3, $4, $5, $6::jsonb, $7, $8, $9, $10)
             """,
             job_id,
             job_owner_id,
@@ -322,6 +322,7 @@ async def convert_to_job(
             "web",
             json.dumps(context, default=_json_default),
             50000,
+            "email",
             "email",
             email_id,
         )

@@ -1,11 +1,23 @@
-import { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import PageLayout from '../PageLayout'
 import { apiFetch } from '../apiClient'
 import { useAuthReady } from '../useAuthReady'
-import { getCurrentUserRole } from '../authz'
+import { getCurrentUserRole, isSuperAdmin } from '../authz'
 import { AlertCircle, Trash2 } from 'lucide-react'
 
-const ROLE_LABELS = { super_admin: 'Super Admin', member: 'Medewerker' }
+const ROLE_LABELS = { super_admin: 'Super Admin', admin: 'Admin', user: 'Gebruiker' }
+
+const ROLES_ORDER = ['super_admin', 'admin', 'user']
+
+// Section prefix -> display label for Rolrechten matrix
+const PERMISSION_SECTIONS = [
+  { prefix: 'workspace', label: 'Workspace' },
+  { prefix: 'management', label: 'Management' },
+  { prefix: 'operations', label: 'Operations' },
+  { prefix: 'knowledge_centre', label: 'Knowledge Centre' },
+  { prefix: 'knowledge', label: 'Knowledge' },
+  { prefix: 'system', label: 'System' },
+]
 
 function formatLidSinds(createdAt) {
   if (!createdAt) return '—'
@@ -26,10 +38,15 @@ export default function UsersPage() {
   const [users, setUsers] = useState([])
   const [loading, setLoading] = useState(true)
   const [currentUserId, setCurrentUserId] = useState(null)
+  const [currentUserRole, setCurrentUserRole] = useState(null)
   const [email, setEmail] = useState('')
+  const [inviteRole, setInviteRole] = useState('user')
   const [inviting, setInviting] = useState(false)
   const [inviteMessage, setInviteMessage] = useState({ type: '', text: '' })
   const [deleteConfirm, setDeleteConfirm] = useState(null)
+  const [permissions, setPermissions] = useState(null)
+  const [permissionsLoading, setPermissionsLoading] = useState(false)
+  const [permissionSaving, setPermissionSaving] = useState(false)
 
   const fetchUsers = useCallback(async () => {
     setLoading(true)
@@ -55,11 +72,34 @@ export default function UsersPage() {
   useEffect(() => {
     if (!authReady) return
     let mounted = true
-    getCurrentUserRole().then(({ user }) => {
+    getCurrentUserRole().then(({ user, role }) => {
       if (mounted && user?.id) setCurrentUserId(user.id)
+      if (mounted) setCurrentUserRole(role || null)
     })
     return () => { mounted = false }
   }, [authReady])
+
+  const fetchPermissions = useCallback(async () => {
+    setPermissionsLoading(true)
+    try {
+      const res = await apiFetch('/api/users/permissions')
+      if (res.ok) {
+        const data = await res.json()
+        setPermissions(data.permissions || {})
+      } else {
+        setPermissions({})
+      }
+    } catch {
+      setPermissions({})
+    } finally {
+      setPermissionsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!authReady) return
+    fetchPermissions()
+  }, [authReady, fetchPermissions])
 
   useEffect(() => {
     if (!authReady) return
@@ -79,7 +119,7 @@ export default function UsersPage() {
       const res = await apiFetch('/api/users/invite', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: trimmed, role: 'member' }),
+        body: JSON.stringify({ email: trimmed, role: inviteRole }),
       })
       const data = await res.json().catch(() => ({}))
       if (res.ok) {
@@ -119,6 +159,44 @@ export default function UsersPage() {
     }
   }
 
+  const canEditPermissions = isSuperAdmin(currentUserRole)
+
+  const handlePermissionChange = async (role, permission, enabled) => {
+    if (!canEditPermissions) return
+    setPermissionSaving(true)
+    try {
+      const res = await apiFetch('/api/users/permissions', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role, permission, enabled }),
+      })
+      if (res.ok) {
+        setPermissions((prev) => ({
+          ...prev,
+          [role]: { ...(prev?.[role] || {}), [permission]: enabled },
+        }))
+      }
+    } finally {
+      setPermissionSaving(false)
+    }
+  }
+
+  // Build grouped permission list from permissions matrix (all keys from all roles)
+  const permissionKeysBySection = (() => {
+    if (!permissions || typeof permissions !== 'object') return []
+    const allKeys = new Set()
+    Object.values(permissions).forEach((rolePerms) => {
+      if (rolePerms && typeof rolePerms === 'object') {
+        Object.keys(rolePerms).forEach((p) => allKeys.add(p))
+      }
+    })
+    const sorted = Array.from(allKeys).sort()
+    return PERMISSION_SECTIONS.map(({ prefix, label }) => {
+      const keys = sorted.filter((k) => k.startsWith(prefix + '.'))
+      return keys.length ? { label, keys } : null
+    }).filter(Boolean)
+  })()
+
   return (
     <PageLayout size="wide" padded>
       <h1 className="text-2xl font-bold text-slate-800 mb-6">Gebruikers</h1>
@@ -141,11 +219,12 @@ export default function UsersPage() {
             <label className="block text-sm font-medium text-slate-700 mb-1">Rol</label>
             <select
               className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white"
-              value="member"
-              readOnly
-              disabled
+              value={inviteRole}
+              onChange={(e) => setInviteRole(e.target.value)}
             >
-              <option value="member">Medewerker</option>
+              {ROLES_ORDER.map((r) => (
+                <option key={r} value={r}>{ROLE_LABELS[r] || r}</option>
+              ))}
             </select>
           </div>
           <button
@@ -228,6 +307,67 @@ export default function UsersPage() {
                       )}
                     </td>
                   </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      {/* Sectie 3 — Rolrechten */}
+      <section className="mt-8 p-6 bg-white rounded-xl border border-slate-200 shadow-sm">
+        <h2 className="text-lg font-semibold text-slate-800 mb-4">Rolrechten</h2>
+        {permissionsLoading && (
+          <div className="flex items-center justify-center py-8">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600" />
+          </div>
+        )}
+        {!permissionsLoading && permissionKeysBySection.length === 0 && (
+          <p className="text-slate-500 py-4">Geen rechten geladen.</p>
+        )}
+        {!permissionsLoading && permissionKeysBySection.length > 0 && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse text-sm">
+              <thead>
+                <tr className="border-b border-slate-200">
+                  <th className="py-2 px-2 font-semibold text-slate-700 w-1/3">Recht</th>
+                  {ROLES_ORDER.map((role) => (
+                    <th key={role} className="py-2 px-2 font-semibold text-slate-700 text-center">
+                      {ROLE_LABELS[role] || role}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {permissionKeysBySection.map(({ label, keys }) => (
+                  <React.Fragment key={label}>
+                    <tr className="bg-slate-50">
+                      <td colSpan={1 + ROLES_ORDER.length} className="py-1.5 px-2 font-medium text-slate-600">
+                        {label}
+                      </td>
+                    </tr>
+                    {keys.map((perm) => (
+                      <tr key={perm} className="border-b border-slate-100 hover:bg-slate-50/50">
+                        <td className="py-1.5 px-2 text-slate-700">{perm}</td>
+                        {ROLES_ORDER.map((role) => {
+                          const enabled = permissions?.[role]?.[perm] ?? false
+                          const disabled = !canEditPermissions || permissionSaving
+                          return (
+                            <td key={role} className="py-1.5 px-2 text-center">
+                              <input
+                                type="checkbox"
+                                checked={enabled}
+                                disabled={disabled}
+                                onChange={() => handlePermissionChange(role, perm, !enabled)}
+                                className={`rounded border-slate-300 ${disabled ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}
+                                aria-label={`${perm} voor ${ROLE_LABELS[role]}`}
+                              />
+                            </td>
+                          )
+                        })}
+                      </tr>
+                    ))}
+                  </React.Fragment>
                 ))}
               </tbody>
             </table>

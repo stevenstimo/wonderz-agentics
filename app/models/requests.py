@@ -7,6 +7,7 @@ class CreateJobRequest(BaseModel):
     user_id: Any = Field(...)
     job_post: str = Field(min_length=10)
     source_platform: Optional[str] = None
+    job_type: Optional[str] = None  # default applied in route: "standard"
 
 
 class SubmitAnswersRequest(BaseModel):

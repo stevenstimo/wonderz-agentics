@@ -1096,8 +1096,8 @@ async def reproduce_development_point(point_id: str, background_tasks: Backgroun
 
         await conn.execute(
             """
-            INSERT INTO jobs (id, user_id, job_post, status, source_platform, context, token_budget, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, now(), now())
+            INSERT INTO jobs (id, user_id, job_post, status, source_platform, context, token_budget, job_type, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), now())
             """,
             new_job_id,
             user_id,
@@ -1106,6 +1106,7 @@ async def reproduce_development_point(point_id: str, background_tasks: Backgroun
             source_platform,
             json.dumps(context),
             token_budget,
+            "standard",
         )
 
     try:
