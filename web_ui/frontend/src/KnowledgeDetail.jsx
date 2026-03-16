@@ -32,7 +32,7 @@ function formatDate(dateStr) {
 
 export default function KnowledgeDetail() {
   const { id } = useParams()
-  const authReady = useAuthReady()
+  const { authReady } = useAuthReady()
   const navigate = useNavigate()
   const location = useLocation()
   const [doc, setDoc] = useState(null)

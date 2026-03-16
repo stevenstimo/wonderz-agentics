@@ -10,7 +10,7 @@
     "check:layout-shell": "node ./scripts/check-layout-shell.mjs"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.38.5",
+    "@supabase/supabase-js": "2.38.5",
     "html2canvas": "^1.4.1",
     "jspdf": "^4.2.0",
     "lucide-react": "^0.294.0",

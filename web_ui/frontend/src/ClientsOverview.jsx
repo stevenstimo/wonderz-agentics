@@ -7,7 +7,7 @@ import { apiUrl, apiFetch } from './apiClient'
 import { useAuthReady } from './useAuthReady'
 
 export default function ClientsOverview() {
-  const authReady = useAuthReady()
+  const { authReady } = useAuthReady()
   const navigate = useNavigate()
   const location = useLocation()
   const [clients, setClients] = useState([])

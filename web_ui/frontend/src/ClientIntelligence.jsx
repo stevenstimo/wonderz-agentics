@@ -43,7 +43,7 @@ function clientStatusIndicator(docs) {
 
 export default function ClientIntelligence() {
   const { client_slug } = useParams()
-  const authReady = useAuthReady()
+  const { authReady } = useAuthReady()
   const navigate = useNavigate()
   const location = useLocation()
   const [documents, setDocuments] = useState([])

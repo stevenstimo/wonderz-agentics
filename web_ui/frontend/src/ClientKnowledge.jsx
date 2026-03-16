@@ -128,10 +128,14 @@ export default function ClientKnowledge() {
   }, [])
 
   const createDatasource = async () => {
-    setSubmitting(true)
     setError('')
+    const name = (form.name ?? '').trim()
+    if (!name) {
+      setError('Naam is verplicht.')
+      return
+    }
+    setSubmitting(true)
     try {
-      const name = (form.name ?? '').trim() || form.source_type
       const body = {
         name,
         source_type: form.source_type,
@@ -369,16 +373,6 @@ export default function ClientKnowledge() {
               {modalStep === 1 && (
                 <>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Naam</label>
-                    <input
-                      type="text"
-                      value={form.name}
-                      onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                      placeholder="bijv. Website, Algemene voorwaarden"
-                      className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-                    />
-                  </div>
-                  <div>
                     <p className="block text-sm font-medium text-slate-700 mb-2">Type</p>
                     <div className="space-y-2">
                       {SOURCE_TYPES.map((t) => (
@@ -408,6 +402,17 @@ export default function ClientKnowledge() {
               )}
               {modalStep === 2 && (
                 <>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Naam</label>
+                    <input
+                      type="text"
+                      value={form.name}
+                      onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                      placeholder="bijv. Website, Algemene voorwaarden"
+                      className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                      required
+                    />
+                  </div>
                   {form.source_type === 'website_crawl' && (
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-1">URL / domein</label>

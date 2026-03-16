@@ -28,7 +28,7 @@ const STATUS_BADGE = {
 
 /** Child route content for /hr/training-requests — rendered via <Outlet />. */
 export function TrainingRequestsTabContent() {
-  const authReady = useAuthReady()
+  const { authReady } = useAuthReady()
   const [trainingRequests, setTrainingRequests] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -286,7 +286,7 @@ export function TrainingRequestsTabContent() {
 export default function HRDashboard() {
   const location = useLocation()
   const navigate = useNavigate()
-  const authReady = useAuthReady()
+  const { authReady } = useAuthReady()
   const isChildRoute = location.pathname !== '/hr'
   const isTrainingRoute = location.pathname === '/hr/training-requests'
   const [tab, setTab] = useState('points')

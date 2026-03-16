@@ -41,7 +41,7 @@ function StatusBadge({ status }) {
 
 export default function Newbies() {
   const navigate = useNavigate()
-  const authReady = useAuthReady()
+  const { authReady } = useAuthReady()
   const [newbies, setNewbies] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')

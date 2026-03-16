@@ -85,7 +85,7 @@ function ServiceCard({ label, ok, detail, icon: Icon }) {
 }
 
 export default function Dashboard() {
-  const authReady = useAuthReady()
+  const { authReady } = useAuthReady()
   const [recentJobs, setRecentJobs] = useState([])
   const [stats, setStats] = useState({ total: 0, running: 0, ready: 0 })
   const [services, setServices] = useState(null)

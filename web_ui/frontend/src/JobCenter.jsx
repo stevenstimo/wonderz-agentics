@@ -95,7 +95,7 @@ const FAILED_STATUSES = ['FAILED', 'CANCELLED']
 
 export default function JobCenter() {
   const navigate = useNavigate()
-  const authReady = useAuthReady()
+  const { authReady } = useAuthReady()
   const [jobs, setJobs] = useState([])
   const [filter, setFilter] = useState('all')
   const [loading, setLoading] = useState(true)

@@ -8,7 +8,7 @@ import { useAuthReady } from './useAuthReady'
 const apiBase = (import.meta.env.VITE_API_URL || 'http://localhost:8090').replace(/\/$/, '')
 
 export default function Settings() {
-  const authReady = useAuthReady()
+  const { authReady } = useAuthReady()
   const [settings, setSettings] = useState({
     gemini_api_key: '',
     anthropic_api_key: '',
@@ -116,7 +116,7 @@ export default function Settings() {
 }
 
 function ServerConfigSection() {
-  const authReady = useAuthReady()
+  const { authReady } = useAuthReady()
   const [envVars, setEnvVars] = useState([])
   const [loading, setLoading] = useState(true)
   const [editingKey, setEditingKey] = useState(null)

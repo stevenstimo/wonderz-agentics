@@ -16,7 +16,7 @@ export default function KnowledgeBookDetail() {
   const { documentId } = useParams()
   const navigate = useNavigate()
   const location = useLocation()
-  const authReady = useAuthReady()
+  const { authReady } = useAuthReady()
   const [doc, setDoc] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')

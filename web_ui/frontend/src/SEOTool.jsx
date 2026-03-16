@@ -38,7 +38,7 @@ export default function SEOTool() {
   const [history, setHistory] = useState([])
   const fileInputRef = useRef(null)
   const pollIntervalRef = useRef(null)
-  const authReady = useAuthReady()
+  const { authReady } = useAuthReady()
   const manualEntry = selectedClientSlug === MANUAL_ENTRY_VALUE
   const clientSelected = selectedClientSlug && selectedClientSlug !== MANUAL_ENTRY_VALUE
 

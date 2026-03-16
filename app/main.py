@@ -96,6 +96,7 @@ from app.routes import (
     agent_inbox,
     auth,
     clients,
+    users,
     debug_chat,
     email as email_routes,
     email_inbox,
@@ -151,6 +152,7 @@ app.include_router(seo_upload.router)
 app.include_router(alex_dev.router)
 app.include_router(admin.router)
 app.include_router(auth.router)
+app.include_router(users.router)
 app.include_router(skills.router)
 
 

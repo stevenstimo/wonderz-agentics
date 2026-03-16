@@ -44,7 +44,7 @@ function formatRelative(dateStr) {
 }
 
 export default function SkillFactory() {
-  const authReady = useAuthReady()
+  const { authReady } = useAuthReady()
   const navigate = useNavigate()
   const location = useLocation()
   const [skills, setSkills] = useState([])

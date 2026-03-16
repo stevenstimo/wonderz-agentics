@@ -24,7 +24,7 @@ const PROGRESS_STEPS = [
 ]
 
 export default function KnowledgeUpload() {
-  const authReady = useAuthReady()
+  const { authReady } = useAuthReady()
   const navigate = useNavigate()
   const location = useLocation()
   const [searchParams] = useSearchParams()

@@ -389,6 +389,40 @@ export default function JobSplitView() {
     }
   }
 
+  const [downloadingArtifact, setDownloadingArtifact] = useState(false)
+  const handleDownloadArtifact = useCallback(async () => {
+    if (!jobId) return
+    setDownloadingArtifact(true)
+    setError(null)
+    setAuthError(false)
+    try {
+      const res = await apiFetch(`/api/jobs/${jobId}/download`, { method: 'GET' })
+      if (!res.ok) {
+        if (res.status === 401) {
+          setAuthError(true)
+          setError('Session expired or unauthorized. Please log in again.')
+        } else if (res.status === 404) {
+          setError('Geen bestand beschikbaar voor deze job.')
+        } else {
+          setError('Download mislukt.')
+        }
+        return
+      }
+      const blob = await res.blob()
+      const name = job?.file_artifact_name || `job_${jobId}.docx`
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = name
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      setError(err.message || 'Download mislukt.')
+    } finally {
+      setDownloadingArtifact(false)
+    }
+  }, [jobId, job?.file_artifact_name])
+
   const handleFileSelect = async (files) => {
     const f = files?.[0]
     if (!f) return
@@ -1109,10 +1143,11 @@ export default function JobSplitView() {
                     </div>
                     <button
                       type="button"
-                      onClick={() => window.open(apiUrl(`/api/jobs/${jobId}/download`), '_blank')}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700"
+                      onClick={handleDownloadArtifact}
+                      disabled={downloadingArtifact}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50"
                     >
-                      Download {job.file_artifact_type === 'xlsx' ? 'Excel' : 'Word'}
+                      {downloadingArtifact ? 'Downloaden…' : `Download ${job.file_artifact_type === 'xlsx' ? 'Excel' : 'Word'}`}
                     </button>
                   </div>
                 )}
@@ -1159,10 +1194,11 @@ export default function JobSplitView() {
                     </div>
                     <button
                       type="button"
-                      onClick={() => window.open(apiUrl(`/api/jobs/${jobId}/download`), '_blank')}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700"
+                      onClick={handleDownloadArtifact}
+                      disabled={downloadingArtifact}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50"
                     >
-                      Download {job.file_artifact_type === 'xlsx' ? 'Excel' : 'Word'}
+                      {downloadingArtifact ? 'Downloaden…' : `Download ${job.file_artifact_type === 'xlsx' ? 'Excel' : 'Word'}`}
                     </button>
                   </div>
                 )}

@@ -61,6 +61,7 @@ const KnowledgeUpload = lazy(() => import('./KnowledgeUpload.jsx'))
 const SkillFactory = lazy(() => import('./SkillFactory.jsx'))
 const ClientIntelligence = lazy(() => import('./ClientIntelligence.jsx'))
 const KnowledgeGovernance = lazy(() => import('./KnowledgeGovernance.jsx'))
+const UsersPage = lazy(() => import('./pages/UsersPage.jsx'))
 
 function AuthenticatedLayout() {
   return (
@@ -138,6 +139,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
               <Route path="/newbies/:newbieId" element={<RouteErrorBoundary paramKey="newbieId"><NewbieDetail /></RouteErrorBoundary>} />
               <Route path="/talents" element={<Navigate to="/newbies" replace />} />
               <Route path="/settings" element={<Settings />} />
+              <Route path="/settings/users" element={<UsersPage />} />
               <Route path="/settings/api-keys" element={<ApiKeys />} />
               <Route path="/integrations" element={<Integrations />} />
               <Route path="/clients" element={<ClientsOverview />} />

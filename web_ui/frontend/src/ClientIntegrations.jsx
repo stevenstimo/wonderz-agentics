@@ -97,7 +97,7 @@ export default function ClientIntegrations() {
   const [disconnecting, setDisconnecting] = useState(null)
   const [selectorModal, setSelectorModal] = useState(null)
   const [successMessage, setSuccessMessage] = useState('')
-  const authReady = useAuthReady()
+  const { authReady } = useAuthReady()
 
   const isIntegrationConnected = (integrationType) => {
     const found = integrations.find((i) => i.integration_type === integrationType)

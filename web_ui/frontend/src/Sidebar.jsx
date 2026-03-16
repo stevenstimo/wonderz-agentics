@@ -84,6 +84,9 @@ const SYSTEM = [
   { label: 'Integrations', icon: Zap, path: '/integrations' },
   { label: 'API Keys', icon: Key, path: '/settings/api-keys' },
 ]
+const SYSTEM_SUPER_ADMIN = [
+  { label: 'Gebruikers', icon: Users, path: '/settings/users' },
+]
 
 function displayName(user) {
   return (
@@ -378,6 +381,9 @@ export default function Sidebar() {
                 />
               )
             )}
+            {canManageSettings && SYSTEM_SUPER_ADMIN.map((item) => (
+              <NavItem key={item.path} item={item} />
+            ))}
           </nav>
 
           {/* User profile at bottom */}

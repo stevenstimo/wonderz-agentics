@@ -25,7 +25,7 @@ const ROLE_COLORS = {
 }
 
 export default function AgentsPage() {
-  const authReady = useAuthReady()
+  const { authReady } = useAuthReady()
   const [agents, setAgents] = useState([])
   const [loading, setLoading] = useState(true)
   const navigate = useNavigate()

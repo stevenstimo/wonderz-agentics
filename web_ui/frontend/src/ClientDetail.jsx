@@ -37,7 +37,7 @@ const PLATFORM_FIELDS = {
 const GOOGLE_PLATFORMS = ['ga4', 'gsc', 'google_ads']
 
 export default function ClientDetail() {
-  const authReady = useAuthReady()
+  const { authReady } = useAuthReady()
   const { slug } = useParams()
   const navigate = useNavigate()
   const location = useLocation()

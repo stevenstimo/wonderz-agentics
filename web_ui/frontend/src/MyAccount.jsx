@@ -24,7 +24,7 @@ function getInitials(user) {
 
 export default function MyAccount() {
   const navigate = useNavigate()
-  const authReady = useAuthReady()
+  const { session: authSession, authReady } = useAuthReady()
   const [user, setUser] = useState(null)
   const [role, setRole] = useState('member')
   const [busy, setBusy] = useState(false)
@@ -147,12 +147,32 @@ export default function MyAccount() {
     }
   }
 
-  if (!user) {
+  if (!authReady) {
+    return (
+      <PageLayout size="narrow" padded>
+        <div className="panel-card flex items-center justify-center gap-2 py-12">
+          <Loader2 className="w-6 h-6 animate-spin text-indigo-600" />
+          <span className="text-slate-600">Laden…</span>
+        </div>
+      </PageLayout>
+    )
+  }
+  if (authReady && !authSession) {
     return (
       <PageLayout size="narrow" padded>
         <div className="panel-card">
           <h1 className="page-title">Mijn account</h1>
           <p className="page-subtitle">Je bent niet ingelogd.</p>
+        </div>
+      </PageLayout>
+    )
+  }
+  if (!user) {
+    return (
+      <PageLayout size="narrow" padded>
+        <div className="panel-card flex items-center justify-center gap-2 py-12">
+          <Loader2 className="w-6 h-6 animate-spin text-indigo-600" />
+          <span className="text-slate-600">Laden…</span>
         </div>
       </PageLayout>
     )

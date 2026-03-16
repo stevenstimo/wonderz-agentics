@@ -1,19 +1,19 @@
 import { useEffect, useState } from 'react'
 import { supabase } from './supabase'
 
+/** Returns { session, authReady }. Use authReady before fetching; use session for redirect when !session. */
 export function useAuthReady() {
-  const [ready, setReady] = useState(false)
+  const [state, setState] = useState({ ready: false, session: null })
 
   useEffect(() => {
-    // Zodra we weten of er een sessie is, kunnen we fetchen (401 wordt afgehandeld)
     supabase.auth.getSession()
-      .then(({ data: { session } }) => { setReady(true) })
-      .catch(() => { setReady(true) })
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(() => {
-      setReady(true)
+      .then(({ data: { session } }) => { setState({ ready: true, session: session ?? null }) })
+      .catch(() => { setState((s) => ({ ...s, ready: true })) })
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setState({ ready: true, session: session ?? null })
     })
     return () => subscription.unsubscribe()
   }, [])
 
-  return ready
+  return { session: state.session, authReady: state.ready }
 }
