@@ -19,6 +19,8 @@ from app.orchestration.strategy_room import StrategyRoom
 from models.unified import JobStatus, ExecutionPlan
 
 logger = logging.getLogger(__name__)
+# Temporary debug logger for client knowledge context injection (remove or set to DEBUG after validation)
+knowledge_debug_logger = logging.getLogger("knowledge_debug")
 
 # Model for pipeline agent calls (copywriter, reviewer)
 CLAUDE_MODEL = DEFAULT_MODEL
@@ -170,6 +172,11 @@ async def _build_client_knowledge_block(
     Retrieve client_knowledge chunks for the given client and query.
     Returns formatted block for CEO prompt, or a note if no chunks above threshold.
     """
+    knowledge_debug_logger.info(
+        "[KNOWLEDGE] Aangeroepen voor client_slug=%r, query=%s",
+        client_slug,
+        (query or "")[:100],
+    )
     if not user_id or not client_slug:
         return ""
     query_clean = (query or "").strip()[:8000]
@@ -215,9 +222,28 @@ async def _build_client_knowledge_block(
                 match_count,
             )
         if not rows:
+            knowledge_debug_logger.warning(
+                "[KNOWLEDGE] GEEN chunks gevonden voor %r — context leeg",
+                client_slug,
+            )
             return (
                 f"\n## [CONTEXT] Client: {client_name}\n\n"
                 "Er is geen relevante kennis beschikbaar voor deze client (geen chunks boven drempel).\n\n---\n\n"
+            )
+        knowledge_debug_logger.info(
+            "[KNOWLEDGE] %s chunks gevonden boven threshold",
+            len(rows),
+        )
+        for i, r in enumerate(rows):
+            sim = r.get("similarity")
+            src = (r.get("source_url") or r.get("page_title") or "—")[:60]
+            txt = (r.get("chunk_text") or "")[:100]
+            knowledge_debug_logger.info(
+                "[KNOWLEDGE] Chunk %s: similarity=%.3f, source=%s, tekst=%s...",
+                i + 1,
+                float(sim) if sim is not None else 0,
+                src,
+                txt,
             )
         chunks_formatted = []
         for r in rows:
@@ -633,9 +659,9 @@ async def _insert_plan_steps(conn, job_id: str, plan: ExecutionPlan):
         await conn.execute(
             """
             INSERT INTO job_steps (
-                id,
-                job_id,
                 step_index,
+                job_id,
+                id,
                 step_name,
                 agent_role,
                 unified_tool,
@@ -646,9 +672,9 @@ async def _insert_plan_steps(conn, job_id: str, plan: ExecutionPlan):
             )
             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,now())
             """,
-            step_id,
-            job_id,
             step.step_index,
+            job_id,
+            step_id,
             step_name,
             step.agent_role,
             step.unified_tool,
@@ -693,6 +719,10 @@ async def run_intake_inline(job_id: str, job_post: str):
                 client_slug = await resolve_first_mention(pool, str(job_row["user_id"]), job_post)
             logger.info("intake client_slug after resolve: %s", client_slug)
             if client_slug and job_row:
+                knowledge_debug_logger.info(
+                    "[KNOWLEDGE] client_slug gedetecteerd: %r — knowledge block ophalen",
+                    client_slug,
+                )
                 from app.services.dashboard import get_client_seo_summary_for_agent
                 gsc_context = await get_client_seo_summary_for_agent(pool, str(job_row["user_id"]), client_slug)
                 client_name = existing_ctx.get("client_name") or ""
@@ -981,6 +1011,10 @@ async def run_job_inline(job_id: str, context_extra: Optional[dict] = None):
             _client_slug = context.get("client_slug") or (isinstance(context.get("brief"), dict) and context.get("brief", {}).get("client_slug"))
             _user_id = str(job.get("user_id") or "")
             if _client_slug and _user_id:
+                knowledge_debug_logger.info(
+                    "[KNOWLEDGE] client_slug gedetecteerd: %r — knowledge block ophalen",
+                    _client_slug,
+                )
                 _job_post = context.get("job_post") or job.get("job_post") or ""
                 client_block = await _build_client_knowledge_block(
                     pool, _user_id, _client_slug, _job_post, match_count=5, similarity_threshold=0.4

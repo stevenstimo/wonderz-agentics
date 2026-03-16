@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { supabase } from '../supabase'
+import { supabase } from '../supabase';
+import { wsBase } from '../apiBase';
 import IntakeChatView from './IntakeChatView';
 import PlanProposalView from './PlanProposalView';
 import ReviewView from './ReviewView';
@@ -132,7 +133,6 @@ export function JobLifecycleView({ jobId }) {
   useEffect(() => {
     if (!jobId) return;
 
-    const wsBase = import.meta.env.VITE_WS_BASE_URL || 'ws://localhost:8000';
     const ws = new WebSocket(`${wsBase}/ws/jobs/${jobId}`);
 
     ws.onmessage = (event) => {
