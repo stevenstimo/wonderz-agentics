@@ -16,7 +16,7 @@ import uuid
 import json
 import logging
 from datetime import datetime
-from typing import Optional
+from typing import Annotated, Optional
 from fastapi import APIRouter, HTTPException, Depends, status, BackgroundTasks, File, UploadFile, Form, Request
 from fastapi.responses import FileResponse
 from pydantic import ValidationError
@@ -24,7 +24,7 @@ from pydantic import ValidationError
 from app.utils.document_parser import extract_text_from_file, ALLOWED_EXTENSIONS
 
 from app.database import get_db
-from app.middleware.auth import get_current_user
+from app.middleware.auth import get_current_user, TokenPayload
 from app.orchestration.manager import OperationsManager
 from app.services.deployment import DeploymentService
 from models.unified import JobStatus
@@ -154,7 +154,11 @@ async def upload_job_file(file: UploadFile = File(...)):
 
 
 @router.post("", response_model=CreateJobResponse, status_code=status.HTTP_201_CREATED)
-async def create_job(req: CreateJobRequest, background_tasks: BackgroundTasks):
+async def create_job(
+    req: CreateJobRequest,
+    background_tasks: BackgroundTasks,
+    current_user: Annotated[TokenPayload, Depends(get_current_user)] = None,
+):
     """
     Create a new job and start the intake flow.
     
@@ -178,32 +182,35 @@ async def create_job(req: CreateJobRequest, background_tasks: BackgroundTasks):
 
     job_id = str(uuid.uuid4())
     source_platform = req.source_platform or "custom"
+    # Prefer authenticated user_id from JWT; fall back to request body
+    auth_user_id = current_user.user_id if current_user else None
+    effective_user_id = auth_user_id or str(req.user_id)
     try:
-        uuid.UUID(str(req.user_id))
+        uuid.UUID(effective_user_id)
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid user_id format (must be UUID)"
         )
     try:
-        logger.info(f"Creating job {job_id} for user {req.user_id}")
+        logger.info("Creating job %s for user %s (auth=%s, body=%s)", job_id, effective_user_id, auth_user_id, req.user_id)
 
         # Parse @client mention so pipeline and agents get client context
-        client_slug = await resolve_first_mention(pool, str(req.user_id), req.job_post)
+        client_slug = await resolve_first_mention(pool, effective_user_id, req.job_post)
         context = {
             "job_post": req.job_post,
             "source_platform": source_platform,
         }
         if client_slug:
             context["client_slug"] = client_slug
-            context["injected_context"] = await extract_client_context(req.job_post, str(req.user_id))
+            context["injected_context"] = await extract_client_context(req.job_post, effective_user_id)
             logger.info("Job %s: client_slug=%s from @mention", job_id, client_slug)
 
         async with pool.acquire() as conn:
             if client_slug:
                 row = await conn.fetchrow(
                     "SELECT client_name FROM clients WHERE user_id = $1 AND slug = $2",
-                    str(req.user_id),
+                    effective_user_id,
                     client_slug,
                 )
                 if row:
@@ -216,7 +223,7 @@ async def create_job(req: CreateJobRequest, background_tasks: BackgroundTasks):
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), now())
                 """,
                 job_id,
-                str(req.user_id),
+                effective_user_id,
                 req.job_post,
                 JobStatus.INTAKE_CLARIFICATION.value,
                 source_platform,

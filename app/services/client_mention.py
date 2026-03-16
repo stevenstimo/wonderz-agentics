@@ -44,7 +44,7 @@ async def resolve_client_slug(pool, user_id: str, slug: str) -> Optional[str]:
             if row:
                 return row["slug"]
     except Exception as e:
-        logger.warning("resolve_client_slug failed for user_id=%s slug=%s: %s", user_id, slug_clean, e)
+        logger.exception("resolve_client_slug failed for user_id=%s slug=%s", user_id, slug_clean)
     return None
 
 
