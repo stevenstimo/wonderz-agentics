@@ -1,7 +1,9 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { AlertTriangle, Brain, Loader2, RefreshCw } from 'lucide-react'
 import { apiFetch } from '../../apiClient'
 import ProgressBar from '../hr/shared/ProgressBar'
+
+const STORAGE_KEY = 'wonderz_edge_intelligence_result'
 
 function scoreVariant(score) {
   if (score == null) return 'blue'
@@ -21,11 +23,24 @@ export default function EdgeIntelligenceTab() {
   const [result, setResult] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [lastRunAt, setLastRunAt] = useState(null)
+
+  useEffect(() => {
+    const cached = localStorage.getItem(STORAGE_KEY)
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached)
+        setResult(parsed)
+      } catch {
+        localStorage.removeItem(STORAGE_KEY)
+      }
+    }
+  }, [])
 
   const runAnalysis = async () => {
+    localStorage.removeItem(STORAGE_KEY)
     setLoading(true)
     setError('')
+    setResult(null)
     try {
       const res = await apiFetch('/api/status/edge-intelligence', {
         method: 'POST',
@@ -36,8 +51,10 @@ export default function EdgeIntelligenceTab() {
         throw new Error(body.detail || `Edge intelligence call failed (${res.status})`)
       }
       const json = await res.json()
-      setResult(json)
-      setLastRunAt(new Date())
+      const generatedAt = new Date().toLocaleString('nl-NL')
+      const toStore = { ...json, generated_at: generatedAt }
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(toStore))
+      setResult(toStore)
     } catch (err) {
       setError(err.message || 'Analyse uitvoeren mislukt')
       setResult(null)
@@ -144,9 +161,9 @@ export default function EdgeIntelligenceTab() {
             <p className="text-xs text-slate-500">
               AI-gegenereerd health rapport op basis van jobs, agents, fouten en kennisdekking.
             </p>
-            {lastRunAt && (
+            {(result?.generated_at) && (
               <p className="text-[11px] text-slate-400 mt-1">
-                Laatste analyse: {lastRunAt.toLocaleString()}
+                Analyse uitgevoerd op: {result.generated_at}
               </p>
             )}
           </div>

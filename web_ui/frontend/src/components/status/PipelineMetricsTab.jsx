@@ -1,7 +1,23 @@
-import React, { useEffect, useState } from 'react'
-import { Area, AreaChart, Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { AlertTriangle, Loader2 } from 'lucide-react'
+import React, { useCallback, useEffect, useState } from 'react'
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { AlertTriangle, Loader2, RefreshCw } from 'lucide-react'
 import { apiFetch } from '../../apiClient'
+
+const CACHE_KEY_PREFIX = 'wonderz_pipeline_metrics_'
+
+function formatCachedAt(isoString) {
+  if (!isoString) return ''
+  try {
+    return new Date(isoString).toLocaleString('nl-NL', {
+      day: 'numeric',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+  } catch {
+    return isoString
+  }
+}
 
 function formatDuration(seconds) {
   if (!seconds || Number.isNaN(seconds)) return '—'
@@ -26,37 +42,54 @@ function phaseColor(ms) {
 
 export default function PipelineMetricsTab() {
   const [metrics, setMetrics] = useState(null)
+  const [cachedAt, setCachedAt] = useState(null)
   const [days, setDays] = useState(7)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
+  const fetchMetrics = useCallback(async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const res = await apiFetch(`/api/status/pipeline-metrics?days=${days}`)
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.detail || `Kon pipeline-metrics niet laden (${res.status})`)
+      }
+      const data = await res.json()
+      const cachedAtIso = new Date().toISOString()
+      localStorage.setItem(CACHE_KEY_PREFIX + days, JSON.stringify({ data, cachedAt: cachedAtIso }))
+      setMetrics(data)
+      setCachedAt(cachedAtIso)
+    } catch (err) {
+      setError(err.message || 'Pipeline metrics laden mislukt')
+      setMetrics(null)
+    } finally {
+      setLoading(false)
+    }
+  }, [days])
+
   useEffect(() => {
-    let active = true
-    const fetchMetrics = async () => {
-      setLoading(true)
-      setError('')
+    const cacheKey = CACHE_KEY_PREFIX + days
+    const cached = localStorage.getItem(cacheKey)
+    if (cached) {
       try {
-        const res = await apiFetch(`/api/status/pipeline-metrics?days=${days}`)
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}))
-          throw new Error(data.detail || `Kon pipeline-metrics niet laden (${res.status})`)
-        }
-        const data = await res.json()
-        if (active) setMetrics(data)
-      } catch (err) {
-        if (active) {
-          setError(err.message || 'Pipeline metrics laden mislukt')
-          setMetrics(null)
-        }
-      } finally {
-        if (active) setLoading(false)
+        const { data, cachedAt: cachedAtVal } = JSON.parse(cached)
+        setMetrics(data)
+        setCachedAt(cachedAtVal)
+        setLoading(false)
+        return
+      } catch {
+        localStorage.removeItem(cacheKey)
       }
     }
     fetchMetrics()
-    return () => {
-      active = false
-    }
-  }, [days])
+  }, [days, fetchMetrics])
+
+  const handleRefresh = () => {
+    localStorage.removeItem(CACHE_KEY_PREFIX + days)
+    fetchMetrics()
+  }
 
   const summary = metrics?.summary || {}
   const nexusPhases = Array.isArray(metrics?.nexus_phases) ? metrics.nexus_phases : []
@@ -69,16 +102,16 @@ export default function PipelineMetricsTab() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
         <h2 className="text-lg font-semibold text-slate-900">Pipeline Metrics</h2>
-        <div className="inline-flex items-center gap-1 text-xs text-slate-500">
+        <div className="inline-flex items-center gap-2 text-xs text-slate-500 flex-wrap">
           Periode:
           {[7, 14, 30].map((d) => (
             <button
               key={d}
               type="button"
               onClick={() => setDays(d)}
-              className={`ml-1 px-2 py-0.5 rounded-full border text-[11px] ${
+              className={`px-2 py-0.5 rounded-full border text-[11px] ${
                 days === d
                   ? 'bg-indigo-600 text-white border-indigo-600'
                   : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
@@ -87,7 +120,21 @@ export default function PipelineMetricsTab() {
               {d}d
             </button>
           ))}
-          {loading && <Loader2 className="w-3 h-3 ml-1 animate-spin text-slate-400" />}
+          <button
+            type="button"
+            onClick={handleRefresh}
+            disabled={loading}
+            className="inline-flex items-center gap-1 px-2 py-1 rounded border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100 text-[11px] disabled:opacity-50"
+          >
+            <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
+            Vernieuwen
+          </button>
+          {cachedAt && (
+            <span className="text-slate-400">
+              Bijgewerkt: {formatCachedAt(cachedAt)}
+            </span>
+          )}
+          {loading && <Loader2 className="w-3 h-3 animate-spin text-slate-400" />}
         </div>
       </div>
 
@@ -177,7 +224,7 @@ export default function PipelineMetricsTab() {
                   radius={[0, 4, 4, 0]}
                 >
                   {nexusPhases.map((entry, index) => (
-                    <cell // eslint-disable-line react/no-array-index-key
+                    <Cell
                       key={`cell-${index}`}
                       fill={phaseColor(entry.avg_timing_ms || 0)}
                     />

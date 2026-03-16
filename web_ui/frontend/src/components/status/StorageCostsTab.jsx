@@ -1,7 +1,23 @@
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import { Line, LineChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis, BarChart, Bar } from 'recharts'
-import { AlertTriangle, Loader2 } from 'lucide-react'
+import { AlertTriangle, Loader2, RefreshCw } from 'lucide-react'
 import { apiFetch } from '../../apiClient'
+
+const CACHE_KEY_PREFIX = 'wonderz_storage_costs_'
+
+function formatCachedAt(isoString) {
+  if (!isoString) return ''
+  try {
+    return new Date(isoString).toLocaleString('nl-NL', {
+      day: 'numeric',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+  } catch {
+    return isoString
+  }
+}
 
 function sizeColor(sizeMb) {
   if (sizeMb < 100) return 'bg-emerald-100 text-emerald-700'
@@ -11,37 +27,54 @@ function sizeColor(sizeMb) {
 
 export default function StorageCostsTab() {
   const [data, setData] = useState(null)
+  const [cachedAt, setCachedAt] = useState(null)
   const [days, setDays] = useState(30)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
+  const fetchData = useCallback(async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const res = await apiFetch(`/api/status/storage-costs?days=${days}`)
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body.detail || `Kon storage-costs niet laden (${res.status})`)
+      }
+      const json = await res.json()
+      const cachedAtIso = new Date().toISOString()
+      localStorage.setItem(CACHE_KEY_PREFIX + days, JSON.stringify({ data: json, cachedAt: cachedAtIso }))
+      setData(json)
+      setCachedAt(cachedAtIso)
+    } catch (err) {
+      setError(err.message || 'Storage & costs laden mislukt')
+      setData(null)
+    } finally {
+      setLoading(false)
+    }
+  }, [days])
+
   useEffect(() => {
-    let active = true
-    const fetchData = async () => {
-      setLoading(true)
-      setError('')
+    const cacheKey = CACHE_KEY_PREFIX + days
+    const cached = localStorage.getItem(cacheKey)
+    if (cached) {
       try {
-        const res = await apiFetch(`/api/status/storage-costs?days=${days}`)
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}))
-          throw new Error(body.detail || `Kon storage-costs niet laden (${res.status})`)
-        }
-        const json = await res.json()
-        if (active) setData(json)
-      } catch (err) {
-        if (active) {
-          setError(err.message || 'Storage & costs laden mislukt')
-          setData(null)
-        }
-      } finally {
-        if (active) setLoading(false)
+        const { data: cachedData, cachedAt: cachedAtVal } = JSON.parse(cached)
+        setData(cachedData)
+        setCachedAt(cachedAtVal)
+        setLoading(false)
+        return
+      } catch {
+        localStorage.removeItem(cacheKey)
       }
     }
     fetchData()
-    return () => {
-      active = false
-    }
-  }, [days])
+  }, [days, fetchData])
+
+  const handleRefresh = () => {
+    localStorage.removeItem(CACHE_KEY_PREFIX + days)
+    fetchData()
+  }
 
   const tableSizes = Array.isArray(data?.table_sizes) ? data.table_sizes : []
   const embeddingStats = data?.embedding_stats || {}
@@ -60,16 +93,16 @@ export default function StorageCostsTab() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
         <h2 className="text-lg font-semibold text-slate-900">Storage &amp; Costs</h2>
-        <div className="inline-flex items-center gap-1 text-xs text-slate-500">
+        <div className="inline-flex items-center gap-2 text-xs text-slate-500 flex-wrap">
           Periode:
           {[7, 30, 90].map((d) => (
             <button
               key={d}
               type="button"
               onClick={() => setDays(d)}
-              className={`ml-1 px-2 py-0.5 rounded-full border text-[11px] ${
+              className={`px-2 py-0.5 rounded-full border text-[11px] ${
                 days === d
                   ? 'bg-indigo-600 text-white border-indigo-600'
                   : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
@@ -78,7 +111,21 @@ export default function StorageCostsTab() {
               {d}d
             </button>
           ))}
-          {loading && <Loader2 className="w-3 h-3 ml-1 animate-spin text-slate-400" />}
+          <button
+            type="button"
+            onClick={handleRefresh}
+            disabled={loading}
+            className="inline-flex items-center gap-1 px-2 py-1 rounded border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100 text-[11px] disabled:opacity-50"
+          >
+            <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
+            Vernieuwen
+          </button>
+          {cachedAt && (
+            <span className="text-slate-400">
+              Bijgewerkt: {formatCachedAt(cachedAt)}
+            </span>
+          )}
+          {loading && <Loader2 className="w-3 h-3 animate-spin text-slate-400" />}
         </div>
       </div>
 
