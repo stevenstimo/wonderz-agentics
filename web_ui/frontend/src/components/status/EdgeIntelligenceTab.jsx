@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { AlertTriangle, Brain, Loader2, RefreshCw } from 'lucide-react'
 import { apiFetch } from '../../apiClient'
+import { useAuthReady } from '../../useAuthReady'
 import ProgressBar from '../hr/shared/ProgressBar'
 
 const STORAGE_KEY = 'wonderz_edge_intelligence_result'
@@ -20,6 +21,7 @@ function priorityBadgeClass(priority) {
 }
 
 export default function EdgeIntelligenceTab() {
+  const { authReady } = useAuthReady()
   const [result, setResult] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -87,7 +89,7 @@ export default function EdgeIntelligenceTab() {
             type="button"
             onClick={runAnalysis}
             className="btn-primary flex items-center gap-1.5"
-            disabled={loading}
+            disabled={loading || !authReady}
           >
             {loading ? (
               <>
@@ -142,6 +144,7 @@ export default function EdgeIntelligenceTab() {
           type="button"
           onClick={runAnalysis}
           className="btn-primary flex items-center gap-1.5"
+          disabled={!authReady}
         >
           <RefreshCw className="w-4 h-4" />
           Opnieuw proberen

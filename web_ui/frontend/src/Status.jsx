@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback, useMemo } from 'react'
 import { Activity, CheckCircle2, AlertTriangle, Bot, Settings as SettingsIcon, RefreshCw } from 'lucide-react'
 import PageLayout from './PageLayout'
 import { apiUrl, apiFetch } from './apiClient'
+import { useAuthReady } from './useAuthReady'
 import { getCurrentUserRole, isSuperAdmin } from './authz'
 import PipelineMetricsTab from './components/status/PipelineMetricsTab'
 import StorageCostsTab from './components/status/StorageCostsTab'
@@ -41,6 +42,7 @@ export default function Status() {
   const [userRole, setUserRole] = useState('member')
   const [activeTab, setActiveTab] = useState('overview') // 'overview' | 'pipeline' | 'storage' | 'edge'
 
+  const { authReady } = useAuthReady()
   const isSuper = useMemo(() => isSuperAdmin(userRole), [userRole])
 
   const load = useCallback(async () => {
@@ -97,6 +99,7 @@ export default function Status() {
   }, [])
 
   useEffect(() => {
+    if (!authReady) return
     // Haal huidige user role op voor tab-visibility (super_admin only voor intelligence tabs)
     getCurrentUserRole()
       .then((ctx) => setUserRole(ctx.role || 'member'))
@@ -105,7 +108,7 @@ export default function Status() {
     load()
     const timer = setInterval(load, 30_000)
     return () => clearInterval(timer)
-  }, [load])
+  }, [authReady, load])
 
   return (
     <PageLayout size="medium" padded className="space-y-6">

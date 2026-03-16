@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react'
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { AlertTriangle, Loader2, RefreshCw } from 'lucide-react'
 import { apiFetch } from '../../apiClient'
+import { useAuthReady } from '../../useAuthReady'
 
 const CACHE_KEY_PREFIX = 'wonderz_pipeline_metrics_'
 
@@ -41,6 +42,7 @@ function phaseColor(ms) {
 }
 
 export default function PipelineMetricsTab() {
+  const { authReady } = useAuthReady()
   const [metrics, setMetrics] = useState(null)
   const [cachedAt, setCachedAt] = useState(null)
   const [days, setDays] = useState(7)
@@ -70,6 +72,7 @@ export default function PipelineMetricsTab() {
   }, [days])
 
   useEffect(() => {
+    if (!authReady) return
     const cacheKey = CACHE_KEY_PREFIX + days
     const cached = localStorage.getItem(cacheKey)
     if (cached) {
@@ -84,7 +87,7 @@ export default function PipelineMetricsTab() {
       }
     }
     fetchMetrics()
-  }, [days, fetchMetrics])
+  }, [authReady, days, fetchMetrics])
 
   const handleRefresh = () => {
     localStorage.removeItem(CACHE_KEY_PREFIX + days)

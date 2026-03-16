@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react'
 import { Line, LineChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis, BarChart, Bar } from 'recharts'
 import { AlertTriangle, Loader2, RefreshCw } from 'lucide-react'
 import { apiFetch } from '../../apiClient'
+import { useAuthReady } from '../../useAuthReady'
 
 const CACHE_KEY_PREFIX = 'wonderz_storage_costs_'
 
@@ -26,6 +27,7 @@ function sizeColor(sizeMb) {
 }
 
 export default function StorageCostsTab() {
+  const { authReady } = useAuthReady()
   const [data, setData] = useState(null)
   const [cachedAt, setCachedAt] = useState(null)
   const [days, setDays] = useState(30)
@@ -55,6 +57,7 @@ export default function StorageCostsTab() {
   }, [days])
 
   useEffect(() => {
+    if (!authReady) return
     const cacheKey = CACHE_KEY_PREFIX + days
     const cached = localStorage.getItem(cacheKey)
     if (cached) {
@@ -69,7 +72,7 @@ export default function StorageCostsTab() {
       }
     }
     fetchData()
-  }, [days, fetchData])
+  }, [authReady, days, fetchData])
 
   const handleRefresh = () => {
     localStorage.removeItem(CACHE_KEY_PREFIX + days)
