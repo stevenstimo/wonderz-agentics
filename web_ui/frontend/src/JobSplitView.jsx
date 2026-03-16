@@ -551,10 +551,9 @@ export default function JobSplitView() {
     if (statusUpper === 'INTAKE_CLARIFICATION' || statusUpper === 'RUNNING') {
       setCeoTyping(true)
     }
-    const status = job?.status
     try {
       let res
-      if (status === 'INTAKE_CLARIFICATION' || status === 'RUNNING') {
+      if (statusUpper === 'INTAKE_CLARIFICATION' || statusUpper === 'RUNNING') {
         const hasFile = !!fileToSend
         if (hasFile) {
           const form = new FormData()
@@ -571,13 +570,13 @@ export default function JobSplitView() {
             body: JSON.stringify({ message: msg })
           })
         }
-      } else if (status === 'PLAN_PROPOSED') {
+      } else if (statusUpper === 'PLAN_PROPOSED') {
         res = await apiFetch(`/api/jobs/${jobId}/request-changes`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ feedback: msg })
         })
-      } else if (status === 'JOB_READY' || status === 'AWAITING_APPROVAL' || status === 'COMPLETED') {
+      } else if (statusUpper === 'JOB_READY' || statusUpper === 'AWAITING_APPROVAL' || statusUpper === 'COMPLETED') {
         res = await apiFetch(`/api/jobs/${jobId}/feedback`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -594,10 +593,12 @@ export default function JobSplitView() {
         const data = await res.json().catch(() => ({}))
         throw new Error(data.detail || 'Failed to send message')
       }
-      await fetchJob()
       setOptimisticMessages([])
-      if (status === 'INTAKE_CLARIFICATION' || status === 'RUNNING') {
-        ;[2000, 4500, 7000].forEach((ms) => setTimeout(fetchJob, ms))
+      // Refetch job so UI shows latest status (e.g. PLAN_PROPOSED after intake). Background task may take a few seconds.
+      await fetchJob()
+      if (statusUpper === 'INTAKE_CLARIFICATION' || statusUpper === 'RUNNING') {
+        const pollDelays = [1000, 2000, 3500, 5500, 8000, 12000, 18000, 25000]
+        pollDelays.forEach((ms) => setTimeout(() => fetchJob(), ms))
       }
     } catch (err) {
       setError(err.message)

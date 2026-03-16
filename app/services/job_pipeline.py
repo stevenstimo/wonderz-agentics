@@ -652,34 +652,36 @@ def _run_step_agent(
 
 
 async def _insert_plan_steps(conn, job_id: str, plan: ExecutionPlan):
+    # Columns from information_schema; id omitted (default). Include agent if present (NOT NULL in some envs).
     for step in plan.steps:
-        step_id = str(uuid.uuid4())
         step_name = step.description or f"step_{step.step_index}"
         input_payload = {"description": step.description} if step.description else {}
+        input_payload_json = json.dumps(input_payload, default=_json_default)
+        agent_value = step.agent_role or step.unified_tool or step_name or "unknown"
         await conn.execute(
             """
             INSERT INTO job_steps (
-                step_index,
                 job_id,
-                id,
+                step_index,
                 step_name,
                 agent_role,
+                agent,
                 unified_tool,
                 status,
                 input_payload,
                 requires_approval,
                 created_at
             )
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,now())
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,now())
             """,
-            step.step_index,
             job_id,
-            step_id,
+            step.step_index,
             step_name,
             step.agent_role,
+            agent_value,
             step.unified_tool,
             "pending",
-            json.dumps(input_payload, default=_json_default),
+            input_payload_json,
             step.requires_approval,
         )
 
@@ -825,6 +827,7 @@ async def run_intake_answers_inline(job_id: str, answers: dict):
     3. If complete and context has final_content (revision) → set RUNNING, run_job_inline (skip StrategyRoom).
     4. Else (first-time complete) → StrategyRoom → PLAN_PROPOSED.
     """
+    logger.info("run_intake_answers_inline started for job %s", job_id)
     pool = await _get_pool()
     if not pool:
         return
@@ -906,6 +909,11 @@ async def run_intake_answers_inline(job_id: str, answers: dict):
                     JobStatus.INTAKE_CLARIFICATION.value,
                     job_id,
                 )
+                logger.info(
+                    "run_intake_answers_inline completed for job %s, new status=%s",
+                    job_id,
+                    JobStatus.INTAKE_CLARIFICATION.value,
+                )
                 return
 
             final_content = context.get("final_content") or ""
@@ -938,9 +946,20 @@ async def run_intake_answers_inline(job_id: str, answers: dict):
                     },
                 )
         if run_revision:
+            logger.info(
+                "run_intake_answers_inline completed for job %s, new status=%s",
+                job_id,
+                JobStatus.RUNNING.value,
+            )
             await run_job_inline(job_id, None)
+        else:
+            logger.info(
+                "run_intake_answers_inline completed for job %s, new status=%s",
+                job_id,
+                JobStatus.PLAN_PROPOSED.value,
+            )
     except Exception as exc:
-        logger.error("run_intake_answers_inline failed for job %s: %s", job_id, exc, exc_info=True)
+        logger.exception("run_intake_answers_inline failed for job %s: %s", job_id, exc)
 
 
 async def run_job_inline(job_id: str, context_extra: Optional[dict] = None):
