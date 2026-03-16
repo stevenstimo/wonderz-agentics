@@ -325,8 +325,8 @@ async def download_seo_plan(job_id: str):
         raise HTTPException(status_code=404, detail="File not found")
 
     brand = (row.get("brand_name") or "SEO_Plan").replace(" ", "_")[:30]
-    date_str = datetime.now().strftime("%Y-%m-%d")
-    filename = f"SEO_Plan_{brand}_{date_str}.xlsx"
+    date_str = datetime.now().strftime("%y%m%d")
+    filename = f"{date_str}_{brand}_SEO_Plan.xlsx"
 
     return FileResponse(
         path,
