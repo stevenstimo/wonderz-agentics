@@ -1,7 +1,11 @@
-import React, { useEffect, useState, useCallback } from 'react'
+import React, { useEffect, useState, useCallback, useMemo } from 'react'
 import { Activity, CheckCircle2, AlertTriangle, Bot, Settings as SettingsIcon, RefreshCw } from 'lucide-react'
 import PageLayout from './PageLayout'
 import { apiUrl, apiFetch } from './apiClient'
+import { getCurrentUserRole, isSuperAdmin } from './authz'
+import PipelineMetricsTab from './components/status/PipelineMetricsTab'
+import StorageCostsTab from './components/status/StorageCostsTab'
+import EdgeIntelligenceTab from './components/status/EdgeIntelligenceTab'
 
 function StatusRow({ label, ok, detail }) {
   return (
@@ -34,6 +38,10 @@ export default function Status() {
   const [lastUpdated, setLastUpdated] = useState(null)
   const [loadError, setLoadError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [userRole, setUserRole] = useState('member')
+  const [activeTab, setActiveTab] = useState('overview') // 'overview' | 'pipeline' | 'storage' | 'edge'
+
+  const isSuper = useMemo(() => isSuperAdmin(userRole), [userRole])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -89,6 +97,11 @@ export default function Status() {
   }, [])
 
   useEffect(() => {
+    // Haal huidige user role op voor tab-visibility (super_admin only voor intelligence tabs)
+    getCurrentUserRole()
+      .then((ctx) => setUserRole(ctx.role || 'member'))
+      .catch(() => setUserRole('member'))
+
     load()
     const timer = setInterval(load, 30_000)
     return () => clearInterval(timer)
@@ -96,31 +109,83 @@ export default function Status() {
 
   return (
     <PageLayout size="medium" padded className="space-y-6">
-          <div className="panel-card">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-              <Activity className="w-6 h-6 text-indigo-600" />
-              <div>
-                <h1 className="page-title">Status</h1>
-                <p className="page-subtitle">Overzicht van systeemstatus en readiness.</p>
-                {lastUpdated && (
-                  <p className="text-xs text-gray-400 mt-1">
-                    Laatst bijgewerkt: {lastUpdated.toLocaleTimeString()}
-                  </p>
-                )}
-              </div>
-              </div>
-              <button
-                onClick={load}
-                className="btn-manage gap-2"
-                disabled={loading}
-              >
-                <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-                Refresh
-              </button>
+      <div className="panel-card">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <Activity className="w-6 h-6 text-indigo-600" />
+            <div>
+              <h1 className="page-title">Status</h1>
+              <p className="page-subtitle">Overzicht van systeemstatus, pipeline en intelligence.</p>
+              {lastUpdated && (
+                <p className="text-xs text-gray-400 mt-1">
+                  Laatst bijgewerkt: {lastUpdated.toLocaleTimeString()}
+                </p>
+              )}
             </div>
           </div>
+          <button
+            onClick={load}
+            className="btn-manage gap-2"
+            disabled={loading}
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+        </div>
+        <div className="mt-4 border-t border-slate-100 pt-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setActiveTab('overview')}
+            className={`px-3 py-1.5 text-sm rounded-full border ${
+              activeTab === 'overview'
+                ? 'bg-indigo-600 text-white border-indigo-600'
+                : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+            }`}
+          >
+            Overzicht
+          </button>
+          {isSuper && (
+            <>
+              <button
+                type="button"
+                onClick={() => setActiveTab('pipeline')}
+                className={`px-3 py-1.5 text-sm rounded-full border ${
+                  activeTab === 'pipeline'
+                    ? 'bg-indigo-600 text-white border-indigo-600'
+                    : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                Pipeline Metrics
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('storage')}
+                className={`px-3 py-1.5 text-sm rounded-full border ${
+                  activeTab === 'storage'
+                    ? 'bg-indigo-600 text-white border-indigo-600'
+                    : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                Storage &amp; Costs
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('edge')}
+                className={`px-3 py-1.5 text-sm rounded-full border ${
+                  activeTab === 'edge'
+                    ? 'bg-indigo-600 text-white border-indigo-600'
+                    : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                Edge Intelligence
+              </button>
+            </>
+          )}
+        </div>
+      </div>
 
+      {activeTab === 'overview' && (
+        <>
           <div className="panel-card">
             <div className="flex items-center gap-2 mb-3">
               <Bot className="w-5 h-5 text-gray-600" />
@@ -192,12 +257,18 @@ export default function Status() {
               </div>
             </div>
           </div>
+        </>
+      )}
 
-          {loadError && (
-            <div className="panel-card border-amber-200 bg-amber-50 text-amber-800">
-              {loadError}
-            </div>
-          )}
-      </PageLayout>
+      {activeTab === 'pipeline' && isSuper && <PipelineMetricsTab />}
+      {activeTab === 'storage' && isSuper && <StorageCostsTab />}
+      {activeTab === 'edge' && isSuper && <EdgeIntelligenceTab />}
+
+      {loadError && (
+        <div className="panel-card border-amber-200 bg-amber-50 text-amber-800">
+          {loadError}
+        </div>
+      )}
+    </PageLayout>
   )
 }
