@@ -878,7 +878,12 @@ async def run_intake_answers_inline(job_id: str, answers: dict):
                 )
                 return
 
-            if context.get("final_content"):
+            final_content = context.get("final_content") or ""
+            if (
+                final_content
+                and final_content.strip()
+                and final_content.strip().lower() != "no content produced"
+            ):
                 await conn.execute(
                     "UPDATE jobs SET status=$1, updated_at=now() WHERE id=$2",
                     JobStatus.RUNNING.value,
