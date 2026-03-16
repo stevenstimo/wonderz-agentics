@@ -547,6 +547,7 @@ export default function JobSplitView() {
     setChatInput('')
     clearChatAttachment()
     setSendingChat(true)
+    const sendingTimeout = setTimeout(() => setSendingChat(false), 15000)
     if (statusUpper === 'INTAKE_CLARIFICATION' || statusUpper === 'RUNNING') {
       setCeoTyping(true)
     }
@@ -585,6 +586,8 @@ export default function JobSplitView() {
       } else {
         setError('Chat not available for this status. Refresh the page.')
         setOptimisticMessages((prev) => prev.filter((m) => m.content !== msg))
+        clearTimeout(sendingTimeout)
+        setSendingChat(false)
         return
       }
       if (!res.ok) {
@@ -601,6 +604,7 @@ export default function JobSplitView() {
       setOptimisticMessages((prev) => prev.filter((m) => m.content !== msg))
       setCeoTyping(false)
     } finally {
+      clearTimeout(sendingTimeout)
       setSendingChat(false)
     }
   }
@@ -664,7 +668,12 @@ export default function JobSplitView() {
 
   if (job) chatHistoryLengthRef.current = displayChatHistory.length
 
-  const title = job ? (typeof job.job_post === 'string' ? job.job_post.slice(0, 60).trim() + (job.job_post.length > 60 ? '…' : '') : 'Job') : 'New Job'
+  const jobPostText = job
+    ? (typeof job.job_post === 'string' && job.job_post.trim()
+        ? job.job_post
+        : job.payload?.brief?.job_post || 'Job')
+    : 'New Job'
+  const title = jobPostText.slice(0, 60).trim() + (jobPostText.length > 60 ? '…' : '')
 
   return (
     <PageLayout size="wide" padded className="!max-w-none">
@@ -947,7 +956,7 @@ export default function JobSplitView() {
               </div>
             )}
 
-            {job?.status === 'RUNNING' && (() => {
+            {(statusUpper === 'RUNNING' || statusUpper === 'PLAN_PROPOSED') && (() => {
               const updatedAt = job?.updated_at ? new Date(job.updated_at).getTime() : 0
               const isStuck = updatedAt > 0 && (Date.now() - updatedAt) > 5 * 60 * 1000
               const stepList = (steps && steps.length) > 0 ? steps : (planSteps.length > 0 ? planSteps.map((p, i) => ({ id: `plan-${i}`, step_index: p.step_index ?? i + 1, step_name: p.description, agent_role: p.agent_role, status: 'pending' })) : [])
