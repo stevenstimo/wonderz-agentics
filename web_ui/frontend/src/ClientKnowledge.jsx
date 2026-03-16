@@ -53,6 +53,7 @@ export default function ClientKnowledge() {
   const [menuId, setMenuId] = useState(null)
   const [pollingIds, setPollingIds] = useState(new Set())
   const [processingStatus, setProcessingStatus] = useState({})
+  const [step2SourceType, setStep2SourceType] = useState(null)
   const refreshIntervalRef = useRef(null)
 
   const fetchDatasources = useCallback(async () => {
@@ -169,18 +170,20 @@ export default function ClientKnowledge() {
       }
       const data = await res.json()
       const datasourceId = data.datasource_id
-
-      if (form.source_type === 'file') {
-        setMenuId(datasourceId)
-      } else if (datasourceId && form.source_type !== 'text') {
-        await startProcess(datasourceId)
-      } else if (form.source_type === 'text' && body.raw_text) {
-        await startProcess(datasourceId)
-      }
+      const sourceType = form.source_type
 
       setModalOpen(false)
       setModalStep(1)
+      setStep2SourceType(null)
       setForm({ name: '', source_type: 'website_crawl', domain: '', sitemap_url: '', raw_text: '', feed_url: '', feed_splitting_tag: 'item', feed_identifier_tag: 'g:id' })
+
+      if (sourceType === 'file') {
+        setMenuId(datasourceId)
+      } else if (datasourceId && sourceType !== 'text') {
+        await startProcess(datasourceId)
+      } else if (sourceType === 'text' && body.raw_text) {
+        await startProcess(datasourceId)
+      }
       await fetchDatasources()
       let refreshCount = 0
       refreshIntervalRef.current = setInterval(async () => {
@@ -400,99 +403,105 @@ export default function ClientKnowledge() {
                   </div>
                 </>
               )}
-              {modalStep === 2 && (
-                <>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Naam</label>
-                    <input
-                      type="text"
-                      value={form.name}
-                      onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                      placeholder="bijv. Website, Algemene voorwaarden"
-                      className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-                      required
-                    />
-                  </div>
-                  {form.source_type === 'website_crawl' && (
+              {modalStep === 2 && (() => {
+                const sourceType = step2SourceType ?? form.source_type
+                return (
+                  <>
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">URL / domein</label>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Naam</label>
                       <input
                         type="text"
-                        value={form.domain}
-                        onChange={(e) => setForm((f) => ({ ...f, domain: e.target.value }))}
-                        placeholder="https://www.asured.nl"
+                        value={form.name}
+                        onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                        placeholder="bijv. Website, Algemene voorwaarden"
                         className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                        required
                       />
                     </div>
-                  )}
-                  {form.source_type === 'website_sitemap' && (
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Sitemap URL</label>
-                      <input
-                        type="text"
-                        value={form.sitemap_url}
-                        onChange={(e) => setForm((f) => ({ ...f, sitemap_url: e.target.value }))}
-                        placeholder="https://www.asured.nl/sitemap.xml"
-                        className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-                      />
-                    </div>
-                  )}
-                  {form.source_type === 'text' && (
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Tekst</label>
-                      <textarea
-                        value={form.raw_text}
-                        onChange={(e) => setForm((f) => ({ ...f, raw_text: e.target.value }))}
-                        rows={6}
-                        placeholder="Plak hier de tekst..."
-                        className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-                      />
-                    </div>
-                  )}
-                  {form.source_type === 'product_feed' && (
-                    <>
+                    {sourceType === 'website_crawl' && (
                       <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Feed URL</label>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">URL / domein</label>
                         <input
                           type="text"
-                          value={form.feed_url}
-                          onChange={(e) => setForm((f) => ({ ...f, feed_url: e.target.value }))}
-                          placeholder="https://www.asured.nl/feed.xml"
+                          value={form.domain}
+                          onChange={(e) => setForm((f) => ({ ...f, domain: e.target.value }))}
+                          placeholder="https://www.asured.nl"
                           className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
                         />
                       </div>
+                    )}
+                    {sourceType === 'website_sitemap' && (
                       <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Splitting tag (bijv. item)</label>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Sitemap URL</label>
                         <input
                           type="text"
-                          value={form.feed_splitting_tag}
-                          onChange={(e) => setForm((f) => ({ ...f, feed_splitting_tag: e.target.value }))}
+                          value={form.sitemap_url}
+                          onChange={(e) => setForm((f) => ({ ...f, sitemap_url: e.target.value }))}
+                          placeholder="https://www.asured.nl/sitemap.xml"
                           className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
                         />
                       </div>
+                    )}
+                    {sourceType === 'text' && (
                       <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Unieke identificator tag (bijv. g:id)</label>
-                        <input
-                          type="text"
-                          value={form.feed_identifier_tag}
-                          onChange={(e) => setForm((f) => ({ ...f, feed_identifier_tag: e.target.value }))}
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Tekst</label>
+                        <textarea
+                          value={form.raw_text}
+                          onChange={(e) => setForm((f) => ({ ...f, raw_text: e.target.value }))}
+                          rows={6}
+                          placeholder="Plak hier de tekst..."
                           className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
                         />
                       </div>
-                    </>
-                  )}
-                  {form.source_type === 'file' && (
-                    <p className="text-sm text-slate-600">
-                      Na het aanmaken kun je via het menu bij de bron een PDF of CSV uploaden.
-                    </p>
-                  )}
-                </>
-              )}
+                    )}
+                    {sourceType === 'product_feed' && (
+                      <>
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-1">Feed URL</label>
+                          <input
+                            type="text"
+                            value={form.feed_url}
+                            onChange={(e) => setForm((f) => ({ ...f, feed_url: e.target.value }))}
+                            placeholder="https://www.asured.nl/feed.xml"
+                            className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-1">Splitting tag (bijv. item)</label>
+                          <input
+                            type="text"
+                            value={form.feed_splitting_tag}
+                            onChange={(e) => setForm((f) => ({ ...f, feed_splitting_tag: e.target.value }))}
+                            className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-1">Unieke identificator tag (bijv. g:id)</label>
+                          <input
+                            type="text"
+                            value={form.feed_identifier_tag}
+                            onChange={(e) => setForm((f) => ({ ...f, feed_identifier_tag: e.target.value }))}
+                            className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                          />
+                        </div>
+                      </>
+                    )}
+                    {sourceType === 'file' && (
+                      <p className="text-sm text-slate-600">
+                        Na het aanmaken kun je via het menu bij de bron een PDF of CSV uploaden.
+                      </p>
+                    )}
+                  </>
+                )
+              })()}
             </div>
             <div className="p-6 border-t border-slate-200 flex justify-end gap-2">
               <button
                 type="button"
-                onClick={() => modalStep === 1 ? setModalOpen(false) : setModalStep(1)}
+                onClick={() => {
+                if (modalStep === 1) setModalOpen(false)
+                else { setModalStep(1); setStep2SourceType(null) }
+              }}
                 className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg"
               >
                 Annuleren
@@ -500,7 +509,10 @@ export default function ClientKnowledge() {
               {modalStep === 1 ? (
                 <button
                   type="button"
-                  onClick={() => setModalStep(2)}
+                  onClick={() => {
+                    setStep2SourceType(form.source_type)
+                    setModalStep(2)
+                  }}
                   className="px-4 py-2 text-sm font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
                 >
                   Volgende
