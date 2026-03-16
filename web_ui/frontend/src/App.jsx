@@ -15,7 +15,10 @@ import {
 
 function App() {
   const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8000'
-  const wsBase = (import.meta.env.VITE_WS_URL || apiBase).replace(/^http/, 'ws').replace(/\/$/, '')
+  // Use window.location for WebSocket so it works on any deployed domain
+  const wsBase = import.meta.env.VITE_WS_URL
+    ? import.meta.env.VITE_WS_URL.replace(/^http/, 'ws').replace(/\/$/, '')
+    : `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}`
   const stages = [
     { id: 'initialization', name: 'Initialization', icon: Sparkles, color: 'text-indigo-600' },
     { id: 'requirements', name: 'Requirements', icon: FileText, color: 'text-blue-600' },
