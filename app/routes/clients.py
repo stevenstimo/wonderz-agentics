@@ -114,10 +114,8 @@ async def list_clients(current_user: TokenPayload = Depends(get_current_user)):
             """
             SELECT client_id, slug, client_name, description, is_active, created_at
             FROM clients
-            WHERE user_id = $1
             ORDER BY client_name
-            """,
-            current_user.user_id,
+            """
         )
         logger.info("list_clients rows returned: %d", len(rows))
     return [

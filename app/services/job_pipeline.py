@@ -751,6 +751,12 @@ async def run_intake_inline(job_id: str, job_post: str):
                 )
                 return
 
+            # Update status first so job is no longer INTAKE_CLARIFICATION even if plan generation fails
+            await conn.execute(
+                "UPDATE jobs SET status=$1, updated_at=now() WHERE id=$2",
+                JobStatus.PLAN_PROPOSED.value,
+                job_id,
+            )
             available_agents = await _fetch_available_agents(conn)
             plan = strategy.generate_execution_plan(brief, available_agents)
             await _insert_plan_steps(conn, job_id, plan)
@@ -777,11 +783,6 @@ async def run_intake_inline(job_id: str, job_post: str):
                 {
                     "plan": plan.model_dump(),
                 },
-            )
-            await conn.execute(
-                "UPDATE jobs SET status=$1, updated_at=now() WHERE id=$2",
-                JobStatus.PLAN_PROPOSED.value,
-                job_id,
             )
     except Exception as exc:
         logger.error("Intake error for job %s: %s", job_id, exc, exc_info=True)
@@ -874,6 +875,12 @@ async def run_intake_answers_inline(job_id: str, answers: dict):
                 )
                 run_revision = True
             else:
+                # Update status first so job leaves INTAKE_CLARIFICATION even if plan generation fails
+                await conn.execute(
+                    "UPDATE jobs SET status=$1, updated_at=now() WHERE id=$2",
+                    JobStatus.PLAN_PROPOSED.value,
+                    job_id,
+                )
                 available_agents = await _fetch_available_agents(conn)
                 plan = strategy.generate_execution_plan(brief, available_agents)
                 await _insert_plan_steps(conn, job_id, plan)
@@ -883,11 +890,6 @@ async def run_intake_answers_inline(job_id: str, answers: dict):
                     {
                         "plan": plan.model_dump(),
                     },
-                )
-                await conn.execute(
-                    "UPDATE jobs SET status=$1, updated_at=now() WHERE id=$2",
-                    JobStatus.PLAN_PROPOSED.value,
-                    job_id,
                 )
         if run_revision:
             await run_job_inline(job_id, None)
