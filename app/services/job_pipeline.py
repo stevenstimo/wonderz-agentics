@@ -577,6 +577,10 @@ def _run_step_agent(
                 system=system,
                 messages=[{"role": "user", "content": user}],
             )
+            logger.info("Copywriter raw response type: %s", type(response.content))
+            logger.info("Copywriter content blocks: %s", len(response.content or []))
+            for i, block in enumerate(response.content or []):
+                logger.info("Block %s: type=%s, has_text=%s", i, getattr(block, "type", type(block).__name__), hasattr(block, "text"))
             text = _extract_text_from_anthropic_content(response.content)
             tokens = (response.usage.input_tokens or 0) + (response.usage.output_tokens or 0)
             if any(indicator in text for indicator in plan_indicators):
