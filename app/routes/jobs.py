@@ -33,6 +33,7 @@ from app.services.job_pipeline import (
     run_intake_inline,
     run_intake_answers_inline,
     run_job_inline,
+    run_data_pipeline,
     _update_job_context,
 )
 from app.services.client_mention import resolve_first_mention
@@ -705,7 +706,24 @@ async def approve_plan(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Job is not in PLAN_PROPOSED state (current: {current_status})"
             )
-    
+
+        # data_query: run data pipeline only; do not start content pipeline or NEXUS
+        context = _coerce_context(job.get("payload") or job.get("context"))
+        if context.get("detected_task_type") == "data_query":
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    "UPDATE jobs SET status=$1, updated_at=now() WHERE id=$2",
+                    JobStatus.RUNNING.value,
+                    job_id,
+                )
+            background_tasks.add_task(run_data_pipeline, job_id)
+            logger.info("approve_plan: data_query job %s, run_data_pipeline queued", job_id)
+            return {
+                "job_id": job_id,
+                "status": JobStatus.RUNNING.value,
+                "message": "Plan approved. Data pipeline started."
+            }
+
     try:
         logger.info(f"Approving plan for job {job_id}")
         # Set RUNNING and start pipeline first so execution always starts even if manager fails
@@ -868,53 +886,71 @@ async def approve_and_deploy(
     deployment_service: DeploymentService = Depends(get_deployment_service)
 ):
     """
-    Final approval: User approves results and triggers deployment.
-    
+    Final approval: User approves results. For content jobs: deploy artifacts then COMPLETED.
+    For data_query (pipeline_type=direct_response): status update to COMPLETED only, no deploy.
     Job must be in JOB_READY state.
-    Deployment happens in configured mode (dry_run by default).
     """
     job_id = _validate_job_id(job_id)
     pool = await get_db()
-    
+
     try:
         async with pool.acquire() as conn:
-            job = await conn.fetchrow("SELECT id, status FROM jobs WHERE id=$1", job_id)
+            job = await conn.fetchrow(
+                "SELECT id, status, context, payload FROM jobs WHERE id=$1",
+                job_id,
+            )
             if not job:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail="Job not found"
                 )
-            
-            if job['status'] != JobStatus.JOB_READY.value:
+
+            if job["status"] != JobStatus.JOB_READY.value:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"Job is not ready for approval (status: {job['status']})"
                 )
-            
-            # Deploy the artifacts
-            logger.info(f"Deploying artifacts for job {job_id}")
+
+            ctx = _coerce_context(job.get("payload") or job.get("context"))
+            is_data_job = ctx.get("pipeline_type") == "direct_response"
+
+            if is_data_job:
+                # Data jobs: no deploy, only set COMPLETED
+                await conn.execute(
+                    "UPDATE jobs SET status=$1, updated_at=now(), finished_at=now() WHERE id=$2",
+                    JobStatus.COMPLETED.value,
+                    job_id,
+                )
+                await _update_job_context(conn, job_id, {"deployment": {"skipped": True, "reason": "data_job"}})
+                logger.info("Job %s approved (data job, no deploy)", job_id)
+                return {
+                    "job_id": job_id,
+                    "status": JobStatus.COMPLETED.value,
+                    "deployment": None,
+                    "message": "Job afgesloten."
+                }
+
+            # Content jobs: deploy then COMPLETED
+            logger.info("Deploying artifacts for job %s", job_id)
             deploy_result = await deployment_service.deploy_job(conn, job_id)
-            
-            # Update job status to COMPLETED and set finished_at (production schema)
             await conn.execute(
                 "UPDATE jobs SET status=$1, updated_at=now(), finished_at=now() WHERE id=$2",
                 JobStatus.COMPLETED.value,
                 job_id,
             )
-            # Store deployment result in context via helper (handles context as dict/string and json serialization)
             await _update_job_context(conn, job_id, {"deployment": deploy_result})
-        
-        logger.info(f"Job {job_id} approved and deployed successfully")
-        
+        logger.info("Job %s approved and deployed successfully", job_id)
         return {
             "job_id": job_id,
             "status": JobStatus.COMPLETED.value,
             "deployment": deploy_result,
             "message": "Job approved and deployed."
         }
-    
+
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Failed to approve and deploy job {job_id}: {e}", exc_info=True)
+        logger.error("Failed to approve and deploy job %s: %s", job_id, e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to deploy: {str(e)}"

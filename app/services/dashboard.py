@@ -825,6 +825,46 @@ async def fetch_gsc(
     }
 
 
+async def fetch_gsc_top_pages(
+    access_token: str,
+    site_url: str,
+    start_date: str,
+    end_date: str,
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    """
+    Fetch top pages from GSC for a date range. Used by DataAgent.
+    Returns list of dicts: page, clicks, impressions, ctr, position.
+    """
+    import urllib.parse
+    site_encoded = urllib.parse.quote(site_url, safe="")
+    url = f"{GSC_BASE_URL}/sites/{site_encoded}/searchAnalytics/query"
+    headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
+    body = {
+        "startDate": start_date,
+        "endDate": end_date,
+        "dimensions": ["page"],
+        "rowLimit": min(limit, 25000),
+    }
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        r = await client.post(url, headers=headers, json=body)
+        if r.status_code != 200:
+            logger.warning("GSC top_pages failed: %s %s", r.status_code, r.text[:300])
+            return []
+        data = r.json()
+        pages: list[dict[str, Any]] = []
+        for row in data.get("rows", []):
+            keys = row.get("keys", [])
+            pages.append({
+                "page": keys[0] if keys else "(not set)",
+                "clicks": row.get("clicks", 0),
+                "impressions": row.get("impressions", 0),
+                "ctr": row.get("ctr", 0),
+                "position": row.get("position", 0),
+            })
+        return pages
+
+
 async def fetch_meta_ads(
     access_token: str,
     ad_account_id: str,

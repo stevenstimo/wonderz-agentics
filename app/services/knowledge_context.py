@@ -31,6 +31,11 @@ class KnowledgeContextBuilder:
     ) -> dict[str, Any]:
         from app.services.knowledge_service import KnowledgeService
 
+        # No client_slug in job context → do not fetch or inject any client knowledge.
+        if not (client_slug and str(client_slug).strip()):
+            client_slug = None
+            client_context_mode = "forbidden"
+
         svc = KnowledgeService(pool=pool)
         result = await svc.retrieve_for_agent(
             agent_id=agent_id,

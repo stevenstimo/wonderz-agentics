@@ -221,13 +221,13 @@ class IntakeEngine:
                 ClarificationQuestion(id=str(uuid.uuid4()), question=q, created_at=datetime.utcnow())
                 for q in clarification_questions
             ]
-            msg = clarification_questions[0] if clarification_questions else "Voor welke klant of website wil je de data?"
+            # Leave message empty so job_pipeline uses the single clarification as ceo_content (no duplicate).
             return StrategicBrief(
                 job_post=job_post or "",
                 is_complete=False,
                 clarifications=clarifications,
                 context=dict(ctx),
-                message=msg,
+                message="",
             )
 
         # Data query complete -> no LLM, proceed with data pipeline

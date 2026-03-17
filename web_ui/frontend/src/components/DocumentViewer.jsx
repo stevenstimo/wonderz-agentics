@@ -1,15 +1,19 @@
 import { useState, useRef, useEffect } from 'react'
 import { FileText, Copy, Download } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
+import DataResultView from './DataResultView'
 
 /**
  * Live document viewer (Claude-style artifact panel). Renders document_preview from GET /api/jobs/{id}.
- * Controlled component: receives documentPreview as prop; no polling.
+ * For data_query jobs (pipeline_type === 'direct_response'): shows DataResultView with proposed_data
+ * from the same parsed context; pipelineType and proposedData must come from that context, not raw job.context.
  */
 export default function DocumentViewer({
   documentPreview,
   jobStatus,
   jobTitle,
+  pipelineType,
+  proposedData,
   onApprove,
   onApprovePlan,
   onRequestChanges,
@@ -61,7 +65,9 @@ export default function DocumentViewer({
     URL.revokeObjectURL(url)
   }
 
-  const showApproveButtons = type === 'final' && jobStatus === 'JOB_READY'
+  const isDataResult = pipelineType === 'direct_response' && proposedData != null
+  const showDataResult = isDataResult && (jobStatus === 'JOB_READY' || jobStatus === 'COMPLETED')
+  const showApproveButtons = type === 'final' && jobStatus === 'JOB_READY' && !showDataResult
   const showPlanAction = type === 'plan' && jobStatus === 'PLAN_PROPOSED'
   const hasCopyableContent = type === 'plan' ? steps.length > 0 : content.length > 0
 
@@ -110,11 +116,19 @@ export default function DocumentViewer({
         className="flex-1 min-h-0 overflow-y-auto px-4 py-4 leading-[1.7]"
         style={{ animation: 'documentViewerFadeIn 0.3s ease-out' }}
       >
-        {type === 'empty' && (
+        {type === 'empty' && !showDataResult && (
           <div className="flex flex-col items-center justify-center py-12 text-slate-500">
             <FileText className="w-12 h-12 mb-3 opacity-50" aria-hidden />
             <p className="text-sm font-medium">Wacht op agent...</p>
           </div>
+        )}
+
+        {showDataResult && (
+          <DataResultView
+            proposedData={proposedData}
+            onApprove={onApprove}
+            approvingDeploy={approvingDeploy}
+          />
         )}
 
         {type === 'brief' && (
@@ -181,7 +195,7 @@ export default function DocumentViewer({
           </div>
         )}
 
-        {type === 'final' && (
+        {type === 'final' && !showDataResult && (
           <div className="space-y-4">
             <div className="prose prose-slate prose-sm max-w-none text-slate-800 [&_p]:mb-2 [&_p:last-child]:mb-0 [&_strong]:font-semibold [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4">
               {content ? <ReactMarkdown>{content}</ReactMarkdown> : <p className="text-slate-500">Geen content.</p>}

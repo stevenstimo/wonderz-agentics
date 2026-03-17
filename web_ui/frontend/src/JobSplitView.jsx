@@ -901,11 +901,14 @@ export default function JobSplitView() {
         </div>
 
         {/* Right: Document viewer — on mobile order-1 (above chat) */}
+        {/* pipeline_type and proposed_data from same parsed context (not raw job.context) */}
         <div className="flex flex-col min-h-0 order-1 md:order-2 overflow-y-auto border-l border-slate-200 rounded-r-xl md:rounded-l-none">
           <DocumentViewer
             documentPreview={data?.document_preview ?? null}
             jobStatus={job?.status}
             jobTitle={job?.job_post || title}
+            pipelineType={context.pipeline_type}
+            proposedData={context.proposed_data}
             onApprove={handleApproveDeploy}
             onApprovePlan={handleApprovePlan}
             onRequestChanges={() => chatSectionRef.current?.scrollIntoView({ behavior: 'smooth' })}

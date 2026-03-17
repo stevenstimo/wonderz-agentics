@@ -116,6 +116,51 @@ async def _get_pool():
     return pool
 
 
+class GSCServiceForClient:
+    """
+    Thin GSC adapter for DataAgent. Uses existing OAuth flow:
+    get_valid_access_token(conn, user_id, client_slug, "google_search_console") + fetch_gsc_top_pages.
+    """
+
+    def __init__(self, pool: Any, user_id: str, client_slug: str):
+        self.pool = pool
+        self.user_id = user_id
+        self.client_slug = client_slug
+
+    async def get_top_pages(
+        self,
+        site_url: str,
+        start_date: str,
+        end_date: str,
+        dimensions: Optional[List[str]] = None,
+        metrics: Optional[List[str]] = None,
+        limit: int = 10,
+    ) -> List[Dict[str, Any]]:
+        from app.services.dashboard import get_valid_access_token, fetch_gsc_top_pages
+        async with self.pool.acquire() as conn:
+            token = await get_valid_access_token(
+                conn, self.user_id, self.client_slug, "google_search_console"
+            )
+        if not token:
+            raise RuntimeError("GSC token not available for this client")
+        return await fetch_gsc_top_pages(token, site_url, start_date, end_date, limit)
+
+
+async def get_gsc_service(
+    pool: Any, user_id: str, client_slug: str
+) -> Optional[GSCServiceForClient]:
+    """
+    Return a GSC service adapter for the client (same OAuth as dashboard/SEO).
+    Returns None if no valid token so DataAgent can return _unavailable_result.
+    """
+    from app.services.dashboard import get_valid_access_token
+    async with pool.acquire() as conn:
+        token = await get_valid_access_token(
+            conn, str(user_id), client_slug or "", "google_search_console"
+        )
+    return GSCServiceForClient(pool, str(user_id), client_slug or "") if token else None
+
+
 def _coerce_context(raw: Any) -> Dict[str, Any]:
     """Coerce context from DB to a plain dict. Handles None, dict, str,
     and double/triple-encoded JSON strings (JSONB string wrapping JSON)."""
@@ -779,9 +824,11 @@ async def _insert_plan_steps(conn, job_id: str, plan: ExecutionPlan):
 
 async def run_data_pipeline(job_id: str) -> None:
     """
-    Data-query pipeline: load context, run DataAgent (Fase 3), set proposed_data and JOB_READY.
-    Stub for Fase 2: sets JOB_READY with placeholder proposed_data. Fase 4 wires real DataAgent.
+    Data-query pipeline: load context, run DataAgent (GSC/client_knowledge), set proposed_data and JOB_READY.
+    GSC service is initialised via existing OAuth (get_gsc_service).
     """
+    from app.agents.data_agent import DataAgent
+
     pool = await _get_pool()
     if not pool:
         logger.warning("DB pool not available, skipping run_data_pipeline for job %s", job_id)
@@ -790,17 +837,30 @@ async def run_data_pipeline(job_id: str) -> None:
         async with pool.acquire() as conn:
             job = await _load_job(conn, job_id)
             context = _coerce_context(job.get("payload") or job.get("context"))
-            query_params = context.get("query_params") or {}
+            query_params = dict(context.get("query_params") or {})
             query_params["raw_query"] = context.get("original_query") or job.get("job_post") or ""
+            query_params.setdefault("client_slug", context.get("client_slug"))
+            if not query_params.get("site_url") and context.get("gsc_properties"):
+                first_site = (context["gsc_properties"] or [{}])[0]
+                if isinstance(first_site, dict):
+                    query_params["site_url"] = first_site.get("site_url") or first_site.get("gsc_site_url")
+            if not query_params.get("site_url"):
+                query_params["site_url"] = context.get("site_url") or context.get("gsc_site_url")
 
-            # Fase 4: agent = DataAgent(...); result = await agent.execute(job_id, query_params)
-            proposed_data = {
-                "gevonden": "Data pipeline (DataAgent) wordt in Fase 3/4 geïmplementeerd.",
-                "resultaat": [],
-                "volledigheid": "Placeholder voor verificatie Fase 2.",
-                "volgende_actie": None,
-            }
+        user_id = str(job.get("user_id") or "")
+        client_slug = context.get("client_slug") or query_params.get("client_slug")
+        gsc_service = await get_gsc_service(pool, user_id, client_slug)
+        agent = DataAgent(db=pool, gsc_service=gsc_service, analytics_service=None)
+        result = await agent.execute(job_id, query_params)
 
+        proposed_data = {
+            "gevonden": result.get("gevonden"),
+            "resultaat": result.get("resultaat", []),
+            "volledigheid": result.get("volledigheid"),
+            "volgende_actie": result.get("volgende_actie"),
+        }
+
+        async with pool.acquire() as conn:
             await _update_job_context(conn, job_id, {
                 "proposed_data": proposed_data,
                 "pipeline_type": "direct_response",
@@ -810,7 +870,7 @@ async def run_data_pipeline(job_id: str) -> None:
                 JobStatus.JOB_READY.value,
                 job_id,
             )
-            logger.info("run_data_pipeline: job %s set to JOB_READY (stub)", job_id)
+        logger.info("run_data_pipeline: job %s set to JOB_READY (DataAgent)", job_id)
     except Exception as e:
         logger.exception("run_data_pipeline failed for job %s: %s", job_id, e)
 
@@ -852,6 +912,8 @@ async def run_intake_inline(job_id: str, job_post: str):
             logger.info("intake client_slug after resolve: %s", client_slug)
 
             available_clients = await _get_available_clients_for_user(conn, user_id_str)
+            # GSC properties: intentionally fetched for all jobs with client_slug (before task_type is known).
+            # Query filters correctly on user_id + client_slug; timing/scope causes no issues.
             gsc_properties = await _get_gsc_properties_for_client(conn, user_id_str, client_slug) if client_slug else []
             job_context = {
                 **existing_ctx,
@@ -893,13 +955,23 @@ async def run_intake_inline(job_id: str, job_post: str):
             brief.context["client_slug"] = client_slug
 
         chat_history = []
-        ceo_content = brief.message or ""
-        if not brief.is_complete and brief.clarifications:
-            questions_text = "\n\n".join(
-                f"{i + 1}. {q.question}" for i, q in enumerate(brief.clarifications)
-            )
-            if questions_text and questions_text not in ceo_content:
-                ceo_content = (ceo_content.rstrip() + "\n\n" + questions_text).strip()
+        is_data_query_incomplete = (
+            isinstance(brief.context, dict)
+            and brief.context.get("detected_task_type") == "data_query"
+            and not brief.is_complete
+            and brief.clarifications
+        )
+        if is_data_query_incomplete:
+            # data_query: max one question, show it once without numbering
+            ceo_content = brief.clarifications[0].question
+        else:
+            ceo_content = brief.message or ""
+            if not brief.is_complete and brief.clarifications:
+                questions_text = "\n\n".join(
+                    f"{i + 1}. {q.question}" for i, q in enumerate(brief.clarifications)
+                )
+                if questions_text and questions_text not in ceo_content:
+                    ceo_content = (ceo_content.rstrip() + "\n\n" + questions_text).strip()
         chat_history.append({"role": "ceo", "content": ceo_content})
         async with pool.acquire() as conn:
             updates = {
@@ -1070,13 +1142,22 @@ async def run_intake_answers_inline(job_id: str, answers: dict):
                 )
                 brief.is_complete = True
             chat_history = list(chat_history)
-            ceo_content = brief.message or ""
-            if not brief.is_complete and brief.clarifications:
-                questions_text = "\n\n".join(
-                    f"{i + 1}. {q.question}" for i, q in enumerate(brief.clarifications)
-                )
-                if questions_text and questions_text not in ceo_content:
-                    ceo_content = (ceo_content.rstrip() + "\n\n" + questions_text).strip()
+            is_data_query_incomplete = (
+                isinstance(brief.context, dict)
+                and brief.context.get("detected_task_type") == "data_query"
+                and not brief.is_complete
+                and brief.clarifications
+            )
+            if is_data_query_incomplete:
+                ceo_content = brief.clarifications[0].question
+            else:
+                ceo_content = brief.message or ""
+                if not brief.is_complete and brief.clarifications:
+                    questions_text = "\n\n".join(
+                        f"{i + 1}. {q.question}" for i, q in enumerate(brief.clarifications)
+                    )
+                    if questions_text and questions_text not in ceo_content:
+                        ceo_content = (ceo_content.rstrip() + "\n\n" + questions_text).strip()
             chat_history.append({"role": "ceo", "content": ceo_content})
             updates = {
                 "brief": brief.model_dump(),
