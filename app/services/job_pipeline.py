@@ -460,6 +460,17 @@ def _build_image_prompt(context: Dict[str, Any]) -> str:
     return prompt
 
 
+def _extract_text_from_anthropic_content(content: Any) -> str:
+    """Extract concatenated text from all text blocks in Anthropic message content (content[0] may be non-text)."""
+    if not content:
+        return ""
+    parts = []
+    for block in content:
+        if hasattr(block, "text") and block.text is not None:
+            parts.append(str(block.text))
+    return "".join(parts).strip()
+
+
 def _run_step_agent(
     agent_role: str,
     step_name: str,
@@ -566,7 +577,7 @@ def _run_step_agent(
                 system=system,
                 messages=[{"role": "user", "content": user}],
             )
-            text = (response.content[0].text if response.content else "").strip()
+            text = _extract_text_from_anthropic_content(response.content)
             tokens = (response.usage.input_tokens or 0) + (response.usage.output_tokens or 0)
             if any(indicator in text for indicator in plan_indicators):
                 retry_system = system + "\n\nWARNING: Your previous attempt produced a plan/outline instead of an article. Write the ACTUAL ARTICLE TEXT. No plans, no outlines, no project descriptions."
@@ -576,8 +587,14 @@ def _run_step_agent(
                     system=retry_system,
                     messages=[{"role": "user", "content": user}],
                 )
-                text = (response.content[0].text if response.content else "").strip()
+                text = _extract_text_from_anthropic_content(response.content)
                 tokens += (response.usage.input_tokens or 0) + (response.usage.output_tokens or 0)
+            if not text:
+                logger.warning("Copywriter step returned empty content (response had %s blocks)", len(response.content or []))
+                return (
+                    {"status": "failed", "content": "", "error": "Copywriter produced empty content", "agent_role": agent_role},
+                    tokens,
+                )
             out = {"status": "completed", "content": text, "agent_role": agent_role, "step_name": step_desc}
             try:
                 from app.services.worker_contract import WorkerOutputValidator
@@ -1070,6 +1087,7 @@ async def run_job_inline(job_id: str, context_extra: Optional[dict] = None):
             token_guard = TokenGuard(db_pool=pool)
             last_content: Optional[str] = None
             previous_content: Optional[str] = None
+            pipeline_stopped = False
             for idx, step in enumerate(steps):
                 # Token budget check before each step
                 check = await token_guard.check_before_call(job_id, estimated_tokens=2000)
@@ -1112,6 +1130,7 @@ async def run_job_inline(job_id: str, context_extra: Optional[dict] = None):
                 talent_result = None
                 output = None
                 tokens_used = 0
+                stop_pipeline = False
 
                 while True:
                     await conn.execute(
@@ -1163,6 +1182,34 @@ async def run_job_inline(job_id: str, context_extra: Optional[dict] = None):
                     output["step_name"] = step.get("step_name")
                     output["agent_role"] = step.get("agent_role")
                     output["unified_tool"] = step.get("unified_tool")
+
+                    # Fail step and stop pipeline when copywriter returns failed or empty content (Reviewer must not get empty template)
+                    role_lower = (agent_role or "").lower()
+                    step_failed = output.get("status") == "failed"
+                    if not step_failed and role_lower in ("copywriter", "copy writer"):
+                        content_str = output.get("content")
+                        if not content_str or not str(content_str).strip():
+                            step_failed = True
+                            output["status"] = "failed"
+                            output["error"] = output.get("error") or "Copywriter produced empty content"
+                            logger.warning("Copywriter step produced empty content for job %s; marking step failed and stopping pipeline", job_id)
+                    if step_failed:
+                        error_log = output.get("error") or "Step failed"
+                        await conn.execute(
+                            """
+                            UPDATE job_steps
+                            SET status='failed', completed_at=now(), output=$1::jsonb, tokens_used=$2, timing_ms=$3, progress_pct=100, error_log=$5
+                            WHERE id=$4
+                            """,
+                            json.dumps(output, default=_json_default),
+                            tokens_used,
+                            int((time.monotonic() - started) * 1000),
+                            step_id,
+                            error_log,
+                        )
+                        stop_pipeline = True
+                        pipeline_stopped = True
+                        break
 
                     if output.get("content"):
                         last_content = output["content"]
@@ -1421,6 +1468,9 @@ async def run_job_inline(job_id: str, context_extra: Optional[dict] = None):
                             logger.warning("Lessons lifecycle failed: %s", _lifecycle_err)
                     break
 
+                if stop_pipeline:
+                    break
+
                 if output.get("image_url"):
                     await _update_job_context(conn, job_id, {"image_url": output["image_url"]})
                 # Checkpoint: save content after each step that produces it (survives crash)
@@ -1462,23 +1512,26 @@ async def run_job_inline(job_id: str, context_extra: Optional[dict] = None):
                         await _update_job_context(conn_img, job_id_str, {"image_url": step_output["image_url"]})
                         break
 
-            steps_completed = True
-            logger.info("All steps done for job %s. Setting JOB_READY...", job_id_str)
-            try:
-                pool_ready = await get_db()
-                async with pool_ready.acquire() as conn:
-                    logger.info("Storing final_content for job %s", job_id_str)
-                    await _update_job_context(conn, job_id_str, {"final_content": last_content or "No content produced"})
-                    await _maybe_generate_job_artifact(conn, job_id_str, context or {}, completed_steps, last_content, job.get("job_post", ""))
-                    logger.info("Updating status to JOB_READY for job %s", job_id_str)
-                    result = await conn.execute(
-                        "UPDATE jobs SET status='JOB_READY', updated_at=now() WHERE id=$1",
-                        job_id_str,
-                    )
-                    logger.info("JOB_READY update result for job %s: %s", job_id_str, result)
-            except Exception as e:
-                logger.error("CRITICAL: Failed to set JOB_READY for job %s: %s", job_id_str, e, exc_info=True)
-                raise
+            if pipeline_stopped:
+                logger.warning("Job %s pipeline stopped (step failed); not setting JOB_READY", job_id_str)
+            else:
+                steps_completed = True
+                logger.info("All steps done for job %s. Setting JOB_READY...", job_id_str)
+                try:
+                    pool_ready = await get_db()
+                    async with pool_ready.acquire() as conn:
+                        logger.info("Storing final_content for job %s", job_id_str)
+                        await _update_job_context(conn, job_id_str, {"final_content": last_content or "No content produced"})
+                        await _maybe_generate_job_artifact(conn, job_id_str, context or {}, completed_steps, last_content, job.get("job_post", ""))
+                        logger.info("Updating status to JOB_READY for job %s", job_id_str)
+                        result = await conn.execute(
+                            "UPDATE jobs SET status='JOB_READY', updated_at=now() WHERE id=$1",
+                            job_id_str,
+                        )
+                        logger.info("JOB_READY update result for job %s: %s", job_id_str, result)
+                except Exception as e:
+                    logger.error("CRITICAL: Failed to set JOB_READY for job %s: %s", job_id_str, e, exc_info=True)
+                    raise
     except Exception as exc:
         logger.error(
             "run_job_inline failed for job %s: %s: %s",
