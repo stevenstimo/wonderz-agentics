@@ -271,10 +271,12 @@ async def trigger_run_intake(job_id: str):
         if not job:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
         if job["status"] != JobStatus.INTAKE_CLARIFICATION.value:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Run intake only when status is INTAKE_CLARIFICATION (current: {job['status']})",
-            )
+            # Intake already completed or not applicable; return 200 so UI doesn't show an error.
+            return {
+                "job_id": job_id,
+                "status": job["status"],
+                "message": "Intake already completed",
+            }
         job_post = job.get("job_post") or ""
         ctx = job.get("payload") or job.get("context")
         if ctx and isinstance(ctx, dict) and ctx.get("job_post"):
