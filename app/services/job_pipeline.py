@@ -484,6 +484,13 @@ def _run_step_agent(
     role_lower = (agent_role or "").lower()
     step_desc = step_name or agent_role or "step"
 
+    # Content agents produce free-form text; skip WorkerOutputValidator (dev-style sections).
+    CONTENT_AGENT_ROLES = frozenset({
+        "copywriter", "copy writer", "reviewer", "review",
+        "seo", "image_generator", "image generator", "imagegenerator", "image_generation",
+    })
+    is_content_role = role_lower in CONTENT_AGENT_ROLES
+
     # Image generator: Gemini (with Pollinations fallback) — run BEFORE Anthropic check
     if role_lower in ("image_generator", "image generator", "imagegenerator", "image_generation"):
         image_prompt = _build_image_prompt(context)
@@ -560,11 +567,12 @@ def _run_step_agent(
         knowledge_block = context.get("_knowledge_block") or ""
         if knowledge_block:
             system += "\n\n" + knowledge_block
-        try:
-            from app.services.worker_contract import WorkerOutputValidator
-            system += "\n\n" + WorkerOutputValidator().format_for_prompt()
-        except Exception:
-            pass
+        if not is_content_role:
+            try:
+                from app.services.worker_contract import WorkerOutputValidator
+                system += "\n\n" + WorkerOutputValidator().format_for_prompt()
+            except Exception:
+                pass
         user = f"Write an article of approximately {word_count} words about: {objective}. Focus: {focus}."
         user_feedback = context.get("user_feedback") or context.get("feedback") or ""
         if user_feedback and isinstance(user_feedback, str):
@@ -600,22 +608,23 @@ def _run_step_agent(
                     tokens,
                 )
             out = {"status": "completed", "content": text, "agent_role": agent_role, "step_name": step_desc}
-            try:
-                from app.services.worker_contract import WorkerOutputValidator
-                validator = WorkerOutputValidator()
-                parsed = validator.parse_from_llm_response(text)
-                validation = validator.validate(parsed)
-                out["worker_output"] = parsed
-                out["validation_status"] = "valid" if validation.get("valid") else "invalid"
-                out["validation_warnings"] = validation.get("warnings") or []
-                if not validation.get("valid"):
-                    logger.warning(
-                        "Worker contract invalid: missing=%s empty=%s",
-                        validation.get("missing_sections"),
-                        validation.get("empty_sections"),
-                    )
-            except Exception as _vc:
-                logger.debug("Worker contract parse/validate skipped: %s", _vc)
+            if not is_content_role:
+                try:
+                    from app.services.worker_contract import WorkerOutputValidator
+                    validator = WorkerOutputValidator()
+                    parsed = validator.parse_from_llm_response(text)
+                    validation = validator.validate(parsed)
+                    out["worker_output"] = parsed
+                    out["validation_status"] = "valid" if validation.get("valid") else "invalid"
+                    out["validation_warnings"] = validation.get("warnings") or []
+                    if not validation.get("valid"):
+                        logger.warning(
+                            "Worker contract invalid: missing=%s empty=%s",
+                            validation.get("missing_sections"),
+                            validation.get("empty_sections"),
+                        )
+                except Exception as _vc:
+                    logger.debug("Worker contract parse/validate skipped: %s", _vc)
             return (out, tokens)
         except Exception as e:
             logger.exception("Copywriter step failed: %s", e)
