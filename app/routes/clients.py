@@ -277,6 +277,44 @@ async def get_gsc_sites(
     return sites
 
 
+@router.get("/{slug}/gsc/full")
+async def get_client_gsc_full(
+    slug: str,
+    current_user: TokenPayload = Depends(get_current_user),
+):
+    """Return the latest full GSC snapshot (queries, pages, totals) for this client. For agents."""
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        client = await conn.fetchrow(
+            "SELECT slug FROM clients WHERE user_id = $1 AND slug = $2",
+            current_user.user_id,
+            slug,
+        )
+        if not client:
+            raise HTTPException(status_code=404, detail="Client not found")
+        row = await conn.fetchrow(
+            """
+            SELECT client_id, date_range_start, date_range_end, queries, pages, totals, fetched_at
+            FROM gsc_snapshots
+            WHERE client_id = $1
+            ORDER BY fetched_at DESC
+            LIMIT 1
+            """,
+            slug,
+        )
+    if not row:
+        raise HTTPException(status_code=404, detail="No GSC snapshot found. Fetch dashboard data first.")
+    return {
+        "client_id": row["client_id"],
+        "date_range_start": row["date_range_start"].isoformat() if row["date_range_start"] else None,
+        "date_range_end": row["date_range_end"].isoformat() if row["date_range_end"] else None,
+        "queries": row["queries"] if isinstance(row["queries"], list) else (row["queries"] or []),
+        "pages": row["pages"] if isinstance(row["pages"], list) else (row["pages"] or []),
+        "totals": row["totals"] if isinstance(row["totals"], dict) else (row["totals"] or {}),
+        "fetched_at": row["fetched_at"].isoformat() if row.get("fetched_at") else None,
+    }
+
+
 @router.get("/{slug}/meta/auth-url")
 async def get_meta_auth_url(
     slug: str,
@@ -641,7 +679,9 @@ async def get_client_dashboard(
                 result["gsc"] = {"not_connected": True, "error": "Configure site_url in platform config (e.g. https://example.com/)"}
             else:
                 try:
-                    gsc_data = await fetch_gsc(access_token, site_url, start_str, end_str, slug=slug)
+                    gsc_data = await fetch_gsc(
+                        access_token, site_url, start_str, end_str, slug=slug, pool=pool
+                    )
                     result["gsc"] = gsc_data
                 except Exception as e:
                     logger.exception("GSC fetch failed")

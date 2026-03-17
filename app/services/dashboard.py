@@ -682,6 +682,10 @@ async def fetch_google_ads_via_gaql(
     return {"campaigns": campaigns, "timeseries": timeseries}
 
 
+GSC_UI_LIMIT = 10
+GSC_STORAGE_ROW_LIMIT = 500
+
+
 async def fetch_gsc(
     access_token: str,
     site_url: str,
@@ -689,58 +693,57 @@ async def fetch_gsc(
     end_date: str,
     *,
     slug: Optional[str] = None,
+    pool: Any = None,
 ) -> dict[str, Any]:
     """Fetch Search Console: clicks, impressions, CTR, position, top queries, top pages.
-    site_url should come from client_integrations.extra_config for the client."""
+    Fetches up to GSC_STORAGE_ROW_LIMIT for queries/pages; stores full snapshot when pool+slug given;
+    returns top GSC_UI_LIMIT for UI. site_url from client_integrations.extra_config."""
     if slug is not None:
         logger.info("GSC site_url for %s: %s", slug, site_url)
-    # Site URL must be URL-encoded for the path
     import urllib.parse
     site_encoded = urllib.parse.quote(site_url, safe="")
     url = f"{GSC_BASE_URL}/sites/{site_encoded}/searchAnalytics/query"
     headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
 
-    result: dict[str, Any] = {
-        "totals": {"clicks": 0, "impressions": 0, "ctr": 0, "position": 0},
-        "top_queries": [],
-        "top_pages": [],
-        "timeseries": [],
-    }
+    totals = {"clicks": 0, "impressions": 0, "ctr": 0, "position": 0}
+    full_queries: list[dict[str, Any]] = []
+    full_pages: list[dict[str, Any]] = []
+    timeseries: list[dict[str, Any]] = []
 
-    # 1. Totals (no dimensions)
-    body = {
-        "startDate": start_date,
-        "endDate": end_date,
-    }
+    body = {"startDate": start_date, "endDate": end_date}
     async with httpx.AsyncClient(timeout=30.0) as client:
         r = await client.post(url, headers=headers, json=body)
         if r.status_code != 200:
-            logger.warning(f"GSC totals failed: {r.status_code} {r.text}")
-            return result
+            logger.warning("GSC totals failed: %s %s", r.status_code, r.text)
+            return {
+                "totals": totals,
+                "top_queries": [],
+                "top_pages": [],
+                "timeseries": [],
+            }
         data = r.json()
         rows = data.get("rows", [])
-        if rows:
+        if rows and isinstance(rows[0], dict):
             row = rows[0]
-            result["totals"] = {
+            totals = {
                 "clicks": row.get("clicks", 0),
                 "impressions": row.get("impressions", 0),
                 "ctr": row.get("ctr", 0),
                 "position": row.get("position", 0),
             }
 
-        # 2. Top queries
         body_query = {
             "startDate": start_date,
             "endDate": end_date,
             "dimensions": ["query"],
-            "rowLimit": 10,
+            "rowLimit": GSC_STORAGE_ROW_LIMIT,
         }
         r = await client.post(url, headers=headers, json=body_query)
         if r.status_code == 200:
             data = r.json()
             for row in data.get("rows", []):
                 keys = row.get("keys", [])
-                result["top_queries"].append({
+                full_queries.append({
                     "query": keys[0] if keys else "(not set)",
                     "clicks": row.get("clicks", 0),
                     "impressions": row.get("impressions", 0),
@@ -748,19 +751,18 @@ async def fetch_gsc(
                     "position": row.get("position", 0),
                 })
 
-        # 3. Top pages
         body_page = {
             "startDate": start_date,
             "endDate": end_date,
             "dimensions": ["page"],
-            "rowLimit": 10,
+            "rowLimit": GSC_STORAGE_ROW_LIMIT,
         }
         r = await client.post(url, headers=headers, json=body_page)
         if r.status_code == 200:
             data = r.json()
             for row in data.get("rows", []):
                 keys = row.get("keys", [])
-                result["top_pages"].append({
+                full_pages.append({
                     "page": keys[0] if keys else "(not set)",
                     "clicks": row.get("clicks", 0),
                     "impressions": row.get("impressions", 0),
@@ -768,7 +770,6 @@ async def fetch_gsc(
                     "position": row.get("position", 0),
                 })
 
-        # 4. Time series (clicks per day)
         body_ts = {
             "startDate": start_date,
             "endDate": end_date,
@@ -779,13 +780,49 @@ async def fetch_gsc(
             data = r.json()
             for row in data.get("rows", []):
                 keys = row.get("keys", [])
-                result["timeseries"].append({
+                timeseries.append({
                     "date": keys[0] if keys else "",
                     "clicks": row.get("clicks", 0),
                     "impressions": row.get("impressions", 0),
                 })
 
-    return result
+    if pool and slug:
+        try:
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    """
+                    INSERT INTO gsc_snapshots (client_id, date_range_start, date_range_end, queries, pages, totals)
+                    VALUES ($1, $2::date, $3::date, $4::jsonb, $5::jsonb, $6::jsonb)
+                    """,
+                    slug,
+                    start_date,
+                    end_date,
+                    json.dumps(full_queries),
+                    json.dumps(full_pages),
+                    json.dumps(totals),
+                )
+                await conn.execute(
+                    """
+                    WITH kept AS (
+                        SELECT id FROM gsc_snapshots
+                        WHERE client_id = $1
+                        ORDER BY fetched_at DESC
+                        LIMIT 4
+                    )
+                    DELETE FROM gsc_snapshots
+                    WHERE client_id = $1 AND id NOT IN (SELECT id FROM kept)
+                    """,
+                    slug,
+                )
+        except Exception as e:
+            logger.warning("GSC snapshot save failed for client %s: %s", slug, e)
+
+    return {
+        "totals": totals,
+        "top_queries": full_queries[:GSC_UI_LIMIT],
+        "top_pages": full_pages[:GSC_UI_LIMIT],
+        "timeseries": timeseries,
+    }
 
 
 async def fetch_meta_ads(
@@ -955,7 +992,9 @@ async def get_client_seo_summary_for_agent(pool, user_id: str, client_slug: str)
         start_date = end_date - timedelta(days=30)
         start_str = start_date.isoformat()
         end_str = end_date.isoformat()
-        gsc_data = await fetch_gsc(access_token, site_url, start_str, end_str, slug=client_slug)
+        gsc_data = await fetch_gsc(
+            access_token, site_url, start_str, end_str, slug=client_slug, pool=pool
+        )
 
         parts = [f"Client {client_name} (@{client_slug}). Google Search Console (laatste 30 dagen):"]
         totals = gsc_data.get("totals") or {}
