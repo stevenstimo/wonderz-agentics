@@ -1,6 +1,8 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { Upload, X, Paperclip, FileSpreadsheet, FileText, Image as ImageIcon, MessageCircle, Play, CheckCircle, XCircle, BookOpen, BookMarked, BookX, Layers } from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
+import remarkBreaks from 'remark-breaks'
 import PageLayout from './PageLayout'
 import { apiUrl, apiFetch } from './apiClient'
 
@@ -313,7 +315,23 @@ export default function JobSplitView() {
   const statusStr = job?.status != null ? String(job.status) : ''
   const statusUpper = statusStr.toUpperCase()
   const isIntake = statusUpper === 'INTAKE_CLARIFICATION'
-  const displayChatHistory = [...chatHistory, ...optimisticMessages]
+
+  // Volledige conversatie: initiële job_post + chat_history + clarification-antwoorden (backend zet die niet in chat_history)
+  const fullChatHistory = (() => {
+    const list = []
+    const jobPost = (job?.job_post || context.job_post || context.brief?.job_post || '').trim()
+    if (jobPost) list.push({ role: 'user', content: jobPost })
+    list.push(...chatHistory)
+    const answered = clarifications.filter((c) => c.user_answer)
+    if (answered.length) {
+      const text = answered
+        .map((c) => (c.question ? `• ${c.question}\n  ${c.user_answer}` : c.user_answer))
+        .join('\n\n')
+      list.push({ role: 'user', content: `Mijn antwoorden op de vragen:\n\n${text}` })
+    }
+    return list
+  })()
+  const displayChatHistory = [...fullChatHistory, ...optimisticMessages]
   const inputDisabled = sendingChat
 
   // When showing API key error, fetch current server fingerprint so user can compare
@@ -740,7 +758,13 @@ export default function JobSplitView() {
                     {isCeoRespondingToAttachment && attachmentFilename && (
                       <p className="text-xs text-slate-500 mb-1">📎 Gebaseerd op: {attachmentFilename}</p>
                     )}
-                    <p className="text-sm whitespace-pre-wrap">{msg.content || ''}</p>
+                    {msg.role === 'user' ? (
+                      <p className="text-sm whitespace-pre-wrap">{msg.content || ''}</p>
+                    ) : (
+                      <div className="text-sm [&_p]:mb-1 [&_p:last-child]:mb-0 [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4">
+                        <ReactMarkdown remarkPlugins={[remarkBreaks]}>{msg.content || ''}</ReactMarkdown>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
