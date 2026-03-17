@@ -374,14 +374,14 @@ def build_document_preview(job: dict) -> dict:
         return ""
 
     def _steps_list():
-        plan = context.get("plan")
-        if isinstance(plan, dict):
-            s = plan.get("steps")
-            if isinstance(s, list):
-                return s
-        if isinstance(plan, list):
-            return plan
-        return []
+        steps = (payload.get("plan") or {}).get("steps") if isinstance(payload.get("plan"), dict) else None
+        if isinstance(steps, list):
+            return steps
+        steps = (context.get("plan") or {}).get("steps") if isinstance(context.get("plan"), dict) else None
+        if isinstance(steps, list):
+            return steps
+        steps = payload.get("steps")
+        return steps if isinstance(steps, list) else []
 
     title_fallback = job.get("job_post") or job.get("description") or "Document"
     if isinstance(title_fallback, str) and len(title_fallback) > 60:

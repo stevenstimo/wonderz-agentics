@@ -905,6 +905,7 @@ export default function JobSplitView() {
         <div className="flex flex-col min-h-0 order-1 md:order-2 overflow-y-auto border-l border-slate-200 rounded-r-xl md:rounded-l-none">
           <DocumentViewer
             documentPreview={data?.document_preview ?? null}
+            jobId={jobId}
             jobStatus={job?.status}
             jobTitle={job?.job_post || title}
             pipelineType={context.pipeline_type}

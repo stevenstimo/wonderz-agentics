@@ -10,6 +10,7 @@ import DataResultView from './DataResultView'
  */
 export default function DocumentViewer({
   documentPreview,
+  jobId,
   jobStatus,
   jobTitle,
   pipelineType,
@@ -79,7 +80,10 @@ export default function DocumentViewer({
           <FileText className="w-5 h-5 text-slate-500 shrink-0" aria-hidden />
           <div className="min-w-0">
             <h2 className="text-base font-semibold text-slate-900 truncate">{title}</h2>
-            {subtitle && <p className="text-xs text-slate-500 truncate">{subtitle}</p>}
+            <div className="flex items-baseline gap-2 flex-wrap">
+              {subtitle && <span className="text-xs text-slate-500 truncate">{subtitle}</span>}
+              {jobId && <span className="text-xs text-slate-400 shrink-0">#{jobId}</span>}
+            </div>
           </div>
         </div>
         <div className="flex items-center gap-1 shrink-0">
