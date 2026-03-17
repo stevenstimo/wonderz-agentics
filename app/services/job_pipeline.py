@@ -1022,11 +1022,41 @@ async def run_intake_answers_inline(job_id: str, answers: dict):
                 else:
                     client_context = gsc_context
 
+            # Job context for type detection (data_query completeness)
+            available_clients = await _get_available_clients_for_user(conn, user_id)
+            # If user just answered a data_query clarification (e.g. "Voor welke klant? (asured / merk-b)"):
+            # match answer robustly (case-insensitive, strip). Only set client_slug on valid match;
+            # invalid answer leaves client_slug unset so _detect_task_type returns is_complete=False
+            # and the same clarification is shown again (no silent fallback).
+            if not client_slug and context.get("detected_task_type") == "data_query" and answers:
+                for _q_id, answer in (answers or {}).items():
+                    if not answer or not isinstance(answer, str):
+                        continue
+                    ans = answer.strip().lower()
+                    if not ans:
+                        continue
+                    for slug in available_clients:
+                        if (slug or "").strip().lower() == ans:
+                            client_slug = slug  # use canonical slug from DB
+                            context["client_slug"] = slug
+                            break
+                    if client_slug:
+                        break
+            gsc_properties = await _get_gsc_properties_for_client(conn, user_id, client_slug) if client_slug else []
+            job_context = {
+                **context,
+                "client_slug": client_slug,
+                "available_clients": available_clients,
+                "gsc_properties": gsc_properties,
+                "site_url": context.get("site_url") or context.get("gsc_site_url"),
+            }
+
             brief = intake.analyze_job_post(
                 job_post,
                 previous_answers=merged_answers,
                 chat_history=chat_history if chat_history else None,
                 client_context=client_context,
+                job_context=job_context,
             )
             logger.info(
                 "intake answers brief: is_complete=%s, clarifications=%d",
@@ -1070,6 +1100,24 @@ async def run_intake_answers_inline(job_id: str, answers: dict):
                     job_id,
                     JobStatus.INTAKE_CLARIFICATION.value,
                 )
+                return
+
+            # data_query complete after clarification answer: run data pipeline
+            detected = (brief.context or {}) if isinstance(brief.context, dict) else {}
+            if detected.get("detected_task_type") == "data_query":
+                await _update_job_context(conn, job_id, {
+                    "detected_task_type": "data_query",
+                    "query_params": detected.get("query_params") or {},
+                    "defaults_applied": detected.get("defaults_applied") or {},
+                    "original_query": job_post,
+                })
+                await conn.execute(
+                    "UPDATE jobs SET status=$1, updated_at=now() WHERE id=$2",
+                    JobStatus.RUNNING.value,
+                    job_id,
+                )
+                asyncio.create_task(run_data_pipeline(job_id))
+                logger.info("run_intake_answers_inline: data_query complete for job %s, run_data_pipeline queued", job_id)
                 return
 
             final_content = context.get("final_content") or ""

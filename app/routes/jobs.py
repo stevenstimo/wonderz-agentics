@@ -387,11 +387,15 @@ def build_document_preview(job: dict) -> dict:
         title_fallback = title_fallback[:57] + "..."
 
     if status == "INTAKE_CLARIFICATION":
+        client_name = context.get("client_name", "") or ""
+        subtitle = "Wordt aangevuld tijdens intake"
+        if client_name:
+            subtitle = f"{subtitle} — {client_name}"
         return {
             "type": "brief",
             "title": "Client Brief",
-            "content": context.get("client_brief") or context.get("description") or job.get("description") or "",
-            "subtitle": "Wordt aangevuld tijdens intake",
+            "content": context.get("job_post") or job.get("description") or "",
+            "subtitle": subtitle,
         }
     elif status == "PLAN_PROPOSED":
         steps = _steps_list()
