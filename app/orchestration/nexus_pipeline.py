@@ -372,7 +372,7 @@ class NEXUSPipeline:
                 await conn.execute(
                     "UPDATE job_steps SET status = 'running', started_at = $1 WHERE id = $2",
                     started_at,
-                    step_id,
+                    int(step_id) if step_id is not None else None,
                 )
 
         from app.services.job_pipeline import (
@@ -477,7 +477,7 @@ class NEXUSPipeline:
                     timing_ms,
                     error_log_value,
                     retries_done,
-                    step_id,
+                    int(step_id) if step_id is not None else None,
                 )
 
     async def _update_job_status(
