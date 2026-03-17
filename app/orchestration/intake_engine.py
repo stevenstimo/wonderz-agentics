@@ -2,6 +2,8 @@
 IntakeEngine: Analyzes user job posts and generates clarification questions.
 
 The CEO Agent uses this to determine if there's enough information to create a plan.
+Data-query intent detection (data_query / seo_task / content_creation) runs before
+the LLM; data_query uses targeted clarification questions from job_context (Checkpoint 2).
 """
 
 from typing import List, Dict, Optional, Any
@@ -9,6 +11,7 @@ from models.unified import StrategicBrief, ClarificationQuestion, JobStatus
 from datetime import datetime
 import hashlib
 import os
+import re
 import uuid
 import json
 import logging
@@ -18,6 +21,36 @@ from anthropic import Anthropic, APIError, APITimeoutError, RateLimitError
 from app.core.config import DEFAULT_MODEL
 
 logger = logging.getLogger(__name__)
+
+
+def _extract_top_k(text: str) -> Optional[int]:
+    """Extract 'top X' number from free text. E.g. 'top 5 paginas' -> 5."""
+    if not text or not isinstance(text, str):
+        return None
+    match = re.search(r'\btop\s+(\d+)\b', text.lower())
+    if match:
+        return int(match.group(1))
+    return None
+
+
+def _build_data_clarification_questions(missing_params: List[str], job_context: Dict[str, Any]) -> List[str]:
+    """
+    Build targeted choice questions for missing critical parameters.
+    Max one question per parameter. No open questions — always with options.
+    """
+    questions: List[str] = []
+    available_clients = job_context.get("available_clients") or []
+    gsc_properties = job_context.get("gsc_properties") or []
+
+    if "client_slug" in missing_params and available_clients:
+        options = " / ".join(available_clients)
+        questions.append(f"Voor welke klant wil je de data? ({options})")
+
+    if "site_url" in missing_params and gsc_properties:
+        options = " / ".join(gsc_properties)
+        questions.append(f"Voor welke website wil je de data? ({options})")
+
+    return questions
 
 
 class IntakeEngine:
@@ -55,28 +88,159 @@ class IntakeEngine:
             message="Something went wrong on my side. Could you tell me the language and angle you have in mind?",
         )
 
+    def _detect_task_type(self, raw_text: str, job_context: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Detect job type from signal words in the request.
+        Performs completeness check for the detected type (data_query only).
+
+        Returns:
+            task_type, is_complete, missing_params, defaults_applied, query_params
+        """
+        text_lower = (raw_text or "").lower()
+
+        # --- Step 1: Detect job type ---
+        DATA_QUERY_SIGNALS = [
+            "toon", "geef", "lijst", "overzicht", "top ", "hoeveel",
+            "klikdata", "impressions", "clicks", "ctr", "positie",
+            "ranking", "verkeer", "traffic", "bezoekers", "rapport",
+            "rapportage", "stats", "statistieken",
+            "show me", "give me", "list", "overview",
+        ]
+        SEO_TASK_SIGNALS = [
+            "zoekwoord", "keyword", "meta", "title tag", "h1", "h2",
+            "slug", "canoniek", "serp", "backlink", "ankertekst",
+        ]
+
+        if any(s in text_lower for s in DATA_QUERY_SIGNALS):
+            task_type = "data_query"
+        elif any(s in text_lower for s in SEO_TASK_SIGNALS):
+            task_type = "seo_task"
+        else:
+            task_type = "content_creation"
+
+        # --- Step 2: Completeness check (only for data_query) ---
+        if task_type != "data_query":
+            return {
+                "task_type": task_type,
+                "is_complete": True,
+                "missing_params": [],
+                "defaults_applied": {},
+                "query_params": {},
+            }
+
+        missing_params: List[str] = []
+        defaults_applied: Dict[str, Any] = {}
+        query_params: Dict[str, Any] = {}
+
+        # Client slug — critical when multiple clients available
+        client_slug = job_context.get("client_slug")
+        available_clients = job_context.get("available_clients") or []
+        if not client_slug:
+            if len(available_clients) > 1:
+                missing_params.append("client_slug")
+            elif len(available_clients) == 1:
+                client_slug = available_clients[0]
+                defaults_applied["client_slug"] = client_slug
+        query_params["client_slug"] = client_slug
+
+        # Site URL — critical when GSC has multiple properties
+        site_url = job_context.get("site_url") or job_context.get("gsc_site_url")
+        gsc_properties = job_context.get("gsc_properties") or []
+        if not site_url:
+            if len(gsc_properties) > 1:
+                missing_params.append("site_url")
+            elif len(gsc_properties) == 1:
+                site_url = gsc_properties[0]
+                defaults_applied["site_url"] = site_url
+        query_params["site_url"] = site_url
+
+        # Period — not critical, default 28
+        period_days = job_context.get("period_days")
+        if not period_days:
+            period_days = 28
+            defaults_applied["period_days"] = period_days
+        query_params["period_days"] = period_days
+
+        # Metric — not critical
+        metric = job_context.get("metric")
+        if not metric:
+            metric = ["clicks", "impressions"]
+            defaults_applied["metric"] = metric
+        query_params["metric"] = metric
+
+        # Top K — not critical
+        top_k = job_context.get("top_k") or _extract_top_k(raw_text or "")
+        if not top_k:
+            top_k = 10
+            defaults_applied["top_k"] = top_k
+        query_params["top_k"] = top_k
+
+        datasource = job_context.get("datasource", "gsc")
+        query_params["datasource"] = datasource
+
+        return {
+            "task_type": "data_query",
+            "is_complete": len(missing_params) == 0,
+            "missing_params": missing_params,
+            "defaults_applied": defaults_applied,
+            "query_params": query_params,
+        }
+
     def analyze_job_post(
         self,
         job_post: str,
         previous_answers: Optional[Dict[str, str]] = None,
         chat_history: Optional[List[Dict[str, str]]] = None,
         client_context: Optional[str] = None,
+        job_context: Optional[Dict[str, Any]] = None,
     ) -> StrategicBrief:
         """
         Analyze a job post and return a StrategicBrief.
         
-        If previous_answers is provided, we incorporate the user's feedback into the analysis.
+        If job_context is provided (e.g. from run_intake_inline with available_clients,
+        gsc_properties), type detection runs first. data_query with complete params
+        returns is_complete=True without LLM; data_query with missing params returns
+        one targeted clarification question. Other types use the existing LLM flow.
         
         Returns:
             StrategicBrief with is_complete=True if all info is gathered,
             or is_complete=False with clarifications if more info is needed.
-            
-        Handles:
-        - API timeouts with retry logic
-        - Rate limiting with exponential backoff
-        - JSON parsing failures with fallback questions
-        - Invalid responses with sensible defaults
         """
+        ctx = job_context if job_context is not None else {}
+        type_detection = self._detect_task_type(job_post or "", ctx)
+        ctx["detected_task_type"] = type_detection["task_type"]
+        ctx["query_params"] = type_detection.get("query_params") or {}
+        ctx["defaults_applied"] = type_detection.get("defaults_applied") or {}
+
+        # Data query with missing critical params -> single targeted question (no LLM)
+        if type_detection["task_type"] == "data_query" and not type_detection["is_complete"]:
+            clarification_questions = _build_data_clarification_questions(
+                type_detection.get("missing_params") or [], ctx
+            )
+            clarifications = [
+                ClarificationQuestion(id=str(uuid.uuid4()), question=q, created_at=datetime.utcnow())
+                for q in clarification_questions
+            ]
+            msg = clarification_questions[0] if clarification_questions else "Voor welke klant of website wil je de data?"
+            return StrategicBrief(
+                job_post=job_post or "",
+                is_complete=False,
+                clarifications=clarifications,
+                context=dict(ctx),
+                message=msg,
+            )
+
+        # Data query complete -> no LLM, proceed with data pipeline
+        if type_detection["task_type"] == "data_query" and type_detection["is_complete"]:
+            return StrategicBrief(
+                job_post=job_post or "",
+                is_complete=True,
+                clarifications=[],
+                context=dict(ctx),
+                message="Duidelijk, ik haal de data op.",
+            )
+
+        # seo_task / content_creation: existing LLM flow
         key = (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
         key_fp = hashlib.sha256(key.encode()).hexdigest()[:8] if key else ""
 

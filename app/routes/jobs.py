@@ -332,6 +332,102 @@ def _job_for_response(job_row) -> dict:
     return d
 
 
+def build_document_preview(job: dict) -> dict:
+    """Build document_preview for the live document viewer. Uses context.final_content and
+    payload.proposed_data as content sources (no separate artifact column on jobs).
+    """
+    status = job.get("status")
+    context = job.get("context") or {}
+    if isinstance(context, str):
+        try:
+            context = json.loads(context)
+        except Exception:
+            context = {}
+    if not isinstance(context, dict):
+        context = {}
+
+    payload = job.get("payload") or {}
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except Exception:
+            payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+
+    # Content sources: context.final_content (job_pipeline), payload.proposed_data (nexus, may be string)
+    def _final_content() -> str:
+        c = context.get("final_content")
+        if isinstance(c, str):
+            return c
+        pd = payload.get("proposed_data")
+        if isinstance(pd, str):
+            return pd
+        if isinstance(pd, dict):
+            return pd.get("content") or pd.get("text") or ""
+        ctx_pd = context.get("proposed_data")
+        if isinstance(ctx_pd, str):
+            return ctx_pd
+        if isinstance(ctx_pd, dict):
+            return ctx_pd.get("content") or ctx_pd.get("text") or ""
+        return ""
+
+    def _steps_list():
+        plan = context.get("plan")
+        if isinstance(plan, dict):
+            s = plan.get("steps")
+            if isinstance(s, list):
+                return s
+        if isinstance(plan, list):
+            return plan
+        return []
+
+    title_fallback = job.get("job_post") or job.get("description") or "Document"
+    if isinstance(title_fallback, str) and len(title_fallback) > 60:
+        title_fallback = title_fallback[:57] + "..."
+
+    if status == "INTAKE_CLARIFICATION":
+        return {
+            "type": "brief",
+            "title": "Client Brief",
+            "content": context.get("client_brief") or context.get("description") or job.get("description") or "",
+            "subtitle": "Wordt aangevuld tijdens intake",
+        }
+    elif status == "PLAN_PROPOSED":
+        steps = _steps_list()
+        return {
+            "type": "plan",
+            "title": "Voorgesteld Plan",
+            "steps": steps,
+            "subtitle": f"{len(steps)} stappen",
+        }
+    elif status == "RUNNING":
+        partial = context.get("final_content") or context.get("partial_content") or context.get("draft") or ""
+        if not partial and isinstance(payload.get("proposed_data"), str):
+            partial = payload["proposed_data"]
+        return {
+            "type": "draft",
+            "title": "Bezig met genereren...",
+            "content": partial,
+            "subtitle": "Live preview",
+        }
+    elif status in ("JOB_READY", "COMPLETED"):
+        content = _final_content()
+        return {
+            "type": "final",
+            "title": title_fallback,
+            "content": content,
+            "subtitle": "Klaar voor review" if status == "JOB_READY" else "Goedgekeurd",
+        }
+    else:
+        return {
+            "type": "empty",
+            "title": "Document",
+            "content": "",
+            "subtitle": "",
+        }
+
+
 @router.post("/{job_id}/chat")
 async def send_chat_message(
     job_id: str,
@@ -946,8 +1042,10 @@ async def get_job(job_id: str):
                 job_id
             )
         
+        job_dict = _job_for_response(job)
         payload = {
-            "job": _job_for_response(job),
+            "job": job_dict,
+            "document_preview": build_document_preview(job_dict),
             "clarifications": [dict(c) for c in clarifications],
             "steps": [dict(s) for s in steps],
             "artifacts": [dict(a) for a in artifacts]

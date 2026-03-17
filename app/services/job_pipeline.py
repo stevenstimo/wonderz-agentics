@@ -145,6 +145,65 @@ async def _load_job(conn, job_id: str):
     return job
 
 
+async def _get_available_clients_for_user(conn, user_id: str) -> List[str]:
+    """
+    Return list of client slugs for this user (for intake completeness / clarification).
+    Table: clients, column: slug. Checkpoint 2: real DB query, no stub.
+    """
+    if not user_id:
+        return []
+    rows = await conn.fetch(
+        """
+        SELECT slug FROM clients
+        WHERE user_id = $1 AND (is_active IS NULL OR is_active = true)
+        ORDER BY slug
+        """,
+        user_id,
+    )
+    return [r["slug"] for r in rows if r.get("slug")]
+
+
+def _parse_extra_config_gsc_sites(extra_config: Any) -> List[str]:
+    """Extract list of GSC site URLs from client_integrations.extra_config (gsc_sites or site_url)."""
+    if not extra_config:
+        return []
+    if isinstance(extra_config, str):
+        try:
+            extra_config = json.loads(extra_config)
+        except (TypeError, ValueError):
+            return []
+    if not isinstance(extra_config, dict):
+        return []
+    sites = extra_config.get("gsc_sites")
+    if isinstance(sites, list) and sites:
+        return [s for s in sites if isinstance(s, str) and s.strip()]
+    single = extra_config.get("site_url")
+    if isinstance(single, str) and single.strip():
+        return [single.strip()]
+    return []
+
+
+async def _get_gsc_properties_for_client(conn, user_id: str, client_slug: str) -> List[str]:
+    """
+    Return list of GSC site URLs for this client (from OAuth config).
+    Table: client_integrations (integration_type = 'google_search_console'), extra_config.
+    Checkpoint 2: real DB lookup, no stub.
+    """
+    if not user_id or not client_slug:
+        return []
+    row = await conn.fetchrow(
+        """
+        SELECT extra_config FROM client_integrations
+        WHERE user_id = $1 AND client_slug = $2 AND integration_type = 'google_search_console'
+        """,
+        user_id,
+        client_slug,
+    )
+    if not row:
+        return []
+    return _parse_extra_config_gsc_sites(row.get("extra_config"))
+
+
 # Client knowledge (client_knowledge table) — inject @client context for CEO
 CLIENT_CONTEXT_TEMPLATE = """
 ## [CONTEXT] Client: {client_name}
@@ -718,6 +777,44 @@ async def _insert_plan_steps(conn, job_id: str, plan: ExecutionPlan):
         )
 
 
+async def run_data_pipeline(job_id: str) -> None:
+    """
+    Data-query pipeline: load context, run DataAgent (Fase 3), set proposed_data and JOB_READY.
+    Stub for Fase 2: sets JOB_READY with placeholder proposed_data. Fase 4 wires real DataAgent.
+    """
+    pool = await _get_pool()
+    if not pool:
+        logger.warning("DB pool not available, skipping run_data_pipeline for job %s", job_id)
+        return
+    try:
+        async with pool.acquire() as conn:
+            job = await _load_job(conn, job_id)
+            context = _coerce_context(job.get("payload") or job.get("context"))
+            query_params = context.get("query_params") or {}
+            query_params["raw_query"] = context.get("original_query") or job.get("job_post") or ""
+
+            # Fase 4: agent = DataAgent(...); result = await agent.execute(job_id, query_params)
+            proposed_data = {
+                "gevonden": "Data pipeline (DataAgent) wordt in Fase 3/4 geïmplementeerd.",
+                "resultaat": [],
+                "volledigheid": "Placeholder voor verificatie Fase 2.",
+                "volgende_actie": None,
+            }
+
+            await _update_job_context(conn, job_id, {
+                "proposed_data": proposed_data,
+                "pipeline_type": "direct_response",
+            })
+            await conn.execute(
+                "UPDATE jobs SET status = $1, updated_at = now() WHERE id = $2",
+                JobStatus.JOB_READY.value,
+                job_id,
+            )
+            logger.info("run_data_pipeline: job %s set to JOB_READY (stub)", job_id)
+    except Exception as e:
+        logger.exception("run_data_pipeline failed for job %s: %s", job_id, e)
+
+
 async def run_intake_inline(job_id: str, job_post: str):
     """
     1. Call IntakeEngine.analyze_job_post(job_post)
@@ -743,15 +840,27 @@ async def run_intake_inline(job_id: str, job_post: str):
     client_context = None
 
     try:
-        # Resolve client and GSC summary before intake so Mr. Klein can use Search Console data in his reply
+        # Resolve client and build job_context for type detection (Checkpoint 2: real DB queries)
         async with pool.acquire() as conn:
             job_row = await conn.fetchrow("SELECT user_id, context FROM jobs WHERE id = $1", job_id)
             existing_ctx = _coerce_context(job_row["context"] if job_row else None) if job_row else {}
+            user_id_str = str(job_row["user_id"]) if job_row else ""
             client_slug = existing_ctx.get("client_slug")
             if not client_slug and job_row and job_post:
                 from app.services.client_mention import resolve_first_mention
-                client_slug = await resolve_first_mention(pool, str(job_row["user_id"]), job_post)
+                client_slug = await resolve_first_mention(pool, user_id_str, job_post)
             logger.info("intake client_slug after resolve: %s", client_slug)
+
+            available_clients = await _get_available_clients_for_user(conn, user_id_str)
+            gsc_properties = await _get_gsc_properties_for_client(conn, user_id_str, client_slug) if client_slug else []
+            job_context = {
+                **existing_ctx,
+                "client_slug": client_slug,
+                "available_clients": available_clients,
+                "gsc_properties": gsc_properties,
+                "site_url": existing_ctx.get("site_url") or existing_ctx.get("gsc_site_url"),
+            }
+
             if client_slug and job_row:
                 knowledge_debug_logger.info(
                     "[KNOWLEDGE] client_slug gedetecteerd: %r — knowledge block ophalen",
@@ -778,7 +887,7 @@ async def run_intake_inline(job_id: str, job_post: str):
             else:
                 client_context = None
 
-        brief = intake.analyze_job_post(job_post, client_context=client_context)
+        brief = intake.analyze_job_post(job_post, client_context=client_context, job_context=job_context)
         if client_slug:
             brief.context = dict(brief.context or {})
             brief.context["client_slug"] = client_slug
@@ -797,6 +906,10 @@ async def run_intake_inline(job_id: str, job_post: str):
                 "brief": brief.model_dump(),
                 "previous_answers": {},
                 "chat_history": chat_history,
+                "detected_task_type": brief.context.get("detected_task_type") if isinstance(brief.context, dict) else None,
+                "query_params": brief.context.get("query_params") if isinstance(brief.context, dict) else None,
+                "defaults_applied": brief.context.get("defaults_applied") if isinstance(brief.context, dict) else None,
+                "original_query": job_post,
             }
             if client_slug:
                 updates["client_slug"] = client_slug
@@ -815,7 +928,18 @@ async def run_intake_inline(job_id: str, job_post: str):
                 )
                 return
 
-            # Update status first so job is no longer INTAKE_CLARIFICATION even if plan generation fails
+            # data_query complete: skip StrategyRoom and plan steps; run data pipeline (RUNNING -> JOB_READY)
+            detected = (brief.context or {}) if isinstance(brief.context, dict) else {}
+            if detected.get("detected_task_type") == "data_query":
+                await conn.execute(
+                    "UPDATE jobs SET status=$1, updated_at=now() WHERE id=$2",
+                    JobStatus.RUNNING.value,
+                    job_id,
+                )
+                asyncio.create_task(run_data_pipeline(job_id))
+                return
+
+            # Content path: plan and steps
             await conn.execute(
                 "UPDATE jobs SET status=$1, updated_at=now() WHERE id=$2",
                 JobStatus.PLAN_PROPOSED.value,
