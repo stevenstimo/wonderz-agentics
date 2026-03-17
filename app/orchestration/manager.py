@@ -97,9 +97,8 @@ class OperationsManager:
     async def handle_user_answer(self, job_id: str, answers: Dict[str, str]):
         """
         User provides answers to clarification questions.
-
+        
         Re-runs intake analysis with the new information.
-        Builds chat_history (CEO question → User answer) when clarifications are in context.
         """
         conn = await self._connect()
         try:
@@ -113,30 +112,8 @@ class OperationsManager:
             # Update with new answers
             previous_answers.update(answers)
 
-            # Build chat_history: CEO question → User answer (so Claude sees full conversation)
-            clarifications = context.get("clarifications") or (context.get("brief") or {}).get("clarifications", [])
-            chat_history = None
-            if clarifications:
-                chat_history = []
-                for c in clarifications:
-                    q_id = c.get("id") if isinstance(c, dict) else getattr(c, "id", None)
-                    q_text = (c.get("question") if isinstance(c, dict) else getattr(c, "question", "")) or ""
-                    if q_text:
-                        chat_history.append({"role": "ceo", "content": q_text})
-                    user_ans = previous_answers.get(str(q_id)) if q_id is not None else ""
-                    if user_ans is not None:
-                        user_ans = str(user_ans)
-                    else:
-                        user_ans = ""
-                    chat_history.append({"role": "user", "content": user_ans})
-                if not chat_history:
-                    chat_history = None
-
-            # Re-run intake analysis (with chat_history when available)
-            if chat_history:
-                brief = self.intake_engine.analyze_job_post(job_post, previous_answers, chat_history=chat_history)
-            else:
-                brief = self.intake_engine.analyze_job_post(job_post, previous_answers)
+            # Re-run intake analysis
+            brief = self.intake_engine.analyze_job_post(job_post, previous_answers)
 
             # Update context
             await self.store_job_context(conn, job_id, {
