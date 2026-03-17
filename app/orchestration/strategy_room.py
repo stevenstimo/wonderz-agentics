@@ -225,16 +225,21 @@ Create a simple plan: copywriter then reviewer. Add seo step only if SEO/search 
                     logger.error("Invalid strategy response structure")
                     return self._get_fallback_plan(brief, "Missing steps in response")
 
-                # Convert to JobStep objects with validation
+                # Convert to JobStep objects with validation; deduplicate by agent_role (LLM sometimes returns each step twice).
                 try:
+                    seen_roles: set = set()
                     steps = []
                     for i, s in enumerate(data.get("steps", []), 1):
                         if not isinstance(s, dict):
                             logger.warning(f"Step {i} is not a dict, skipping")
                             continue
-                        
+                        role = (s.get("agent_role") or "unknown").strip().lower()
+                        if role in seen_roles:
+                            logger.debug("Skipping duplicate step role: %s", role)
+                            continue
+                        seen_roles.add(role)
                         step = JobStep(
-                            step_index=s.get("step_index", i),
+                            step_index=len(steps) + 1,
                             agent_role=s.get("agent_role", "unknown"),
                             unified_tool=s.get("unified_tool", "read_product"),
                             requires_approval=s.get("requires_approval", False),
