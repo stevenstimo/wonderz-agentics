@@ -636,18 +636,12 @@ async def approve_plan(
                 "status": JobStatus.RUNNING.value,
                 "message": "Plan approved. Workflow started."
             }
-        await run_job_inline(job_id, context)
-        logger.info(f"Job execution completed for job {job_id}")
-        try:
-            await manager.approve_plan(job_id)
-        except Exception as mgr_err:
-            logger.warning("manager.approve_plan failed (pipeline already started): %s", mgr_err)
-        async with pool.acquire() as conn:
-            updated = await conn.fetchrow("SELECT status FROM jobs WHERE id=$1", job_id)
+        background_tasks.add_task(run_job_inline, job_id, context)
+        logger.info("Pipeline queued in background for job %s", job_id)
         return {
             "job_id": job_id,
-            "status": updated["status"],
-            "message": "Plan approved. Workflow execution completed."
+            "status": JobStatus.RUNNING.value,
+            "message": "Plan approved. Workflow started."
         }
     
     except Exception as e:
