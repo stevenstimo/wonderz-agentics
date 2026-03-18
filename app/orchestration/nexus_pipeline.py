@@ -123,9 +123,26 @@ class NEXUSPipeline:
             "platform": ctx.platform,
         }
 
+    def _merge_depends_on_into_steps(
+        self, steps: list, job_context: dict
+    ) -> None:
+        """Merge depends_on from plan in job context into each step dict (by step_index). In-place."""
+        plan = job_context.get("plan") if isinstance(job_context, dict) else None
+        plan_steps = plan.get("steps", []) if isinstance(plan, dict) else []
+        by_index = {s.get("step_index"): s for s in plan_steps if isinstance(s, dict) and s.get("step_index") is not None}
+        for step in steps:
+            idx = step.get("step_index")
+            if idx is not None and idx in by_index:
+                dep = by_index[idx].get("depends_on")
+                if isinstance(dep, list):
+                    step["depends_on"] = dep
+            if "depends_on" not in step:
+                step["depends_on"] = []
+
     async def phase_2_planning(self, ctx: HandoffContext) -> None:
         """
         Laadt execution_plan uit job_steps tabel.
+        Merge depends_on uit job context (plan.steps) in ctx.execution_plan — kritiek voor phase_3.
         Voegt GTM-step toe voor wonderz/clawagency/blogable als die nog niet aanwezig is.
         """
         async with self._pool.acquire() as conn:
@@ -159,6 +176,21 @@ class NEXUSPipeline:
                 "status": r.get("status", "pending"),
             })
 
+        # Merge depends_on from job context (plan) so phase_3 can decide waves
+        async with self._pool.acquire() as conn:
+            job_row = await conn.fetchrow(
+                "SELECT payload, context FROM jobs WHERE id = $1",
+                ctx.job_id,
+            )
+        raw = (job_row.get("payload") or job_row.get("context")) if job_row else None
+        if isinstance(raw, str):
+            try:
+                raw = json.loads(raw) if raw.strip() else {}
+            except json.JSONDecodeError:
+                raw = {}
+        job_context = raw if isinstance(raw, dict) else {}
+        self._merge_depends_on_into_steps(ctx.execution_plan, job_context)
+
         GTM_PLATFORMS = {"wonderz", "clawagency", "blogable"}
         has_gtm = any(
             (s.get("agent_id") or (s.get("agent_role") or "").lower()) == "agent:gtm-specialist"
@@ -190,14 +222,155 @@ class NEXUSPipeline:
                 "agent_id": "agent:gtm-specialist",
                 "input_payload": {"platform": ctx.platform},
                 "status": "pending",
+                "depends_on": [],
             })
         # Status blijft RUNNING (gezet door approve_plan); phase_3 houdt RUNNING.
 
-    async def phase_3_execution(self, ctx: HandoffContext) -> None:
-        """Voer alle steps uit. Per step: agent aanroepen, output opslaan."""
-        await self._update_job_status(ctx.job_id, "RUNNING", ctx)
+    def _is_parallel_ready(self, steps: list) -> bool:
+        """False if any step missing depends_on or circular deps → sequential fallback."""
+        if not steps:
+            return False
+        if not all("depends_on" in s for s in steps):
+            return False
+        for step in steps:
+            for dep in step.get("depends_on", []):
+                if dep >= step.get("step_index", 0):
+                    return False
+        return True
+
+    def _get_next_wave(self, steps: list) -> list:
+        """Next group of steps that can run in parallel (deps completed, no duplicate agent_role in wave)."""
+        completed_indices = {s["step_index"] for s in steps if s.get("status") == "completed"}
+        running_roles = {s.get("agent_role") for s in steps if s.get("status") == "running"}
+        wave = []
+        for step in steps:
+            if step.get("status") != "pending":
+                continue
+            deps = set(step.get("depends_on", []))
+            if not deps.issubset(completed_indices):
+                continue
+            if step.get("agent_role") in running_roles:
+                continue
+            wave.append(step)
+            running_roles.add(step.get("agent_role"))
+        return wave
+
+    async def _load_steps(self, job_id: str) -> list:
+        """Load job_steps from DB and merge depends_on from job context (plan). Same merge as phase_2."""
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT id AS step_id, step_index, step_name, agent_role, agent_id, input_payload, status, error_log
+                FROM job_steps WHERE job_id = $1 ORDER BY step_index ASC
+                """,
+                job_id,
+            )
+            job_row = await conn.fetchrow(
+                "SELECT payload, context FROM jobs WHERE id = $1",
+                job_id,
+            )
+        steps = []
+        for r in rows:
+            payload = r.get("input_payload")
+            if isinstance(payload, str):
+                try:
+                    payload = json.loads(payload) if payload else {}
+                except json.JSONDecodeError:
+                    payload = {}
+            elif not isinstance(payload, dict):
+                payload = {}
+            steps.append({
+                "step_id": str(r["step_id"]) if r.get("step_id") else None,
+                "step_index": r.get("step_index", 0),
+                "step_name": r.get("step_name") or f"step_{r.get('step_index', 0)}",
+                "agent_role": r.get("agent_role") or "",
+                "agent_id": r.get("agent_id"),
+                "input_payload": payload,
+                "status": r.get("status", "pending"),
+                "error_log": r.get("error_log"),
+            })
+        raw = (job_row.get("payload") or job_row.get("context")) if job_row else None
+        if isinstance(raw, str):
+            try:
+                raw = json.loads(raw) if raw.strip() else {}
+            except json.JSONDecodeError:
+                raw = {}
+        self._merge_depends_on_into_steps(steps, raw if isinstance(raw, dict) else {})
+        return steps
+
+    async def _mark_step_failed(self, job_id: str, step_id: str, error: str) -> None:
+        """Mark step as failed (WHERE id = step_id, consistent with _execute_step)."""
+        if not step_id:
+            return
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                """
+                UPDATE job_steps
+                SET status = 'failed', error_log = $1, completed_at = now()
+                WHERE id = $2
+                """,
+                error,
+                int(step_id),
+            )
+
+    async def _handle_pipeline_failure(self, job_id: str, ctx: HandoffContext, error_info: dict) -> None:
+        """Set job to FAILED and log."""
+        err_msg = error_info.get("error") or str(error_info)
+        ctx.error = err_msg
+        await self._update_job_status(job_id, "FAILED", ctx)
+        logger.warning("Pipeline failure job %s: %s", job_id, err_msg)
+
+    async def _run_pipeline_sequential(self, ctx: HandoffContext) -> None:
+        """Original sequential step loop (fallback when parallel not ready)."""
         for step in ctx.execution_plan:
             await self._execute_step(ctx, step)
+
+    async def _run_pipeline(self, ctx: HandoffContext) -> None:
+        """Wave-based parallel execution. Reloads steps via _load_steps each iteration (includes depends_on merge)."""
+        job_id = ctx.job_id
+        max_iterations = len(ctx.execution_plan) + 5
+        iteration = 0
+        while iteration < max_iterations:
+            iteration += 1
+            steps = await self._load_steps(job_id)
+            pending = [s for s in steps if s.get("status") == "pending"]
+            failed = [s for s in steps if s.get("status") == "failed"]
+            if failed:
+                await self._handle_pipeline_failure(
+                    job_id, ctx, {"step_name": failed[0].get("step_name"), "error": failed[0].get("error_log") or "failed"}
+                )
+                return
+            if not pending:
+                return
+            wave = self._get_next_wave(steps)
+            if not wave:
+                await self._handle_pipeline_failure(
+                    job_id, ctx, {"step_name": "pipeline", "error": "Geen uitvoerbare stappen. Mogelijke deadlock."}
+                )
+                return
+            if len(wave) == 1:
+                await self._execute_step(ctx, wave[0])
+            else:
+                results = await asyncio.gather(
+                    *[self._execute_step(ctx, step) for step in wave],
+                    return_exceptions=True,
+                )
+                for step, result in zip(wave, results):
+                    if isinstance(result, Exception):
+                        await self._mark_step_failed(job_id, step.get("step_id") or "", str(result))
+                        await self._handle_pipeline_failure(job_id, ctx, {"error": str(result)})
+                        return
+        await self._handle_pipeline_failure(
+            job_id, ctx, {"step_name": "pipeline", "error": f"Pipeline niet afgerond na {max_iterations} iteraties."}
+        )
+
+    async def phase_3_execution(self, ctx: HandoffContext) -> None:
+        """Voer steps uit: parallel (wave) als plan depends_on heeft, anders sequentieel."""
+        await self._update_job_status(ctx.job_id, "RUNNING", ctx)
+        if self._is_parallel_ready(ctx.execution_plan):
+            await self._run_pipeline(ctx)
+        else:
+            await self._run_pipeline_sequential(ctx)
 
     async def phase_4_qa_loop(self, ctx: HandoffContext) -> None:
         """

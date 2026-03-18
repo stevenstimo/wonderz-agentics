@@ -794,6 +794,7 @@ async def _insert_plan_steps(conn, job_id: str, plan: ExecutionPlan):
         input_payload = {"description": step.description} if step.description else {}
         input_payload_json = json.dumps(input_payload, default=_json_default)
         agent_value = step.agent_role or step.unified_tool or step_name or "unknown"
+        agent_id_value = f"agent:{step.agent_role}" if step.agent_role else agent_value
         await conn.execute(
             """
             INSERT INTO job_steps (
@@ -801,6 +802,7 @@ async def _insert_plan_steps(conn, job_id: str, plan: ExecutionPlan):
                 step_index,
                 step_name,
                 agent_role,
+                agent_id,
                 agent,
                 unified_tool,
                 status,
@@ -808,12 +810,13 @@ async def _insert_plan_steps(conn, job_id: str, plan: ExecutionPlan):
                 requires_approval,
                 created_at
             )
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,now())
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,now())
             """,
             job_id,
             step.step_index,
             step_name,
             step.agent_role,
+            agent_id_value,
             agent_value,
             step.unified_tool,
             "pending",
@@ -1037,6 +1040,10 @@ async def run_intake_inline(job_id: str, job_post: str):
                     )
             except Exception as _ev:
                 logger.warning("Event TASK_CREATED failed: %s", _ev)
+            logger.debug(
+                "PLAN_DUMP step 0: %s",
+                plan.model_dump()["steps"][0] if plan.model_dump().get("steps") else "geen steps",
+            )
             await _update_job_context(
                 conn,
                 job_id,
@@ -1223,6 +1230,10 @@ async def run_intake_answers_inline(job_id: str, answers: dict):
                 available_agents = await _fetch_available_agents(conn)
                 plan = strategy.generate_execution_plan(brief, available_agents)
                 await _insert_plan_steps(conn, job_id, plan)
+                logger.debug(
+                    "PLAN_DUMP step 0: %s",
+                    plan.model_dump()["steps"][0] if plan.model_dump().get("steps") else "geen steps",
+                )
                 await _update_job_context(
                     conn,
                     job_id,

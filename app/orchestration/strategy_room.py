@@ -38,6 +38,37 @@ def is_gtm_job(job_post: str) -> bool:
     return any(kw in job_post.lower() for kw in GTM_KEYWORDS)
 
 
+REVIEWER_ROLES = {"reviewer", "ceo-reviewer"}
+FINAL_ROLES = {"ceo"}
+
+
+def _assign_dependencies(steps: List[JobStep]) -> List[JobStep]:
+    """
+    Fill depends_on for each step from agent_role defaults. Does not mutate input.
+    Reviewer/ceo-reviewer: wait on all previous non-reviewer steps. CEO: wait on all previous. Others: [].
+    """
+    result: List[JobStep] = []
+    for i, step in enumerate(steps):
+        existing = getattr(step, "depends_on", []) or []
+        if existing:
+            result.append(step)
+            continue
+        role = (step.agent_role or "").strip().lower()
+        if role in REVIEWER_ROLES:
+            deps = [
+                s.step_index for s in steps[:i]
+                if (s.agent_role or "").strip().lower() not in REVIEWER_ROLES
+            ]
+        elif role in FINAL_ROLES:
+            deps = [s.step_index for s in steps[:i]]
+        else:
+            deps = []
+        d = step.model_dump()
+        d["depends_on"] = deps
+        result.append(JobStep(**d))
+    return result
+
+
 def build_gtm_plan(brief) -> "ExecutionPlan":
     """GTM jobs get a multi-agent plan with all GTM specialists."""
     steps = [
@@ -49,6 +80,7 @@ def build_gtm_plan(brief) -> "ExecutionPlan":
         JobStep(step_index=6, agent_role="agent:seo:strategist", unified_tool="seo_strategy", requires_approval=False, description="SEO en content strategie"),
         JobStep(step_index=7, agent_role="reviewer", unified_tool="review_content", requires_approval=False, description="Review alle campagne materialen"),
     ]
+    steps = _assign_dependencies(steps)
     return ExecutionPlan(
         brief=brief,
         steps=steps,
@@ -114,6 +146,7 @@ class StrategyRoom:
                 )
             )
         hires = ["copywriter", "reviewer"] + (["seo"] if include_seo else []) + (["image_generator"] if includes_image else [])
+        steps = _assign_dependencies(steps)
         return ExecutionPlan(
             brief=brief,
             steps=steps,
@@ -265,6 +298,7 @@ Create a simple plan: copywriter then reviewer. Add seo step only if SEO/search 
                             )
                         )
 
+                    steps = _assign_dependencies(steps)
                     plan = ExecutionPlan(
                         brief=brief,
                         steps=steps,

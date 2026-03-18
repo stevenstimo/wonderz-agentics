@@ -42,6 +42,7 @@ class JobStep(BaseModel):
     unified_tool: str  # e.g., "read_product", "write_description"
     requires_approval: bool = False
     description: str = ""
+    depends_on: List[int] = []  # step_index of steps that must complete before this one (for parallel execution)
 
 
 class ExecutionPlan(BaseModel):
