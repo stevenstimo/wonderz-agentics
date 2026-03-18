@@ -322,6 +322,8 @@ def _fetch_supabase_user(access_token: str) -> dict:
 async def _resolve_user_role(session: AsyncSession, user_id: str, email: str) -> str:
     if (email or "").strip().lower() == SUPER_ADMIN_EMAIL:
         return "super_admin"
+    # EXPLAIN ANALYZE: run after Week 0 pg_stat_statements to verify index usage.
+    # Query: SELECT role::text AS role FROM user_roles WHERE user_id = :user_id
     result = await session.execute(
         text("SELECT role::text AS role FROM user_roles WHERE user_id = :user_id"),
         {"user_id": user_id},
@@ -1017,6 +1019,8 @@ def promote_talent_to_crew(
 # --- CREW API ENDPOINTS ---
 @app.get("/api/crew", response_model=List[CrewMember])
 async def get_crew(db: AsyncSession = Depends(get_db)):
+    # EXPLAIN ANALYZE: run after Week 0 pg_stat_statements to verify index/scan.
+    # Query: SELECT * FROM crew_members (full table)
     result = await db.execute(select(CrewMemberSQL))
     crew = result.scalars().all()
     return [CrewMember(
@@ -2193,6 +2197,8 @@ def get_me(user: dict = Depends(get_current_user_context)):
 @app.get("/api/settings")
 async def get_settings(_user: dict = Depends(require_super_admin), db: AsyncSession = Depends(get_db)):
     """Get settings (API keys, config)"""
+    # EXPLAIN ANALYZE: run after Week 0 pg_stat_statements to verify index usage.
+    # Query: SELECT * FROM settings WHERE id = 'default'
     result = await db.execute(select(SettingsSQL).where(SettingsSQL.id == "default"))
     settings = result.scalar_one_or_none()
     if not settings:
