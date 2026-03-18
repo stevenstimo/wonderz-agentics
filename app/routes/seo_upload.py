@@ -251,6 +251,7 @@ async def upload_seo_file(
             client_slug.strip() if client_slug else None,
         )
 
+    # TODO: migreer naar Celery/ARQ worker — sync task, risico op threadpool exhaustion (max 40 tokens)
     background_tasks.add_task(
         _process_seo_job,
         job_id,

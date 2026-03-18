@@ -1248,6 +1248,7 @@ async def start_process(
                         sub_url,
                     )
                     if child_row:
+                        # TODO: migreer naar Celery/ARQ worker — sync task, risico op threadpool exhaustion (max 40 tokens)
                         background_tasks.add_task(
                             _process_datasource_background,
                             client_id,
@@ -1272,6 +1273,7 @@ async def start_process(
                 )
             return {"status": "processing"}
 
+    # TODO: migreer naar Celery/ARQ worker — sync task, risico op threadpool exhaustion (max 40 tokens)
     background_tasks.add_task(
         _process_datasource_background,
         client_id,
@@ -1341,6 +1343,7 @@ async def upload_datasource_file(
             except OSError:
                 pass
 
+    # TODO: migreer naar Celery/ARQ worker — sync task, risico op threadpool exhaustion (max 40 tokens)
     background_tasks.add_task(_run_file)
     async with pool.acquire() as conn:
         await conn.execute(

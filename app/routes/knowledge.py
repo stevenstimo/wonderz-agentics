@@ -156,6 +156,7 @@ async def upload_url(
     except TrainingError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+    # TODO: migreer naar Celery/ARQ worker — sync task, risico op threadpool exhaustion (max 40 tokens)
     background_tasks.add_task(run_embedding_task, pool, result["document_id"])
     return JSONResponse(
         status_code=202,
@@ -220,6 +221,7 @@ async def upload_file(
     except TrainingError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+    # TODO: migreer naar Celery/ARQ worker — sync task, risico op threadpool exhaustion (max 40 tokens)
     background_tasks.add_task(run_embedding_task, pool, result["document_id"])
     return JSONResponse(
         status_code=202,
@@ -421,6 +423,7 @@ async def patch_document(
                 document_id,
             )
         try:
+            # TODO: migreer naar Celery/ARQ worker — sync task, risico op threadpool exhaustion (max 40 tokens)
             background_tasks.add_task(reindex_document, pool, doc_id_str)
         except Exception:
             pass
@@ -654,6 +657,7 @@ async def replace_content(
                 *values,
             )
 
+    # TODO: migreer naar Celery/ARQ worker — sync task, risico op threadpool exhaustion (max 40 tokens)
     background_tasks.add_task(run_embedding_task, pool, str(document_id))
 
     async with pool.acquire() as conn:

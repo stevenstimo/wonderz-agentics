@@ -632,6 +632,7 @@ async def approve_training(req: ApproveTrainingRequest, background_tasks: Backgr
                     raise HTTPException(status_code=400, detail="No training URL provided")
 
                 workflow = TrainingWorkflow(pool)
+                # TODO: migreer naar Celery/ARQ worker — sync task, risico op threadpool exhaustion (max 40 tokens)
                 background_tasks.add_task(
                     _run_start_training_safe,
                     workflow,
@@ -1110,6 +1111,7 @@ async def reproduce_development_point(point_id: str, background_tasks: Backgroun
         )
 
     try:
+        # TODO: migreer naar Celery/ARQ worker — sync task, risico op threadpool exhaustion (max 40 tokens)
         background_tasks.add_task(run_intake_inline, new_job_id, job_post)
     except Exception as e:
         logger.warning("Reproduce: intake task queue failed for %s: %s", new_job_id, e)

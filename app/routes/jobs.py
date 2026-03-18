@@ -244,6 +244,7 @@ async def create_job(
     
     # Queue intake flow (don't wait for result)
     try:
+        # TODO: migreer naar Celery/ARQ worker — sync task, risico op threadpool exhaustion (max 40 tokens)
         background_tasks.add_task(run_intake_inline, job_id, req.job_post)
         logger.info(f"Intake task queued for job {job_id}")
     except Exception as e:
@@ -516,6 +517,7 @@ async def send_chat_message(
             else:
                 chat_history.append(user_entry)
                 await _update_job_context(conn, job_id, {"chat_history": chat_history})
+            # TODO: migreer naar Celery/ARQ worker — sync task, risico op threadpool exhaustion (max 40 tokens)
             background_tasks.add_task(run_intake_answers_inline, job_id, None)
             row = await conn.fetchrow("SELECT status FROM jobs WHERE id=$1", job_id)
             return {
@@ -618,6 +620,7 @@ async def submit_intake_answer(
                 )
         
         # Queue intake answers processing
+        # TODO: migreer naar Celery/ARQ worker — sync task, risico op threadpool exhaustion (max 40 tokens)
         background_tasks.add_task(run_intake_answers_inline, job_id, req.answers)
         logger.info(f"Intake answers task queued for job {job_id}")
         
@@ -716,6 +719,7 @@ async def approve_plan(
                     JobStatus.RUNNING.value,
                     job_id,
                 )
+            # TODO: migreer naar Celery/ARQ worker — sync task, risico op threadpool exhaustion (max 40 tokens)
             background_tasks.add_task(run_data_pipeline, job_id)
             logger.info("approve_plan: data_query job %s, run_data_pipeline queued", job_id)
             return {
@@ -756,6 +760,7 @@ async def approve_plan(
                 "status": JobStatus.RUNNING.value,
                 "message": "Plan approved. Workflow started."
             }
+        # TODO: migreer naar Celery/ARQ worker — sync task, risico op threadpool exhaustion (max 40 tokens)
         background_tasks.add_task(run_job_inline, job_id, context)
         logger.info("Pipeline queued in background for job %s", job_id)
         return {
@@ -861,6 +866,7 @@ async def submit_feedback(
                 job_id,
             )
         
+        # TODO: migreer naar Celery/ARQ worker — sync task, risico op threadpool exhaustion (max 40 tokens)
         background_tasks.add_task(run_intake_answers_inline, job_id, None)
         logger.info(f"Feedback submitted for job {job_id}, intake re-running")
         
