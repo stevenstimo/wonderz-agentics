@@ -9,7 +9,6 @@ from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import quote
 from typing import Any, Dict, List, Optional, Tuple
 
-from app.core.config import DEFAULT_MODEL
 from app.db import init_db_pool
 from app.database import get_db
 from app.services.token_guard import TokenGuard
@@ -22,8 +21,13 @@ logger = logging.getLogger(__name__)
 # Temporary debug logger for client knowledge context injection (remove or set to DEBUG after validation)
 knowledge_debug_logger = logging.getLogger("knowledge_debug")
 
-# Model for pipeline agent calls (copywriter, reviewer)
-CLAUDE_MODEL = DEFAULT_MODEL
+# Per-step model routing: CEO/copywriter on Sonnet, reviewer/generic on Haiku
+MODEL_ROUTING = {
+    "copywriter": "claude-sonnet-4-6",
+    "copywriter_retry": "claude-sonnet-4-6",
+    "reviewer": "claude-haiku-4-5-20251001",
+    "generic": "claude-haiku-4-5-20251001",
+}
 
 # Per-step timeouts (seconds)
 TIMEOUT_CONTENT_STEP = 120
@@ -575,7 +579,7 @@ def _extract_text_from_anthropic_content(content: Any) -> str:
     return "".join(parts).strip()
 
 
-def _log_cache_usage(step_label: str, usage: Any) -> None:
+def _log_cache_usage(step_label: str, usage: Any, model: str = "") -> None:
     """Log Anthropic prompt cache usage for monitoring (cache_creation_input_tokens, cache_read_input_tokens)."""
     cache_creation = getattr(usage, "cache_creation_input_tokens", None)
     cache_read = getattr(usage, "cache_read_input_tokens", None)
@@ -703,15 +707,17 @@ def _run_step_agent(
             user += f"\n\nCRITICAL USER FEEDBACK (you MUST apply this — write a completely new version, do not reference any previous draft):\n{user_feedback}"
         plan_indicators = ["Projectoverzicht", "Leveringscriteria", "GOEDGEKEURD", "Uitvoeringsplan", "Volgende Stap", "Status:"]
         try:
+            model = MODEL_ROUTING["copywriter"]
+            logger.info("[model_routing] copywriter model=%s", model)
             response = client.messages.create(
-                model=CLAUDE_MODEL,
+                model=model,
                 max_tokens=4000,
                 system=system_blocks,
                 messages=[{"role": "user", "content": user}],
             )
             usage = getattr(response, "usage", None)
             if usage is not None:
-                _log_cache_usage("copywriter", usage)
+                _log_cache_usage("copywriter", usage, model)
             logger.info("Copywriter raw response type: %s", type(response.content))
             logger.info("Copywriter content blocks: %s", len(response.content or []))
             for i, block in enumerate(response.content or []):
@@ -724,15 +730,17 @@ def _run_step_agent(
                     {"type": "text", "text": copywriter_fixed, "cache_control": {"type": "ephemeral"}},
                     {"type": "text", "text": retry_variable},
                 ]
+                model_retry = MODEL_ROUTING["copywriter_retry"]
+                logger.info("[model_routing] copywriter_retry model=%s", model_retry)
                 response = client.messages.create(
-                    model=CLAUDE_MODEL,
+                    model=model_retry,
                     max_tokens=4000,
                     system=retry_blocks,
                     messages=[{"role": "user", "content": user}],
                 )
                 usage = getattr(response, "usage", None)
                 if usage is not None:
-                    _log_cache_usage("copywriter_retry", usage)
+                    _log_cache_usage("copywriter_retry", usage, model_retry)
                 text = _extract_text_from_anthropic_content(response.content)
                 tokens += (response.usage.input_tokens or 0) + (response.usage.output_tokens or 0)
             if not text:
@@ -780,15 +788,17 @@ def _run_step_agent(
             system_blocks.append({"type": "text", "text": knowledge_block})
         user = f"Review this content:\n\n{previous_content[:12000]}"
         try:
+            model = MODEL_ROUTING["reviewer"]
+            logger.info("[model_routing] reviewer model=%s", model)
             response = client.messages.create(
-                model=CLAUDE_MODEL,
+                model=model,
                 max_tokens=2000,
                 system=system_blocks,
                 messages=[{"role": "user", "content": user}],
             )
             usage = getattr(response, "usage", None)
             if usage is not None:
-                _log_cache_usage("reviewer", usage)
+                _log_cache_usage("reviewer", usage, model)
             review_text = (response.content[0].text if response.content else "").strip()
             approved = "approved" in review_text.lower() or "changes needed" not in review_text.lower()
             tokens = (response.usage.input_tokens or 0) + (response.usage.output_tokens or 0)
@@ -812,15 +822,17 @@ def _run_step_agent(
     ]
     user = f"Task: {step_desc}. Context: {objective}. Produce the requested output (no meta-commentary)."
     try:
+        model = MODEL_ROUTING["generic"]
+        logger.info("[model_routing] generic model=%s", model)
         response = client.messages.create(
-            model=CLAUDE_MODEL,
+            model=model,
             max_tokens=4000,
             system=system_blocks,
             messages=[{"role": "user", "content": user}],
         )
         usage = getattr(response, "usage", None)
         if usage is not None:
-            _log_cache_usage("generic", usage)
+            _log_cache_usage("generic", usage, model)
         text = (response.content[0].text if response.content else "").strip()
         tokens = (response.usage.input_tokens or 0) + (response.usage.output_tokens or 0)
         return ({"status": "completed", "content": text, "agent_role": agent_role, "step_name": step_desc}, tokens)

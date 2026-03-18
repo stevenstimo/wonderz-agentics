@@ -18,9 +18,10 @@ import logging
 import time
 from anthropic import Anthropic, APIError, APITimeoutError, RateLimitError
 
-from app.core.config import DEFAULT_MODEL
-
 logger = logging.getLogger(__name__)
+
+# CEO intake always uses Sonnet
+CEO_MODEL = "claude-sonnet-4-6"
 
 
 def _extract_top_k(text: str) -> Optional[int]:
@@ -57,7 +58,7 @@ class IntakeEngine:
     """Analyzes job posts and generates strategic briefs with clarification questions."""
 
     def __init__(self, model: str | None = None, max_retries: int = 3):
-        self.model = model or DEFAULT_MODEL
+        self.model = model or CEO_MODEL
         # #region agent log
         try:
             from app.debug_log import log_anthropic_key

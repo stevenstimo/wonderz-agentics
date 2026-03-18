@@ -13,9 +13,10 @@ import logging
 import time
 from anthropic import Anthropic, APIError, APITimeoutError, RateLimitError
 
-from app.core.config import DEFAULT_MODEL
-
 logger = logging.getLogger(__name__)
+
+# Strategy room (plan) always uses Sonnet
+CEO_MODEL = "claude-sonnet-4-6"
 
 
 class HiredAgent:
@@ -93,7 +94,7 @@ class StrategyRoom:
     """Creates ExecutionPlans from StrategicBriefs."""
 
     def __init__(self, model: str | None = None, max_retries: int = 3):
-        self.model = model or DEFAULT_MODEL
+        self.model = model or CEO_MODEL
         self.client = Anthropic()
         self.max_retries = max_retries
 
