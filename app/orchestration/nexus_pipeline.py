@@ -367,6 +367,14 @@ class NEXUSPipeline:
     async def phase_3_execution(self, ctx: HandoffContext) -> None:
         """Voer steps uit: parallel (wave) als plan depends_on heeft, anders sequentieel."""
         await self._update_job_status(ctx.job_id, "RUNNING", ctx)
+        logger.info(
+            "Pipeline mode — steps depends_on: %s",
+            [{"idx": s.get("step_index"), "deps": s.get("depends_on")} for s in ctx.execution_plan],
+        )
+        logger.info(
+            "is_parallel_ready: %s",
+            self._is_parallel_ready(ctx.execution_plan),
+        )
         if self._is_parallel_ready(ctx.execution_plan):
             await self._run_pipeline(ctx)
         else:
