@@ -212,8 +212,19 @@ export default function SEOTool() {
         body: form,
         headers: { Authorization: `Bearer ${token}` },
       })
+
+      if (res.status === 413) {
+        throw new Error('Bestand te groot. Maximaal 5 MB toegestaan.')
+      }
+      if (!res.ok) {
+        const ct = res.headers.get('content-type') || ''
+        const msg = ct.includes('application/json')
+          ? (await res.json()).detail || 'Onbekende fout'
+          : `Serverfout (${res.status})`
+        throw new Error(msg)
+      }
+
       const data = await res.json()
-      if (!res.ok) throw new Error(data.detail || 'Upload mislukt')
       setJobId(data.job_id)
       localStorage.setItem('seo_active_job_id', data.job_id)
       setKeywordsTotal(data.keyword_count ?? 0)
