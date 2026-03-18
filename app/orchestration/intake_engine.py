@@ -342,14 +342,18 @@ IMPORTANT: You can only acknowledge feedback and confirm the team will work on i
                 response_text = response.content[0].text
                 usage = getattr(response, "usage", None)
                 if usage is not None:
-                    cache_creation = getattr(usage, "cache_creation_input_tokens", None)
-                    cache_read = getattr(usage, "cache_read_input_tokens", None)
-                    if cache_creation is not None or cache_read is not None:
-                        logger.info(
-                            "[prompt_cache] intake cache_creation_input_tokens=%s cache_read_input_tokens=%s",
-                            cache_creation,
-                            cache_read,
-                        )
+                    cache_create = getattr(usage, "cache_creation_input_tokens", 0) or 0
+                    cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
+                    input_tokens = getattr(usage, "input_tokens", 0) or 0
+                    output_tokens = getattr(usage, "output_tokens", 0) or 0
+                    logger.info(
+                        "[llm_usage] step=intake model=%s input=%s output=%s cache_create=%s cache_read=%s",
+                        self.model,
+                        input_tokens,
+                        output_tokens,
+                        cache_create,
+                        cache_read,
+                    )
                 logger.info("Claude response: %s", (response_text[:100] if response_text else "(empty)"))
                 # Parse the JSON response
                 try:

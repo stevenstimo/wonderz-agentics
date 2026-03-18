@@ -580,16 +580,20 @@ def _extract_text_from_anthropic_content(content: Any) -> str:
 
 
 def _log_cache_usage(step_label: str, usage: Any, model: str = "") -> None:
-    """Log Anthropic prompt cache usage for monitoring (cache_creation_input_tokens, cache_read_input_tokens)."""
-    cache_creation = getattr(usage, "cache_creation_input_tokens", None)
-    cache_read = getattr(usage, "cache_read_input_tokens", None)
-    if cache_creation is not None or cache_read is not None:
-        logger.info(
-            "[prompt_cache] %s cache_creation_input_tokens=%s cache_read_input_tokens=%s",
-            step_label,
-            cache_creation,
-            cache_read,
-        )
+    """Log Anthropic usage for monitoring: model, input/output tokens, cache fields."""
+    cache_create = getattr(usage, "cache_creation_input_tokens", 0) or 0
+    cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
+    input_tokens = getattr(usage, "input_tokens", 0) or 0
+    output_tokens = getattr(usage, "output_tokens", 0) or 0
+    logger.info(
+        "[llm_usage] step=%s model=%s input=%s output=%s cache_create=%s cache_read=%s",
+        step_label,
+        model,
+        input_tokens,
+        output_tokens,
+        cache_create,
+        cache_read,
+    )
 
 
 def _run_step_agent(
