@@ -30,7 +30,7 @@ async def get_ceo_dashboard():
     Ref: docs/cursor/02_dashboard_newbies_navigation.md Fase B.
     """
     pool = await get_db()
-    today = date.today().isoformat()
+    today = date.today()
     async with pool.acquire() as conn:
         # Blok 1 — Crew Status
         active_agents = await conn.fetchval(
