@@ -5,7 +5,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkBreaks from 'remark-breaks'
 import PageLayout from './PageLayout'
 import DocumentViewer from './components/DocumentViewer'
-import { apiUrl, apiFetch } from './apiClient'
+import { apiUrl, apiFetch, fetchJson } from './apiClient'
 
 /** Parses job context (object or JSON string). Never throws; returns {} on invalid input. */
 function parseContext(ctx) {
@@ -208,6 +208,17 @@ export default function JobSplitView() {
   const [mentionSuggestions, setMentionSuggestions] = useState([])
   const [detectedClient, setDetectedClient] = useState(null)
   const [authError, setAuthError] = useState(false)
+  const [ceoName, setCeoName] = useState(null)
+
+  // CEO agent name for UI labels (fallback: "your AI agent")
+  useEffect(() => {
+    fetchJson('/api/agents/ceo')
+      .then((d) => setCeoName(d?.name && typeof d.name === 'string' ? d.name : 'your AI agent'))
+      .catch(() => setCeoName('your AI agent'))
+  }, [])
+
+  const ceoDisplayName = ceoName !== null ? ceoName : 'your AI agent'
+  const ceoInitials = ceoDisplayName.split(/\s+/).filter(Boolean).map((w) => w[0]).join('').toUpperCase().slice(0, 2) || 'AI'
 
   const fetchJob = useCallback(async () => {
     if (!jobId) return null
@@ -276,7 +287,7 @@ export default function JobSplitView() {
   }, [jobId, data?.job?.id, data?.job?.status, data?.job?.context, fetchJob])
 
   // Poll while intake is running (so we pick up CEO's first reply) or while job is executing.
-  // When INTAKE_CLARIFICATION with empty chat_history, poll every 2s until Mr. Klein responds.
+  // When INTAKE_CLARIFICATION with empty chat_history, poll every 2s until the CEO responds.
   useEffect(() => {
     if (!data?.job) return
     const status = data.job.status
@@ -710,7 +721,7 @@ export default function JobSplitView() {
           <div className="flex-shrink-0 px-4 py-3 border-b border-slate-200 flex items-center justify-between gap-2">
             <div className="min-w-0">
               <h2 className="text-lg font-semibold text-slate-900 truncate">{title}</h2>
-              {!job && <p className="text-xs text-slate-500 mt-0.5">Chat with Mr. Klein — describe your project</p>}
+              {!job && <p className="text-xs text-slate-500 mt-0.5">Chat with {ceoDisplayName} — describe your project</p>}
             </div>
             {job && <StatusBadge status={job.status} />}
             {job?.intake_source === 'email' && (
@@ -723,11 +734,11 @@ export default function JobSplitView() {
           </div>
           <div className="flex-1 min-h-0 overflow-y-auto space-y-4 p-4">
             {displayChatHistory.length === 0 && !ceoTyping && !jobId && (
-              <p className="text-slate-500 text-sm">Describe your task below. Mr. Klein will create a plan for you.</p>
+              <p className="text-slate-500 text-sm">Describe your task below. {ceoDisplayName} will create a plan for you.</p>
             )}
             {displayChatHistory.length === 0 && !ceoTyping && jobId && isIntake && (
               <div className="thinking-indicator flex items-center gap-1.5 text-slate-500 text-sm">
-                <span>Mr. Klein is thinking</span>
+                <span>{ceoDisplayName} is thinking</span>
                 <span className="thinking-dots inline-flex gap-0.5">
                   <span className="thinking-dot">.</span>
                   <span className="thinking-dot">.</span>
@@ -745,10 +756,10 @@ export default function JobSplitView() {
               return (
               <div key={i} className={`flex gap-2 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                 {msg.role === 'ceo' && (
-                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-600 text-xs font-semibold">MK</div>
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-600 text-xs font-semibold">{ceoInitials}</div>
                 )}
                 <div className="flex flex-col gap-0.5 max-w-[80%]">
-                  {msg.role === 'ceo' && <span className="text-xs text-slate-500">Mr. Klein</span>}
+                  {msg.role === 'ceo' && <span className="text-xs text-slate-500">{ceoDisplayName}</span>}
                   <div
                     className={`px-4 py-2.5 rounded-xl ${
                       msg.role === 'ceo' ? 'bg-slate-100 text-slate-800 rounded-tl-none' : 'bg-indigo-600 text-white rounded-tr-none'
@@ -773,9 +784,9 @@ export default function JobSplitView() {
             )})}
             {ceoTyping && (
               <div className="flex gap-2 justify-start items-center text-slate-500 text-sm">
-                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-600 text-xs font-semibold">MK</div>
+                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-600 text-xs font-semibold">{ceoInitials}</div>
                 <div className="px-4 py-2.5 rounded-xl rounded-tl-none bg-slate-100 text-slate-600 flex items-center gap-1">
-                  <span>Mr. Klein is thinking</span>
+                  <span>{ceoDisplayName} is thinking</span>
                   <span className="thinking-dots inline-flex">
                     <span className="thinking-dot">.</span>
                     <span className="thinking-dot">.</span>

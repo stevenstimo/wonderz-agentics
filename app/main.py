@@ -93,6 +93,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 # --- Routers (each defines its own prefix, e.g. /api/clients) ---
 from app.routes import (
     agent_inbox,
+    agents as agents_routes,
     auth,
     clients,
     dashboard,
@@ -126,6 +127,7 @@ from app.routes import (
 )
 
 app.include_router(agent_inbox.router)
+app.include_router(agents_routes.router)
 app.include_router(email_inbox.router)
 app.include_router(clients.router)
 app.include_router(debug_chat.router)
