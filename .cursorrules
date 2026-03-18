@@ -69,7 +69,17 @@ ernaar hoeft te vragen.
 - Communicatie met gebruiker: Nederlands
 
 ## Crew Intelligent / Agent Lifecycle
-Bij taken over Agent Lifecycle, NewCrewMember, hired_agents, persona batch of Training Workflow: lees eerst docs/260317_CURSOR_crew_intelligent_phased_implementation.md en volg de fasering exact.
+Bij taken over Agent Lifecycle, NewCrewMember, Crew Intelligent,
+hired_agents, newbies, persona batch, Training Workflow,
+Dashboard, navigatie of C-suite architectuur:
+
+1. Lees eerst docs/cursor/00_master_index.md volledig
+2. Bepaal welke fase actief is
+3. Lees het bijbehorende fase-document uit docs/cursor/
+4. Volg de fasering exact
+
+NOOIT direct een fase-document openen zonder eerst
+de master index te lezen.
 
 ## Bij elke nieuwe taak
 1. Check beschikbare plugins en gebruik ze proactief
