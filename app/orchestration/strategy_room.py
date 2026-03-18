@@ -231,12 +231,23 @@ Create a simple plan: copywriter then reviewer. Add seo step only if SEO/search 
                 response = self.client.messages.create(
                     model=self.model,
                     max_tokens=2000,
+                    cache_control={"type": "ephemeral"},
                     system=system_prompt,
-                    messages=[{"role": "user", "content": user_message}]
+                    messages=[{"role": "user", "content": user_message}],
                 )
 
                 response_text = response.content[0].text
-                
+                usage = getattr(response, "usage", None)
+                if usage is not None:
+                    cache_creation = getattr(usage, "cache_creation_input_tokens", None)
+                    cache_read = getattr(usage, "cache_read_input_tokens", None)
+                    if cache_creation is not None or cache_read is not None:
+                        logger.info(
+                            "[prompt_cache] strategy_room cache_creation_input_tokens=%s cache_read_input_tokens=%s",
+                            cache_creation,
+                            cache_read,
+                        )
+
                 # Parse JSON response
                 try:
                     json_start = response_text.find("{")

@@ -575,6 +575,19 @@ def _extract_text_from_anthropic_content(content: Any) -> str:
     return "".join(parts).strip()
 
 
+def _log_cache_usage(step_label: str, usage: Any) -> None:
+    """Log Anthropic prompt cache usage for monitoring (cache_creation_input_tokens, cache_read_input_tokens)."""
+    cache_creation = getattr(usage, "cache_creation_input_tokens", None)
+    cache_read = getattr(usage, "cache_read_input_tokens", None)
+    if cache_creation is not None or cache_read is not None:
+        logger.info(
+            "[prompt_cache] %s cache_creation_input_tokens=%s cache_read_input_tokens=%s",
+            step_label,
+            cache_creation,
+            cache_read,
+        )
+
+
 def _run_step_agent(
     agent_role: str,
     step_name: str,
@@ -641,7 +654,8 @@ def _run_step_agent(
 
     # Copywriter: write main content (never pass previous/final_content — write fresh)
     if role_lower in ("copywriter", "copy writer"):
-        system = (
+        # Prompt caching: fixed block (cache_control) + variable block (knowledge, no cache)
+        copywriter_fixed = (
             "You are a professional copywriter for a content bureau. Your ONLY job is to write the actual article text.\n\n"
             "CRITICAL RULES:\n"
             "- Write the COMPLETE, FINAL article text ready for publication\n"
@@ -651,10 +665,6 @@ def _run_step_agent(
             "- Do NOT describe what you're going to write — just WRITE IT\n"
             "- Start directly with the article title as a # heading, then the content\n"
             "- When you receive CRITICAL USER FEEDBACK, write a completely new version from scratch. Do not request, expect, or paste any previous draft text.\n"
-            f"- Use ## for section headings (not ###, not bold text like **Heading**)\n"
-            f"- Write in {language}\n"
-            f"- Tone: {tone}\n"
-            f"- Write approximately {word_count} words\n\n"
             "EXAMPLE of what you should produce:\n"
             "# De Geschiedenis van Haarlem\n\n"
             "Haarlem is een van de oudste steden van Nederland...\n\n"
@@ -669,14 +679,24 @@ def _run_step_agent(
             "**Status:** GOEDGEKEURD"
         )
         knowledge_block = context.get("_knowledge_block") or ""
+        copywriter_variable = (
+            f"- Use ## for section headings (not ###, not bold text like **Heading**)\n"
+            f"- Write in {language}\n"
+            f"- Tone: {tone}\n"
+            f"- Write approximately {word_count} words\n\n"
+        )
         if knowledge_block:
-            system += "\n\n" + knowledge_block
+            copywriter_variable += "\n" + knowledge_block
         if not is_content_role:
             try:
                 from app.services.worker_contract import WorkerOutputValidator
-                system += "\n\n" + WorkerOutputValidator().format_for_prompt()
+                copywriter_variable += "\n\n" + WorkerOutputValidator().format_for_prompt()
             except Exception:
                 pass
+        system_blocks = [
+            {"type": "text", "text": copywriter_fixed, "cache_control": {"type": "ephemeral"}},
+            {"type": "text", "text": copywriter_variable.strip()},
+        ]
         user = f"Write an article of approximately {word_count} words about: {objective}. Focus: {focus}."
         user_feedback = context.get("user_feedback") or context.get("feedback") or ""
         if user_feedback and isinstance(user_feedback, str):
@@ -686,9 +706,12 @@ def _run_step_agent(
             response = client.messages.create(
                 model=CLAUDE_MODEL,
                 max_tokens=4000,
-                system=system,
+                system=system_blocks,
                 messages=[{"role": "user", "content": user}],
             )
+            usage = getattr(response, "usage", None)
+            if usage is not None:
+                _log_cache_usage("copywriter", usage)
             logger.info("Copywriter raw response type: %s", type(response.content))
             logger.info("Copywriter content blocks: %s", len(response.content or []))
             for i, block in enumerate(response.content or []):
@@ -696,13 +719,20 @@ def _run_step_agent(
             text = _extract_text_from_anthropic_content(response.content)
             tokens = (response.usage.input_tokens or 0) + (response.usage.output_tokens or 0)
             if any(indicator in text for indicator in plan_indicators):
-                retry_system = system + "\n\nWARNING: Your previous attempt produced a plan/outline instead of an article. Write the ACTUAL ARTICLE TEXT. No plans, no outlines, no project descriptions."
+                retry_variable = copywriter_variable.strip() + "\n\nWARNING: Your previous attempt produced a plan/outline instead of an article. Write the ACTUAL ARTICLE TEXT. No plans, no outlines, no project descriptions."
+                retry_blocks = [
+                    {"type": "text", "text": copywriter_fixed, "cache_control": {"type": "ephemeral"}},
+                    {"type": "text", "text": retry_variable},
+                ]
                 response = client.messages.create(
                     model=CLAUDE_MODEL,
                     max_tokens=4000,
-                    system=retry_system,
+                    system=retry_blocks,
                     messages=[{"role": "user", "content": user}],
                 )
+                usage = getattr(response, "usage", None)
+                if usage is not None:
+                    _log_cache_usage("copywriter_retry", usage)
                 text = _extract_text_from_anthropic_content(response.content)
                 tokens += (response.usage.input_tokens or 0) + (response.usage.output_tokens or 0)
             if not text:
@@ -738,21 +768,27 @@ def _run_step_agent(
     if role_lower in ("reviewer", "review"):
         if not previous_content:
             return ({"status": "skipped", "review": "No content to review.", "approved": True, "agent_role": agent_role}, 0)
-        system = (
+        reviewer_fixed = (
             "You are a content reviewer. Check quality, grammar, and tone consistency. Reply in the same language as the content. Keep the reply concise. End with APPROVED or CHANGES NEEDED. "
             "If the content looks like a plan or outline instead of actual article text, mark it as NOT APPROVED and explain that actual content is needed, not a plan."
         )
         knowledge_block = context.get("_knowledge_block") or ""
+        system_blocks = [
+            {"type": "text", "text": reviewer_fixed, "cache_control": {"type": "ephemeral"}},
+        ]
         if knowledge_block:
-            system += "\n\n" + knowledge_block
+            system_blocks.append({"type": "text", "text": knowledge_block})
         user = f"Review this content:\n\n{previous_content[:12000]}"
         try:
             response = client.messages.create(
                 model=CLAUDE_MODEL,
                 max_tokens=2000,
-                system=system,
+                system=system_blocks,
                 messages=[{"role": "user", "content": user}],
             )
+            usage = getattr(response, "usage", None)
+            if usage is not None:
+                _log_cache_usage("reviewer", usage)
             review_text = (response.content[0].text if response.content else "").strip()
             approved = "approved" in review_text.lower() or "changes needed" not in review_text.lower()
             tokens = (response.usage.input_tokens or 0) + (response.usage.output_tokens or 0)
@@ -765,18 +801,26 @@ def _run_step_agent(
             return ({"status": "failed", "review": str(e), "approved": False, "agent_role": agent_role}, 0)
 
     # Generic: one Claude call
-    system = f"You are a helpful assistant. Write in {language}. Tone: {tone}."
+    generic_fixed = "You are a helpful assistant. Produce the requested output (no meta-commentary)."
     knowledge_block = context.get("_knowledge_block") or ""
+    generic_variable = f"Write in {language}. Tone: {tone}."
     if knowledge_block:
-        system += "\n\n" + knowledge_block
+        generic_variable += "\n\n" + knowledge_block
+    system_blocks = [
+        {"type": "text", "text": generic_fixed, "cache_control": {"type": "ephemeral"}},
+        {"type": "text", "text": generic_variable},
+    ]
     user = f"Task: {step_desc}. Context: {objective}. Produce the requested output (no meta-commentary)."
     try:
         response = client.messages.create(
             model=CLAUDE_MODEL,
             max_tokens=4000,
-            system=system,
+            system=system_blocks,
             messages=[{"role": "user", "content": user}],
         )
+        usage = getattr(response, "usage", None)
+        if usage is not None:
+            _log_cache_usage("generic", usage)
         text = (response.content[0].text if response.content else "").strip()
         tokens = (response.usage.input_tokens or 0) + (response.usage.output_tokens or 0)
         return ({"status": "completed", "content": text, "agent_role": agent_role, "step_name": step_desc}, tokens)
