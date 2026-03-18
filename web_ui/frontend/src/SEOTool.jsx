@@ -8,7 +8,14 @@ import { useAuthReady } from './useAuthReady'
 const MANUAL_ENTRY_VALUE = '__manual__'
 
 function domainFromSiteUrl(siteUrl) {
-  if (!siteUrl || typeof siteUrl !== 'string') return ''
+  if (!siteUrl) return ''
+
+  // GSC domain property formaat: sc-domain:example.com
+  if (siteUrl.startsWith('sc-domain:')) {
+    return siteUrl.replace('sc-domain:', '')
+  }
+
+  // Bestaande logica blijft ongewijzigd
   try {
     const u = new URL(siteUrl.startsWith('http') ? siteUrl : `https://${siteUrl}`)
     return u.hostname || ''
