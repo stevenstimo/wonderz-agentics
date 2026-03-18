@@ -16,8 +16,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, validator
-from sqlalchemy import create_engine, text
-from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy import create_engine, select, text
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 
 # Add root path to sys.path for imports
 backend_dir = os.path.dirname(os.path.abspath(__file__))
@@ -42,31 +43,46 @@ SUPABASE_ANON_KEY = os.getenv(
 )
 SUPER_ADMIN_EMAIL = "stevenstimo@gmail.com"
 
-# --- Database setup ---
+# --- Database setup (async for Postgres, sync only for sqlite fallback) ---
 
 # Use DATABASE_URL from environment, fail if not set in production
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL environment variable is not set. Configure it as a Fly.io secret or in your .env file.")
 
-# SQLAlchemy sync engine cannot use asyncpg driver in threadpool endpoints.
-if DATABASE_URL.startswith("postgresql+asyncpg://"):
-    DATABASE_URL = DATABASE_URL.replace("postgresql+asyncpg://", "postgresql+psycopg2://", 1)
-
 # Local fallback: when DATABASE_URL points to Docker host "postgres", switch to sqlite.
 if ":" in DATABASE_URL:
     DATABASE_URL = "sqlite:///./wonderz_local.db"
 
-engine_kwargs = {}
-if DATABASE_URL.startswith("sqlite"):
-    engine_kwargs = {"connect_args": {"check_same_thread": False}}
-
-engine = create_engine(DATABASE_URL, **engine_kwargs)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-# Ensure local fallback sqlite has required tables.
 from models.sql_models import Base
-Base.metadata.create_all(bind=engine)
+
+_use_async_db = not DATABASE_URL.startswith("sqlite")
+engine = None
+SessionLocal = None
+async_engine = None
+async_session_factory = None
+
+if _use_async_db:
+    # Postgres: async engine with asyncpg
+    _async_url = DATABASE_URL
+    if _async_url.startswith("postgresql://") and not _async_url.startswith("postgresql+asyncpg://"):
+        _async_url = "postgresql+asyncpg://" + _async_url.split("://", 1)[1]
+    async_engine = create_async_engine(
+        _async_url,
+        pool_size=20,
+        max_overflow=10,
+        pool_pre_ping=True,
+        pool_recycle=1800,
+    )
+    async_session_factory = async_sessionmaker(
+        async_engine, class_=AsyncSession, expire_on_commit=False, autoflush=False
+    )
+else:
+    # Sqlite: sync engine (local fallback only)
+    engine_kwargs = {"connect_args": {"check_same_thread": False}}
+    engine = create_engine(DATABASE_URL, **engine_kwargs)
+    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(bind=engine)
 
 
 # --- FastAPI app instance ---
@@ -91,18 +107,20 @@ def health_check():
 
 
 @app.get("/api/health/details")
-def health_details():
+async def health_details():
     """Detailed readiness for UI status dashboard."""
     db_ok = False
     db_error = None
-
     try:
-        with engine.connect() as conn:
-            conn.execute(text("SELECT 1"))
+        if async_engine is not None:
+            async with async_engine.connect() as conn:
+                await conn.execute(text("SELECT 1"))
+        else:
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
         db_ok = True
     except Exception as exc:
         db_error = str(exc)
-
     return {
         "status": "ok" if db_ok else "degraded",
         "service": "backend",
@@ -142,15 +160,25 @@ def status_recent_changes():
 
 
 @app.get("/api/status/summary")
-def status_summary():
+async def status_summary(db: AsyncSession = Depends(get_db)):
     """Single payload for frontend status dashboard."""
-    health = health_details()
+    health = await health_details()
     recent = status_recent_changes()
 
     settings_ok = False
     active_providers: List[str] = []
-    db = SessionLocal()
-    try:
+    if async_session_factory is not None:
+        result = await db.execute(select(SettingsSQL).where(SettingsSQL.id == "default"))
+        settings = result.scalar_one_or_none()
+        if settings:
+            has_anthropic = bool(getattr(settings, "anthropic_api_key", None))
+            has_gemini = bool(getattr(settings, "gemini_api_key", None))
+            settings_ok = has_anthropic or has_gemini
+            if has_anthropic:
+                active_providers.append("Anthropic")
+            if has_gemini:
+                active_providers.append("Gemini")
+    else:
         settings = db.query(SettingsSQL).filter(SettingsSQL.id == "default").first()
         if settings:
             has_anthropic = bool(getattr(settings, "anthropic_api_key", None))
@@ -160,8 +188,6 @@ def status_summary():
                 active_providers.append("Anthropic")
             if has_gemini:
                 active_providers.append("Gemini")
-    finally:
-        db.close()
 
     return {
         "status": "ok" if health.get("status") == "ok" else "degraded",
@@ -253,12 +279,16 @@ async def error_handling_middleware(request: Request, call_next):
         )
 
 # --- Database session dependency ---
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+async def get_db():
+    if async_session_factory is not None:
+        async with async_session_factory() as session:
+            yield session
+    else:
+        db = SessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
 
 
 def _extract_bearer_token(request: Request) -> str:
@@ -289,25 +319,25 @@ def _fetch_supabase_user(access_token: str) -> dict:
     return response.json()
 
 
-def _resolve_user_role(db: Session, user_id: str, email: str) -> str:
+async def _resolve_user_role(session: AsyncSession, user_id: str, email: str) -> str:
     if (email or "").strip().lower() == SUPER_ADMIN_EMAIL:
         return "super_admin"
-
-    row = db.execute(
+    result = await session.execute(
         text("SELECT role::text AS role FROM user_roles WHERE user_id = :user_id"),
         {"user_id": user_id},
-    ).mappings().first()
+    )
+    row = result.mappings().first()
     return row["role"] if row and row.get("role") else "member"
 
 
-def get_current_user_context(request: Request, db: Session = Depends(get_db)) -> dict:
+async def get_current_user_context(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
     access_token = _extract_bearer_token(request)
     user = _fetch_supabase_user(access_token)
     user_id = user.get("id")
     email = user.get("email", "")
     if not user_id:
         raise HTTPException(status_code=401, detail="Invalid token user payload")
-    role = _resolve_user_role(db, user_id=user_id, email=email)
+    role = await _resolve_user_role(db, user_id=user_id, email=email)
     return {"id": user_id, "email": email, "role": role}
 
 
@@ -823,8 +853,9 @@ class DummyWordPressClient:
 
 # --- TALENT API ENDPOINTS ---
 @app.get("/api/talents", response_model=List[Talent])
-def get_talents(db: Session = Depends(get_db)):
-    talents = db.query(TalentSQL).all()
+async def get_talents(db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(TalentSQL))
+    talents = result.scalars().all()
     return [Talent(
         id=t.id,
         name=t.name,
@@ -837,8 +868,9 @@ def get_talents(db: Session = Depends(get_db)):
     ) for t in talents]
 
 @app.get("/api/talents/{talent_id}", response_model=Talent)
-def get_talent(talent_id: str, db: Session = Depends(get_db)):
-    t = db.query(TalentSQL).filter(TalentSQL.id == talent_id).first()
+async def get_talent(talent_id: str, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(TalentSQL).where(TalentSQL.id == talent_id))
+    t = result.scalar_one_or_none()
     if not t:
         raise HTTPException(status_code=404, detail="Talent not found")
     return Talent(
@@ -853,10 +885,10 @@ def get_talent(talent_id: str, db: Session = Depends(get_db)):
     )
 
 @app.post("/api/talents", response_model=Talent)
-def create_talent(
+async def create_talent(
     req: CreateTalentRequest,
     _user: dict = Depends(require_super_admin),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     talent_id = str(uuid4())
     t = TalentSQL(
@@ -870,8 +902,8 @@ def create_talent(
         created_at=datetime.utcnow()
     )
     db.add(t)
-    db.commit()
-    db.refresh(t)
+    await db.commit()
+    await db.refresh(t)
     return Talent(
         id=t.id,
         name=t.name,
@@ -885,13 +917,14 @@ def create_talent(
 
 
 @app.put("/api/talents/{talent_id}", response_model=Talent)
-def update_talent(
+async def update_talent(
     talent_id: str,
     req: UpdateTalentRequest,
     _user: dict = Depends(require_super_admin),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
-    t = db.query(TalentSQL).filter(TalentSQL.id == talent_id).first()
+    result = await db.execute(select(TalentSQL).where(TalentSQL.id == talent_id))
+    t = result.scalar_one_or_none()
     if not t:
         raise HTTPException(status_code=404, detail="Talent not found")
 
@@ -908,8 +941,8 @@ def update_talent(
     if req.avatar_url is not None:
         t.avatar_url = req.avatar_url
 
-    db.commit()
-    db.refresh(t)
+    await db.commit()
+    await db.refresh(t)
     return Talent(
         id=t.id,
         name=t.name,
@@ -983,8 +1016,9 @@ def promote_talent_to_crew(
 
 # --- CREW API ENDPOINTS ---
 @app.get("/api/crew", response_model=List[CrewMember])
-def get_crew(db: Session = Depends(get_db)):
-    crew = db.query(CrewMemberSQL).all()
+async def get_crew(db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(CrewMemberSQL))
+    crew = result.scalars().all()
     return [CrewMember(
         id=c.id,
         name=c.name,
@@ -1006,10 +1040,10 @@ def get_crew(db: Session = Depends(get_db)):
 
 
 @app.post("/api/crew", response_model=CrewMember)
-def add_crew_member(
+async def add_crew_member(
     req: CreateCrewMemberRequest,
     _user: dict = Depends(require_super_admin),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     crew_id = str(uuid4())
     db_crew = CrewMemberSQL(
@@ -1031,8 +1065,8 @@ def add_crew_member(
         development_notes=req.development_notes
     )
     db.add(db_crew)
-    db.commit()
-    db.refresh(db_crew)
+    await db.commit()
+    await db.refresh(db_crew)
     return CrewMember(
         id=db_crew.id,
         name=db_crew.name,
@@ -1054,13 +1088,14 @@ def add_crew_member(
 
 
 @app.put("/api/crew/{crew_id}", response_model=CrewMember)
-def update_crew_member(
+async def update_crew_member(
     crew_id: str,
     req: UpdateCrewMemberRequest,
     _user: dict = Depends(require_super_admin),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
-    crew = db.query(CrewMemberSQL).filter(CrewMemberSQL.id == crew_id).first()
+    result = await db.execute(select(CrewMemberSQL).where(CrewMemberSQL.id == crew_id))
+    crew = result.scalar_one_or_none()
     if not crew:
         raise HTTPException(status_code=404, detail="Crew member not found")
 
@@ -1074,8 +1109,8 @@ def update_crew_member(
         if value is not None:
             setattr(crew, field, value)
 
-    db.commit()
-    db.refresh(crew)
+    await db.commit()
+    await db.refresh(crew)
     return CrewMember(
         id=crew.id,
         name=crew.name,
@@ -1097,16 +1132,17 @@ def update_crew_member(
 
 
 @app.delete("/api/crew/{crew_id}")
-def deactivate_crew_member(
+async def deactivate_crew_member(
     crew_id: str,
     _user: dict = Depends(require_super_admin),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
-    crew = db.query(CrewMemberSQL).filter(CrewMemberSQL.id == crew_id).first()
+    result = await db.execute(select(CrewMemberSQL).where(CrewMemberSQL.id == crew_id))
+    crew = result.scalar_one_or_none()
     if not crew:
         raise HTTPException(status_code=404, detail="Crew member not found")
     crew.status = "inactive"
-    db.commit()
+    await db.commit()
     return {"status": "success", "message": "Crew member deactivated"}
 
 
@@ -1404,7 +1440,10 @@ async def hr_register_improvement(req: RegisterImprovementInput):
 
 @app.on_event("startup")
 async def on_startup():
-    """Startup hook - init async DB pool if HR routes are mounted."""
+    """Startup hook - ensure async DB tables exist (postgres); init app.db pool if HR routes mounted."""
+    if async_engine is not None:
+        async with async_engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
     try:
         from app.db import init_db_pool
         await init_db_pool()
@@ -1835,7 +1874,7 @@ def get_dave_dev_info():
 
 
 @app.post("/api/dave-dev/ask", response_model=DaveDevResponse)
-def ask_dave_dev(req: DaveDevPromptRequest):
+async def ask_dave_dev(req: DaveDevPromptRequest, db: AsyncSession = Depends(get_db)):
     """Ask Dave Dev a technical question with repo-aware context."""
     question = (req.question or "").strip()
     if not question:
@@ -1856,16 +1895,21 @@ def ask_dave_dev(req: DaveDevPromptRequest):
     openai_key = OPENAI_API_KEY
     gemini_key = GEMINI_API_KEY
 
-    db = SessionLocal()
-    try:
+    if async_session_factory is not None:
+        result = await db.execute(select(SettingsSQL).where(SettingsSQL.id == "default"))
+        settings = result.scalar_one_or_none()
+        if settings:
+            if not _looks_real_key(anthropic_key) and _looks_real_key(settings.anthropic_api_key):
+                anthropic_key = settings.anthropic_api_key
+            if not _looks_real_key(gemini_key) and _looks_real_key(settings.gemini_api_key):
+                gemini_key = settings.gemini_api_key
+    else:
         settings = db.query(SettingsSQL).filter(SettingsSQL.id == "default").first()
         if settings:
             if not _looks_real_key(anthropic_key) and _looks_real_key(settings.anthropic_api_key):
                 anthropic_key = settings.anthropic_api_key
             if not _looks_real_key(gemini_key) and _looks_real_key(settings.gemini_api_key):
                 gemini_key = settings.gemini_api_key
-    finally:
-        db.close()
 
     q_lower = question.lower()
     include_history = _should_use_history(question)
@@ -1895,18 +1939,18 @@ def ask_dave_dev(req: DaveDevPromptRequest):
         "Gebruik geen markdown-opmaaktekens zoals ** of * bullets; schrijf platte tekst met normale regels."
     )
 
-    db = SessionLocal()
-    try:
+    if async_session_factory is not None:
+        result = await db.execute(select(CrewMemberSQL).where(CrewMemberSQL.name == "Dave Dev"))
+        agent_data = result.scalar_one_or_none()
+    else:
         agent_data = db.query(CrewMemberSQL).filter(CrewMemberSQL.name == "Dave Dev").first()
-        if agent_data and agent_data.system_instructions:
-            system_prompt = (
-                f"{base_system_prompt}\n\n"
-                f"Extra persona instructies:\n{agent_data.system_instructions}"
-            )
-        else:
-            system_prompt = base_system_prompt
-    finally:
-        db.close()
+    if agent_data and agent_data.system_instructions:
+        system_prompt = (
+            f"{base_system_prompt}\n\n"
+            f"Extra persona instructies:\n{agent_data.system_instructions}"
+        )
+    else:
+        system_prompt = base_system_prompt
 
     extra_context = _build_dave_context(req, include_history=include_history)
     layout_context = _build_frontend_layout_context(question)
@@ -2147,9 +2191,10 @@ def get_me(user: dict = Depends(get_current_user_context)):
 
 
 @app.get("/api/settings")
-def get_settings(_user: dict = Depends(require_super_admin), db: Session = Depends(get_db)):
+async def get_settings(_user: dict = Depends(require_super_admin), db: AsyncSession = Depends(get_db)):
     """Get settings (API keys, config)"""
-    settings = db.query(SettingsSQL).filter(SettingsSQL.id == 'default').first()
+    result = await db.execute(select(SettingsSQL).where(SettingsSQL.id == "default"))
+    settings = result.scalar_one_or_none()
     if not settings:
         return {
             "gemini_api_key": "",
@@ -2166,13 +2211,14 @@ def get_settings(_user: dict = Depends(require_super_admin), db: Session = Depen
 
 
 @app.post("/api/settings")
-def save_settings(req: SettingsInput, _user: dict = Depends(require_super_admin), db: Session = Depends(get_db)):
+async def save_settings(req: SettingsInput, _user: dict = Depends(require_super_admin), db: AsyncSession = Depends(get_db)):
     """Save settings (API keys, config)"""
-    settings = db.query(SettingsSQL).filter(SettingsSQL.id == 'default').first()
+    result = await db.execute(select(SettingsSQL).where(SettingsSQL.id == "default"))
+    settings = result.scalar_one_or_none()
     if not settings:
-        settings = SettingsSQL(id='default')
+        settings = SettingsSQL(id="default")
         db.add(settings)
-    
+
     if req.gemini_api_key is not None:
         settings.gemini_api_key = req.gemini_api_key
     if req.anthropic_api_key is not None:
@@ -2181,9 +2227,9 @@ def save_settings(req: SettingsInput, _user: dict = Depends(require_super_admin)
         settings.supabase_url = req.supabase_url
     if req.supabase_key is not None:
         settings.supabase_key = req.supabase_key
-    
-    db.commit()
-    db.refresh(settings)
+
+    await db.commit()
+    await db.refresh(settings)
     return {
         "status": "success",
         "message": "Settings saved",

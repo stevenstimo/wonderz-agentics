@@ -101,7 +101,7 @@ async def get_ceo_dashboard():
         # Blok 4 — Recente activiteit
         recent_jobs_rows = await conn.fetch(
             """
-            SELECT id, job_number, status, completed_at, updated_at
+            SELECT id, status, completed_at, updated_at
             FROM jobs WHERE status = 'COMPLETED'
             ORDER BY COALESCE(completed_at, updated_at) DESC NULLS LAST
             LIMIT 5
