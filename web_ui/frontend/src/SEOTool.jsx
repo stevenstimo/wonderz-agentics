@@ -214,7 +214,7 @@ export default function SEOTool() {
       })
 
       if (res.status === 413) {
-        throw new Error('Bestand te groot. Maximaal 5 MB toegestaan.')
+        throw new Error('Upload geblokkeerd door server (413). Probeer een kleiner bestand of neem contact op met de beheerder.')
       }
       if (!res.ok) {
         const ct = res.headers.get('content-type') || ''
