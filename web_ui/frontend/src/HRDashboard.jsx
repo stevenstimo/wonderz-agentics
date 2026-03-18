@@ -8,6 +8,7 @@ import { useAuthReady } from './useAuthReady'
 const TABS = [
   { id: 'points', label: 'Development Points' },
   { id: 'training', label: 'Trainingsverzoeken' },
+  { id: 'improvements', label: 'Improvements' },
   { id: 'cross', label: 'Cross-Training' },
 ]
 
@@ -577,12 +578,26 @@ export default function HRDashboard() {
 
       <div className="flex gap-2 mb-6">
         {TABS.map((t) => {
-          const isActive = t.id === 'training' ? isTrainingRoute : tab === t.id
+          const isImprovementsRoute = location.pathname === '/hr/improvements'
+          const isActive = t.id === 'training' ? isTrainingRoute : t.id === 'improvements' ? isImprovementsRoute : tab === t.id
           if (t.id === 'training') {
             return (
               <Link
                 key={t.id}
                 to="/hr/training-requests"
+                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                  isActive ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                {t.label}
+              </Link>
+            )
+          }
+          if (t.id === 'improvements') {
+            return (
+              <Link
+                key={t.id}
+                to="/hr/improvements"
                 className={`px-4 py-2 rounded-lg font-medium transition-colors ${
                   isActive ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}

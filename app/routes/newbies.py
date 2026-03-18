@@ -604,6 +604,140 @@ async def hire_newbie(newbie_id: str, req: HireNewbieRequest = HireNewbieRequest
     }
 
 
+@router.post("/{newbie_id}/promote", status_code=status.HTTP_201_CREATED)
+async def promote_newbie(newbie_id: str):
+    """
+    Promote a ready newbie to hired_agents (Fase A.4).
+    Sets newbies.status = 'promoted', creates hired_agents with is_active = true,
+    copies relevant fields. Newbie must have readiness >= 70 and status = 'ready'.
+    """
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT * FROM newbies WHERE newbie_id = $1", newbie_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="Newbie not found")
+        if row.get("status") == "promoted":
+            raise HTTPException(status_code=400, detail="Newbie already promoted")
+        if row.get("status") == "hired":
+            raise HTTPException(status_code=400, detail="Newbie already hired (use hire endpoint)")
+        if (row.get("readiness_score") or 0) < 70:
+            raise HTTPException(
+                status_code=400,
+                detail="Newbie must have readiness >= 70 to promote. Train first.",
+            )
+        if row.get("status") != "ready":
+            raise HTTPException(
+                status_code=400,
+                detail="Newbie must be status 'ready' to promote. Update status or train first.",
+            )
+
+        name = row.get("newbie_name") or "Newbie"
+        agent_type = row.get("type") or "worker"
+        role = row.get("role") or row.get("suggested_role") or "custom"
+        persona_source = row.get("persona_source") or ""
+        goal = f"Persona {name}. Ontwikkelpunt: {row.get('development_priority') or row.get('development') or '—'}"
+        system_prompt = (
+            f"Je bent {name}, een {row.get('badge') or 'crew member'} binnen Crew Intelligent. "
+            f"Persona: {row.get('persona') or ''}. Kwaliteiten: {row.get('qualities') or ''}. "
+            f"Ontwikkeling: {row.get('development') or ''}."
+        )
+        # Migrated newbies have newbie_id = agent_id (agent:type:slug); reuse as agent_id when promoting
+        if (row.get("newbie_id") or "").startswith("agent:"):
+            agent_id = row["newbie_id"]
+        else:
+            agent_id = f"agent:{agent_type}:{_slug(name)}-{uuid.uuid4().hex[:8]}"
+
+        now = datetime.now(timezone.utc)
+        existing = await conn.fetchrow(
+            "SELECT agent_id FROM hired_agents WHERE agent_id = $1", agent_id
+        )
+        if existing:
+            agent_id = f"agent:{agent_type}:{_slug(name)}-{uuid.uuid4().hex[:8]}"
+
+        cols = await conn.fetch(
+            "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'hired_agents' ORDER BY ordinal_position"
+        )
+        col_set = {r["column_name"] for r in cols}
+        insert_cols = [
+            "agent_id", "name", "type", "role", "goal", "system_prompt",
+            "tool_whitelist", "knowledge_sources", "output_format", "guardrails", "model_config",
+            "skills", "persona_source", "readiness_score", "is_active", "is_suspended",
+            "created_at", "updated_at",
+        ]
+        insert_cols = [c for c in insert_cols if c in col_set]
+        if not insert_cols:
+            insert_cols = [
+                "agent_id", "name", "role", "goal", "category",
+                "system_prompt", "system_instructions",
+                "tool_access_whitelist", "knowledge_base_sources",
+                "status", "is_active", "is_suspended", "hired_at", "updated_at",
+            ]
+            insert_cols = [c for c in insert_cols if c in col_set]
+        placeholders = ", ".join(f"${i+1}" for i in range(len(insert_cols)))
+        names = ", ".join(insert_cols)
+        value_map = {}
+        for c in insert_cols:
+            if c == "agent_id":
+                value_map[c] = agent_id
+            elif c == "name":
+                value_map[c] = name
+            elif c == "type":
+                value_map[c] = agent_type
+            elif c == "role":
+                value_map[c] = role
+            elif c == "goal":
+                value_map[c] = goal
+            elif c == "system_prompt":
+                value_map[c] = system_prompt
+            elif c == "tool_whitelist":
+                value_map[c] = []
+            elif c == "tool_access_whitelist":
+                value_map[c] = json.dumps([])
+            elif c == "knowledge_sources":
+                value_map[c] = json.dumps([])
+            elif c == "knowledge_base_sources":
+                value_map[c] = json.dumps([])
+            elif c in ("output_format", "guardrails", "model_config", "skills"):
+                value_map[c] = json.dumps({} if c != "skills" else [])
+            elif c == "persona_source":
+                value_map[c] = persona_source
+            elif c == "readiness_score":
+                value_map[c] = row.get("readiness_score") or 0
+            elif c == "is_active":
+                value_map[c] = True
+            elif c == "is_suspended":
+                value_map[c] = False
+            elif c == "status":
+                value_map[c] = "active"
+            elif c == "category":
+                value_map[c] = "Custom"
+            elif c == "system_instructions":
+                value_map[c] = system_prompt
+            elif c in ("created_at", "updated_at", "hired_at"):
+                value_map[c] = now
+        values_ordered = [value_map[c] for c in insert_cols]
+        await conn.execute(
+            f"INSERT INTO hired_agents ({names}) VALUES ({placeholders})",
+            *values_ordered,
+        )
+        await conn.execute(
+            "UPDATE newbies SET status = 'promoted', hired_as = $1, updated_at = now() WHERE newbie_id = $2",
+            agent_id,
+            newbie_id,
+        )
+        agent_row = await conn.fetchrow("SELECT * FROM hired_agents WHERE agent_id = $1", agent_id)
+
+    logger.info("Promoted newbie %s to agent %s", newbie_id, agent_id)
+    return {
+        "agent_id": agent_id,
+        "name": name,
+        "role": role,
+        "status": "active",
+        "promoted_from_newbie": newbie_id,
+        "agent": _row_to_dict(agent_row) if agent_row else None,
+    }
+
+
 @router.get("/{newbie_id}/trainings")
 async def list_newbie_trainings(newbie_id: str):
     """List training history for a newbie."""
@@ -648,7 +782,7 @@ async def update_newbie(newbie_id: str, req: UpdateNewbieRequest):
         params.append(req.suggested_role)
         idx += 1
     if req.status is not None:
-        if req.status not in ("in_training", "ready", "hired", "inactive"):
+        if req.status not in ("in_training", "ready", "hired", "inactive", "promoted"):
             raise HTTPException(status_code=400, detail="Invalid status")
         updates.append(f"status = ${idx}")
         params.append(req.status)

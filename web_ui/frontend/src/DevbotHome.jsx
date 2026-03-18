@@ -3,10 +3,12 @@ import { useSearchParams } from 'react-router-dom';
 import PageLayout from './PageLayout';
 import DaveDevConsole from './DaveDevConsole';
 import DeveloperBot from './DeveloperBot';
+import StartNewProject from './StartNewProject';
 
 const agents = [
   { id: 'dave', name: 'Dave Dev', description: 'Technical Consultant & Chief Architect' },
   { id: 'devbot', name: 'Developer Bot', description: 'Debug toegang: job logs, DB queries, agent steps, errors' },
+  { id: 'start-project', name: 'Start New Project', description: 'Start een nieuw project (workflow met WebSocket)' },
 ];
 
 export default function DevbotHome() {
@@ -60,6 +62,7 @@ export default function DevbotHome() {
 
               {agent.id === 'dave' && <DaveDevConsole />}
               {agent.id === 'devbot' && <DeveloperBot embedded />}
+              {agent.id === 'start-project' && <StartNewProject />}
             </div>
           ) : (
             <div className="panel-card">

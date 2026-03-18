@@ -118,10 +118,11 @@ ReactDOM.createRoot(document.getElementById('root')).render(
               <Route path="/approvals" element={<ApprovalDashboard />} />
               <Route path="/hr" element={<HRDashboard />}>
                 <Route path="training-requests" element={<TrainingRequestsTabContent />} />
+                <Route path="improvements" element={<HRImprovements />} />
               </Route>
               <Route path="/hr/approval" element={<HRApprovalPage />} />
               <Route path="/hr/issues/:pointId" element={<IssueDetail />} />
-              <Route path="/hr/improvements" element={<HRImprovements />} />
+              <Route path="/improvements" element={<Navigate to="/hr/improvements" replace />} />
               <Route path="/explainer" element={<Navigate to="/explainer/how-it-works" replace />} />
               <Route path="/explainer/how-it-works" element={<ExplainerHowItWorks />} />
               <Route path="/explainer/persona" element={<ExplainerPersona />} />

@@ -43,18 +43,23 @@ const WORKSPACE = [
   { label: 'Mission Control', icon: Compass, path: '/mission-control' },
 ]
 
-const MANAGEMENT = [
+const OPERATIONS = [
   { label: 'Crew', icon: UsersRound, path: '/crew' },
-  { label: 'Agents', icon: Users, path: '/agents' },
   { label: 'Newbies', icon: Star, path: '/newbies' },
-  { label: 'Training Hub', icon: GraduationCap, path: '/training' },
-  { label: 'HR', icon: ClipboardList, path: '/hr', badgeKey: 'hrNotifications' },
-  { label: 'CEO Approval', icon: Shield, path: '/hr/approval', badgeKey: 'approvalCount' },
-  { label: 'Improvements', icon: TrendingUp, path: '/hr/improvements' },
   { label: 'Hiring Hall', icon: UserPlus, path: '/hiring' },
 ]
 
-const OPERATIONS = [
+const DEVELOPMENT = [
+  { label: 'Training Hub', icon: GraduationCap, path: '/training' },
+  { label: 'HR', icon: ClipboardList, path: '/hr', badgeKey: 'hrNotifications' },
+]
+
+const GOVERNANCE = [
+  { label: 'COO Approval', icon: Shield, path: '/hr/approval', badgeKey: 'approvalCount' },
+  { label: 'Agents', icon: Users, path: '/agents' },
+]
+
+const LEGACY_OPERATIONS = [
   { label: 'SEO Tool', icon: BarChart3, path: '/seo/tool' },
   { label: 'Developer Bot', icon: Code, path: '/devbot' },
   { label: 'Safety Gate', icon: Shield, path: '/approvals' },
@@ -333,24 +338,33 @@ export default function Sidebar() {
               />
             ))}
 
-            <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 px-3 mt-4 mb-2">Management</div>
-            {MANAGEMENT.map((item) => (
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 px-3 mt-4 mb-2">Operations</div>
+            {OPERATIONS.map((item) => (
+              <NavItem key={item.path || item.label} item={item} />
+            ))}
+
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 px-3 mt-4 mb-2">Development</div>
+            {DEVELOPMENT.map((item) => (
               <NavItem
                 key={item.path || item.label}
                 item={item}
-                badge={
-                  item.badgeKey === 'hrNotifications'
-                    ? hrNotifications
-                    : item.badgeKey === 'approvalCount'
-                      ? approvalCount
-                      : undefined
-                }
-                badgeRed={item.badgeKey === 'hrNotifications' || (item.badgeKey === 'approvalCount' && approvalCount > 0)}
+                badge={item.badgeKey === 'hrNotifications' ? hrNotifications : undefined}
+                badgeRed={item.badgeKey === 'hrNotifications'}
               />
             ))}
 
-            <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 px-3 mt-4 mb-2">Operations</div>
-            {OPERATIONS.map((item) => (
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 px-3 mt-4 mb-2">Governance</div>
+            {GOVERNANCE.map((item) => (
+              <NavItem
+                key={item.path || item.label}
+                item={item}
+                badge={item.badgeKey === 'approvalCount' ? approvalCount : undefined}
+                badgeRed={item.badgeKey === 'approvalCount' && approvalCount > 0}
+              />
+            ))}
+
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 px-3 mt-4 mb-2">Tools &amp; Settings</div>
+            {LEGACY_OPERATIONS.map((item) => (
               <NavItem
                 key={item.label}
                 item={item}
