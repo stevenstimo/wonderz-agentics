@@ -113,35 +113,35 @@ class OperationsManager:
             # Update with new answers
             previous_answers.update(answers)
 
-            # Build chat_history: CEO question → User answer (so Claude sees full conversation)
-            clarifications = context.get("clarifications") or (context.get("brief") or {}).get("clarifications", [])
-            chat_history = None
-            if clarifications:
-                chat_history = []
-                for c in clarifications:
-                    q_id = c.get("id") if isinstance(c, dict) else getattr(c, "id", None)
-                    q_text = (c.get("question") if isinstance(c, dict) else getattr(c, "question", "")) or ""
-                    if q_text:
-                        chat_history.append({"role": "ceo", "content": q_text})
-                    user_ans = previous_answers.get(str(q_id)) if q_id is not None else ""
-                    if user_ans is not None:
-                        user_ans = str(user_ans)
-                    else:
-                        user_ans = ""
-                    chat_history.append({"role": "user", "content": user_ans})
-                if not chat_history:
-                    chat_history = None
+            # 1. Read accumulated intake_chat_history from context (default empty list)
+            intake_chat_history = list(context.get("intake_chat_history") or [])
 
-            # Re-run intake analysis (with chat_history when available)
+            # 2. Append current round: per clarification add CEO question + user answer
+            clarifications = context.get("clarifications") or (context.get("brief") or {}).get("clarifications", [])
+            for c in clarifications:
+                q_id = c.get("id") if isinstance(c, dict) else getattr(c, "id", None)
+                q_text = (c.get("question") if isinstance(c, dict) else getattr(c, "question", "")) or ""
+                if q_text:
+                    intake_chat_history.append({"role": "ceo", "content": q_text})
+                user_ans = previous_answers.get(str(q_id)) if q_id is not None else ""
+                if user_ans is not None:
+                    user_ans = str(user_ans)
+                else:
+                    user_ans = ""
+                intake_chat_history.append({"role": "user", "content": user_ans})
+
+            # 3. Pass full intake_chat_history to analyze_job_post as chat_history
+            chat_history = intake_chat_history if intake_chat_history else None
             if chat_history:
                 brief = self.intake_engine.analyze_job_post(job_post, previous_answers, chat_history=chat_history)
             else:
                 brief = self.intake_engine.analyze_job_post(job_post, previous_answers)
 
-            # Update context
+            # 4. Store intake_chat_history in context so next round has full history
             await self.store_job_context(conn, job_id, {
                 "brief": brief.model_dump(),
-                "previous_answers": previous_answers
+                "previous_answers": previous_answers,
+                "intake_chat_history": intake_chat_history,
             })
 
             if brief.is_complete:
