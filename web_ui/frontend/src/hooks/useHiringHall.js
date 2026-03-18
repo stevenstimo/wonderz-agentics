@@ -15,17 +15,31 @@ import { useState, useCallback } from 'react';
 const BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8090').replace(/\/$/, '');
 
 function validateForm(data) {
-  if (!data.agent_name?.trim() || data.agent_name.trim().length < 2) {
+  if (!data.agent_name?.trim() && !data.name?.trim()) {
     return 'Naam is verplicht (minimaal 2 tekens).';
   }
-  if (!data.role?.trim()) {
-    return 'Rol is verplicht.';
-  }
-  if (!data.goal?.trim() || data.goal.trim().length < 10) {
-    return 'Doel is verplicht (minimaal 10 tekens).';
-  }
+  const name = (data.agent_name || data.name || '').trim();
+  if (name.length < 2) return 'Naam is verplicht (minimaal 2 tekens).';
+  if (!data.role?.trim()) return 'Rol is verplicht.';
+  if (!data.goal?.trim() || data.goal.trim().length < 10) return 'Doel is verplicht (minimaal 10 tekens).';
   if (!data.system_prompt?.trim() || data.system_prompt.trim().length < 20) {
     return 'System Instructions zijn verplicht (minimaal 20 tekens).';
+  }
+  const toolList = data.tool_whitelist || [];
+  if (!Array.isArray(toolList) || toolList.length < 1) {
+    return 'Minimaal één tool is verplicht (tool_whitelist).';
+  }
+  if (data.type && !['worker', 'talent', 'orchestrator'].includes(data.type)) {
+    return 'Type moet worker, talent of orchestrator zijn.';
+  }
+  if (data.guardrails) {
+    if (!data.guardrails.scope_limitation?.trim()) return 'Guardrails: scope_limitation is verplicht.';
+    if (!data.guardrails.escalation_rule?.trim()) return 'Guardrails: escalation_rule is verplicht.';
+  }
+  if (data.model_config != null && typeof data.model_config.temperature === 'number') {
+    if (data.model_config.temperature < 0.1 || data.model_config.temperature > 0.9) {
+      return 'Temperature moet tussen 0.1 en 0.9 liggen.';
+    }
   }
   return null;
 }
@@ -53,18 +67,35 @@ export function useHiringHall() {
     setSuccess(null);
 
     try {
+      const name = (data.agent_name || data.name || '').trim();
+      const isFramework = data.type && data.output_format && data.guardrails && data.model_config;
+      const payload = isFramework
+        ? {
+            name,
+            agent_name: name,
+            role: (data.role || '').trim(),
+            type: (data.type || 'worker').toLowerCase(),
+            goal: (data.goal || '').trim(),
+            system_prompt: (data.system_prompt || '').trim(),
+            tool_whitelist: Array.isArray(data.tool_whitelist) ? data.tool_whitelist : [],
+            knowledge_sources: Array.isArray(data.knowledge_sources) ? data.knowledge_sources : [],
+            output_format: data.output_format || { type: 'markdown', schema: 'freeform' },
+            guardrails: data.guardrails || { scope_limitation: '', quality_thresholds: [], escalation_rule: '' },
+            model_config: data.model_config || { model: 'claude-sonnet', temperature: 0.7, top_p: 0.9 },
+          }
+        : {
+            agent_name: name,
+            role: (data.role || '').trim(),
+            category: data.category || 'Custom',
+            goal: (data.goal || '').trim(),
+            system_prompt: (data.system_prompt || '').trim(),
+            tool_whitelist: Array.isArray(data.tool_whitelist) ? data.tool_whitelist : [],
+            knowledge_sources: Array.isArray(data.knowledge_sources) ? data.knowledge_sources : [],
+          };
       const response = await fetch(`${BASE_URL}/api/agents`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          agent_name: data.agent_name.trim(),
-          role: data.role.trim(),
-          category: data.category || 'Custom',
-          goal: data.goal.trim(),
-          system_prompt: data.system_prompt.trim(),
-          tool_whitelist: data.tool_whitelist || [],
-          knowledge_sources: data.knowledge_sources || [],
-        }),
+        body: JSON.stringify(payload),
       });
 
       const json = await response.json();

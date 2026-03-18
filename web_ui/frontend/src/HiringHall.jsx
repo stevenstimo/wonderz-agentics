@@ -9,6 +9,9 @@ import { apiUrl, apiFetch } from './apiClient';
 const VALID_TOOLS = [
   { id: 'read_product', label: 'Read Product' },
   { id: 'write_copy', label: 'Write Copy' },
+  { id: 'read_brief', label: 'Read Brief' },
+  { id: 'knowledge_retrieval', label: 'Knowledge Retrieval' },
+  { id: 'submit_artifact', label: 'Submit Artifact' },
   { id: 'read_analytics', label: 'Read Analytics' },
   { id: 'write_social', label: 'Write Social' },
   { id: 'read_tickets', label: 'Read Tickets' },
@@ -16,11 +19,21 @@ const VALID_TOOLS = [
   { id: 'read_jobs', label: 'Read Jobs' },
   { id: 'send_report', label: 'Send Report' },
   { id: 'web_search', label: 'Web Search' },
+  { id: 'read_url', label: 'Read URL' },
   { id: 'read_lessons', label: 'Read Lessons' },
   { id: 'review_content', label: 'Review Content' },
   { id: 'optimize_seo', label: 'Optimize SEO' },
   { id: 'keyword_research', label: 'Keyword Research' },
   { id: 'provide_feedback', label: 'Provide Feedback' },
+  { id: 'validate_output', label: 'Validate Output' },
+  { id: 'check_evidence', label: 'Check Evidence' },
+  { id: 'score_confidence', label: 'Score Confidence' },
+  { id: 'approve_artifact', label: 'Approve Artifact' },
+  { id: 'write_feedback', label: 'Write Feedback' },
+  { id: 'create_development_point', label: 'Create Development Point' },
+  { id: 'flag_escalation', label: 'Flag Escalation' },
+  { id: 'read_logs', label: 'Read Logs' },
+  { id: 'read_metrics', label: 'Read Metrics' },
 ];
 
 const CATEGORIES = [
@@ -34,14 +47,29 @@ const CATEGORIES = [
   'Custom',
 ];
 
+const FRAMEWORK_ROLES = [
+  { id: 'copywriter', label: 'Copywriter (Worker)' },
+  { id: 'seo-specialist', label: 'SEO Specialist (Worker)' },
+  { id: 'support-specialist', label: 'Support Specialist (Worker)' },
+  { id: 'incident-response', label: 'Incident Response (Worker)' },
+  { id: 'senior-engineer', label: 'Senior Engineer (Worker)' },
+  { id: 'qa-reviewer', label: 'QA Reviewer (Talent)' },
+  { id: 'logic-validator', label: 'Logic Validator (Talent)' },
+  { id: 'orchestrator', label: 'Orchestrator (CEO)' },
+];
+
 const INITIAL_FORM_DATA = {
   agent_name: '',
   role: '',
+  type: 'worker',
   goal: '',
   category: 'Custom',
   system_prompt: '',
   knowledge_sources: [],
   tool_whitelist: [],
+  output_format: { type: 'markdown', schema: 'freeform' },
+  guardrails: { scope_limitation: '', quality_thresholds: [], escalation_rule: '' },
+  model_config: { model: 'claude-sonnet', temperature: 0.7, top_p: 0.9 },
 };
 
 const TAB_RECRUIT = 'recruit';
@@ -53,11 +81,41 @@ const HiringHall = ({ onHire }) => {
   const [activeTab, setActiveTab] = useState(promoteId ? TAB_PROMOTE : TAB_RECRUIT);
   const [formData, setFormData] = useState({ ...INITIAL_FORM_DATA });
   const { recruit, isLoading, error, success } = useHiringHall();
+  const [roleTemplates, setRoleTemplates] = useState([]);
 
   const [readyNewbies, setReadyNewbies] = useState([]);
   const [loadingNewbies, setLoadingNewbies] = useState(false);
   const [hiringNewbieId, setHiringNewbieId] = useState(null);
   const [hireError, setHireError] = useState(null);
+
+  useEffect(() => {
+    apiFetch('/api/agents/role-templates')
+      .then((r) => (r.ok ? r.json() : {}))
+      .then((data) => setRoleTemplates(Array.isArray(data?.role_templates) ? data.role_templates : []))
+      .catch(() => setRoleTemplates([]));
+  }, []);
+
+  const applyRoleTemplate = (roleKey) => {
+    const template = roleTemplates.find((t) => t.role === roleKey);
+    if (!template) return;
+    setFormData((prev) => ({
+      ...prev,
+      role: template.role,
+      type: template.type || 'worker',
+      tool_whitelist: Array.isArray(template.tool_whitelist) ? [...template.tool_whitelist] : prev.tool_whitelist,
+      output_format: template.output_format && typeof template.output_format === 'object' ? { ...template.output_format } : prev.output_format,
+      guardrails: template.guardrails && typeof template.guardrails === 'object'
+        ? {
+            scope_limitation: template.guardrails.scope_limitation || '',
+            quality_thresholds: Array.isArray(template.guardrails.quality_thresholds) ? [...template.guardrails.quality_thresholds] : [],
+            escalation_rule: template.guardrails.escalation_rule || '',
+          }
+        : prev.guardrails,
+      model_config: template.model_config && typeof template.model_config === 'object'
+        ? { ...template.model_config }
+        : prev.model_config,
+    }));
+  };
 
   useEffect(() => {
     if (promoteId) setActiveTab(TAB_PROMOTE);
@@ -102,15 +160,7 @@ const HiringHall = ({ onHire }) => {
   // reset() niet aanroepen: success banner blijft zichtbaar; recruit() cleart bij volgende submit
   useEffect(() => {
     if (success) {
-      setFormData({
-        agent_name: '',
-        role: '',
-        goal: '',
-        category: 'Custom',
-        system_prompt: '',
-        knowledge_sources: [],
-        tool_whitelist: [],
-      });
+      setFormData({ ...INITIAL_FORM_DATA });
       onHire?.(success);
     }
   }, [success, onHire]);
@@ -138,13 +188,18 @@ const HiringHall = ({ onHire }) => {
     .map((s) => (typeof s === 'string' ? s : s?.url)).filter(Boolean).join('\n');
 
   const agentFormData = {
+    name: formData.agent_name,
     agent_name: formData.agent_name,
     role: formData.role,
+    type: formData.type,
     category: formData.category,
     goal: formData.goal,
     system_prompt: formData.system_prompt,
     tool_whitelist: formData.tool_whitelist,
     knowledge_sources: formData.knowledge_sources,
+    output_format: formData.output_format,
+    guardrails: formData.guardrails,
+    model_config: formData.model_config,
   };
 
   return (
@@ -258,14 +313,39 @@ const HiringHall = ({ onHire }) => {
               />
             </div>
             <div className="space-y-2">
-              <label className="text-[10px] font-black text-[var(--color-text-muted)] uppercase tracking-widest px-1">Role</label>
-              <input
+              <label className="text-[10px] font-black text-[var(--color-text-muted)] uppercase tracking-widest px-1">Role (framework)</label>
+              <select
                 required
-                placeholder="e.g. personal-assistant"
                 className="w-full bg-[var(--color-bg-subtle)] border border-[var(--color-border)] px-5 py-4 rounded-xl focus:ring-4 focus:ring-[var(--color-brand-primary)]/10 focus:bg-white outline-none transition-all font-bold"
                 value={formData.role}
-                onChange={(e) => setFormData({ ...formData, role: e.target.value })}
-              />
+                onChange={(e) => {
+                  const roleKey = e.target.value;
+                  setFormData((prev) => ({ ...prev, role: roleKey }));
+                  applyRoleTemplate(roleKey);
+                }}
+              >
+                <option value="">Select a role</option>
+                {FRAMEWORK_ROLES.map((r) => (
+                  <option key={r.id} value={r.id}>{r.label}</option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-[var(--color-text-muted)] uppercase tracking-widest px-1">Type</label>
+              <div className="flex gap-4 pt-2">
+                {['worker', 'talent', 'orchestrator'].map((t) => (
+                  <label key={t} className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="agentType"
+                      checked={formData.type === t}
+                      onChange={() => setFormData((prev) => ({ ...prev, type: t }))}
+                      className="rounded-full"
+                    />
+                    <span className="font-medium capitalize">{t}</span>
+                  </label>
+                ))}
+              </div>
             </div>
           </div>
 
@@ -338,7 +418,7 @@ const HiringHall = ({ onHire }) => {
           </div>
 
           <div className="space-y-4">
-            <label className="text-[10px] font-black text-[var(--color-text-muted)] uppercase tracking-widest px-1">Tool Access</label>
+            <label className="text-[10px] font-black text-[var(--color-text-muted)] uppercase tracking-widest px-1">Tool Access (min. 1)</label>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {VALID_TOOLS.map((tool) => (
                 <label
@@ -353,6 +433,80 @@ const HiringHall = ({ onHire }) => {
                   <span className="text-sm font-medium text-[var(--color-text-primary)]">{tool.label}</span>
                 </label>
               ))}
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <label className="text-[10px] font-black text-[var(--color-text-muted)] uppercase tracking-widest px-1">Output format</label>
+            <select
+              className="w-full bg-[var(--color-bg-subtle)] border border-[var(--color-border)] px-5 py-4 rounded-xl font-bold"
+              value={formData.output_format?.type || 'markdown'}
+              onChange={(e) => setFormData((prev) => ({
+                ...prev,
+                output_format: { ...prev.output_format, type: e.target.value, schema: prev.output_format?.schema || 'freeform' },
+              }))}
+            >
+              <option value="markdown">markdown</option>
+              <option value="json">json</option>
+              <option value="code">code</option>
+            </select>
+          </div>
+
+          <div className="space-y-4">
+            <label className="text-[10px] font-black text-[var(--color-text-muted)] uppercase tracking-widest px-1">Guardrails — scope_limitation</label>
+            <textarea
+              required
+              placeholder="Wat mag deze agent absoluut niet?"
+              className="w-full bg-[var(--color-bg-subtle)] border border-[var(--color-border)] px-5 py-4 rounded-xl min-h-[80px] font-medium"
+              value={formData.guardrails?.scope_limitation || ''}
+              onChange={(e) => setFormData((prev) => ({
+                ...prev,
+                guardrails: { ...prev.guardrails, scope_limitation: e.target.value },
+              }))}
+            />
+            <label className="text-[10px] font-black text-[var(--color-text-muted)] uppercase tracking-widest px-1">Guardrails — escalation_rule</label>
+            <textarea
+              required
+              placeholder="Wanneer escaleer naar CEO?"
+              className="w-full bg-[var(--color-bg-subtle)] border border-[var(--color-border)] px-5 py-4 rounded-xl min-h-[80px] font-medium"
+              value={formData.guardrails?.escalation_rule || ''}
+              onChange={(e) => setFormData((prev) => ({
+                ...prev,
+                guardrails: { ...prev.guardrails, escalation_rule: e.target.value },
+              }))}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-[var(--color-text-muted)] uppercase tracking-widest px-1">Model</label>
+              <select
+                className="w-full bg-[var(--color-bg-subtle)] border border-[var(--color-border)] px-5 py-4 rounded-xl font-bold"
+                value={formData.model_config?.model || 'claude-sonnet'}
+                onChange={(e) => setFormData((prev) => ({
+                  ...prev,
+                  model_config: { ...prev.model_config, model: e.target.value },
+                }))}
+              >
+                <option value="claude-sonnet">claude-sonnet</option>
+                <option value="claude-haiku">claude-haiku</option>
+              </select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-[var(--color-text-muted)] uppercase tracking-widest px-1">Temperature (0.1 – 0.9)</label>
+              <input
+                type="range"
+                min="0.1"
+                max="0.9"
+                step="0.1"
+                className="w-full"
+                value={formData.model_config?.temperature ?? 0.7}
+                onChange={(e) => setFormData((prev) => ({
+                  ...prev,
+                  model_config: { ...prev.model_config, temperature: parseFloat(e.target.value) },
+                }))}
+              />
+              <span className="text-sm font-medium">{formData.model_config?.temperature ?? 0.7}</span>
             </div>
           </div>
         </div>

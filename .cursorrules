@@ -68,6 +68,9 @@ ernaar hoeft te vragen.
 - Code en comments: Engels
 - Communicatie met gebruiker: Nederlands
 
+## Crew Intelligent / Agent Lifecycle
+Bij taken over Agent Lifecycle, NewCrewMember, hired_agents, persona batch of Training Workflow: lees eerst docs/260317_CURSOR_crew_intelligent_phased_implementation.md en volg de fasering exact.
+
 ## Bij elke nieuwe taak
 1. Check beschikbare plugins en gebruik ze proactief
 2. Check of de taak door de Dev↔QA loop moet

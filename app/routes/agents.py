@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 import uuid
 from datetime import date, datetime, timezone
 from typing import Any, Annotated, Dict, List, Optional
@@ -26,13 +27,22 @@ from app.services.training import (
 )
 from app.services.training_workflow import TrainingWorkflow
 from app.data.agent_presets import AGENT_PRESETS
+from app.data.role_templates import get_role_template, list_role_templates
 
-# Hiring Hall spec: geldige tools en categorieën
+# Hiring Hall + framework sectie 5: geldige tools
 VALID_TOOLS = [
     "read_product", "write_copy", "read_analytics", "write_social",
     "read_tickets", "write_tickets", "read_jobs", "send_report", "write_report",
     "web_search", "read_lessons", "write_email", "read_seo",
     "review_content", "optimize_seo", "keyword_research", "provide_feedback",
+    "read_brief", "knowledge_retrieval", "submit_artifact", "read_url",
+    "validate_output", "check_evidence", "score_confidence", "approve_artifact",
+    "write_feedback", "create_development_point", "flag_escalation",
+    "read_logs", "read_metrics", "write_research", "score_keywords",
+    "write_response", "flag_pattern", "create_summary",
+    "execute_fallback", "write_incident_report", "read_codebase", "write_code", "run_tests",
+    "analyze_job", "build_execution_plan", "hire_agent", "delegate_task",
+    "monitor_progress", "approve_output", "generate_intake_questions",
 ]
 VALID_CATEGORIES = [
     "Management", "Content", "Marketing", "Operations",
@@ -97,6 +107,13 @@ def _serialize_agent_row(row: Any) -> Dict[str, Any]:
     record["knowledge_base_sources"] = _to_json_compat(record.get("knowledge_base_sources"))
     record["tool_access_whitelist"] = _to_json_compat(record.get("tool_access_whitelist"))
     record["hiring_logic"] = _to_json_compat(record.get("hiring_logic"))
+    # Framework columns (use when present)
+    for key in ("tool_whitelist", "knowledge_sources", "output_format", "guardrails", "model_config", "skills"):
+        if key in record and record[key] is not None:
+            record[key] = _to_json_compat(record[key])
+    # tool_whitelist can be TEXT[] from DB — ensure list for JSON
+    if "tool_whitelist" in record and isinstance(record["tool_whitelist"], (list, tuple)):
+        record["tool_whitelist"] = list(record["tool_whitelist"])
     # Spec compat: agent_name alias voor name
     if "name" in record and "agent_name" not in record:
         record["agent_name"] = record["name"]
@@ -258,6 +275,14 @@ async def list_agent_presets(
         "presets": AGENT_PRESETS,
         "total": len(AGENT_PRESETS),
     }
+
+
+@router.get("/role-templates")
+async def get_role_templates_list(
+    current_user: Annotated[TokenPayload, Depends(get_current_user)],
+) -> Dict[str, Any]:
+    """Rol-templates (framework sectie 5) voor default tool_whitelist, output_format, guardrails, model_config."""
+    return {"role_templates": list_role_templates()}
 
 
 @router.get("/{agent_id}/detail")
@@ -616,25 +641,32 @@ async def update_agent_avatar(
     return {"status": "updated"}
 
 
+def _unwrap_sources(val: Any) -> list:
+    if isinstance(val, str):
+        try:
+            return json.loads(val) if val else []
+        except Exception:
+            return []
+    return list(val) if isinstance(val, (list, tuple)) else []
+
+
 async def _set_knowledge_source_status(
     pool, agent_id: str, source_url: str, status: str, error_msg: Optional[str] = None
 ) -> None:
-    """Update status of one entry in knowledge_base_sources by url. Optionally set error for failed."""
+    """Update status of one entry in knowledge_sources (or knowledge_base_sources) by url."""
     async with pool.acquire() as conn:
+        cols = await conn.fetch(
+            "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'hired_agents'",
+        )
+        col_set = {r["column_name"] for r in cols}
+        source_col = "knowledge_sources" if "knowledge_sources" in col_set else "knowledge_base_sources"
         row = await conn.fetchrow(
-            "SELECT knowledge_base_sources FROM hired_agents WHERE agent_id = $1",
+            f"SELECT {source_col} FROM hired_agents WHERE agent_id = $1",
             agent_id,
         )
     if not row:
         return
-    sources = row.get("knowledge_base_sources")
-    if isinstance(sources, str):
-        try:
-            sources = json.loads(sources)
-        except Exception:
-            return
-    if not isinstance(sources, list):
-        return
+    sources = _unwrap_sources(row.get(source_col))
     for s in sources:
         if isinstance(s, dict) and s.get("url") == source_url:
             s["status"] = status
@@ -643,8 +675,8 @@ async def _set_knowledge_source_status(
             break
     async with pool.acquire() as conn:
         await conn.execute(
-            """
-            UPDATE hired_agents SET knowledge_base_sources = $1::jsonb, updated_at = now()
+            f"""
+            UPDATE hired_agents SET {source_col} = $1::jsonb, updated_at = now()
             WHERE agent_id = $2
             """,
             json.dumps(sources, default=_json_default),
@@ -653,23 +685,19 @@ async def _set_knowledge_source_status(
 
 
 async def _append_knowledge_processing(pool, agent_id: str, url: str, approved_by: str) -> None:
-    """Append a knowledge_base_sources entry with status processing."""
+    """Append a knowledge_sources (or knowledge_base_sources) entry with status processing."""
     now_iso = datetime.now(timezone.utc).isoformat()
     async with pool.acquire() as conn:
+        cols = await conn.fetch(
+            "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'hired_agents'",
+        )
+        col_set = {r["column_name"] for r in cols}
+        source_col = "knowledge_sources" if "knowledge_sources" in col_set else "knowledge_base_sources"
         row = await conn.fetchrow(
-            "SELECT knowledge_base_sources FROM hired_agents WHERE agent_id = $1",
+            f"SELECT {source_col} FROM hired_agents WHERE agent_id = $1",
             agent_id,
         )
-    sources = []
-    if row and row.get("knowledge_base_sources"):
-        raw = row["knowledge_base_sources"]
-        if isinstance(raw, str):
-            try:
-                sources = json.loads(raw)
-            except Exception:
-                pass
-        elif isinstance(raw, list):
-            sources = list(raw)
+    sources = _unwrap_sources(row.get(source_col) if row else None)
     sources = [s for s in sources if isinstance(s, dict) and s.get("url") != url]
     sources.append({
         "url": url,
@@ -679,8 +707,8 @@ async def _append_knowledge_processing(pool, agent_id: str, url: str, approved_b
     })
     async with pool.acquire() as conn:
         await conn.execute(
-            """
-            UPDATE hired_agents SET knowledge_base_sources = $1::jsonb, updated_at = now()
+            f"""
+            UPDATE hired_agents SET {source_col} = $1::jsonb, updated_at = now()
             WHERE agent_id = $2
             """,
             json.dumps(sources, default=_json_default),
@@ -918,6 +946,16 @@ def _is_hiring_hall_payload(body: Dict[str, Any]) -> bool:
     return "agent_name" in body or "goal" in body
 
 
+def _is_framework_payload(body: Dict[str, Any]) -> bool:
+    """True if request contains framework sectie 4 fields (type, output_format, guardrails, model_config)."""
+    return (
+        body.get("type") is not None
+        and body.get("output_format") is not None
+        and body.get("guardrails") is not None
+        and body.get("model_config") is not None
+    )
+
+
 @router.post("", response_model=AgentResponse, status_code=status.HTTP_201_CREATED)
 async def create_agent(
     current_user: Annotated[TokenPayload, Depends(require_super_admin)],
@@ -931,6 +969,91 @@ async def create_agent(
     """
     pool = await get_db()
     now = datetime.now(timezone.utc)
+
+    if _is_framework_payload(body):
+        # ─── Framework payload (Crew Intelligent sectie 4) ──────────────────
+        name = (body.get("name") or body.get("agent_name") or "").strip()
+        role = (body.get("role") or "").strip()
+        agent_type = (body.get("type") or "").strip().lower()
+        if agent_type not in ("worker", "talent", "orchestrator"):
+            raise HTTPException(status_code=422, detail="type must be worker, talent, or orchestrator")
+        goal = (body.get("goal") or "").strip()
+        system_prompt = (body.get("system_prompt") or "").strip()
+        tool_whitelist = body.get("tool_whitelist") or []
+        if not isinstance(tool_whitelist, list):
+            tool_whitelist = []
+        if not tool_whitelist:
+            raise HTTPException(status_code=422, detail="tool_whitelist must have at least one tool")
+        output_format = body.get("output_format")
+        guardrails = body.get("guardrails") or {}
+        if not isinstance(guardrails, dict):
+            guardrails = {}
+        if not guardrails.get("scope_limitation") or not guardrails.get("escalation_rule"):
+            raise HTTPException(status_code=422, detail="guardrails must include scope_limitation and escalation_rule")
+        model_config = body.get("model_config") or {}
+        if not isinstance(model_config, dict):
+            model_config = {}
+        temp = model_config.get("temperature", 0.7)
+        if not isinstance(temp, (int, float)) or temp < 0.1 or temp > 0.9:
+            raise HTTPException(status_code=422, detail="model_config.temperature must be between 0.1 and 0.9")
+        knowledge_sources = body.get("knowledge_sources") or []
+        if not isinstance(knowledge_sources, list):
+            knowledge_sources = []
+        skills = body.get("skills")
+        if skills is None:
+            skills = []
+        if not isinstance(skills, list):
+            skills = []
+        persona_source = (body.get("persona_source") or "").strip() or None
+        slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "agent"
+        agent_id = f"agent:{agent_type}:{slug}"
+        async with pool.acquire() as conn:
+            n = 0
+            while True:
+                existing = await conn.fetchrow(
+                    "SELECT agent_id FROM hired_agents WHERE agent_id = $1",
+                    agent_id,
+                )
+                if not existing:
+                    break
+                n += 1
+                agent_id = f"agent:{agent_type}:{slug}-{n}"
+            cols = await conn.fetch(
+                "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'hired_agents' ORDER BY ordinal_position",
+            )
+            col_set = {r["column_name"] for r in cols}
+            insert_cols = [
+                "agent_id", "name", "type", "role", "goal", "system_prompt",
+                "tool_whitelist", "knowledge_sources", "output_format", "guardrails", "model_config",
+                "skills", "persona_source", "readiness_score", "is_active", "is_suspended",
+                "created_at", "updated_at",
+            ]
+            insert_cols = [c for c in insert_cols if c in col_set]
+            placeholders = ", ".join(f"${i+1}" for i in range(len(insert_cols)))
+            names = ", ".join(insert_cols)
+            values = [
+                agent_id, name, agent_type, role, goal, system_prompt,
+                tool_whitelist, json.dumps(knowledge_sources), json.dumps(output_format or {}), json.dumps(guardrails), json.dumps(model_config),
+                json.dumps(skills), persona_source, 0, False, False,
+                now, now,
+            ]
+            value_map = dict(zip([
+                "agent_id", "name", "type", "role", "goal", "system_prompt",
+                "tool_whitelist", "knowledge_sources", "output_format", "guardrails", "model_config",
+                "skills", "persona_source", "readiness_score", "is_active", "is_suspended",
+                "created_at", "updated_at",
+            ], values))
+            values_ordered = [value_map[c] for c in insert_cols]
+            row = await conn.fetchrow(
+                f"""
+                INSERT INTO hired_agents ({names})
+                VALUES ({placeholders})
+                RETURNING *
+                """,
+                *values_ordered,
+            )
+        logger.info("Agent aangemaakt (framework): %s (%s), is_active=false", agent_id, name)
+        return _serialize_agent_row(row)
 
     if _is_hiring_hall_payload(body):
         # ─── Hiring Hall spec (Product Spec v1.1) ─────────────────────────
@@ -974,7 +1097,7 @@ async def create_agent(
                     $1, $2, $3, $4, $5,
                     $6, $6,
                     $7::jsonb, $8::jsonb,
-                    'active', true, false,
+                    'active', false, false,
                     $9, $9
                 )
                 RETURNING *
@@ -990,7 +1113,7 @@ async def create_agent(
                 now,
             )
 
-        logger.info("Agent aangemaakt (Hiring Hall): %s (%s)", agent_id, payload.agent_name)
+        logger.info("Agent aangemaakt (Hiring Hall): %s (%s), is_active=false", agent_id, payload.agent_name)
         return _serialize_agent_row(row)
 
     # ─── Legacy payload (agent_id, name, role) ─────────────────────────────
@@ -1037,6 +1160,56 @@ async def create_agent(
         )
 
     return _serialize_agent_row(row)
+
+
+@router.post("/{agent_id}/activate")
+async def activate_agent(
+    agent_id: str,
+    current_user: Annotated[TokenPayload, Depends(require_super_admin)],
+) -> Dict[str, Any]:
+    """
+    Zet is_active = true alleen als alle verplichte velden (framework sectie 4) aanwezig zijn.
+    """
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT * FROM hired_agents WHERE agent_id = $1",
+            agent_id,
+        )
+        if not row:
+            raise HTTPException(status_code=404, detail="Agent not found")
+        r = dict(row)
+        # Check required fields
+        if not (r.get("name") or r.get("agent_name")):
+            raise HTTPException(status_code=400, detail="name is required to activate")
+        if not r.get("role"):
+            raise HTTPException(status_code=400, detail="role is required to activate")
+        if not r.get("goal"):
+            raise HTTPException(status_code=400, detail="goal is required to activate")
+        if not r.get("system_prompt"):
+            raise HTTPException(status_code=400, detail="system_prompt is required to activate")
+        tool_whitelist = r.get("tool_whitelist")
+        if tool_whitelist is None:
+            tool_whitelist = r.get("tool_access_whitelist")
+        if isinstance(tool_whitelist, str):
+            try:
+                tool_whitelist = json.loads(tool_whitelist) if tool_whitelist else []
+            except Exception:
+                tool_whitelist = []
+        if not (isinstance(tool_whitelist, list) and len(tool_whitelist) > 0):
+            raise HTTPException(status_code=400, detail="tool_whitelist must have at least one tool")
+        for key in ("output_format", "guardrails", "model_config"):
+            val = r.get(key)
+            if val is None or (isinstance(val, str) and (not val or val in ("{}", "null"))):
+                raise HTTPException(status_code=400, detail=f"{key} is required to activate")
+        agent_type = r.get("type")
+        if not agent_type:
+            raise HTTPException(status_code=400, detail="type is required to activate")
+        await conn.execute(
+            "UPDATE hired_agents SET is_active = true, updated_at = now() WHERE agent_id = $1",
+            agent_id,
+        )
+    return {"status": "activated", "agent_id": agent_id}
 
 
 @router.patch("/{agent_id}", response_model=AgentResponse)
