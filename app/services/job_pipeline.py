@@ -786,6 +786,19 @@ def _run_step_agent(
 
 
 async def _insert_plan_steps(conn, job_id: str, plan: ExecutionPlan):
+    # Guard: voorkom dubbele insert voor dezelfde job
+    existing = await conn.fetchval(
+        "SELECT COUNT(*) FROM job_steps WHERE job_id = $1",
+        job_id,
+    )
+    if existing > 0:
+        logger.info(
+            "Skipping _insert_plan_steps for job %s: %d steps already exist",
+            job_id,
+            existing,
+        )
+        return
+
     # Replace any existing steps so we never duplicate when plan is generated/saved twice.
     await conn.execute("DELETE FROM job_steps WHERE job_id = $1", job_id)
     # Columns from information_schema; id omitted (default). Include agent if present (NOT NULL in some envs).
