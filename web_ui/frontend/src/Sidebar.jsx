@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { Link, NavLink } from 'react-router-dom'
 import {
   LayoutDashboard,
@@ -180,6 +180,10 @@ export default function Sidebar() {
   const [hrNotifications, setHrNotifications] = useState(0)
   const [systemEventsCount, setSystemEventsCount] = useState(0)
   const [approvalCount, setApprovalCount] = useState(0)
+  const inboxIntervalRef = useRef(null)
+  const hrIntervalRef = useRef(null)
+  const systemEventsIntervalRef = useRef(null)
+  const approvalIntervalRef = useRef(null)
 
   useEffect(() => {
     let active = true
@@ -195,10 +199,10 @@ export default function Sidebar() {
       }
     }
     fetchInboxSummary()
-    const interval = setInterval(fetchInboxSummary, 30000)
+    inboxIntervalRef.current = setInterval(fetchInboxSummary, 30000)
     return () => {
       active = false
-      clearInterval(interval)
+      if (inboxIntervalRef.current) clearInterval(inboxIntervalRef.current)
     }
   }, [])
 
@@ -216,10 +220,10 @@ export default function Sidebar() {
       }
     }
     fetchHrNotifications()
-    const interval = setInterval(fetchHrNotifications, 60000)
+    hrIntervalRef.current = setInterval(fetchHrNotifications, 60000)
     return () => {
       active = false
-      clearInterval(interval)
+      if (hrIntervalRef.current) clearInterval(hrIntervalRef.current)
     }
   }, [])
 
@@ -237,10 +241,10 @@ export default function Sidebar() {
       }
     }
     fetchSystemEvents()
-    const interval = setInterval(fetchSystemEvents, 30000)
+    systemEventsIntervalRef.current = setInterval(fetchSystemEvents, 30000)
     return () => {
       active = false
-      clearInterval(interval)
+      if (systemEventsIntervalRef.current) clearInterval(systemEventsIntervalRef.current)
     }
   }, [])
 
@@ -258,10 +262,10 @@ export default function Sidebar() {
       }
     }
     fetchApproval()
-    const interval = setInterval(fetchApproval, 60000)
+    approvalIntervalRef.current = setInterval(fetchApproval, 60000)
     return () => {
       active = false
-      clearInterval(interval)
+      if (approvalIntervalRef.current) clearInterval(approvalIntervalRef.current)
     }
   }, [])
 

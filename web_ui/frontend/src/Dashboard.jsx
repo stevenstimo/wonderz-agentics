@@ -1,5 +1,5 @@
 import { apiBase } from './apiBase'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import PageLayout from './PageLayout'
 import SherlockWidget from './SherlockWidget.jsx'
@@ -95,6 +95,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [statusLoading, setStatusLoading] = useState(true)
   const [lastRefresh, setLastRefresh] = useState(null)
+  const timerRef = useRef(null)
 
   const fetchJobs = async () => {
     try {
@@ -139,8 +140,10 @@ export default function Dashboard() {
     if (!authReady) return
     fetchJobs()
     fetchStatus()
-    const timer = setInterval(fetchStatus, 30000)
-    return () => clearInterval(timer)
+    timerRef.current = setInterval(fetchStatus, 30000)
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current)
+    }
   }, [authReady])
 
   const statusStyle = (status) => {

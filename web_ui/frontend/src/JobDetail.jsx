@@ -106,6 +106,7 @@ export default function JobDetail() {
   const [ceoTyping, setCeoTyping] = useState(false)
   const chatEndRef = useRef(null)
   const chatHistoryLengthRef = useRef(0)
+  const intervalRef = useRef(null)
 
   const fetchJob = useCallback(async () => {
     if (!jobId) return
@@ -149,8 +150,10 @@ export default function JobDetail() {
 
   useEffect(() => {
     if (!data?.job || data.job.status !== 'RUNNING') return
-    const interval = setInterval(fetchJob, 5000)
-    return () => clearInterval(interval)
+    intervalRef.current = setInterval(fetchJob, 5000)
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current)
+    }
   }, [data?.job?.status, fetchJob])
 
   useEffect(() => {
