@@ -1040,10 +1040,6 @@ async def run_intake_inline(job_id: str, job_post: str):
                     )
             except Exception as _ev:
                 logger.warning("Event TASK_CREATED failed: %s", _ev)
-            logger.debug(
-                "PLAN_DUMP step 0: %s",
-                plan.model_dump()["steps"][0] if plan.model_dump().get("steps") else "geen steps",
-            )
             await _update_job_context(
                 conn,
                 job_id,
@@ -1230,10 +1226,6 @@ async def run_intake_answers_inline(job_id: str, answers: dict):
                 available_agents = await _fetch_available_agents(conn)
                 plan = strategy.generate_execution_plan(brief, available_agents)
                 await _insert_plan_steps(conn, job_id, plan)
-                logger.debug(
-                    "PLAN_DUMP step 0: %s",
-                    plan.model_dump()["steps"][0] if plan.model_dump().get("steps") else "geen steps",
-                )
                 await _update_job_context(
                     conn,
                     job_id,
