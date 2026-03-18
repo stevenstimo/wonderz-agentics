@@ -41,7 +41,7 @@ async def main():
     now = datetime.now(timezone.utc)
     seen_slugs = {}
     inserted_agents = []
-    agent_ids = []
+    agents_for_dev_points = []  # (agent_id, role, dev_priority) for all agents
 
     # Resolve columns
     cols = await conn.fetch(
@@ -61,7 +61,7 @@ async def main():
         existing = await conn.fetchrow("SELECT 1 FROM hired_agents WHERE agent_id = $1", agent_id)
         if existing:
             print(f"Skip {agent_id}: already exists")
-            agent_ids.append(agent_id)
+            agents_for_dev_points.append((agent_id, template["role"], dev_priority))
             continue
 
         goal = f"Persona {name} — {badge}. Ontwikkelpunt: {dev_priority}"
@@ -80,7 +80,7 @@ async def main():
         values = [
             agent_id, name, agent_type, template["role"], goal, system_prompt,
             template.get("tool_whitelist") or [],
-            [],
+            json.dumps([]),
             json.dumps(template.get("output_format") or {}),
             json.dumps(template.get("guardrails") or {}),
             json.dumps(template.get("model_config") or {}),
@@ -100,11 +100,11 @@ async def main():
         ], values))
         values_ordered = [value_map[c] for c in insert_cols]
         await conn.execute(
-            f"INSERT INTO hired_agents ({names}) VALUES ({placeholders})",
+            f"INSERT INTO hired_agents ({names}) VALUES ({placeholders}) ON CONFLICT (agent_id) DO NOTHING",
             *values_ordered,
         )
-        inserted_agents.append((agent_id, name, dev_priority))
-        agent_ids.append(agent_id)
+        inserted_agents.append((agent_id, name, dev_priority, template["role"]))
+        agents_for_dev_points.append((agent_id, template["role"], dev_priority))
         print(f"Inserted {agent_id} ({name})")
 
     # Fase 4b: development_points (3 per agent from development priority)
@@ -112,7 +112,7 @@ async def main():
         "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'development_points' ORDER BY ordinal_position"
     )
     dp_col_set = {r["column_name"] for r in dp_cols}
-    for agent_id, name, dev_priority in inserted_agents:
+    for agent_id, agent_role, dev_priority in agents_for_dev_points:
         # Derive 3 patterns from development_priority (split by "&" or ", " or use same 3x with prefix)
         parts = re.split(r"\s+&\s+|\s*,\s*", dev_priority.strip())
         patterns = [p.strip() for p in parts if p.strip()]
@@ -125,11 +125,23 @@ async def main():
                 pattern = dev_priority
             safe_agent = agent_id.replace(":", "-")
             point_id = f"DP-2026-03-{safe_agent}-{i+1}"[:50]
-            if "point_id" in dp_col_set and "agent_id" in dp_col_set and "issue_description" in dp_col_set:
+            if "point_id" in dp_col_set and "agent_id" in dp_col_set and "agent_role" in dp_col_set and "issue_description" in dp_col_set:
+                await conn.execute(
+                    """
+                    INSERT INTO development_points (point_id, agent_id, agent_role, issue_description, impact, status, frequency)
+                    VALUES ($1, $2, $3, $4, 'LOW', 'OPEN', 1)
+                    ON CONFLICT (point_id) DO NOTHING
+                    """,
+                    point_id,
+                    agent_id,
+                    agent_role,
+                    pattern[:500],
+                )
+            elif "point_id" in dp_col_set and "agent_id" in dp_col_set and "issue_description" in dp_col_set:
                 await conn.execute(
                     """
                     INSERT INTO development_points (point_id, agent_id, issue_description, impact, status, frequency)
-                    VALUES ($1, $2, $3, 'low', 'OPEN', 1)
+                    VALUES ($1, $2, $3, 'LOW', 'OPEN', 1)
                     ON CONFLICT (point_id) DO NOTHING
                     """,
                     point_id,
@@ -140,7 +152,7 @@ async def main():
                 await conn.execute(
                     """
                     INSERT INTO development_points (agent_id, pattern, impact, status)
-                    VALUES ($1, $2, 'low', 'open')
+                    VALUES ($1, $2, 'LOW', 'OPEN')
                     """,
                     agent_id,
                     pattern[:500],
@@ -151,7 +163,7 @@ async def main():
         print(f"Development points for {agent_id}")
 
     await conn.close()
-    print(f"Done. Inserted {len(inserted_agents)} agents, {len(agent_ids)} total in roster.")
+    print(f"Done. Inserted {len(inserted_agents)} agents, {len(agents_for_dev_points)} total with dev points.")
 
 
 if __name__ == "__main__":
