@@ -39,7 +39,6 @@ const ClientDetailLayout = lazy(() => import('./ClientDetailLayout.jsx'))
 const Status = lazy(() => import('./Status.jsx'))
 const SystemEventsPage = lazy(() => import('./pages/SystemEventsPage.jsx'))
 const MyAccount = lazy(() => import('./MyAccount.jsx'))
-const HiringHall = lazy(() => import('./HiringHall.jsx'))
 const JobSplitView = lazy(() => import('./JobSplitView.jsx'))
 const NewJob = lazy(() => import('./NewJob.jsx'))
 const MissionControl = lazy(() => import('./MissionControl.jsx'))
@@ -135,7 +134,6 @@ ReactDOM.createRoot(document.getElementById('root')).render(
               <Route path="/agent-inbox" element={<AgentInbox />} />
               <Route path="/seo/tool" element={<SEOTool />} />
               <Route path="/devbot" element={<DevbotHome />} />
-              <Route path="/hiring" element={<HiringHall onHire={() => {}} />} />
               <Route path="/newbies" element={<Newbies />} />
               <Route path="/newbies/:newbieId" element={<RouteErrorBoundary paramKey="newbieId"><NewbieDetail /></RouteErrorBoundary>} />
               <Route path="/talents" element={<Navigate to="/newbies" replace />} />
