@@ -112,6 +112,7 @@ from app.routes import (
     knowledge as knowledge_routes,
     lessons,
     monitoring,
+    newbies,
     settings,
     status,
     system_events as system_events_routes,
@@ -142,6 +143,7 @@ app.include_router(jobs.router)
 app.include_router(knowledge_routes.router)
 app.include_router(lessons.router)
 app.include_router(monitoring.router)
+app.include_router(newbies.router)
 app.include_router(settings.router)
 app.include_router(status.router)
 app.include_router(system_events_routes.router)

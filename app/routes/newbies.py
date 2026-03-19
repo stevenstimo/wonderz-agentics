@@ -187,6 +187,10 @@ class TrainNewbieRequest(BaseModel):
         return [u.strip() for u in self.urls if (u or "").strip()]
 
 
+class EvaluateUrlRequest(BaseModel):
+    source_url: str = Field(..., min_length=10)
+
+
 def _compute_readiness(score_m: int, score_c: int, score_d: int, score_o: int) -> int:
     """Readiness = rounded average of 4 category scores (0-100)."""
     return min(100, round((score_m + score_c + score_d + score_o) / 4))
@@ -395,6 +399,127 @@ async def train_newbie_path(newbie_id: str, req: TrainNewbieRequest):
     return _row_to_dict(row)
 
 
+@router.post("/{newbie_id}/evaluate")
+async def evaluate_and_maybe_train_url(newbie_id: str, body: EvaluateUrlRequest):
+    """
+    Newbie evalueert zelf een URL en besluit of hij traint.
+    Combineert evaluatie + eventuele training in één call.
+    """
+    from app.services.training import scrape_url, extract_text, TrainingError
+
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT * FROM newbies WHERE newbie_id = $1", newbie_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="Newbie not found")
+
+        newbie_name = row.get("newbie_name") or "Newbie"
+        persona = row.get("persona") or ""
+        qualities = row.get("qualities") or ""
+        development = row.get("development") or ""
+        status_val = row.get("status") or "in_training"
+
+        url = (body.source_url or "").strip()
+        if not url:
+            raise HTTPException(status_code=400, detail="source_url is required")
+
+        # 1. Scrape URL
+        try:
+            html = await scrape_url(url)
+        except TrainingError as e:
+            evaluation = {
+                "accept": False,
+                "category": "management",
+                "reason": "Ik kon deze URL niet bereiken.",
+                "confidence": 0.0,
+            }
+            return {
+                "evaluation": evaluation,
+                "trained": False,
+                "score_gained": 0,
+                "error": str(e),
+            }
+
+        text = extract_text(html)
+        stripped = (text or "").strip()
+        if len(stripped) < 50:
+            evaluation = {
+                "accept": False,
+                "category": "management",
+                "reason": "Er stond te weinig inhoud op deze pagina om er iets van te leren.",
+                "confidence": 0.0,
+            }
+            return {
+                "evaluation": evaluation,
+                "trained": False,
+                "score_gained": 0,
+            }
+
+        # 2. Claude evaluatie
+        evaluation = await _evaluate_url_via_claude(
+            newbie_name=newbie_name,
+            persona=persona,
+            qualities=qualities,
+            development=development,
+            page_text=stripped,
+        )
+
+        # Als Claude besluit om niet te trainen: alleen evaluatie teruggeven
+        if not evaluation.get("accept"):
+            return {
+                "evaluation": evaluation,
+                "trained": False,
+                "score_gained": 0,
+            }
+
+        category = str(evaluation.get("category") or "management")
+        if category not in TRAINING_CATEGORIES:
+            # Defensieve fallback: niet trainen als categorie niet geldig is
+            evaluation = {
+                **evaluation,
+                "accept": False,
+                "category": "management",
+                "reason": "Ik kon geen geldige categorie kiezen voor deze inhoud.",
+            }
+            return {
+                "evaluation": evaluation,
+                "trained": False,
+                "score_gained": 0,
+            }
+
+        # Hired newbies mogen niet meer trainen, maar evaluatie is al gedaan
+        if status_val == "hired":
+            return {
+                "evaluation": evaluation,
+                "trained": False,
+                "score_gained": 0,
+                "error": "Cannot train a hired newbie",
+            }
+
+        # 3. Probeer te trainen met de gekozen categorie
+        ok, train_error = await _try_train_one_url(conn, newbie_id, url, category)
+        if not ok:
+            return {
+                "evaluation": evaluation,
+                "trained": False,
+                "score_gained": 0,
+                "error": train_error,
+            }
+
+        logger.info(
+            "Evaluate+train newbie %s: URL=%s category=%s +%s",
+            newbie_id,
+            url,
+            category,
+            SCORE_PER_TRAINING,
+        )
+        return {
+            "evaluation": evaluation,
+            "trained": True,
+            "score_gained": SCORE_PER_TRAINING,
+        }
+
+
 @router.post("/backfill-summaries")
 async def backfill_summaries():
     """
@@ -499,6 +624,150 @@ Output alleen de system_prompt, geen uitleg of markdown."""
             f"System prompt generation failed: {e}. "
             "Pass system_prompt explicitly in the hire request to bypass Claude."
         ) from e
+
+
+async def _evaluate_url_via_claude(
+    newbie_name: str,
+    persona: str,
+    qualities: str,
+    development: str,
+    page_text: str,
+) -> dict:
+    """
+    Laat Claude een URL-inhoud evalueren voor een newbie.
+    Verwachte output:
+    {
+      "accept": true/false,
+      "category": "management|creative|development|operations",
+      "reason": "...eerste persoon...",
+      "confidence": 0.0-1.0
+    }
+
+    Bij fouten of ongeldige JSON wordt een defensieve reject teruggegeven.
+    """
+    api_key = (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
+    if not api_key:
+        logger.error("ANTHROPIC_API_KEY not set; cannot call Claude for URL evaluation")
+        return {
+            "accept": False,
+            "category": "management",
+            "reason": "Ik kon deze URL niet beoordelen omdat mijn AI-sleutel ontbreekt.",
+            "confidence": 0.0,
+        }
+
+    from anthropic import Anthropic
+
+    system_prompt = (
+        "Je bent {newbie_name}, een agent in ontwikkeling.\n\n"
+        "Jouw persona: {persona}\n"
+        "Jouw kwaliteiten: {qualities}\n"
+        "Jouw ontwikkelrichting: {development}\n\n"
+        "Je hebt net de inhoud van een webpagina gelezen.\n"
+        "Bepaal of deze inhoud relevant is voor jouw ontwikkeling als agent.\n\n"
+        "Beschikbare categorieën:\n"
+        "- management: leiderschap, planning, delegatie, communicatie\n"
+        "- creative: schrijven, design, storytelling, content\n"
+        "- development: techniek, code, architectuur, data\n"
+        "- operations: uitvoering, processen, ondersteuning, organisatie\n\n"
+        "Beantwoord ALLEEN met een JSON object. Geen markdown, geen uitleg erbuiten:\n"
+        "{{\n"
+        '  "accept": true/false,\n'
+        '  "category": "management|creative|development|operations",\n'
+        '  "reason": "Jouw motivatie in eerste persoon (max 2 zinnen)",\n'
+        '  "confidence": 0.0-1.0\n'
+        "}}\n\n"
+        "Als de inhoud niet te scrapen was, niet relevant is, of van lage kwaliteit is: accept = false."
+    ).format(
+        newbie_name=newbie_name or "Newbie",
+        persona=persona or "",
+        qualities=qualities or "",
+        development=development or "",
+    )
+
+    # Beperk lengte van page_text om tokens te sparen
+    text = (page_text or "").strip()
+    if len(text) > 8000:
+        text = text[:8000]
+
+    user_content = f"Dit is de tekst van de pagina:\n\n{text}"
+
+    import asyncio
+    try:
+        client = Anthropic()
+        response = await asyncio.to_thread(
+            client.messages.create,
+            model=SYSTEM_PROMPT_MODEL,
+            max_tokens=512,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_content}],
+        )
+        content = getattr(response, "content", None) or []
+        raw = ""
+        for block in content:
+            if hasattr(block, "text") and block.text is not None:
+                raw += str(block.text)
+            elif isinstance(block, dict) and block.get("text"):
+                raw += str(block["text"])
+        raw = raw.strip()
+        logger.info("Claude evaluation raw response for %s: %s", newbie_name, raw[:500])
+        # Strip markdown code fence if present
+        if raw.startswith("```"):
+            raw = raw.split("```", 2)[1]
+            if raw.lower().startswith("json"):
+                raw = raw[4:].lstrip()
+        raw = raw.strip()
+        # Extract first JSON object (from first { to matching })
+        start = raw.find("{")
+        if start >= 0:
+            depth = 0
+            for i in range(start, len(raw)):
+                if raw[i] == "{":
+                    depth += 1
+                elif raw[i] == "}":
+                    depth -= 1
+                    if depth == 0:
+                        raw = raw[start : i + 1]
+                        break
+        data = json.loads(raw)
+        if isinstance(data, list) and len(data) > 0:
+            data = data[0]
+        if not isinstance(data, dict):
+            data = {}
+        # Normalize keys (Claude sometimes returns pretty-printed keys with newlines/spaces)
+        data = {str(k).strip(): v for k, v in data.items()}
+    except Exception as e:
+        logger.warning("Claude evaluation failed or returned invalid JSON: %s", e)
+        return {
+            "accept": False,
+            "category": "management",
+            "reason": "Ik kon deze inhoud niet goed beoordelen.",
+            "confidence": 0.0,
+        }
+
+    try:
+        accept = bool(data.get("accept", False))
+        category = str(data.get("category") or "management")
+        if category not in TRAINING_CATEGORIES:
+            category = "management"
+        reason = str(data.get("reason") or "").strip() or "Ik sla deze URL over."
+        try:
+            confidence = float(data.get("confidence", 0.0))
+        except (TypeError, ValueError):
+            confidence = 0.0
+        return {
+            "accept": accept,
+            "category": category,
+            "reason": reason,
+            "confidence": max(0.0, min(1.0, confidence)),
+        }
+    except Exception as e:
+        logger.warning("Claude evaluation parse failed: %s (data=%s)", e, data, exc_info=True)
+        return {
+            "accept": False,
+            "category": "management",
+            "reason": "Ik kon deze inhoud niet goed beoordelen.",
+            "confidence": 0.0,
+        }
 
 
 class HireNewbieRequest(BaseModel):

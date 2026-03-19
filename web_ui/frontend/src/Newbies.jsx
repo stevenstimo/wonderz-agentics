@@ -57,11 +57,18 @@ export default function Newbies() {
   })
 
   const [trainNewbie, setTrainNewbie] = useState(null)
-  const [trainForm, setTrainForm] = useState({ urls: '', category: 'management' })
+  const [trainForm, setTrainForm] = useState({ urls: '' })
   const [training, setTraining] = useState(false)
   const [trainError, setTrainError] = useState('')
   const [trainProgress, setTrainProgress] = useState({ current: 0, total: 0, skipped: [] })
   const [trainingProgress, setTrainingProgress] = useState(null) // { newbieId, current, total } — live op card
+  const [evaluationResults, setEvaluationResults] = useState([]) // { url, accept, category, reason, confidence, trained, score_gained, error? }
+  const [evaluationProgress, setEvaluationProgress] = useState(null) // { current, total } or null
+
+  const [broadcastUrl, setBroadcastUrl] = useState('')
+  const [broadcasting, setBroadcasting] = useState(false)
+  // Per newbie_id: { status: 'pending'|'evaluating'|'accepted'|'skipped'|'error', category?, reason?, score_gained? }
+  const [broadcastResults, setBroadcastResults] = useState({})
 
   const canEdit = true // tijdelijk: isAdmin(userRole) faalt omdat userRole niet correct wordt opgehaald na inloggen
   console.log('userRole:', userRole, 'canEdit:', canEdit)
@@ -147,9 +154,11 @@ export default function Newbies() {
 
   const openTrainModal = (n) => {
     setTrainNewbie(n)
-    setTrainForm({ urls: '', category: 'management' })
+    setTrainForm({ urls: '' })
     setTrainError('')
     setTrainProgress({ current: 0, total: 0, skipped: [] })
+    setEvaluationResults([])
+    setEvaluationProgress(null)
   }
 
   const submitTrain = async () => {
@@ -163,52 +172,114 @@ export default function Newbies() {
     const total = urlLines.length
     setTraining(true)
     setTrainError('')
-    setTrainProgress({ current: 0, total, skipped: [] })
+    setEvaluationResults([])
+    setEvaluationProgress({ current: 0, total })
     setTrainingProgress({ newbieId, current: 0, total })
 
-    const skipped = []
-    let processed = 0
+    const results = []
 
     for (let i = 0; i < urlLines.length; i++) {
       const url = urlLines[i]
-      setTrainProgress((p) => ({ ...p, current: i + 1, skipped: [...skipped] }))
+      setEvaluationProgress({ current: i + 1, total })
       setTrainingProgress({ newbieId, current: i + 1, total })
 
       try {
-        const res = await apiFetch('/api/newbies/train', {
+        const res = await apiFetch(`/api/newbies/${encodeURIComponent(newbieId)}/evaluate`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            newbie_id: newbieId,
-            source_url: url,
-            category: trainForm.category,
-          }),
+          body: JSON.stringify({ source_url: url }),
         })
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}))
-          skipped.push({ index: i + 1, url, reason: data.detail || `HTTP ${res.status}` })
-          continue
+        const data = await res.json().catch(() => ({}))
+        const ev = data.evaluation || {}
+        const item = {
+          url,
+          accept: !!ev.accept,
+          category: ev.category || 'management',
+          reason: ev.reason || '',
+          confidence: ev.confidence ?? 0,
+          trained: !!data.trained,
+          score_gained: data.score_gained ?? 0,
+          error: data.error || null,
         }
-        processed++
-        await fetchNewbies(true)
+        results.push(item)
+        setEvaluationResults([...results])
+        if (data.trained) await fetchNewbies(true)
       } catch (err) {
-        skipped.push({ index: i + 1, url, reason: err.message || 'Niet bereikbaar' })
+        const item = {
+          url,
+          accept: false,
+          category: 'management',
+          reason: 'URL niet bereikbaar of fout bij evaluatie.',
+          confidence: 0,
+          trained: false,
+          score_gained: 0,
+          error: err.message || 'Niet bereikbaar',
+        }
+        results.push(item)
+        setEvaluationResults([...results])
       }
     }
 
-    setTrainProgress((p) => ({ ...p, skipped }))
+    setEvaluationProgress(null)
     setTrainingProgress(null)
-    if (skipped.length > 0) {
-      setTrainError(
-        `Verwerkt: ${processed} van ${total}. Overgeslagen: ${skipped.map((s) => `URL ${s.index} (${s.reason})`).join('; ')}`
-      )
-    } else {
-      setTrainNewbie(null)
-      setTrainForm({ urls: '', category: 'management' })
-      setTrainProgress({ current: 0, total: 0, skipped: [] })
-      await fetchNewbies(true)
-    }
     setTraining(false)
+  }
+
+  const categoryLabel = (apiValue) => CATEGORIES.find((c) => c.apiValue === apiValue)?.label || apiValue
+
+  const submitBroadcast = async () => {
+    const url = (broadcastUrl || '').trim()
+    if (!url || broadcasting) return
+    const toEvaluate = newbies.filter((n) => (n.status || '') !== 'hired')
+    if (toEvaluate.length === 0) return
+
+    setBroadcasting(true)
+    setBroadcastResults({})
+
+    const results = {}
+    toEvaluate.forEach((n) => {
+      results[n.newbie_id] = { status: 'evaluating' }
+    })
+    setBroadcastResults({ ...results })
+
+    await Promise.all(
+      toEvaluate.map(async (n) => {
+        const id = n.newbie_id
+        try {
+          const res = await apiFetch(`/api/newbies/${encodeURIComponent(id)}/evaluate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ source_url: url }),
+          })
+          const data = await res.json().catch(() => ({}))
+          const ev = data.evaluation || {}
+          if (ev.accept) {
+            setBroadcastResults((prev) => ({
+              ...prev,
+              [id]: { status: 'accepted', category: ev.category, reason: ev.reason, score_gained: data.score_gained ?? 0 },
+            }))
+            if (data.trained) await fetchNewbies(true)
+          } else {
+            setBroadcastResults((prev) => ({
+              ...prev,
+              [id]: { status: 'skipped', reason: ev.reason || 'Overgeslagen.' },
+            }))
+          }
+        } catch (err) {
+          setBroadcastResults((prev) => ({
+            ...prev,
+            [id]: { status: 'error', reason: 'Kon Newbie niet bereiken' },
+          }))
+        }
+      })
+    )
+
+    setBroadcasting(false)
+  }
+
+  const handleBroadcastUrlChange = (e) => {
+    setBroadcastUrl(e.target.value)
+    setBroadcastResults({})
   }
 
   return (
@@ -233,6 +304,37 @@ export default function Newbies() {
         </div>
 
         {error && <div className="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
+
+        {/* Broadcast balk: één URL aanbieden aan alle Newbies */}
+        <div className="mb-5 rounded-lg border border-slate-200 bg-slate-50/50 p-4">
+          <h3 className="text-sm font-semibold text-slate-800 mb-2">URL aanbieden aan alle Newbies</h3>
+          <div className="flex flex-wrap items-center gap-2 mb-2">
+            <input
+              type="url"
+              className="flex-1 min-w-[200px] px-3 py-2 border border-slate-300 rounded-lg font-mono text-sm disabled:opacity-60 disabled:bg-slate-100"
+              placeholder="https://..."
+              value={broadcastUrl}
+              onChange={handleBroadcastUrlChange}
+              disabled={broadcasting}
+            />
+            <button
+              type="button"
+              onClick={submitBroadcast}
+              disabled={broadcasting || !(broadcastUrl || '').trim() || loading}
+              className="px-4 py-2 bg-indigo-600 text-white rounded-lg disabled:opacity-50 flex items-center gap-2"
+            >
+              {broadcasting ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Aanbieden…
+                </>
+              ) : (
+                'Aanbieden aan alle Newbies'
+              )}
+            </button>
+          </div>
+          <p className="text-xs text-slate-600">Elke Newbie beslist zelf of deze URL bij hem past.</p>
+        </div>
 
         {loading ? (
           <div className="text-sm text-slate-500">Laden...</div>
@@ -262,7 +364,7 @@ export default function Newbies() {
                 </div>
                 {isTraining && (
                   <p className="text-xs text-indigo-600 font-medium mt-1">
-                    Training bezig... ({trainingProgress.current}/{trainingProgress.total} URLs verwerkt)
+                    Evalueren… ({trainingProgress.current}/{trainingProgress.total} URLs)
                   </p>
                 )}
                 <p className="text-xs text-slate-600 mt-1 line-clamp-2">{truncate(n.persona, 100)}</p>
@@ -292,6 +394,44 @@ export default function Newbies() {
                     </div>
                   ))}
                 </div>
+
+                {/* Broadcast result per card */}
+                {broadcastResults[n.newbie_id] && (
+                  <div className="mt-3 pt-3 border-t border-slate-100 text-xs" onClick={(e) => e.stopPropagation()}>
+                    {broadcastResults[n.newbie_id].status === 'evaluating' && (
+                      <div className="flex items-center gap-2 text-indigo-600">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                        Evalueren...
+                      </div>
+                    )}
+                    {broadcastResults[n.newbie_id].status === 'accepted' && (
+                      <div>
+                        <div className="font-medium text-green-600">
+                          ✓ Geaccepteerd — {categoryLabel(broadcastResults[n.newbie_id].category)}
+                          {broadcastResults[n.newbie_id].score_gained != null && broadcastResults[n.newbie_id].score_gained > 0 && (
+                            <span> (+{broadcastResults[n.newbie_id].score_gained})</span>
+                          )}
+                        </div>
+                        {broadcastResults[n.newbie_id].reason && (
+                          <p className="text-slate-600 italic mt-0.5">&quot;{broadcastResults[n.newbie_id].reason}&quot;</p>
+                        )}
+                      </div>
+                    )}
+                    {broadcastResults[n.newbie_id].status === 'skipped' && (
+                      <div>
+                        <div className="font-medium text-red-600">✗ Overgeslagen</div>
+                        {broadcastResults[n.newbie_id].reason && (
+                          <p className="text-slate-600 italic mt-0.5">&quot;{broadcastResults[n.newbie_id].reason}&quot;</p>
+                        )}
+                      </div>
+                    )}
+                    {broadcastResults[n.newbie_id].status === 'error' && (
+                      <div className="font-medium text-amber-600">
+                        {broadcastResults[n.newbie_id].reason || 'Kon Newbie niet bereiken'}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 <div className="mt-4 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
                   <button
@@ -386,20 +526,18 @@ export default function Newbies() {
         </div>
       )}
 
-      {/* Modal: Train Newbie */}
+      {/* Modal: Train Newbie (evaluate flow) */}
       {trainNewbie && (
         <div className="modal-overlay" onClick={() => !training && setTrainNewbie(null)}>
           <div className="modal-card space-y-3 max-w-lg" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-xl font-bold">Train: {trainNewbie.newbie_name}</h2>
-            <p className="text-sm text-slate-600">Voeg een URL toe om de score voor een categorie te verhogen.</p>
+            <p className="text-sm text-slate-600">Plak URLs (één per regel). {trainNewbie.newbie_name} beoordeelt zelf of een URL relevant is en in welke categorie die past.</p>
 
-            {training && (
+            {evaluationProgress && (
               <div className="flex items-center gap-2 py-2 px-3 rounded-lg bg-indigo-50 text-indigo-700">
                 <Loader2 className="w-5 h-5 animate-spin shrink-0" />
                 <span className="text-sm">
-                  {trainProgress.total > 1
-                    ? `Verwerkt ${trainProgress.current} van ${trainProgress.total} URLs...`
-                    : 'URL wordt opgehaald en verwerkt...'}
+                  Evalueren URL {evaluationProgress.current} van {evaluationProgress.total}…
                 </span>
               </div>
             )}
@@ -419,21 +557,34 @@ export default function Newbies() {
                 rows={5}
               />
             </div>
-            <div>
-              <label className="block text-sm font-semibold mb-1">Categorie</label>
-              <select
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg disabled:opacity-60 disabled:bg-slate-50"
-                value={trainForm.category}
-                onChange={(e) => setTrainForm({ ...trainForm, category: e.target.value })}
-                disabled={training}
-              >
-                {CATEGORIES.map(({ key, label, apiValue }) => (
-                  <option key={key} value={apiValue}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </div>
+
+            {evaluationResults.length > 0 && (
+              <div className="space-y-2">
+                <span className="text-sm font-semibold">Resultaten</span>
+                <ul className="space-y-2 max-h-48 overflow-y-auto">
+                  {evaluationResults.map((r, idx) => (
+                    <li key={idx} className="text-sm border border-slate-200 rounded-lg p-2">
+                      {r.accept ? (
+                        <>
+                          <span className="text-green-600 font-medium">✓ {trainNewbie.newbie_name} neemt dit aan</span>
+                          <span className="text-slate-600"> — {categoryLabel(r.category)}</span>
+                          {r.trained && <span className="text-green-600"> (+{r.score_gained})</span>}
+                          {r.error && !r.trained && <span className="text-amber-600"> — training mislukt: {r.error}</span>}
+                          {r.reason && <p className="text-slate-600 mt-1 italic">&quot;{r.reason}&quot;</p>}
+                        </>
+                      ) : (
+                        <>
+                          <span className="text-red-600 font-medium">✗ {trainNewbie.newbie_name} slaat dit over</span>
+                          {r.reason && <p className="text-slate-600 mt-1 italic">&quot;{r.reason}&quot;</p>}
+                        </>
+                      )}
+                      <p className="text-xs text-slate-500 font-mono truncate mt-0.5" title={r.url}>{r.url}</p>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             <div className="flex gap-2 pt-2">
               <button
                 type="button"
@@ -452,10 +603,10 @@ export default function Newbies() {
                 {training ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    Training...
+                    Evalueren…
                   </>
                 ) : (
-                  'Train'
+                  `Laat ${trainNewbie.newbie_name} evalueren`
                 )}
               </button>
             </div>
