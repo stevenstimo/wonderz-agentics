@@ -88,6 +88,7 @@ export default function NewbieDetail() {
   const navigate = useNavigate()
   const [newbie, setNewbie] = useState(null)
   const [trainings, setTrainings] = useState([])
+  const [libraryDecisions, setLibraryDecisions] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
@@ -123,12 +124,21 @@ export default function NewbieDetail() {
       } else {
         setTrainings([])
       }
+
+      const decisionsRes = await apiFetch(`/api/newbies/${encodeURIComponent(newbieId)}/library-decisions`)
+      if (decisionsRes.ok) {
+        const decisionsData = await decisionsRes.json()
+        setLibraryDecisions(Array.isArray(decisionsData) ? decisionsData : [])
+      } else {
+        setLibraryDecisions([])
+      }
     } catch (err) {
       // ASSUMPTION: 5xx and network errors go to ErrorBoundary
       if (rethrowServerError || (err.name === 'TypeError' && err.message?.includes('fetch'))) throw err
       setError(err.message || 'Failed to load newbie')
       setNewbie(null)
       setTrainings([])
+      setLibraryDecisions([])
     } finally {
       setLoading(false)
     }
@@ -307,7 +317,7 @@ export default function NewbieDetail() {
           )}
         </div>
 
-        {/* RIGHT: Persona, Qualities, Development, Trainings */}
+        {/* RIGHT: Persona, Qualities, Development, Library, Trainings */}
         <div className="space-y-4">
           <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <h3 className="text-sm font-semibold text-slate-900 mb-2 flex items-center gap-2">
@@ -328,6 +338,36 @@ export default function NewbieDetail() {
               <Target className="w-4 h-4" /> Ontwikkelpunten
             </h3>
             <p className="text-sm text-slate-700 whitespace-pre-wrap">{newbie.development || '—'}</p>
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <h3 className="text-sm font-semibold text-slate-900 mb-2 flex items-center gap-2">
+              <BookOpen className="w-4 h-4" /> Kennisbibliotheek ({libraryDecisions.length})
+            </h3>
+            {libraryDecisions.length === 0 ? (
+              <p className="text-xs text-slate-500">Nog geen Library beslissingen.</p>
+            ) : (
+              <ul className="space-y-2">
+                {libraryDecisions.map((d) => (
+                  <li key={d.decision_id} className="rounded-lg border border-slate-100 p-2">
+                    <div className={`text-sm font-medium ${d.accept ? 'text-green-700' : 'text-red-700'}`}>
+                      {d.accept ? '✓ Geaccepteerd' : '✗ Overgeslagen'}
+                      {d.accept && d.category && (
+                        <span className="text-slate-600 font-normal"> — {d.category}</span>
+                      )}
+                      {d.accept && (d.score_gained || 0) > 0 && (
+                        <span className="text-green-700"> (+{d.score_gained})</span>
+                      )}
+                    </div>
+                    <div className="text-xs text-slate-700 mt-0.5">
+                      {d.title || d.source_url || '—'}
+                    </div>
+                    {d.reason && <p className="text-xs text-slate-600 italic mt-1">&quot;{d.reason}&quot;</p>}
+                    <p className="text-[11px] text-slate-500 mt-1">{formatDate(d.decided_at)}</p>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
 
           <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">

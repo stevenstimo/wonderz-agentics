@@ -69,7 +69,7 @@ export default function Newbies() {
   const [libraryItems, setLibraryItems] = useState([])
   const [addingToLibrary, setAddingToLibrary] = useState(false)
   const [libraryError, setLibraryError] = useState('')
-  // Per newbie_id: { status: 'evaluating'|'accepted'|'skipped'|'error', category?, reason?, score_gained? }
+  // Per newbie_id: [{ library_id, status: 'evaluating'|'accepted'|'skipped'|'error', category?, reason?, score_gained? }]
   const [libraryResults, setLibraryResults] = useState({})
   const [offeringLibraryId, setOfferingLibraryId] = useState(null)
 
@@ -243,6 +243,18 @@ export default function Newbies() {
 
   const categoryLabel = (apiValue) => CATEGORIES.find((c) => c.apiValue === apiValue)?.label || apiValue
 
+  const upsertLibraryResult = (prev, newbieId, item) => {
+    const existing = Array.isArray(prev[newbieId]) ? prev[newbieId] : []
+    const idx = existing.findIndex((x) => x.library_id === item.library_id)
+    const nextItems = [...existing]
+    if (idx >= 0) {
+      nextItems[idx] = { ...nextItems[idx], ...item }
+    } else {
+      nextItems.push(item)
+    }
+    return { ...prev, [newbieId]: nextItems }
+  }
+
   const hostFromUrl = (url) => {
     try {
       const u = new URL(url)
@@ -289,13 +301,12 @@ export default function Newbies() {
     if (toEvaluate.length === 0) return
 
     setOfferingLibraryId(library_id)
-    setLibraryResults({})
-
-    const results = {}
     toEvaluate.forEach((n) => {
-      results[n.newbie_id] = { status: 'evaluating' }
+      const id = n.newbie_id
+      setLibraryResults((prev) =>
+        upsertLibraryResult(prev, id, { library_id, status: 'evaluating' })
+      )
     })
-    setLibraryResults({ ...results })
 
     await Promise.all(
       toEvaluate.map(async (n) => {
@@ -311,20 +322,31 @@ export default function Newbies() {
 
           if (ev.accept) {
             setLibraryResults((prev) => ({
-              ...prev,
-              [id]: { status: 'accepted', category: ev.category, reason: ev.reason, score_gained: data.score_gained ?? 0 },
+              ...upsertLibraryResult(prev, id, {
+                library_id,
+                status: 'accepted',
+                category: ev.category,
+                reason: ev.reason,
+                score_gained: data.score_gained ?? 0,
+              }),
             }))
             if (data.trained) await fetchNewbies(true)
           } else {
             setLibraryResults((prev) => ({
-              ...prev,
-              [id]: { status: 'skipped', reason: ev.reason || 'Overgeslagen.' },
+              ...upsertLibraryResult(prev, id, {
+                library_id,
+                status: 'skipped',
+                reason: ev.reason || 'Overgeslagen.',
+              }),
             }))
           }
         } catch (err) {
           setLibraryResults((prev) => ({
-            ...prev,
-            [id]: { status: 'error', reason: 'Kon Newbie niet bereiken' },
+            ...upsertLibraryResult(prev, id, {
+              library_id,
+              status: 'error',
+              reason: 'Kon Newbie niet bereiken',
+            }),
           }))
         }
       })
@@ -475,39 +497,52 @@ export default function Newbies() {
                 </div>
 
                 {/* Library result per card */}
-                {libraryResults[n.newbie_id] && (
+                {Array.isArray(libraryResults[n.newbie_id]) && libraryResults[n.newbie_id].length > 0 && (
                   <div className="mt-3 pt-3 border-t border-slate-100 text-xs" onClick={(e) => e.stopPropagation()}>
-                    {libraryResults[n.newbie_id].status === 'evaluating' && (
-                      <div className="flex items-center gap-2 text-indigo-600">
-                        <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
-                        Evalueren...
-                      </div>
-                    )}
-                    {libraryResults[n.newbie_id].status === 'accepted' && (
-                      <div>
-                        <div className="font-medium text-green-600">
-                          ✓ Geaccepteerd — {categoryLabel(libraryResults[n.newbie_id].category)}
-                          {libraryResults[n.newbie_id].score_gained != null && libraryResults[n.newbie_id].score_gained > 0 && (
-                            <span> (+{libraryResults[n.newbie_id].score_gained})</span>
-                          )}
-                        </div>
-                        {libraryResults[n.newbie_id].reason && (
-                          <p className="text-slate-600 italic mt-0.5">&quot;{libraryResults[n.newbie_id].reason}&quot;</p>
+                    {libraryResults[n.newbie_id].slice(0, 3).map((result) => (
+                      <div key={`${result.library_id}-${result.status}`} className="mb-2 last:mb-0">
+                        {result.status === 'evaluating' && (
+                          <div className="flex items-center gap-2 text-indigo-600">
+                            <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                            Evalueren...
+                          </div>
+                        )}
+                        {result.status === 'accepted' && (
+                          <div>
+                            <div className="font-medium text-green-600">
+                              ✓ Geaccepteerd — {categoryLabel(result.category)}
+                              {result.score_gained != null && result.score_gained > 0 && (
+                                <span> (+{result.score_gained})</span>
+                              )}
+                            </div>
+                            {result.reason && (
+                              <p className="text-slate-600 italic mt-0.5">&quot;{result.reason}&quot;</p>
+                            )}
+                          </div>
+                        )}
+                        {result.status === 'skipped' && (
+                          <div>
+                            <div className="font-medium text-red-600">✗ Overgeslagen</div>
+                            {result.reason && (
+                              <p className="text-slate-600 italic mt-0.5">&quot;{result.reason}&quot;</p>
+                            )}
+                          </div>
+                        )}
+                        {result.status === 'error' && (
+                          <div className="font-medium text-amber-600">
+                            {result.reason || 'Kon Newbie niet bereiken'}
+                          </div>
                         )}
                       </div>
-                    )}
-                    {libraryResults[n.newbie_id].status === 'skipped' && (
-                      <div>
-                        <div className="font-medium text-red-600">✗ Overgeslagen</div>
-                        {libraryResults[n.newbie_id].reason && (
-                          <p className="text-slate-600 italic mt-0.5">&quot;{libraryResults[n.newbie_id].reason}&quot;</p>
-                        )}
-                      </div>
-                    )}
-                    {libraryResults[n.newbie_id].status === 'error' && (
-                      <div className="font-medium text-amber-600">
-                        {libraryResults[n.newbie_id].reason || 'Kon Newbie niet bereiken'}
-                      </div>
+                    ))}
+                    {libraryResults[n.newbie_id].length > 3 && (
+                      <button
+                        type="button"
+                        onClick={() => navigate(`/newbies/${encodeURIComponent(n.newbie_id)}`)}
+                        className="text-indigo-600 hover:underline text-xs font-medium"
+                      >
+                        + {libraryResults[n.newbie_id].length - 3} meer
+                      </button>
                     )}
                   </div>
                 )}
