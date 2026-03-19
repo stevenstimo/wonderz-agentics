@@ -16,12 +16,14 @@ Wat gedaan: Controle uitgevoerd in `web_ui/frontend/src/ClientDashboard.jsx` —
 Commit: Geen (geen wijzigingen aan dependencies of code; wel gedocumenteerd).
 
 ## Fix 4: Progress bar tijdens RUNNING state
-Status: ⏭️ Nog te doen
+Status: ✅
+Wat gedaan: In `web_ui/frontend/src/components/JobLifecycleView.jsx` is `ProgressView(jobSteps)` uitgebreid met een voortgangsbalk boven de step-lijst. De balk gebruikt `completed_steps / total_steps * 100` op basis van de bestaande `jobSteps` prop (geen extra API calls).
+Commit: `751f91f`
 
 ## Fix 5: document_ids kolom (SKIP — Shelley taak)
 Status: ⏭️ Shelley taak
 Actie: `ALTER TABLE knowledge_usage_log ADD COLUMN IF NOT EXISTS document_ids TEXT[];`
 
 ## Samenvatting
-- 2 van 4 fixes (Fix 1-4) afgerond
-- Openstaand: Fix 3, Fix 4
+- 3 van 4 fixes (Fix 1-4) afgerond
+- Openstaand: Fix 3
