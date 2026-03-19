@@ -293,10 +293,28 @@ function StatusBadge({ status }) {
  * Progress view showing real-time execution progress
  */
 function ProgressView({ jobSteps }) {
+  const steps = Array.isArray(jobSteps) ? jobSteps : [];
+  const totalSteps = steps.length;
+  const completedSteps = steps.filter((s) => {
+    const st = String(s?.status ?? '').toLowerCase();
+    return st === 'success' || st === 'completed';
+  }).length;
+  const progressPct = totalSteps ? (completedSteps / totalSteps) * 100 : 0;
+
   return (
     <div className="panel-card">
       <h2 className="text-2xl font-bold mb-4">Execution in Progress</h2>
-      
+
+      <div className="w-full bg-slate-200 rounded-full h-2 mb-4 overflow-hidden">
+        <div
+          className="bg-indigo-600 h-2 rounded-full transition-all"
+          style={{ width: `${progressPct}%` }}
+        />
+      </div>
+      <div className="text-xs text-slate-500 mb-6">
+        {totalSteps ? `${Math.round(progressPct)}% (${completedSteps}/${totalSteps})` : '0%'}
+      </div>
+
       <div className="space-y-4">
         {jobSteps.map((step, idx) => (
           <div
