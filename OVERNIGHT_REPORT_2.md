@@ -11,7 +11,9 @@ Wat gedaan: In `web_ui/frontend/src/HRDashboard.jsx` (TrainingRequestsTabContent
 Commit: `06ccc47` + correctie `0ab0086` (revert van per ongeluk meegestagede `Newbies.jsx` wijzigingen)
 
 ## Fix 3: jspdf vervangen
-Status: ⏭️ Nog te doen
+Status: ⛔ Blocked
+Wat gedaan: Controle uitgevoerd in `web_ui/frontend/src/ClientDashboard.jsx` — de PDF-export gebruikt `html2canvas` om een DOM-screenshot te maken en vervolgens met `jsPDF` in chunks/pagina's te sliceen en als JPEG images te embedden. `@react-pdf/renderer` is niet drop-in compatibel voor dit “DOM -> canvas -> image-slices -> PDF” patroon (vereist functionele herbouw van de exportflow).
+Commit: Geen (geen wijzigingen aan dependencies of code; wel gedocumenteerd).
 
 ## Fix 4: Progress bar tijdens RUNNING state
 Status: ⏭️ Nog te doen
