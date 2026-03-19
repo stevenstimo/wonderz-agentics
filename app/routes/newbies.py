@@ -4,13 +4,15 @@ CRUD for newbies table. Crew Intelligent Spec v1.0.
 Training: URL → score per category. readiness_score = avg(4 scores). status=ready when ≥70.
 """
 
+from __future__ import annotations
+
 import json
 import os
 import re
 import uuid
 import logging
 from datetime import datetime, timezone
-from typing import Optional, List
+from typing import Optional, List, Any
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field, model_validator
@@ -84,6 +86,54 @@ class UpdateNewbieRequest(BaseModel):
     status: Optional[str] = None
 
 
+# Training / library evaluation / hiring — used by request bodies
+class TrainNewbieRequest(BaseModel):
+    newbie_id: Optional[str] = Field(None, min_length=1)  # voor POST /train (body) i.p.v. path
+    source_url: Optional[str] = Field(None, min_length=10)
+    url: Optional[str] = Field(None, min_length=10)
+    urls: Optional[List[str]] = Field(None, min_length=1)  # bulk: meerdere URLs,zelfde categorie
+    category: str = Field(..., pattern=r"^(management|creative|development|operations)$")
+
+    @model_validator(mode="after")
+    def require_url(self):
+        has_single = bool((self.source_url or self.url or "").strip())
+        has_bulk = bool(self.urls and len([u for u in self.urls if (u or "").strip()]) > 0)
+        if not has_single and not has_bulk:
+            raise ValueError("Either source_url, url, or urls array is required")
+        if has_single and has_bulk:
+            raise ValueError("Use either single URL or urls array, not both")
+        return self
+
+    def get_url(self) -> str:
+        return (self.source_url or self.url or "").strip()
+
+    def get_urls(self) -> List[str]:
+        """Normalized list of URLs (bulk mode). Filters empty, strips whitespace."""
+        if not self.urls:
+            return []
+        return [u.strip() for u in self.urls if (u or "").strip()]
+
+
+class EvaluateUrlRequest(BaseModel):
+    source_url: str = Field(..., min_length=10)
+
+
+class AddLibraryItemRequest(BaseModel):
+    source_url: str = Field(..., min_length=10)
+
+
+class EvaluateLibraryItemRequest(BaseModel):
+    library_id: int = Field(..., ge=1)
+
+
+class HireNewbieRequest(BaseModel):
+    role: Optional[str] = None  # defaults to suggested_role or "custom"
+    system_prompt: Optional[str] = None  # defaults to persona + qualities + development
+    goal: Optional[str] = None
+    tool_whitelist: List[str] = Field(default_factory=list)
+    knowledge_sources: List[dict] = Field(default_factory=list)
+
+
 # --- Endpoints ---
 
 
@@ -108,6 +158,78 @@ async def list_ready_newbies():
             SELECT * FROM newbies
             WHERE readiness_score >= 70 AND status = 'ready'
             ORDER BY readiness_score DESC, updated_at DESC
+            """
+        )
+    return [_row_to_dict(r) for r in rows]
+
+
+@router.post("/library")
+async def add_library_item(req: AddLibraryItemRequest):
+    """
+    Add URL to newbie_library (scrape once, then reuse full_text for evaluations).
+    Idempotent on `source_url`.
+    """
+    from app.services.training import scrape_url, extract_text, TrainingError
+
+    source_url = (req.source_url or "").strip()
+    if not source_url:
+        raise HTTPException(status_code=400, detail="source_url is required")
+
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        existing = await conn.fetchrow(
+            """
+            SELECT library_id, source_url, title, summary, created_at
+            FROM newbie_library
+            WHERE source_url = $1
+            """,
+            source_url,
+        )
+        if existing:
+            data = _row_to_dict(existing)
+            data["already_existed"] = True
+            return data
+
+        try:
+            html = await scrape_url(source_url)
+        except TrainingError as e:
+            raise HTTPException(status_code=422, detail=str(e))
+
+        text = extract_text(html)
+        stripped = (text or "").strip()
+        if len(stripped) < 50:
+            raise HTTPException(status_code=422, detail="Extracted text is too short (min 50 chars)")
+
+        title = stripped[:100]
+        summary = stripped[:500]
+
+        row = await conn.fetchrow(
+            """
+            INSERT INTO newbie_library (source_url, title, summary, full_text)
+            VALUES ($1, $2, $3, $4)
+            RETURNING library_id, source_url, title, summary, created_at
+            """,
+            source_url,
+            title,
+            summary,
+            stripped,
+        )
+
+    data = _row_to_dict(row)
+    data["already_existed"] = False
+    return data
+
+
+@router.get("/library")
+async def list_library_items():
+    """List all newbie_library items (newest first)."""
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT library_id, source_url, title, summary, created_at
+            FROM newbie_library
+            ORDER BY created_at DESC
             """
         )
     return [_row_to_dict(r) for r in rows]
@@ -158,37 +280,6 @@ async def create_newbie(req: CreateNewbieRequest):
 
     logger.info("Created newbie %s: %s", newbie_id, req.newbie_name)
     return _row_to_dict(row)
-
-
-class TrainNewbieRequest(BaseModel):
-    newbie_id: Optional[str] = Field(None, min_length=1)  # voor POST /train (body) i.p.v. path
-    source_url: Optional[str] = Field(None, min_length=10)
-    url: Optional[str] = Field(None, min_length=10)
-    urls: Optional[List[str]] = Field(None, min_length=1)  # bulk: meerdere URLs,zelfde categorie
-    category: str = Field(..., pattern=r"^(management|creative|development|operations)$")
-
-    @model_validator(mode="after")
-    def require_url(self):
-        has_single = bool((self.source_url or self.url or "").strip())
-        has_bulk = bool(self.urls and len([u for u in self.urls if (u or "").strip()]) > 0)
-        if not has_single and not has_bulk:
-            raise ValueError("Either source_url, url, or urls array is required")
-        if has_single and has_bulk:
-            raise ValueError("Use either single URL or urls array, not both")
-        return self
-
-    def get_url(self) -> str:
-        return (self.source_url or self.url or "").strip()
-
-    def get_urls(self) -> List[str]:
-        """Normalized list of URLs (bulk mode). Filters empty, strips whitespace."""
-        if not self.urls:
-            return []
-        return [u.strip() for u in self.urls if (u or "").strip()]
-
-
-class EvaluateUrlRequest(BaseModel):
-    source_url: str = Field(..., min_length=10)
 
 
 def _compute_readiness(score_m: int, score_c: int, score_d: int, score_o: int) -> int:
@@ -520,6 +611,209 @@ async def evaluate_and_maybe_train_url(newbie_id: str, body: EvaluateUrlRequest)
         }
 
 
+@router.post("/{newbie_id}/evaluate-library")
+async def evaluate_library_item(
+    newbie_id: str,
+    body: EvaluateLibraryItemRequest,
+):
+    """
+    Newbie evalueert een opgeslagen library item (geen nieuwe scrape).
+    Idempotent op (newbie_id, library_id).
+    """
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        newbie_row = await conn.fetchrow(
+            "SELECT * FROM newbies WHERE newbie_id = $1",
+            newbie_id,
+        )
+        if not newbie_row:
+            raise HTTPException(status_code=404, detail="Newbie not found")
+
+        library_row = await conn.fetchrow(
+            "SELECT * FROM newbie_library WHERE library_id = $1",
+            body.library_id,
+        )
+        if not library_row:
+            raise HTTPException(status_code=404, detail="Library item not found")
+
+        existing = await conn.fetchrow(
+            """
+            SELECT decision_id, accept, category, reason, confidence, score_gained, decided_at
+            FROM newbie_library_decisions
+            WHERE newbie_id = $1 AND library_id = $2
+            """,
+            newbie_id,
+            body.library_id,
+        )
+        if existing:
+            score_gained = int(existing.get("score_gained") or 0)
+            trained = score_gained > 0
+            return {
+                "evaluation": {
+                    "accept": bool(existing.get("accept")),
+                    "category": existing.get("category") or "management",
+                    "reason": existing.get("reason") or "",
+                    "confidence": float(existing.get("confidence") or 0.0),
+                },
+                "trained": trained,
+                "score_gained": score_gained,
+            }
+
+        newbie_name = newbie_row.get("newbie_name") or "Newbie"
+        persona = newbie_row.get("persona") or ""
+        qualities = newbie_row.get("qualities") or ""
+        development = newbie_row.get("development") or ""
+
+        evaluation = await _evaluate_url_via_claude(
+            newbie_name=newbie_name,
+            persona=persona,
+            qualities=qualities,
+            development=development,
+            page_text=(library_row.get("full_text") or ""),
+        )
+
+        accept = bool(evaluation.get("accept"))
+        category = evaluation.get("category") or "management"
+        reason = evaluation.get("reason") or ""
+        confidence = float(evaluation.get("confidence") or 0.0)
+
+        trained = False
+        score_gained = 0
+        if accept:
+            ok, _train_error = await _try_train_one_url(
+                conn,
+                newbie_id,
+                library_row["source_url"],
+                category,
+            )
+            trained = ok
+            score_gained = SCORE_PER_TRAINING if ok else 0
+
+        inserted = await conn.fetchrow(
+            """
+            INSERT INTO newbie_library_decisions (
+                newbie_id, library_id, accept, category, reason, confidence, score_gained
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            ON CONFLICT (newbie_id, library_id) DO NOTHING
+            RETURNING accept, category, reason, confidence, score_gained
+            """,
+            newbie_id,
+            body.library_id,
+            accept,
+            category,
+            reason,
+            confidence,
+            score_gained,
+        )
+
+        if not inserted:
+            # Concurrent insert: re-read the existing decision and return it.
+            existing = await conn.fetchrow(
+                """
+                SELECT accept, category, reason, confidence, score_gained
+                FROM newbie_library_decisions
+                WHERE newbie_id = $1 AND library_id = $2
+                """,
+                newbie_id,
+                body.library_id,
+            )
+            if not existing:
+                raise HTTPException(
+                    status_code=500,
+                    detail="Failed to read existing decision after conflict",
+                )
+
+            score_gained = int(existing.get("score_gained") or 0)
+            trained = score_gained > 0
+            return {
+                "evaluation": {
+                    "accept": bool(existing.get("accept")),
+                    "category": existing.get("category") or "management",
+                    "reason": existing.get("reason") or "",
+                    "confidence": float(existing.get("confidence") or 0.0),
+                },
+                "trained": trained,
+                "score_gained": score_gained,
+            }
+
+        evaluation_out = {
+            "accept": bool(inserted.get("accept")),
+            "category": inserted.get("category") or "management",
+            "reason": inserted.get("reason") or "",
+            "confidence": float(inserted.get("confidence") or 0.0),
+        }
+
+        return {
+            "evaluation": evaluation_out,
+            "trained": trained,
+            "score_gained": int(score_gained),
+        }
+
+
+@router.get("/library/{library_id}/decisions")
+async def list_library_item_decisions(library_id: int):
+    """Return per Newbie whether they decided to accept this library item."""
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        lib_exists = await conn.fetchrow(
+            "SELECT 1 FROM newbie_library WHERE library_id = $1",
+            library_id,
+        )
+        if not lib_exists:
+            raise HTTPException(status_code=404, detail="Library item not found")
+
+        newbies = await conn.fetch(
+            """
+            SELECT newbie_id, newbie_name
+            FROM newbies
+            ORDER BY created_at DESC
+            """
+        )
+        decisions = await conn.fetch(
+            """
+            SELECT newbie_id, accept, category, reason, score_gained, decided_at
+            FROM newbie_library_decisions
+            WHERE library_id = $1
+            """,
+            library_id,
+        )
+
+    decision_map = {d["newbie_id"]: d for d in decisions}
+    result: list[dict[str, Any]] = []
+    for n in newbies:
+        d = decision_map.get(n["newbie_id"])
+        if not d:
+            result.append(
+                {
+                    "newbie_id": n["newbie_id"],
+                    "newbie_name": n.get("newbie_name") or None,
+                    "decided": False,
+                    "accept": None,
+                    "category": None,
+                    "reason": None,
+                    "score_gained": 0,
+                    "decided_at": None,
+                }
+            )
+            continue
+
+        result.append(
+            {
+                "newbie_id": n["newbie_id"],
+                "newbie_name": n.get("newbie_name") or None,
+                "decided": True,
+                "accept": bool(d.get("accept")),
+                "category": d.get("category") or None,
+                "reason": d.get("reason") or None,
+                "score_gained": int(d.get("score_gained") or 0),
+                "decided_at": _json_safe(d.get("decided_at")),
+            }
+        )
+
+    return result
+
+
 @router.post("/backfill-summaries")
 async def backfill_summaries():
     """
@@ -770,12 +1064,74 @@ async def _evaluate_url_via_claude(
         }
 
 
-class HireNewbieRequest(BaseModel):
-    role: Optional[str] = None  # defaults to suggested_role or "custom"
-    system_prompt: Optional[str] = None  # defaults to persona + qualities + development
-    goal: Optional[str] = None
-    tool_whitelist: List[str] = Field(default_factory=list)
-    knowledge_sources: List[dict] = Field(default_factory=list)
+async def _train_agent_knowledge_from_newbie_library(
+    pool,
+    agent_id: str,
+    newbie_id: str,
+) -> int:
+    """
+    Copy accepted newbie_library items into agent_knowledge.
+    Embeddings are generated via app.services.training (BGE-M3 => vector(1024)).
+    """
+    from app.services.training import chunk_text, store_knowledge, update_knowledge_sources
+
+    async with pool.acquire() as conn:
+        accepted_items = await conn.fetch(
+            """
+            SELECT l.source_url, l.full_text
+            FROM newbie_library_decisions d
+            JOIN newbie_library l ON l.library_id = d.library_id
+            WHERE d.newbie_id = $1 AND d.accept = true
+            """,
+            newbie_id,
+        )
+
+    if not accepted_items:
+        return 0
+
+    stored_total = 0
+    for item in accepted_items:
+        source_url = item.get("source_url") or ""
+        full_text = item.get("full_text") or ""
+        if not source_url or not full_text.strip():
+            continue
+
+        try:
+            chunks = chunk_text(full_text, chunk_size=500, overlap=50)
+            if not chunks:
+                continue
+
+            # Ensure retrieval only uses the newly inserted chunks.
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    """
+                    UPDATE agent_knowledge
+                    SET is_active = false
+                    WHERE agent_id = $1 AND source_url = $2
+                    """,
+                    agent_id,
+                    source_url,
+                )
+
+            chunks_stored = await store_knowledge(pool, agent_id, source_url, chunks)
+            await update_knowledge_sources(
+                pool,
+                agent_id,
+                source_url,
+                chunks_stored,
+                approved_by="newbie_library",
+            )
+            stored_total += chunks_stored
+        except Exception as e:
+            logger.warning(
+                "Failed to store newbie_library into agent_knowledge (agent_id=%s newbie_id=%s source_url=%s): %s",
+                agent_id,
+                newbie_id,
+                source_url,
+                e,
+            )
+
+    return stored_total
 
 
 @router.post("/{newbie_id}/hire", status_code=status.HTTP_201_CREATED)
@@ -861,6 +1217,13 @@ async def hire_newbie(newbie_id: str, req: HireNewbieRequest = HireNewbieRequest
         )
 
         agent_row = await conn.fetchrow("SELECT * FROM hired_agents WHERE agent_id = $1", agent_id)
+
+    # Best-effort: copy accepted library items into the agent's initial knowledge base.
+    try:
+        stored_chunks = await _train_agent_knowledge_from_newbie_library(pool, agent_id, newbie_id)
+        logger.info("Hire: stored %s chunks from newbie_library for agent_id=%s", stored_chunks, agent_id)
+    except Exception as e:
+        logger.warning("Hire: agent_knowledge training from newbie_library failed: %s", e)
 
     logger.info("Hired newbie %s as agent %s", newbie_id, agent_id)
     return {
@@ -995,6 +1358,13 @@ async def promote_newbie(newbie_id: str):
             newbie_id,
         )
         agent_row = await conn.fetchrow("SELECT * FROM hired_agents WHERE agent_id = $1", agent_id)
+
+    # Best-effort: copy accepted library items into the agent's initial knowledge base.
+    try:
+        stored_chunks = await _train_agent_knowledge_from_newbie_library(pool, agent_id, newbie_id)
+        logger.info("Promote: stored %s chunks from newbie_library for agent_id=%s", stored_chunks, agent_id)
+    except Exception as e:
+        logger.warning("Promote: agent_knowledge training from newbie_library failed: %s", e)
 
     logger.info("Promoted newbie %s to agent %s", newbie_id, agent_id)
     return {

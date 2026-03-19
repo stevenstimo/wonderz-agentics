@@ -65,10 +65,13 @@ export default function Newbies() {
   const [evaluationResults, setEvaluationResults] = useState([]) // { url, accept, category, reason, confidence, trained, score_gained, error? }
   const [evaluationProgress, setEvaluationProgress] = useState(null) // { current, total } or null
 
-  const [broadcastUrl, setBroadcastUrl] = useState('')
-  const [broadcasting, setBroadcasting] = useState(false)
-  // Per newbie_id: { status: 'pending'|'evaluating'|'accepted'|'skipped'|'error', category?, reason?, score_gained? }
-  const [broadcastResults, setBroadcastResults] = useState({})
+  const [libraryUrl, setLibraryUrl] = useState('')
+  const [libraryItems, setLibraryItems] = useState([])
+  const [addingToLibrary, setAddingToLibrary] = useState(false)
+  const [libraryError, setLibraryError] = useState('')
+  // Per newbie_id: { status: 'evaluating'|'accepted'|'skipped'|'error', category?, reason?, score_gained? }
+  const [libraryResults, setLibraryResults] = useState({})
+  const [offeringLibraryId, setOfferingLibraryId] = useState(null)
 
   const canEdit = true // tijdelijk: isAdmin(userRole) faalt omdat userRole niet correct wordt opgehaald na inloggen
   console.log('userRole:', userRole, 'canEdit:', canEdit)
@@ -88,6 +91,18 @@ export default function Newbies() {
     }
   }
 
+  const fetchLibraryItems = async () => {
+    try {
+      const res = await apiFetch('/api/newbies/library')
+      if (!res.ok) throw new Error(`Library ophalen mislukt (${res.status})`)
+      const data = await res.json()
+      setLibraryItems(Array.isArray(data) ? data : [])
+    } catch (err) {
+      // Niet hardfalend voor de hele pagina
+      setLibraryError(err.message || 'Library ophalen mislukt')
+    }
+  }
+
   useEffect(() => {
     if (!authReady) return
     let mounted = true
@@ -103,6 +118,7 @@ export default function Newbies() {
 
     syncRole()
     fetchNewbies()
+    fetchLibraryItems()
 
     const { data: listener } = supabase.auth.onAuthStateChange(async () => {
       await syncRole()
@@ -227,46 +243,86 @@ export default function Newbies() {
 
   const categoryLabel = (apiValue) => CATEGORIES.find((c) => c.apiValue === apiValue)?.label || apiValue
 
-  const submitBroadcast = async () => {
-    const url = (broadcastUrl || '').trim()
-    if (!url || broadcasting) return
+  const hostFromUrl = (url) => {
+    try {
+      const u = new URL(url)
+      return (u.hostname || '').replace(/^www\./, '')
+    } catch {
+      return ''
+    }
+  }
+
+  const submitAddToLibrary = async () => {
+    const url = (libraryUrl || '').trim()
+    if (!url || addingToLibrary) return
+    setLibraryError('')
+    setAddingToLibrary(true)
+
+    try {
+      const res = await apiFetch('/api/newbies/library', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source_url: url }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(data?.detail || `Toevoegen mislukt (${res.status})`)
+      }
+
+      // Voeg toe aan de lijst en start automatisch aanbieden.
+      setLibraryItems((prev) => {
+        const next = [{ ...data }, ...prev.filter((x) => x.library_id !== data.library_id)]
+        return next
+      })
+      setLibraryUrl('')
+      await offerLibraryItemToNewbies(data.library_id)
+    } catch (err) {
+      setLibraryError(err.message || 'Toevoegen mislukt')
+    } finally {
+      setAddingToLibrary(false)
+    }
+  }
+
+  const offerLibraryItemToNewbies = async (library_id) => {
+    if (!library_id || offeringLibraryId === library_id) return
     const toEvaluate = newbies.filter((n) => (n.status || '') !== 'hired')
     if (toEvaluate.length === 0) return
 
-    setBroadcasting(true)
-    setBroadcastResults({})
+    setOfferingLibraryId(library_id)
+    setLibraryResults({})
 
     const results = {}
     toEvaluate.forEach((n) => {
       results[n.newbie_id] = { status: 'evaluating' }
     })
-    setBroadcastResults({ ...results })
+    setLibraryResults({ ...results })
 
     await Promise.all(
       toEvaluate.map(async (n) => {
         const id = n.newbie_id
         try {
-          const res = await apiFetch(`/api/newbies/${encodeURIComponent(id)}/evaluate`, {
+          const res = await apiFetch(`/api/newbies/${encodeURIComponent(id)}/evaluate-library`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ source_url: url }),
+            body: JSON.stringify({ library_id }),
           })
           const data = await res.json().catch(() => ({}))
           const ev = data.evaluation || {}
+
           if (ev.accept) {
-            setBroadcastResults((prev) => ({
+            setLibraryResults((prev) => ({
               ...prev,
               [id]: { status: 'accepted', category: ev.category, reason: ev.reason, score_gained: data.score_gained ?? 0 },
             }))
             if (data.trained) await fetchNewbies(true)
           } else {
-            setBroadcastResults((prev) => ({
+            setLibraryResults((prev) => ({
               ...prev,
               [id]: { status: 'skipped', reason: ev.reason || 'Overgeslagen.' },
             }))
           }
         } catch (err) {
-          setBroadcastResults((prev) => ({
+          setLibraryResults((prev) => ({
             ...prev,
             [id]: { status: 'error', reason: 'Kon Newbie niet bereiken' },
           }))
@@ -274,12 +330,7 @@ export default function Newbies() {
       })
     )
 
-    setBroadcasting(false)
-  }
-
-  const handleBroadcastUrlChange = (e) => {
-    setBroadcastUrl(e.target.value)
-    setBroadcastResults({})
+    setOfferingLibraryId(null)
   }
 
   return (
@@ -305,35 +356,63 @@ export default function Newbies() {
 
         {error && <div className="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
 
-        {/* Broadcast balk: één URL aanbieden aan alle Newbies */}
+        {/* Library balk: URL 1x opslaan, daarna per Newbie aanbieden */}
         <div className="mb-5 rounded-lg border border-slate-200 bg-slate-50/50 p-4">
-          <h3 className="text-sm font-semibold text-slate-800 mb-2">URL aanbieden aan alle Newbies</h3>
-          <div className="flex flex-wrap items-center gap-2 mb-2">
+          <h3 className="text-sm font-semibold text-slate-800 mb-2">Kennisbibliotheek</h3>
+
+          <div className="flex flex-wrap items-center gap-2 mb-1">
             <input
               type="url"
               className="flex-1 min-w-[200px] px-3 py-2 border border-slate-300 rounded-lg font-mono text-sm disabled:opacity-60 disabled:bg-slate-100"
               placeholder="https://..."
-              value={broadcastUrl}
-              onChange={handleBroadcastUrlChange}
-              disabled={broadcasting}
+              value={libraryUrl}
+              onChange={(e) => {
+                setLibraryUrl(e.target.value)
+                setLibraryError('')
+              }}
+              disabled={addingToLibrary || offeringLibraryId != null}
             />
             <button
               type="button"
-              onClick={submitBroadcast}
-              disabled={broadcasting || !(broadcastUrl || '').trim() || loading}
+              onClick={submitAddToLibrary}
+              disabled={addingToLibrary || offeringLibraryId != null || !(libraryUrl || '').trim() || loading}
               className="px-4 py-2 bg-indigo-600 text-white rounded-lg disabled:opacity-50 flex items-center gap-2"
             >
-              {broadcasting ? (
+              {addingToLibrary ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  Aanbieden…
+                  Scrapen...
                 </>
               ) : (
-                'Aanbieden aan alle Newbies'
+                'Toevoegen'
               )}
             </button>
           </div>
-          <p className="text-xs text-slate-600">Elke Newbie beslist zelf of deze URL bij hem past.</p>
+          {libraryError && <div className="mt-2 text-xs text-red-700">{libraryError}</div>}
+
+          <div className="mt-3">
+            <div className="text-xs text-slate-600 mb-2">Recente items:</div>
+            <div className="space-y-2">
+              {libraryItems.slice(0, 6).map((it) => (
+                <div key={it.library_id} className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-slate-800 truncate">
+                      {it.title || '—'} — {hostFromUrl(it.source_url)}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="text-xs text-indigo-700 hover:underline font-medium disabled:opacity-50 disabled:hover:no-underline"
+                    onClick={() => offerLibraryItemToNewbies(it.library_id)}
+                    disabled={offeringLibraryId != null}
+                  >
+                    {offeringLibraryId === it.library_id ? 'Aan het aanbieden…' : 'Aanbieden aan Newbies'}
+                  </button>
+                </div>
+              ))}
+              {!libraryItems.length && <div className="text-xs text-slate-500">Nog geen items.</div>}
+            </div>
+          </div>
         </div>
 
         {loading ? (
@@ -395,39 +474,39 @@ export default function Newbies() {
                   ))}
                 </div>
 
-                {/* Broadcast result per card */}
-                {broadcastResults[n.newbie_id] && (
+                {/* Library result per card */}
+                {libraryResults[n.newbie_id] && (
                   <div className="mt-3 pt-3 border-t border-slate-100 text-xs" onClick={(e) => e.stopPropagation()}>
-                    {broadcastResults[n.newbie_id].status === 'evaluating' && (
+                    {libraryResults[n.newbie_id].status === 'evaluating' && (
                       <div className="flex items-center gap-2 text-indigo-600">
                         <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
                         Evalueren...
                       </div>
                     )}
-                    {broadcastResults[n.newbie_id].status === 'accepted' && (
+                    {libraryResults[n.newbie_id].status === 'accepted' && (
                       <div>
                         <div className="font-medium text-green-600">
-                          ✓ Geaccepteerd — {categoryLabel(broadcastResults[n.newbie_id].category)}
-                          {broadcastResults[n.newbie_id].score_gained != null && broadcastResults[n.newbie_id].score_gained > 0 && (
-                            <span> (+{broadcastResults[n.newbie_id].score_gained})</span>
+                          ✓ Geaccepteerd — {categoryLabel(libraryResults[n.newbie_id].category)}
+                          {libraryResults[n.newbie_id].score_gained != null && libraryResults[n.newbie_id].score_gained > 0 && (
+                            <span> (+{libraryResults[n.newbie_id].score_gained})</span>
                           )}
                         </div>
-                        {broadcastResults[n.newbie_id].reason && (
-                          <p className="text-slate-600 italic mt-0.5">&quot;{broadcastResults[n.newbie_id].reason}&quot;</p>
+                        {libraryResults[n.newbie_id].reason && (
+                          <p className="text-slate-600 italic mt-0.5">&quot;{libraryResults[n.newbie_id].reason}&quot;</p>
                         )}
                       </div>
                     )}
-                    {broadcastResults[n.newbie_id].status === 'skipped' && (
+                    {libraryResults[n.newbie_id].status === 'skipped' && (
                       <div>
                         <div className="font-medium text-red-600">✗ Overgeslagen</div>
-                        {broadcastResults[n.newbie_id].reason && (
-                          <p className="text-slate-600 italic mt-0.5">&quot;{broadcastResults[n.newbie_id].reason}&quot;</p>
+                        {libraryResults[n.newbie_id].reason && (
+                          <p className="text-slate-600 italic mt-0.5">&quot;{libraryResults[n.newbie_id].reason}&quot;</p>
                         )}
                       </div>
                     )}
-                    {broadcastResults[n.newbie_id].status === 'error' && (
+                    {libraryResults[n.newbie_id].status === 'error' && (
                       <div className="font-medium text-amber-600">
-                        {broadcastResults[n.newbie_id].reason || 'Kon Newbie niet bereiken'}
+                        {libraryResults[n.newbie_id].reason || 'Kon Newbie niet bereiken'}
                       </div>
                     )}
                   </div>
