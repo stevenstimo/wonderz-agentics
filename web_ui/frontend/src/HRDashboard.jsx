@@ -37,6 +37,7 @@ export function TrainingRequestsTabContent() {
   const [approveSourceUrl, setApproveSourceUrl] = useState('')
   const [rejectConfirmRequestId, setRejectConfirmRequestId] = useState(null)
   const [trainingActionLoading, setTrainingActionLoading] = useState(null)
+  const [modalLoading, setModalLoading] = useState(false)
   const [trainingSuccessMessage, setTrainingSuccessMessage] = useState(null)
 
   const loadTrainingRequests = useCallback(async () => {
@@ -72,6 +73,7 @@ export function TrainingRequestsTabContent() {
     if (!approveModalRequest) return
     const id = approveModalRequest.request_id
     setTrainingActionLoading(id)
+    setModalLoading(true)
     setError('')
     try {
       const res = await apiFetch('/api/hr/approve-training', {
@@ -95,6 +97,7 @@ export function TrainingRequestsTabContent() {
       setError(err?.message || 'Goedkeuren mislukt')
     } finally {
       setTrainingActionLoading(null)
+      setModalLoading(false)
     }
   }
 
@@ -106,6 +109,7 @@ export function TrainingRequestsTabContent() {
     const requestId = rejectConfirmRequestId
     if (!requestId) return
     setTrainingActionLoading(requestId)
+    setModalLoading(true)
     setError('')
     try {
       const res = await apiFetch('/api/hr/approve-training', {
@@ -120,6 +124,7 @@ export function TrainingRequestsTabContent() {
       setError(err?.message || 'Afwijzen mislukt')
     } finally {
       setTrainingActionLoading(null)
+      setModalLoading(false)
     }
   }
 
@@ -246,7 +251,7 @@ export function TrainingRequestsTabContent() {
                 onClick={confirmApproveTraining}
                 className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:pointer-events-none inline-flex items-center gap-2"
               >
-                {trainingActionLoading === approveModalRequest.request_id ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                {modalLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
                 Goedkeuren
               </button>
             </div>
@@ -273,7 +278,7 @@ export function TrainingRequestsTabContent() {
                 onClick={confirmRejectTraining}
                 className="px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700 disabled:opacity-50 disabled:pointer-events-none inline-flex items-center gap-2"
               >
-                {trainingActionLoading === rejectConfirmRequestId ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                {modalLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
                 Afwijzen
               </button>
             </div>
