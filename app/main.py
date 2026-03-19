@@ -100,7 +100,6 @@ from app.routes import (
     users,
     debug_chat,
     email as email_routes,
-    email_inbox,
     ceo,
     crew,
     events,
@@ -109,7 +108,6 @@ from app.routes import (
     hr,
     integrations,
     intelligence,
-    jobs,
     knowledge as knowledge_routes,
     lessons,
     monitoring,
@@ -128,8 +126,6 @@ from app.routes import (
 
 app.include_router(agent_inbox.router)
 app.include_router(agents_routes.router)
-app.include_router(email_inbox.router)
-app.include_router(clients.router)
 app.include_router(debug_chat.router)
 app.include_router(email_routes.router)
 app.include_router(ceo.router)
@@ -138,10 +134,10 @@ app.include_router(events.router)
 app.include_router(explainer.router)
 app.include_router(graph.router)
 app.include_router(hr.router)
+app.include_router(clients.router)
 app.include_router(dashboard.router)
 app.include_router(integrations.router)
 app.include_router(intelligence.router)
-app.include_router(jobs.router)
 app.include_router(knowledge_routes.router)
 app.include_router(lessons.router)
 app.include_router(monitoring.router)
