@@ -291,17 +291,15 @@ export default function Newbies() {
     setOfferingLibraryId(library_id)
     setLibraryResults({})
 
-    const firstIdKey = toEvaluate[0] ? String(toEvaluate[0].newbie_id) : null
-
     const results = {}
     toEvaluate.forEach((n) => {
-      results[String(n.newbie_id)] = { status: 'evaluating' }
+      results[n.newbie_id] = { status: 'evaluating' }
     })
     setLibraryResults({ ...results })
 
     await Promise.all(
       toEvaluate.map(async (n) => {
-        const id = String(n.newbie_id)
+        const id = n.newbie_id
         try {
           const res = await apiFetch(`/api/newbies/${encodeURIComponent(id)}/evaluate-library`, {
             method: 'POST',
@@ -311,29 +309,23 @@ export default function Newbies() {
           const data = await res.json().catch(() => ({}))
           const ev = data.evaluation || {}
 
-          if (firstIdKey && id === firstIdKey) {
-            console.log('[evaluate-library debug]', { newbie_id: id, library_id, http: res?.status, data })
-          }
-
           if (ev.accept) {
-            const nextEntry = {
-              status: 'accepted',
-              category: ev.category,
-              reason: ev.reason,
-              score_gained: data.score_gained ?? 0,
-            }
-            if (firstIdKey && id === firstIdKey) console.log('[libraryResults update]', id, nextEntry)
-            setLibraryResults((prev) => ({ ...prev, [id]: nextEntry }))
+            setLibraryResults((prev) => ({
+              ...prev,
+              [id]: { status: 'accepted', category: ev.category, reason: ev.reason, score_gained: data.score_gained ?? 0 },
+            }))
             if (data.trained) await fetchNewbies(true)
           } else {
-            const nextEntry = { status: 'skipped', reason: ev.reason || 'Overgeslagen.' }
-            if (firstIdKey && id === firstIdKey) console.log('[libraryResults update]', id, nextEntry)
-            setLibraryResults((prev) => ({ ...prev, [id]: nextEntry }))
+            setLibraryResults((prev) => ({
+              ...prev,
+              [id]: { status: 'skipped', reason: ev.reason || 'Overgeslagen.' },
+            }))
           }
         } catch (err) {
-          const nextEntry = { status: 'error', reason: 'Kon Newbie niet bereiken' }
-          if (firstIdKey && id === firstIdKey) console.log('[libraryResults update]', id, nextEntry)
-          setLibraryResults((prev) => ({ ...prev, [id]: nextEntry }))
+          setLibraryResults((prev) => ({
+            ...prev,
+            [id]: { status: 'error', reason: 'Kon Newbie niet bereiken' },
+          }))
         }
       })
     )
@@ -483,38 +475,38 @@ export default function Newbies() {
                 </div>
 
                 {/* Library result per card */}
-                {libraryResults[String(n.newbie_id)] && (
+                {libraryResults[n.newbie_id] && (
                   <div className="mt-3 pt-3 border-t border-slate-100 text-xs" onClick={(e) => e.stopPropagation()}>
-                    {libraryResults[String(n.newbie_id)].status === 'evaluating' && (
+                    {libraryResults[n.newbie_id].status === 'evaluating' && (
                       <div className="flex items-center gap-2 text-indigo-600">
                         <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
                         Evalueren...
                       </div>
                     )}
-                    {libraryResults[String(n.newbie_id)].status === 'accepted' && (
+                    {libraryResults[n.newbie_id].status === 'accepted' && (
                       <div>
                         <div className="font-medium text-green-600">
-                          ✓ Geaccepteerd — {categoryLabel(libraryResults[String(n.newbie_id)].category)}
-                          {libraryResults[String(n.newbie_id)].score_gained != null && libraryResults[String(n.newbie_id)].score_gained > 0 && (
-                            <span> (+{libraryResults[String(n.newbie_id)].score_gained})</span>
+                          ✓ Geaccepteerd — {categoryLabel(libraryResults[n.newbie_id].category)}
+                          {libraryResults[n.newbie_id].score_gained != null && libraryResults[n.newbie_id].score_gained > 0 && (
+                            <span> (+{libraryResults[n.newbie_id].score_gained})</span>
                           )}
                         </div>
-                        {libraryResults[String(n.newbie_id)].reason && (
-                          <p className="text-slate-600 italic mt-0.5">&quot;{libraryResults[String(n.newbie_id)].reason}&quot;</p>
+                        {libraryResults[n.newbie_id].reason && (
+                          <p className="text-slate-600 italic mt-0.5">&quot;{libraryResults[n.newbie_id].reason}&quot;</p>
                         )}
                       </div>
                     )}
-                    {libraryResults[String(n.newbie_id)].status === 'skipped' && (
+                    {libraryResults[n.newbie_id].status === 'skipped' && (
                       <div>
                         <div className="font-medium text-red-600">✗ Overgeslagen</div>
-                        {libraryResults[String(n.newbie_id)].reason && (
-                          <p className="text-slate-600 italic mt-0.5">&quot;{libraryResults[String(n.newbie_id)].reason}&quot;</p>
+                        {libraryResults[n.newbie_id].reason && (
+                          <p className="text-slate-600 italic mt-0.5">&quot;{libraryResults[n.newbie_id].reason}&quot;</p>
                         )}
                       </div>
                     )}
-                    {libraryResults[String(n.newbie_id)].status === 'error' && (
+                    {libraryResults[n.newbie_id].status === 'error' && (
                       <div className="font-medium text-amber-600">
-                        {libraryResults[String(n.newbie_id)].reason || 'Kon Newbie niet bereiken'}
+                        {libraryResults[n.newbie_id].reason || 'Kon Newbie niet bereiken'}
                       </div>
                     )}
                   </div>
