@@ -208,6 +208,7 @@ class AgentUpdate(BaseModel):
     goal: Optional[str] = None
     category: Optional[str] = None
     is_active: Optional[bool] = None
+    model_config: Optional[dict] = None
 
 
 class AgentResponse(BaseModel):
@@ -231,6 +232,7 @@ class AgentResponse(BaseModel):
     goal: Optional[str] = None
     category: Optional[str] = None
     is_active: Optional[bool] = None
+    model_config: Optional[dict] = None
 
 
 @router.get("")
@@ -1254,6 +1256,7 @@ async def update_agent(
         "knowledge_base_sources",
         "tool_access_whitelist",
         "hiring_logic",
+        "model_config",
     }
     for key in json_fields:
         if key in data:
@@ -1291,7 +1294,8 @@ async def update_agent(
                 system_prompt,
                 goal,
                 category,
-                is_active
+                is_active,
+                model_config
             """,
             *values,
         )
