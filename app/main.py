@@ -96,6 +96,7 @@ from app.routes import (
     agent_inbox,
     auth,
     clients,
+    dashboard,
     users,
     debug_chat,
     email as email_routes,
@@ -137,6 +138,7 @@ app.include_router(events.router)
 app.include_router(explainer.router)
 app.include_router(graph.router)
 app.include_router(hr.router)
+app.include_router(dashboard.router)
 app.include_router(integrations.router)
 app.include_router(intelligence.router)
 app.include_router(jobs.router)
