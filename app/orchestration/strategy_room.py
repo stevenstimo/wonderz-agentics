@@ -210,6 +210,23 @@ Respond with JSON only:
 """
 
         ctx = brief.context if isinstance(brief.context, dict) else {}
+        if ctx.get("detected_task_type") == "data_query":
+            logger.info("Data-query detected — using single-step data_agent plan")
+            steps = [
+                JobStep(
+                    step_index=1,
+                    agent_role="data_agent",
+                    unified_tool="fetch_data",
+                    requires_approval=False,
+                    description="Fetch data using DataAgent",
+                )
+            ]
+            return ExecutionPlan(
+                brief=brief,
+                steps=steps,
+                hired_agents=["data_agent"],
+                estimated_duration_seconds=120,
+            )
         job_lower = (brief.job_post or "").lower()
         user_message = f"""Strategic Brief:
 - Objective: {ctx.get('objective', 'Unknown')}

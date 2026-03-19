@@ -875,11 +875,23 @@ async def run_data_pipeline(job_id: str) -> None:
             "volledigheid": result.get("volledigheid"),
             "volgende_actie": result.get("volgende_actie"),
         }
+        final_content = json.dumps(
+            {
+                "gevonden": proposed_data.get("gevonden"),
+                "resultaat": proposed_data.get("resultaat", []),
+                "volledigheid": proposed_data.get("volledigheid"),
+                "volgende_actie": proposed_data.get("volgende_actie"),
+            },
+            default=_json_default,
+            ensure_ascii=False,
+            indent=2,
+        )
 
         async with pool.acquire() as conn:
             await _update_job_context(conn, job_id, {
                 "proposed_data": proposed_data,
                 "pipeline_type": "direct_response",
+                "final_content": final_content,
             })
             await conn.execute(
                 "UPDATE jobs SET status = $1, updated_at = now() WHERE id = $2",

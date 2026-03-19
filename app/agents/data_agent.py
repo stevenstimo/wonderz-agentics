@@ -255,7 +255,7 @@ class DataAgent:
                     job_id, step_index, step_name, agent_role, agent,
                     status, input_payload, created_at
                 )
-                VALUES ($1, 0, 'data_retrieval', 'data-analyst', 'agent:data-analyst', 'running', $2::jsonb, now())
+                VALUES ($1, 1, 'fetch_data', 'data_agent', 'agent:data_agent', 'running', $2::jsonb, now())
                 """,
                 job_id,
                 payload_json,
@@ -264,13 +264,13 @@ class DataAgent:
             logger.warning("Could not create job_step for job %s: %s", job_id, e)
 
     async def _log_step_done(self, conn: Any, job_id: str) -> None:
-        """Mark the data_retrieval step completed. Identify by job_id + step_name + status running."""
+        """Mark the fetch_data step completed. Identify by job_id + step_name + status running."""
         try:
             await conn.execute(
                 """
                 UPDATE job_steps
                 SET status = 'completed', completed_at = now()
-                WHERE job_id = $1 AND step_name = 'data_retrieval' AND status = 'running'
+                WHERE job_id = $1 AND step_name = 'fetch_data' AND status = 'running'
                 """,
                 job_id,
             )
@@ -284,7 +284,7 @@ class DataAgent:
                 """
                 UPDATE job_steps
                 SET status = 'failed', error_log = $2, completed_at = now()
-                WHERE job_id = $1 AND step_name = 'data_retrieval' AND status = 'running'
+                WHERE job_id = $1 AND step_name = 'fetch_data' AND status = 'running'
                 """,
                 job_id,
                 error,

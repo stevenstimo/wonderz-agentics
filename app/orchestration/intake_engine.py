@@ -101,7 +101,7 @@ class IntakeEngine:
 
         # --- Step 1: Detect job type ---
         DATA_QUERY_SIGNALS = [
-            "toon", "geef", "lijst", "overzicht", "top ", "hoeveel",
+            "toon", "geef", "lijst", "overzicht", "top ", "hoeveel", "analyse", "welke", "wat zijn",
             "klikdata", "impressions", "clicks", "ctr", "positie",
             "ranking", "verkeer", "traffic", "bezoekers", "rapport",
             "rapportage", "stats", "statistieken",
