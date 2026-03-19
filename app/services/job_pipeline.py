@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import quote
 from typing import Any, Dict, List, Optional, Tuple
 
+from app.core.config import DEFAULT_MODEL
 from app.db import init_db_pool
 from app.database import get_db
 from app.services.token_guard import TokenGuard
@@ -21,13 +22,8 @@ logger = logging.getLogger(__name__)
 # Temporary debug logger for client knowledge context injection (remove or set to DEBUG after validation)
 knowledge_debug_logger = logging.getLogger("knowledge_debug")
 
-# Per-step model routing: CEO/copywriter on Sonnet, reviewer/generic on Haiku
-MODEL_ROUTING = {
-    "copywriter": "claude-sonnet-4-6",
-    "copywriter_retry": "claude-sonnet-4-6",
-    "reviewer": "claude-haiku-4-5-20251001",
-    "generic": "claude-haiku-4-5-20251001",
-}
+# Model for pipeline agent calls (copywriter, reviewer)
+CLAUDE_MODEL = DEFAULT_MODEL
 
 # Per-step timeouts (seconds)
 TIMEOUT_CONTENT_STEP = 120
@@ -579,23 +575,6 @@ def _extract_text_from_anthropic_content(content: Any) -> str:
     return "".join(parts).strip()
 
 
-def _log_cache_usage(step_label: str, usage: Any, model: str = "") -> None:
-    """Log Anthropic usage for monitoring: model, input/output tokens, cache fields."""
-    cache_create = getattr(usage, "cache_creation_input_tokens", 0) or 0
-    cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
-    input_tokens = getattr(usage, "input_tokens", 0) or 0
-    output_tokens = getattr(usage, "output_tokens", 0) or 0
-    logger.info(
-        "[llm_usage] step=%s model=%s input=%s output=%s cache_create=%s cache_read=%s",
-        step_label,
-        model,
-        input_tokens,
-        output_tokens,
-        cache_create,
-        cache_read,
-    )
-
-
 def _run_step_agent(
     agent_role: str,
     step_name: str,
@@ -662,8 +641,7 @@ def _run_step_agent(
 
     # Copywriter: write main content (never pass previous/final_content — write fresh)
     if role_lower in ("copywriter", "copy writer"):
-        # Prompt caching: fixed block (cache_control) + variable block (knowledge, no cache)
-        copywriter_fixed = (
+        system = (
             "You are a professional copywriter for a content bureau. Your ONLY job is to write the actual article text.\n\n"
             "CRITICAL RULES:\n"
             "- Write the COMPLETE, FINAL article text ready for publication\n"
@@ -673,6 +651,10 @@ def _run_step_agent(
             "- Do NOT describe what you're going to write — just WRITE IT\n"
             "- Start directly with the article title as a # heading, then the content\n"
             "- When you receive CRITICAL USER FEEDBACK, write a completely new version from scratch. Do not request, expect, or paste any previous draft text.\n"
+            f"- Use ## for section headings (not ###, not bold text like **Heading**)\n"
+            f"- Write in {language}\n"
+            f"- Tone: {tone}\n"
+            f"- Write approximately {word_count} words\n\n"
             "EXAMPLE of what you should produce:\n"
             "# De Geschiedenis van Haarlem\n\n"
             "Haarlem is een van de oudste steden van Nederland...\n\n"
@@ -687,41 +669,26 @@ def _run_step_agent(
             "**Status:** GOEDGEKEURD"
         )
         knowledge_block = context.get("_knowledge_block") or ""
-        copywriter_variable = (
-            f"- Use ## for section headings (not ###, not bold text like **Heading**)\n"
-            f"- Write in {language}\n"
-            f"- Tone: {tone}\n"
-            f"- Write approximately {word_count} words\n\n"
-        )
         if knowledge_block:
-            copywriter_variable += "\n" + knowledge_block
+            system += "\n\n" + knowledge_block
         if not is_content_role:
             try:
                 from app.services.worker_contract import WorkerOutputValidator
-                copywriter_variable += "\n\n" + WorkerOutputValidator().format_for_prompt()
+                system += "\n\n" + WorkerOutputValidator().format_for_prompt()
             except Exception:
                 pass
-        system_blocks = [
-            {"type": "text", "text": copywriter_fixed, "cache_control": {"type": "ephemeral"}},
-            {"type": "text", "text": copywriter_variable.strip()},
-        ]
         user = f"Write an article of approximately {word_count} words about: {objective}. Focus: {focus}."
         user_feedback = context.get("user_feedback") or context.get("feedback") or ""
         if user_feedback and isinstance(user_feedback, str):
             user += f"\n\nCRITICAL USER FEEDBACK (you MUST apply this — write a completely new version, do not reference any previous draft):\n{user_feedback}"
         plan_indicators = ["Projectoverzicht", "Leveringscriteria", "GOEDGEKEURD", "Uitvoeringsplan", "Volgende Stap", "Status:"]
         try:
-            model = MODEL_ROUTING["copywriter"]
-            logger.info("[model_routing] copywriter model=%s", model)
             response = client.messages.create(
-                model=model,
+                model=CLAUDE_MODEL,
                 max_tokens=4000,
-                system=system_blocks,
+                system=system,
                 messages=[{"role": "user", "content": user}],
             )
-            usage = getattr(response, "usage", None)
-            if usage is not None:
-                _log_cache_usage("copywriter", usage, model)
             logger.info("Copywriter raw response type: %s", type(response.content))
             logger.info("Copywriter content blocks: %s", len(response.content or []))
             for i, block in enumerate(response.content or []):
@@ -729,22 +696,13 @@ def _run_step_agent(
             text = _extract_text_from_anthropic_content(response.content)
             tokens = (response.usage.input_tokens or 0) + (response.usage.output_tokens or 0)
             if any(indicator in text for indicator in plan_indicators):
-                retry_variable = copywriter_variable.strip() + "\n\nWARNING: Your previous attempt produced a plan/outline instead of an article. Write the ACTUAL ARTICLE TEXT. No plans, no outlines, no project descriptions."
-                retry_blocks = [
-                    {"type": "text", "text": copywriter_fixed, "cache_control": {"type": "ephemeral"}},
-                    {"type": "text", "text": retry_variable},
-                ]
-                model_retry = MODEL_ROUTING["copywriter_retry"]
-                logger.info("[model_routing] copywriter_retry model=%s", model_retry)
+                retry_system = system + "\n\nWARNING: Your previous attempt produced a plan/outline instead of an article. Write the ACTUAL ARTICLE TEXT. No plans, no outlines, no project descriptions."
                 response = client.messages.create(
-                    model=model_retry,
+                    model=CLAUDE_MODEL,
                     max_tokens=4000,
-                    system=retry_blocks,
+                    system=retry_system,
                     messages=[{"role": "user", "content": user}],
                 )
-                usage = getattr(response, "usage", None)
-                if usage is not None:
-                    _log_cache_usage("copywriter_retry", usage, model_retry)
                 text = _extract_text_from_anthropic_content(response.content)
                 tokens += (response.usage.input_tokens or 0) + (response.usage.output_tokens or 0)
             if not text:
@@ -780,29 +738,21 @@ def _run_step_agent(
     if role_lower in ("reviewer", "review"):
         if not previous_content:
             return ({"status": "skipped", "review": "No content to review.", "approved": True, "agent_role": agent_role}, 0)
-        reviewer_fixed = (
+        system = (
             "You are a content reviewer. Check quality, grammar, and tone consistency. Reply in the same language as the content. Keep the reply concise. End with APPROVED or CHANGES NEEDED. "
             "If the content looks like a plan or outline instead of actual article text, mark it as NOT APPROVED and explain that actual content is needed, not a plan."
         )
         knowledge_block = context.get("_knowledge_block") or ""
-        system_blocks = [
-            {"type": "text", "text": reviewer_fixed, "cache_control": {"type": "ephemeral"}},
-        ]
         if knowledge_block:
-            system_blocks.append({"type": "text", "text": knowledge_block})
+            system += "\n\n" + knowledge_block
         user = f"Review this content:\n\n{previous_content[:12000]}"
         try:
-            model = MODEL_ROUTING["reviewer"]
-            logger.info("[model_routing] reviewer model=%s", model)
             response = client.messages.create(
-                model=model,
+                model=CLAUDE_MODEL,
                 max_tokens=2000,
-                system=system_blocks,
+                system=system,
                 messages=[{"role": "user", "content": user}],
             )
-            usage = getattr(response, "usage", None)
-            if usage is not None:
-                _log_cache_usage("reviewer", usage, model)
             review_text = (response.content[0].text if response.content else "").strip()
             approved = "approved" in review_text.lower() or "changes needed" not in review_text.lower()
             tokens = (response.usage.input_tokens or 0) + (response.usage.output_tokens or 0)
@@ -815,28 +765,18 @@ def _run_step_agent(
             return ({"status": "failed", "review": str(e), "approved": False, "agent_role": agent_role}, 0)
 
     # Generic: one Claude call
-    generic_fixed = "You are a helpful assistant. Produce the requested output (no meta-commentary)."
+    system = f"You are a helpful assistant. Write in {language}. Tone: {tone}."
     knowledge_block = context.get("_knowledge_block") or ""
-    generic_variable = f"Write in {language}. Tone: {tone}."
     if knowledge_block:
-        generic_variable += "\n\n" + knowledge_block
-    system_blocks = [
-        {"type": "text", "text": generic_fixed, "cache_control": {"type": "ephemeral"}},
-        {"type": "text", "text": generic_variable},
-    ]
+        system += "\n\n" + knowledge_block
     user = f"Task: {step_desc}. Context: {objective}. Produce the requested output (no meta-commentary)."
     try:
-        model = MODEL_ROUTING["generic"]
-        logger.info("[model_routing] generic model=%s", model)
         response = client.messages.create(
-            model=model,
+            model=CLAUDE_MODEL,
             max_tokens=4000,
-            system=system_blocks,
+            system=system,
             messages=[{"role": "user", "content": user}],
         )
-        usage = getattr(response, "usage", None)
-        if usage is not None:
-            _log_cache_usage("generic", usage, model)
         text = (response.content[0].text if response.content else "").strip()
         tokens = (response.usage.input_tokens or 0) + (response.usage.output_tokens or 0)
         return ({"status": "completed", "content": text, "agent_role": agent_role, "step_name": step_desc}, tokens)
