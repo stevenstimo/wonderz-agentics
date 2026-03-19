@@ -119,6 +119,9 @@ def _serialize_agent_row(row: Any) -> Dict[str, Any]:
     for key in ("tool_whitelist", "knowledge_sources", "output_format", "guardrails", "model_config", "skills"):
         if key in record and record[key] is not None:
             record[key] = _to_json_compat(record[key])
+    # API contract: expose llm_config instead of model_config (Pydantic v2 reserved name).
+    if "model_config" in record and "llm_config" not in record:
+        record["llm_config"] = record.pop("model_config")
     # tool_whitelist can be TEXT[] from DB — ensure list for JSON
     if "tool_whitelist" in record and isinstance(record["tool_whitelist"], (list, tuple)):
         record["tool_whitelist"] = list(record["tool_whitelist"])
@@ -208,7 +211,7 @@ class AgentUpdate(BaseModel):
     goal: Optional[str] = None
     category: Optional[str] = None
     is_active: Optional[bool] = None
-    model_config: Optional[dict] = None
+    llm_config: Optional[dict] = None
 
 
 class AgentResponse(BaseModel):
@@ -232,7 +235,7 @@ class AgentResponse(BaseModel):
     goal: Optional[str] = None
     category: Optional[str] = None
     is_active: Optional[bool] = None
-    model_config: Optional[dict] = None
+    llm_config: Optional[dict] = None
 
 
 @router.get("")
@@ -291,7 +294,7 @@ async def list_agent_presets(
 async def get_role_templates_list(
     current_user: Annotated[TokenPayload, Depends(get_current_user)],
 ) -> Dict[str, Any]:
-    """Rol-templates (framework sectie 5) voor default tool_whitelist, output_format, guardrails, model_config."""
+    """Rol-templates (framework sectie 5) voor default tool_whitelist, output_format, guardrails, llm_config."""
     return {"role_templates": list_role_templates()}
 
 
@@ -957,12 +960,12 @@ def _is_hiring_hall_payload(body: Dict[str, Any]) -> bool:
 
 
 def _is_framework_payload(body: Dict[str, Any]) -> bool:
-    """True if request contains framework sectie 4 fields (type, output_format, guardrails, model_config)."""
+    """True if request contains framework sectie 4 fields (type, output_format, guardrails, llm_config)."""
     return (
         body.get("type") is not None
         and body.get("output_format") is not None
         and body.get("guardrails") is not None
-        and body.get("model_config") is not None
+        and body.get("llm_config") is not None
     )
 
 
@@ -1000,12 +1003,12 @@ async def create_agent(
             guardrails = {}
         if not guardrails.get("scope_limitation") or not guardrails.get("escalation_rule"):
             raise HTTPException(status_code=422, detail="guardrails must include scope_limitation and escalation_rule")
-        model_config = body.get("model_config") or {}
-        if not isinstance(model_config, dict):
-            model_config = {}
-        temp = model_config.get("temperature", 0.7)
+        llm_config = body.get("llm_config") or {}
+        if not isinstance(llm_config, dict):
+            llm_config = {}
+        temp = llm_config.get("temperature", 0.7)
         if not isinstance(temp, (int, float)) or temp < 0.1 or temp > 0.9:
-            raise HTTPException(status_code=422, detail="model_config.temperature must be between 0.1 and 0.9")
+            raise HTTPException(status_code=422, detail="llm_config.temperature must be between 0.1 and 0.9")
         knowledge_sources = body.get("knowledge_sources") or []
         if not isinstance(knowledge_sources, list):
             knowledge_sources = []
@@ -1043,7 +1046,7 @@ async def create_agent(
             names = ", ".join(insert_cols)
             values = [
                 agent_id, name, agent_type, role, goal, system_prompt,
-                tool_whitelist, json.dumps(knowledge_sources), json.dumps(output_format or {}), json.dumps(guardrails), json.dumps(model_config),
+                tool_whitelist, json.dumps(knowledge_sources), json.dumps(output_format or {}), json.dumps(guardrails), json.dumps(llm_config),
                 json.dumps(skills), persona_source, 0, False, False,
                 now, now,
             ]
@@ -1208,10 +1211,15 @@ async def activate_agent(
                 tool_whitelist = []
         if not (isinstance(tool_whitelist, list) and len(tool_whitelist) > 0):
             raise HTTPException(status_code=400, detail="tool_whitelist must have at least one tool")
-        for key in ("output_format", "guardrails", "model_config"):
-            val = r.get(key)
+        required_column_by_api_key = {
+            "output_format": "output_format",
+            "guardrails": "guardrails",
+            "llm_config": "model_config",
+        }
+        for api_key, db_col in required_column_by_api_key.items():
+            val = r.get(db_col)
             if val is None or (isinstance(val, str) and (not val or val in ("{}", "null"))):
-                raise HTTPException(status_code=400, detail=f"{key} is required to activate")
+                raise HTTPException(status_code=400, detail=f"{api_key} is required to activate")
         agent_type = r.get("type")
         if not agent_type:
             raise HTTPException(status_code=400, detail="type is required to activate")
@@ -1231,6 +1239,10 @@ async def update_agent(
     data = body.model_dump(exclude_unset=True)
     if not data:
         raise HTTPException(status_code=400, detail="No fields provided for update")
+
+    # API alias -> DB column
+    if "llm_config" in data:
+        data["model_config"] = data.pop("llm_config")
 
     # Validate tool_access_whitelist against VALID_TOOLS
     if "tool_access_whitelist" in data:

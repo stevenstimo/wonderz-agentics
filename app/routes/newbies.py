@@ -32,6 +32,17 @@ CATEGORY_TO_COLUMN = {
     "operations": "score_operations",
 }
 
+# Role guidance for Claude evaluation (soft hint, not a hard rule)
+ROLE_CATEGORY_WEIGHTS: dict[str, list[str]] = {
+    "copywriter": ["creative", "management"],
+    "content writer": ["creative", "management"],
+    "developer": ["development", "operations"],
+    "engineer": ["development", "operations"],
+    "support": ["operations", "management"],
+    "hr-manager": ["management", "operations"],
+    "personal assistant": ["management", "operations"],
+}
+
 
 def _slug(name: str) -> str:
     """Generate URL-safe slug from name."""
@@ -41,10 +52,13 @@ def _slug(name: str) -> str:
 
 
 def _generate_newbie_id(name: str) -> str:
-    """Generate newbie_id: newbie:{slug}-{short-uuid}."""
-    slug = _slug(name)
-    short = uuid.uuid4().hex[:8]
-    return f"newbie:{slug}-{short}"
+    """Generate newbie_id: newbie:{slug}-{4hex}; slug is lowercase [a-z0-9-] from name."""
+    raw = (name or "").lower().strip()
+    slug = re.sub(r"[^a-z0-9]+", "-", raw).strip("-")
+    if not slug:
+        slug = "newbie"
+    slug = slug[:30].rstrip("-") or "newbie"
+    return f"newbie:{slug}-{uuid.uuid4().hex[:4]}"
 
 
 def _json_safe(val):
@@ -342,6 +356,59 @@ async def _update_readiness_and_status(conn, newbie_id: str) -> None:
     )
 
 
+async def _maybe_update_suggested_role(conn, newbie_id: str) -> Optional[str]:
+    """
+    Update suggested_role when one accepted category clearly dominates.
+    Dominant rule: >= 3 accepted decisions and top category > 60%.
+    """
+    rows = await conn.fetch(
+        """
+        SELECT category, COUNT(*) AS cnt
+        FROM newbie_library_decisions
+        WHERE newbie_id = $1 AND accept = true AND category IS NOT NULL
+        GROUP BY category
+        ORDER BY cnt DESC
+        """,
+        newbie_id,
+    )
+    if not rows:
+        return None
+
+    total = sum(int(r["cnt"] or 0) for r in rows)
+    if total < 3:
+        return None
+
+    top_category = (rows[0].get("category") or "").strip().lower()
+    top_count = int(rows[0].get("cnt") or 0)
+    if total <= 0 or (top_count / total) < 0.6:
+        return None
+
+    category_to_role = {
+        "creative": "copywriter",
+        "management": "hr-manager",
+        "development": "developer",
+        "operations": "support",
+    }
+    new_role = category_to_role.get(top_category)
+    if not new_role:
+        return None
+
+    current = await conn.fetchval(
+        "SELECT suggested_role FROM newbies WHERE newbie_id = $1",
+        newbie_id,
+    )
+    current_norm = (current or "").strip().lower()
+    if current_norm == new_role:
+        return None
+
+    await conn.execute(
+        "UPDATE newbies SET suggested_role = $1, updated_at = now() WHERE newbie_id = $2",
+        new_role,
+        newbie_id,
+    )
+    return new_role
+
+
 MAX_SCORE_PER_CATEGORY = 80  # Laatste 20 punten komen via hire-beoordeling
 SCORE_PER_TRAINING = 10  # MVP: vaste +10 per training
 
@@ -539,6 +606,7 @@ async def evaluate_and_maybe_train_url(newbie_id: str, body: EvaluateUrlRequest)
         persona = row.get("persona") or ""
         qualities = row.get("qualities") or ""
         development = row.get("development") or ""
+        suggested_role = row.get("suggested_role") or ""
         status_val = row.get("status") or "in_training"
 
         url = (body.source_url or "").strip()
@@ -560,6 +628,7 @@ async def evaluate_and_maybe_train_url(newbie_id: str, body: EvaluateUrlRequest)
                 "trained": False,
                 "score_gained": 0,
                 "error": str(e),
+                "role_updated": None,
             }
 
         text = extract_text(html)
@@ -575,6 +644,7 @@ async def evaluate_and_maybe_train_url(newbie_id: str, body: EvaluateUrlRequest)
                 "evaluation": evaluation,
                 "trained": False,
                 "score_gained": 0,
+                "role_updated": None,
             }
 
         # 2. Claude evaluatie
@@ -584,6 +654,7 @@ async def evaluate_and_maybe_train_url(newbie_id: str, body: EvaluateUrlRequest)
             qualities=qualities,
             development=development,
             page_text=stripped,
+            suggested_role=suggested_role,
         )
 
         # Als Claude besluit om niet te trainen: alleen evaluatie teruggeven
@@ -592,6 +663,7 @@ async def evaluate_and_maybe_train_url(newbie_id: str, body: EvaluateUrlRequest)
                 "evaluation": evaluation,
                 "trained": False,
                 "score_gained": 0,
+                "role_updated": None,
             }
 
         category = str(evaluation.get("category") or "management")
@@ -616,6 +688,7 @@ async def evaluate_and_maybe_train_url(newbie_id: str, body: EvaluateUrlRequest)
                 "trained": False,
                 "score_gained": 0,
                 "error": "Cannot train a hired newbie",
+                "role_updated": None,
             }
 
         # 3. Probeer te trainen met de gekozen categorie
@@ -626,7 +699,10 @@ async def evaluate_and_maybe_train_url(newbie_id: str, body: EvaluateUrlRequest)
                 "trained": False,
                 "score_gained": 0,
                 "error": train_error,
+                "role_updated": None,
             }
+
+        role_updated = await _maybe_update_suggested_role(conn, newbie_id)
 
         logger.info(
             "Evaluate+train newbie %s: URL=%s category=%s +%s",
@@ -639,6 +715,7 @@ async def evaluate_and_maybe_train_url(newbie_id: str, body: EvaluateUrlRequest)
             "evaluation": evaluation,
             "trained": True,
             "score_gained": SCORE_PER_TRAINING,
+            "role_updated": role_updated,
         }
 
 
@@ -688,12 +765,14 @@ async def evaluate_library_item(
                 },
                 "trained": trained,
                 "score_gained": score_gained,
+                "role_updated": None,
             }
 
         newbie_name = newbie_row.get("newbie_name") or "Newbie"
         persona = newbie_row.get("persona") or ""
         qualities = newbie_row.get("qualities") or ""
         development = newbie_row.get("development") or ""
+        suggested_role = newbie_row.get("suggested_role") or ""
 
         evaluation = await _evaluate_url_via_claude(
             newbie_name=newbie_name,
@@ -701,6 +780,7 @@ async def evaluate_library_item(
             qualities=qualities,
             development=development,
             page_text=(library_row.get("full_text") or ""),
+            suggested_role=suggested_role,
         )
 
         accept = bool(evaluation.get("accept"))
@@ -719,6 +799,7 @@ async def evaluate_library_item(
             )
             trained = ok
             score_gained = SCORE_PER_TRAINING if ok else 0
+        role_updated = await _maybe_update_suggested_role(conn, newbie_id) if trained else None
 
         inserted = await conn.fetchrow(
             """
@@ -766,6 +847,7 @@ async def evaluate_library_item(
                 },
                 "trained": trained,
                 "score_gained": score_gained,
+                "role_updated": None,
             }
 
         evaluation_out = {
@@ -779,6 +861,7 @@ async def evaluate_library_item(
             "evaluation": evaluation_out,
             "trained": trained,
             "score_gained": int(score_gained),
+            "role_updated": role_updated,
         }
 
 
@@ -957,6 +1040,7 @@ async def _evaluate_url_via_claude(
     qualities: str,
     development: str,
     page_text: str,
+    suggested_role: str = "",
 ) -> dict:
     """
     Laat Claude een URL-inhoud evalueren voor een newbie.
@@ -982,11 +1066,27 @@ async def _evaluate_url_via_claude(
 
     from anthropic import Anthropic
 
+    role_raw = (suggested_role or "").strip()
+    role_key = role_raw.lower()
+    role_categories = ROLE_CATEGORY_WEIGHTS.get(role_key)
+    if role_raw:
+        suggested_role_line = f"Je groeit richting de rol van {role_raw}."
+        if role_categories:
+            human_cats = " en ".join([c.capitalize() for c in role_categories[:2]])
+            relevant_categories_line = f"{human_cats} zijn het meest relevant voor jou."
+        else:
+            relevant_categories_line = "Alle categorieën zijn voor jou relevant."
+    else:
+        suggested_role_line = ""
+        relevant_categories_line = ""
+
     system_prompt = (
         "Je bent {newbie_name}, een agent in ontwikkeling.\n\n"
         "Jouw persona: {persona}\n"
         "Jouw kwaliteiten: {qualities}\n"
-        "Jouw ontwikkelrichting: {development}\n\n"
+        "Jouw ontwikkelrichting: {development}\n"
+        "{suggested_role_line}\n"
+        "{relevant_categories_line}\n\n"
         "Je hebt net de inhoud van een webpagina gelezen.\n"
         "Bepaal of deze inhoud relevant is voor jouw ontwikkeling als agent.\n\n"
         "Beschikbare categorieën:\n"
@@ -1007,6 +1107,8 @@ async def _evaluate_url_via_claude(
         persona=persona or "",
         qualities=qualities or "",
         development=development or "",
+        suggested_role_line=suggested_role_line,
+        relevant_categories_line=relevant_categories_line,
     )
 
     # Beperk lengte van page_text om tokens te sparen
