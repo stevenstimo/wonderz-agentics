@@ -66,6 +66,37 @@ def _row_to_dict(row) -> dict:
     return {k: _json_safe(v) for k, v in d.items()}
 
 
+def _derive_library_title(html: str, extracted_text: str) -> str:
+    """
+    Derive a clean library title.
+    1) Prefer <title> tag from HTML
+    2) Fallback: first extracted text line longer than 10 chars
+    3) Strip common site suffixes after ' | ', ' - ', ' — '
+    4) Max 80 chars
+    """
+    title = ""
+    html_text = html or ""
+    match = re.search(r"<title[^>]*>(.*?)</title>", html_text, re.IGNORECASE | re.DOTALL)
+    if match:
+        title = re.sub(r"\s+", " ", (match.group(1) or "")).strip()
+
+    if not title:
+        for line in (extracted_text or "").splitlines():
+            clean = re.sub(r"\s+", " ", line).strip()
+            if len(clean) > 10:
+                title = clean
+                break
+
+    if not title:
+        title = (extracted_text or "").strip()[:80]
+
+    for sep in (" | ", " - ", " — "):
+        if sep in title:
+            title = title.split(sep, 1)[0].strip()
+
+    return title[:80].strip()
+
+
 # --- Pydantic models ---
 
 
@@ -200,7 +231,7 @@ async def add_library_item(req: AddLibraryItemRequest):
         if len(stripped) < 50:
             raise HTTPException(status_code=422, detail="Extracted text is too short (min 50 chars)")
 
-        title = stripped[:100]
+        title = _derive_library_title(html, stripped)
         summary = stripped[:500]
 
         row = await conn.fetchrow(
@@ -1390,6 +1421,42 @@ async def list_newbie_trainings(newbie_id: str):
             newbie_id,
         )
     return [dict(r) for r in rows]
+
+
+@router.get("/{newbie_id}/library-decisions")
+async def get_newbie_library_decisions(newbie_id: str):
+    """Alle library beslissingen voor één Newbie, incl. library metadata."""
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        newbie_exists = await conn.fetchrow(
+            "SELECT 1 FROM newbies WHERE newbie_id = $1",
+            newbie_id,
+        )
+        if not newbie_exists:
+            raise HTTPException(status_code=404, detail="Newbie not found")
+
+        rows = await conn.fetch(
+            """
+            SELECT
+                d.decision_id,
+                d.library_id,
+                d.accept,
+                d.category,
+                d.reason,
+                d.confidence,
+                d.score_gained,
+                d.decided_at,
+                l.source_url,
+                l.title,
+                l.summary
+            FROM newbie_library_decisions d
+            JOIN newbie_library l ON l.library_id = d.library_id
+            WHERE d.newbie_id = $1
+            ORDER BY d.decided_at DESC
+            """,
+            newbie_id,
+        )
+    return [_row_to_dict(r) for r in rows]
 
 
 @router.patch("/{newbie_id}")

@@ -27,7 +27,15 @@ from app.services.training import (
 )
 from app.services.training_workflow import TrainingWorkflow
 from app.data.agent_presets import AGENT_PRESETS
-from app.data.role_templates import get_role_template, list_role_templates
+try:
+    from app.data.role_templates import get_role_template, list_role_templates
+except Exception:
+    # Older deployments may not have role_templates module.
+    def get_role_template(*args, **kwargs):
+        return None
+
+    def list_role_templates():
+        return []
 
 # Hiring Hall + framework sectie 5: geldige tools
 VALID_TOOLS = [
