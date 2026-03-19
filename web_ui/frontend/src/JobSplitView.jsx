@@ -292,7 +292,7 @@ export default function JobSplitView() {
     if (!data?.job) return
     const status = data.job.status
     if (status !== 'RUNNING' && status !== 'INTAKE_CLARIFICATION') return
-    const ms = status === 'INTAKE_CLARIFICATION' ? 2000 : 5000
+    const ms = status === 'INTAKE_CLARIFICATION' ? 10000 : 5000
     const interval = setInterval(fetchJob, ms)
     return () => clearInterval(interval)
   }, [data?.job?.status, data?.job?.context, fetchJob])

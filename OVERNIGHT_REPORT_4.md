@@ -43,9 +43,17 @@ Wat nog nodig is:
 Commit: `feat: add model_config JSONB per agent`
 
 ## Fix 4: Polling cleanup
-Status: 🔄
-Wat gedaan: In uitvoering.
-Commit: ...
+Status: ✅
+Wat gedaan:
+- Polling cleanup in frontend:
+  - `web_ui/frontend/src/SEOTool.jsx`: `console.log` uit polling callback verwijderd (3000ms behouden, toegestaan).
+  - `web_ui/frontend/src/ClientKnowledge.jsx`: `console.log` verwijderd; polling-intervals aangepast van 3000ms en 5000ms naar 10000ms.
+  - `web_ui/frontend/src/JobSplitView.jsx`: intake polling aangepast van 2000ms naar 10000ms.
+  - `web_ui/frontend/src/AgentDetail.jsx`: training polling interval aangepast van 3000ms naar 10000ms.
+  - `web_ui/frontend/src/JobFlow.jsx`: actieve job-tracker polling aangepast naar 3000ms (toegestaan); niet-kritieke ticker aangepast van 1000ms naar 10000ms.
+- Controle gedaan op `setInterval|clearInterval`; elke interval heeft cleanup.
+- Frontend build geslaagd.
+Commit: `chore: polling cleanup - intervals and console.log`
 
 ## Fix 5: Shopify + WordPress adapters
 Status: 🔄

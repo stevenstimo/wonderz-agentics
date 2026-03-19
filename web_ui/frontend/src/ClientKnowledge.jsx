@@ -118,7 +118,7 @@ export default function ClientKnowledge() {
       }
       fetchDatasources()
       fetchKnowledge()
-    }, 3000)
+    }, 10000)
     return () => clearInterval(t)
   }, [slug, pollingIds, fetchDatasources, fetchKnowledge])
 
@@ -153,7 +153,6 @@ export default function ClientKnowledge() {
         body.sitemap_url = (form.sitemap_url ?? '').trim() || undefined
       }
       Object.keys(body).forEach(k => body[k] === undefined && delete body[k])
-      console.log('body:', body)
       const res = await apiFetch(`/api/clients/${slug}/datasources`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -193,7 +192,7 @@ export default function ClientKnowledge() {
           if (refreshIntervalRef.current) clearInterval(refreshIntervalRef.current)
           refreshIntervalRef.current = null
         }
-      }, 5000)
+      }, 10000)
     } catch (e) {
       setError(e?.message || 'Aanmaken mislukt')
     } finally {

@@ -124,7 +124,6 @@ export default function SEOTool() {
     try {
       const res = await apiFetch(`/api/seo/status/${id}`)
       const data = await res.json()
-      console.log('[SEO POLL]', data)
       if (!res.ok) throw new Error(data.detail || 'Status check failed')
       setStatus(data.status)
       setProgress(data.progress ?? 0)

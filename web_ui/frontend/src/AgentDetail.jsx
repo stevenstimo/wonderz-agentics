@@ -325,7 +325,7 @@ export default function AgentDetail() {
         return
       }
       setTrainUrl('')
-      const pollIntervalMs = 3000
+      const pollIntervalMs = 10000
       const maxPolls = 20 // 60s
       let polls = 0
       trainingPollRef.current = setInterval(async () => {

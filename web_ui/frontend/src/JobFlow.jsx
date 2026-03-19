@@ -81,7 +81,7 @@ export default function JobFlow() {
   // Stop polling on unmount
   useEffect(() => { return () => { if (pollRef.current) clearInterval(pollRef.current) } }, [])
   useEffect(() => {
-    const t = setInterval(() => setNowMs(Date.now()), 1000)
+    const t = setInterval(() => setNowMs(Date.now()), 10000)
     return () => clearInterval(t)
   }, [])
 
@@ -127,7 +127,7 @@ export default function JobFlow() {
           setMessages(p => [...p, { from: 'ceo', text: 'Plan is klaar. Bekijk het hieronder.' }])
         }
       }
-    }, 2000)
+    }, 3000)
   }
 
   const send = async () => {
