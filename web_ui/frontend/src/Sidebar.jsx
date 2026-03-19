@@ -47,6 +47,7 @@ const OPERATIONS = [
   { label: 'Crew', icon: UsersRound, path: '/crew' },
   { label: 'Newbies', icon: Star, path: '/newbies' },
   { label: 'Hiring Hall', icon: UserPlus, path: '/hiring' },
+  { label: 'Agents', icon: Users, path: '/agents' },
 ]
 
 const DEVELOPMENT = [
@@ -56,7 +57,6 @@ const DEVELOPMENT = [
 
 const GOVERNANCE = [
   { label: 'COO Approval', icon: Shield, path: '/hr/approval', badgeKey: 'approvalCount' },
-  { label: 'Agents', icon: Users, path: '/agents' },
 ]
 
 const LEGACY_OPERATIONS = [
