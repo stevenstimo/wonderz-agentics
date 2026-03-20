@@ -10,6 +10,7 @@ from app.routes.status import router as status_router
 from app.routes.talents import router as talents_router
 from app.routes.newbies import router as newbies_router
 from app.routes.skills import router as skills_router
+from app.routes.skill_factory import router as skill_factory_router
 from app.routes.settings import router as settings_router
 from app.routes.ceo import router as ceo_router
 from app.routes.explainer import router as explainer_router
@@ -44,6 +45,7 @@ def register_routers(app):
     app.include_router(judson_router)
     app.include_router(gtm_router)
     app.include_router(skills_router)
+    app.include_router(skill_factory_router)
     app.include_router(settings_router)
     app.include_router(ceo_router)
     app.include_router(explainer_router)

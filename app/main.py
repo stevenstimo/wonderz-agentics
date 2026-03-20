@@ -187,6 +187,7 @@ from app.routes import (
     alex_dev,
     admin,
     skills,
+    skill_factory,
 )
 
 app.include_router(agents.router)
@@ -221,6 +222,7 @@ app.include_router(admin.router)
 app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(skills.router)
+app.include_router(skill_factory.router)
 
 
 @app.get("/api/health")
