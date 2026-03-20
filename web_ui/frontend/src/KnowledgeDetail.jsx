@@ -301,9 +301,26 @@ export default function KnowledgeDetail() {
           <div className="overflow-x-auto mb-6">
             <table className="min-w-full text-sm">
               <tbody className="divide-y divide-slate-200">
-                <tr><td className="py-2 font-medium text-slate-500 w-40">Owner</td><td>{doc.owner || '—'}</td></tr>
+                <tr><td className="py-2 font-medium text-slate-500 w-40">Agent ID</td><td>{doc.owner || doc.approved_by || '—'}</td></tr>
                 <tr><td className="py-2 font-medium text-slate-500">Version</td><td>{doc.version ?? '—'}</td></tr>
                 <tr><td className="py-2 font-medium text-slate-500">Access level</td><td>{doc.access_level || '—'}</td></tr>
+                <tr>
+                  <td className="py-2 font-medium text-slate-500">Bron URL</td>
+                  <td>
+                    {doc.source_url ? (
+                      <a
+                        href={doc.source_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-indigo-600 hover:underline break-all"
+                      >
+                        {doc.source_url}
+                      </a>
+                    ) : (
+                      '—'
+                    )}
+                  </td>
+                </tr>
                 <tr><td className="py-2 font-medium text-slate-500">Created</td><td>{formatDate(doc.created_at)}</td></tr>
                 <tr><td className="py-2 font-medium text-slate-500">Last reviewed</td><td>{formatDate(doc.last_reviewed)}</td></tr>
                 <tr><td className="py-2 font-medium text-slate-500">Review interval</td><td>{doc.review_interval_days ?? '—'} days</td></tr>

@@ -491,11 +491,8 @@ export default function JobDetail() {
           <ChatHistoryReadOnly chatHistory={chatHistory} />
           <div className="panel-card">
             <h3 className="text-lg font-semibold text-slate-900 mb-2">Execution in Progress</h3>
-            <div className="w-full bg-slate-200 rounded-full h-2 mb-4">
-              <div
-                className="bg-indigo-600 h-2 rounded-full transition-all"
-                style={{ width: `${steps?.length ? (steps.filter((s) => s.status === 'completed').length / steps.length) * 100 : 0}%` }}
-              />
+            <div className="progress-bar-container">
+              <div className="progress-bar-indeterminate" />
             </div>
             <ul className="space-y-3">
               {(steps || []).map((s) => (

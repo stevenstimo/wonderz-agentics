@@ -225,6 +225,11 @@ export function TrainingRequestsTabContent() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" role="dialog" aria-modal="true" aria-labelledby="approve-modal-title">
           <div className="bg-white rounded-xl shadow-lg max-w-md w-full p-6 border border-slate-200">
             <h2 id="approve-modal-title" className="text-lg font-semibold text-slate-900 mb-3">Trainingsverzoek goedkeuren</h2>
+            {error && (
+              <div className="mb-3 p-3 rounded-lg bg-red-50 text-red-700 border border-red-200 text-sm">
+                {error}
+              </div>
+            )}
             <div className="text-sm text-slate-600 space-y-2 mb-4">
               <p><strong>Agent:</strong> {approveModalRequest?.agent_name ?? approveModalRequest?.agent_id ?? '—'}</p>
               <p><strong>Reden:</strong> {approveModalRequest?.reason ?? '—'}</p>
@@ -241,18 +246,19 @@ export function TrainingRequestsTabContent() {
             <div className="flex justify-end gap-2">
               <button
                 type="button"
-                onClick={() => { setApproveModalRequest(null); setApproveSourceUrl('') }}
-                className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 text-sm font-medium hover:bg-slate-50"
+                disabled={modalLoading}
+                onClick={() => { setApproveModalRequest(null); setApproveSourceUrl(''); setError('') }}
+                className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 text-sm font-medium hover:bg-slate-50 disabled:opacity-50 disabled:pointer-events-none"
               >
                 Annuleren
               </button>
               <button
                 type="button"
-                disabled={trainingActionLoading === (approveModalRequest?.request_id)}
+                disabled={modalLoading}
                 onClick={confirmApproveTraining}
                 className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:pointer-events-none inline-flex items-center gap-2"
               >
-                {modalLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                {modalLoading ? <span className="hr-inline-spinner" aria-label="Laden..." /> : null}
                 Goedkeuren
               </button>
             </div>
@@ -265,21 +271,27 @@ export function TrainingRequestsTabContent() {
           <div className="bg-white rounded-xl shadow-lg max-w-sm w-full p-6 border border-slate-200">
             <h2 id="reject-dialog-title" className="text-lg font-semibold text-slate-900 mb-2">Verzoek afwijzen?</h2>
             <p className="text-sm text-slate-600 mb-4">Dit kan niet ongedaan worden gemaakt.</p>
+            {error && (
+              <div className="mb-3 p-3 rounded-lg bg-red-50 text-red-700 border border-red-200 text-sm">
+                {error}
+              </div>
+            )}
             <div className="flex justify-end gap-2">
               <button
                 type="button"
-                onClick={() => setRejectConfirmRequestId(null)}
-                className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 text-sm font-medium hover:bg-slate-50"
+                disabled={modalLoading}
+                onClick={() => { setRejectConfirmRequestId(null); setError('') }}
+                className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 text-sm font-medium hover:bg-slate-50 disabled:opacity-50 disabled:pointer-events-none"
               >
                 Annuleren
               </button>
               <button
                 type="button"
-                disabled={!!trainingActionLoading}
+                disabled={modalLoading}
                 onClick={confirmRejectTraining}
                 className="px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700 disabled:opacity-50 disabled:pointer-events-none inline-flex items-center gap-2"
               >
-                {modalLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                {modalLoading ? <span className="hr-inline-spinner" aria-label="Laden..." /> : null}
                 Afwijzen
               </button>
             </div>
@@ -438,37 +450,9 @@ export function TrainingSuggestionsTabContent() {
   }
 
   async function runManualDiscover() {
-    const usingDevPoint = !!selectedDiscoverPoint
-    const dpId = usingDevPoint
-      ? developmentPointIdForDiscoverApi(selectedDiscoverPoint.point_id ?? selectedDiscoverPoint.id)
-      : null
-
-    if (usingDevPoint && !dpId) {
-      setError('Development point mist een geldig id.')
-      return
-    }
-
-    const pattern = (discoverPattern || (usingDevPoint ? (selectedDiscoverPoint.issue_description || '') : '') || '').trim()
+    const pattern = (discoverPattern || '').trim()
     if (!pattern) {
       setError('Vul een patroon / beschrijving in voor de zoekopdracht.')
-      return
-    }
-
-    const agentId = usingDevPoint
-      ? String(selectedDiscoverPoint.agent_id || '').trim()
-      : String(discoverAgentId || '').trim()
-
-    if (!agentId) {
-      setError('Kies een agent.')
-      return
-    }
-
-    const agentRole = usingDevPoint
-      ? String(selectedDiscoverPoint.agent_role || '').trim()
-      : String(discoverAgentRole || '').trim()
-
-    if (!agentRole) {
-      setError('Kies een rol.')
       return
     }
 
@@ -479,11 +463,11 @@ export function TrainingSuggestionsTabContent() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          development_point_id: usingDevPoint ? dpId : null,
-          agent_id: agentId,
-          agent_role: agentRole,
           pattern_description: pattern,
           impact: discoverImpact,
+          development_point_id: null,
+          agent_id: '',
+          agent_role: '',
         }),
       })
       if (res.status === 503) {
@@ -522,73 +506,9 @@ export function TrainingSuggestionsTabContent() {
       <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <h2 className="text-lg font-semibold text-slate-900 mb-1">Handmatig bronnen zoeken</h2>
         <p className="text-sm text-slate-600 mb-4">
-          Gebruik een development point-id uit de HR-lijst (
-          <code className="text-xs bg-slate-100 px-1 rounded">point_id</code>
-          ) voor context. Optioneel: kies geen point en selecteer dan hieronder een agent en rol (proactieve toevoeging).
+          Beschrijf het patroon / de gap die de agent moet leren. Deze actie start HR resource discovery.
         </p>
         <div className="flex flex-col gap-3 max-w-2xl">
-          <label className="text-sm font-medium text-slate-700">Development point</label>
-          <select
-            value={discoverPointKey}
-            onChange={(e) => {
-              const key = e.target.value
-              setDiscoverPointKey(key)
-              const p = points.find((x) => String(x.point_id ?? x.id ?? '') === key)
-              if (p?.issue_description) setDiscoverPattern(p.issue_description)
-            }}
-            disabled={pointsLoading || unavailable}
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-          >
-            <option value="">{pointsLoading ? 'Laden…' : '— Geen (proactieve toevoeging) —'}</option>
-            {points.map((p) => {
-              const key = String(p.point_id ?? p.id ?? '')
-              if (!key) return null
-              const label = `${key.slice(0, 8)}… · ${(p.agent_name || p.agent_id || '?')} · ${(p.issue_description || '').slice(0, 60)}${(p.issue_description || '').length > 60 ? '…' : ''}`
-              return (
-                <option key={key} value={key}>{label}</option>
-              )
-            })}
-          </select>
-
-          {!selectedDiscoverPoint && (
-            <>
-              <label className="text-sm font-medium text-slate-700">Agent</label>
-              <select
-                value={discoverAgentId}
-                onChange={(e) => {
-                  const id = e.target.value
-                  setDiscoverAgentId(id)
-                  const opt = agentOptions.find((x) => x.agent_id === id)
-                  setDiscoverAgentRole(opt?.agent_role || '')
-                }}
-                disabled={pointsLoading || unavailable}
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-              >
-                <option value="">{pointsLoading ? 'Laden…' : '— Kies een agent —'}</option>
-                {agentOptions.map((o) => (
-                  <option key={o.agent_id} value={o.agent_id}>
-                    {o.agent_id}{o.agent_role ? ` (${o.agent_role})` : ''}
-                  </option>
-                ))}
-              </select>
-
-              <label className="text-sm font-medium text-slate-700">Rol</label>
-              <select
-                value={discoverAgentRole}
-                onChange={(e) => setDiscoverAgentRole(e.target.value)}
-                disabled={pointsLoading || unavailable}
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-              >
-                <option value="">{pointsLoading ? 'Laden…' : '— Kies een rol —'}</option>
-                {agentRoleOptions.map((r) => (
-                  <option key={r} value={r}>
-                    {r}
-                  </option>
-                ))}
-              </select>
-            </>
-          )}
-
           <label className="text-sm font-medium text-slate-700">Patroon / gap (zoekopdracht)</label>
           <textarea
             value={discoverPattern}
