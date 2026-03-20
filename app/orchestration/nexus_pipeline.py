@@ -558,6 +558,7 @@ class NEXUSPipeline:
 
         from app.services.job_pipeline import (
             _coerce_context,
+            _parse_seo_handoff_from_llm_text,
             _run_step_agent_with_timeout,
         )
         from app.services.token_guard import TokenGuard
@@ -581,6 +582,10 @@ class NEXUSPipeline:
             "platform": ctx.platform,
             "_knowledge_block": job_context.get("_knowledge_block", ""),
         }
+        if ctx.seo_keywords or (ctx.focus_keyword or "").strip():
+            agent_context["seo_keywords"] = list(ctx.seo_keywords)
+            agent_context["focus_keyword"] = ctx.focus_keyword
+            agent_context["keyword_intent"] = ctx.keyword_intent
         previous_content = "\n\n".join(
             f"[{name}]\n{out}"
             for name, out in ctx.step_outputs.items()
@@ -637,6 +642,13 @@ class NEXUSPipeline:
         ctx.step_outputs[step_name] = output_text
         if feedback:
             ctx.step_feedback[step_name] = feedback
+
+        role_for_handoff = (agent_role or "").strip().lower()
+        if not error and role_for_handoff == "seo":
+            parsed = _parse_seo_handoff_from_llm_text(output_text)
+            ctx.seo_keywords = parsed.get("seo_keywords") or []
+            ctx.focus_keyword = parsed.get("focus_keyword") or ""
+            ctx.keyword_intent = parsed.get("keyword_intent") or ""
 
         completed_at = datetime.now(timezone.utc)
         timing_ms = int((completed_at - started_at).total_seconds() * 1000)

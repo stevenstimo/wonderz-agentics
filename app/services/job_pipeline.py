@@ -575,6 +575,38 @@ def _extract_text_from_anthropic_content(content: Any) -> str:
     return "".join(parts).strip()
 
 
+def _parse_seo_handoff_from_llm_text(text: str) -> dict:
+    """
+    Parse SEO step JSON output into handoff fields for the copywriter.
+    Tolerant of markdown fences and alternate keys.
+    """
+    if not text or not isinstance(text, str):
+        return {}
+    raw = text.strip()
+    fence = re.search(r"```(?:json)?\s*([\s\S]*?)```", raw, re.IGNORECASE)
+    if fence:
+        raw = fence.group(1).strip()
+    start = raw.find("{")
+    end = raw.rfind("}") + 1
+    if start < 0 or end <= start:
+        return {}
+    try:
+        data = json.loads(raw[start:end])
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    kws = data.get("seo_keywords") or data.get("keywords") or []
+    if isinstance(kws, str):
+        kws = [k.strip() for k in kws.split(",") if k.strip()]
+    if not isinstance(kws, list):
+        kws = []
+    kws = [str(x).strip() for x in kws if str(x).strip()]
+    focus = str(data.get("focus_keyword") or data.get("focus") or "").strip()
+    intent = str(data.get("keyword_intent") or data.get("intent") or "informatief").strip()
+    return {"seo_keywords": kws, "focus_keyword": focus, "keyword_intent": intent}
+
+
 def _run_step_agent(
     agent_role: str,
     step_name: str,
@@ -671,6 +703,22 @@ def _run_step_agent(
         knowledge_block = context.get("_knowledge_block") or ""
         if knowledge_block:
             system += "\n\n" + knowledge_block
+        seo_kws = context.get("seo_keywords") or []
+        focus_kw = (context.get("focus_keyword") or "").strip()
+        if seo_kws or focus_kw:
+            if not isinstance(seo_kws, list):
+                seo_kws = [str(seo_kws)] if seo_kws else []
+            extra = ", ".join(str(k) for k in seo_kws if k)
+            system += f"""
+
+## SEO Instructies
+Verwerk de volgende keywords natuurlijk in de tekst:
+- Focus keyword: {focus_kw or "(zie aanvullende keywords)"}
+- Aanvullende keywords: {extra or "(geen)"}
+- Zoekintentie: {context.get("keyword_intent") or "informatief"}
+
+Het focus keyword moet voorkomen in de eerste alinea en minimaal 2x in de volledige tekst (natuurlijk verweven, geen keyword stuffing).
+"""
         if not is_content_role:
             try:
                 from app.services.worker_contract import WorkerOutputValidator
@@ -763,6 +811,57 @@ def _run_step_agent(
         except Exception as e:
             logger.exception("Reviewer step failed: %s", e)
             return ({"status": "failed", "review": str(e), "approved": False, "agent_role": agent_role}, 0)
+
+    # SEO: keyword plan as JSON for handoff to copywriter (no GSC — LLM-only)
+    if role_lower == "seo":
+        system = (
+            "You are an SEO specialist. Produce a concise keyword plan as a single JSON object only "
+            "(no markdown fences, no commentary before or after the JSON).\n\n"
+            "Required shape:\n"
+            '{"focus_keyword": "string", "seo_keywords": ["kw1", "kw2", ...], "keyword_intent": "informatief"}\n'
+            "- focus_keyword: one primary query for the page\n"
+            "- seo_keywords: 4-7 strings total, must include focus_keyword once; add sensible variants\n"
+            '- keyword_intent: one of: informatief, transactioneel, commercieel, navigational\n'
+        )
+        knowledge_block = context.get("_knowledge_block") or ""
+        if knowledge_block:
+            system += "\n\n" + knowledge_block
+        user = (
+            f"Topic / objective:\n{objective}\n"
+            f"Focus area: {focus}\nLanguage: {language}\n"
+            "Return JSON only."
+        )
+        try:
+            response = client.messages.create(
+                model=CLAUDE_MODEL,
+                max_tokens=1500,
+                system=system,
+                messages=[{"role": "user", "content": user}],
+            )
+            text = _extract_text_from_anthropic_content(response.content)
+            tokens = (response.usage.input_tokens or 0) + (response.usage.output_tokens or 0)
+            if not text:
+                return (
+                    {
+                        "status": "failed",
+                        "content": "",
+                        "error": "SEO step produced empty content",
+                        "agent_role": agent_role,
+                    },
+                    tokens,
+                )
+            return (
+                {
+                    "status": "completed",
+                    "content": text,
+                    "agent_role": agent_role,
+                    "step_name": step_desc,
+                },
+                tokens,
+            )
+        except Exception as e:
+            logger.exception("SEO keyword step failed: %s", e)
+            return ({"status": "failed", "content": "", "error": str(e), "agent_role": agent_role}, 0)
 
     # Generic: one Claude call
     system = f"You are a helpful assistant. Write in {language}. Tone: {tone}."
@@ -1543,6 +1642,13 @@ async def run_job_inline(job_id: str, context_extra: Optional[dict] = None):
                         validation_warnings_val,
                     )
                     await _update_step_progress(conn, step_id, 100)
+
+                    if role_lower == "seo" and output.get("content"):
+                        handoff = _parse_seo_handoff_from_llm_text(str(output.get("content") or ""))
+                        if handoff.get("seo_keywords") or handoff.get("focus_keyword"):
+                            context["seo_keywords"] = handoff.get("seo_keywords") or []
+                            context["focus_keyword"] = handoff.get("focus_keyword") or ""
+                            context["keyword_intent"] = handoff.get("keyword_intent") or ""
 
                     # V4: Event model — TASK_FIX_PROPOSED na worker output (fire-and-forget)
                     if output.get("worker_output"):

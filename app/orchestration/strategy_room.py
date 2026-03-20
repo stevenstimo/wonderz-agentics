@@ -62,6 +62,14 @@ def _assign_dependencies(steps: List[JobStep]) -> List[JobStep]:
             ]
         elif role in FINAL_ROLES:
             deps = [s.step_index for s in steps[:i]]
+        elif role in ("copywriter", "copy writer"):
+            # SEO-first: copywriter must not run until prior SEO steps complete (parallel wave safety).
+            deps = [
+                s.step_index for s in steps[:i]
+                if (s.agent_role or "").strip().lower() == "seo"
+            ]
+        elif role in ("image_generator", "image generator", "imagegeneration", "image_generation"):
+            deps = [s.step_index for s in steps[:i]]
         else:
             deps = []
         d = step.model_dump()
@@ -105,37 +113,30 @@ class StrategyRoom:
         if not isinstance(ctx, dict):
             ctx = {}
         includes_image = ctx.get("includes_image") is True
-        job_lower = (brief.job_post or "").lower()
-        obj_lower = (ctx.get("objective") or "").lower()
-        include_seo = "seo" in job_lower or "search" in job_lower or "seo" in obj_lower or "search" in obj_lower
         steps = [
             JobStep(
                 step_index=1,
-                agent_role="copywriter",
-                unified_tool="write_content",
+                agent_role="seo",
+                unified_tool="keyword_plan",
                 requires_approval=False,
-                description="Write the main content based on the brief",
+                description="Generate focus and supporting keywords (keyword plan for copy)",
             ),
             JobStep(
                 step_index=2,
+                agent_role="copywriter",
+                unified_tool="write_content",
+                requires_approval=False,
+                description="Write the main content based on the brief and keyword plan",
+            ),
+            JobStep(
+                step_index=3,
                 agent_role="reviewer",
                 unified_tool="review_content",
                 requires_approval=False,
                 description="Review the content for quality and tone",
             ),
         ]
-        idx = 3
-        if include_seo:
-            steps.append(
-                JobStep(
-                    step_index=idx,
-                    agent_role="seo",
-                    unified_tool="optimize_seo",
-                    requires_approval=False,
-                    description="Optimize content for search",
-                )
-            )
-            idx += 1
+        idx = 4
         if includes_image:
             steps.append(
                 JobStep(
@@ -146,7 +147,7 @@ class StrategyRoom:
                     description="Generate image placeholder",
                 )
             )
-        hires = ["copywriter", "reviewer"] + (["seo"] if include_seo else []) + (["image_generator"] if includes_image else [])
+        hires = ["seo", "copywriter", "reviewer"] + (["image_generator"] if includes_image else [])
         steps = _assign_dependencies(steps)
         return ExecutionPlan(
             brief=brief,
@@ -190,22 +191,23 @@ class StrategyRoom:
         
         system_prompt = """You are a project manager for a content bureau. Create a simple, practical execution plan.
 
-For typical content jobs, the plan must be:
-- Step 1: copywriter — write the content (unified_tool: write_content, description: "Write the main content based on the brief")
-- Step 2: reviewer — review the content (unified_tool: review_content, description: "Review the content for quality and tone")
-- Step 3: seo — only include if the brief or objective mentions SEO, search, or keywords (unified_tool: optimize_seo, description: "Optimize content for search"). If no SEO mentioned, do NOT include this step.
-- Step 4: image_generator — only include if the brief says image, afbeelding, or includes_image is true (unified_tool: generate_image, description: "Generate image placeholder"). Otherwise omit.
+For typical content jobs, the plan MUST follow this order (SEO-first — keywords before writing):
+- Step 1: seo — keyword plan for the piece (unified_tool: keyword_plan, description: "Generate focus and supporting keywords for the copy")
+- Step 2: copywriter — write the content using that keyword plan (unified_tool: write_content, description: "Write the main content based on the brief and keyword plan")
+- Step 3: reviewer — review the content (unified_tool: review_content, description: "Review the content for quality and tone")
+- Step 4: image_generator — ONLY if the brief says image, afbeelding, or includes_image is true (unified_tool: generate_image, description: "Generate image placeholder"). Otherwise omit.
 
-Use only these agent_role values: copywriter, reviewer, seo, image_generator. Keep 2-4 steps. No approval required.
+Use only these agent_role values: seo, copywriter, reviewer, image_generator. Always include seo, copywriter, and reviewer for normal content jobs (3 steps minimum). No approval required.
 
 Respond with JSON only:
 {
     "steps": [
-        {"step_index": 1, "agent_role": "copywriter", "unified_tool": "write_content", "requires_approval": false, "description": "Write the main content based on the brief"},
-        {"step_index": 2, "agent_role": "reviewer", "unified_tool": "review_content", "requires_approval": false, "description": "Review the content for quality and tone"}
+        {"step_index": 1, "agent_role": "seo", "unified_tool": "keyword_plan", "requires_approval": false, "description": "Generate focus and supporting keywords for the copy"},
+        {"step_index": 2, "agent_role": "copywriter", "unified_tool": "write_content", "requires_approval": false, "description": "Write the main content based on the brief and keyword plan"},
+        {"step_index": 3, "agent_role": "reviewer", "unified_tool": "review_content", "requires_approval": false, "description": "Review the content for quality and tone"}
     ],
-    "required_hires": ["copywriter", "reviewer"],
-    "estimated_duration_seconds": 300
+    "required_hires": ["seo", "copywriter", "reviewer"],
+    "estimated_duration_seconds": 400
 }
 """
 
@@ -237,7 +239,7 @@ Respond with JSON only:
 - Includes image: {ctx.get('includes_image', False)}
 - Job post (excerpt): {(brief.job_post or '')[:300]}
 
-Create a simple plan: copywriter then reviewer. Add seo step only if SEO/search is mentioned. Add image_generator step only if image/afbeelding is requested.
+Create a plan: seo (keyword plan) first, then copywriter, then reviewer. Add image_generator only if image/afbeelding is requested or includes_image is true.
 """
 
         # Retry logic with exponential backoff

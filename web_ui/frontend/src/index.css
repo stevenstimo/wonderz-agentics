@@ -425,3 +425,40 @@ h1, h2, h3, h4, h5, h6 {
   0% { transform: translateX(-100%); }
   100% { transform: translateX(350%); }
 }
+
+/* Client dashboard: print / Save as PDF (replaces jspdf capture) */
+.print-only {
+  display: none !important;
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
+
+  body * {
+    visibility: hidden;
+  }
+
+  .dashboard-print-area,
+  .dashboard-print-area * {
+    visibility: visible;
+  }
+
+  .dashboard-print-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .dashboard-print-area .no-print {
+    display: none !important;
+    visibility: hidden !important;
+  }
+}

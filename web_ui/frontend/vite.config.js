@@ -25,9 +25,6 @@ export default defineConfig({
           vendor: ['react', 'react-dom', 'react-router-dom'],
           supabase: ['@supabase/supabase-js'],
           recharts: ['recharts'],
-          // Explicit justification: pdf chunk > 150 kB gzip — jspdf + html2canvas for dashboard export;
-          // loaded only with ClientDashboardPage, not on initial load.
-          pdf: ['jspdf', 'html2canvas'],
         },
       },
     },

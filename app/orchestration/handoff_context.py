@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, List, Optional
 
 
 @dataclass
@@ -27,6 +27,10 @@ class HandoffContext:
     started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     error: Optional[str] = None
     final_output: Optional[Any] = None
+    # Filled after SEO pipeline step; passed to copywriter when present (no DB schema change).
+    seo_keywords: List[str] = field(default_factory=list)
+    focus_keyword: str = ""
+    keyword_intent: str = ""
 
     def is_over_budget(self) -> bool:
         return self.token_used_total >= self.token_budget

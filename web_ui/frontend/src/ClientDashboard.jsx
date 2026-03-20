@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useRef } from 'react'
 import { useParams, useLocation, Link } from 'react-router-dom'
 import {
   LineChart,
@@ -13,8 +13,6 @@ import {
   Legend,
   ComposedChart,
 } from 'recharts'
-import html2canvas from 'html2canvas'
-import { jsPDF } from 'jspdf'
 import PageLayout from './PageLayout'
 import { BarChart3, TrendingUp, DollarSign, MousePointer, Search, Globe, Plug, RefreshCw, FileDown, Share2 } from 'lucide-react'
 
@@ -105,74 +103,11 @@ export default function ClientDashboard({
   const { slug } = useParams()
   const location = useLocation()
   const dashboardRef = useRef(null)
-  const [exporting, setExporting] = useState(false)
   const integrationsUrl = `/clients/${slug}/integrations`
 
-  const handleExportPdf = async () => {
-    if (!dashboardRef.current || exporting) return
-    setExporting(true)
-    try {
-      const canvas = await html2canvas(dashboardRef.current, {
-        scale: 1.5,
-        useCORS: true,
-        allowTaint: false,
-        logging: false,
-        backgroundColor: '#ffffff',
-      })
-      const pdf = new jsPDF('p', 'mm', 'a4')
-      const pageW = pdf.internal.pageSize.getWidth()
-      const pageH = pdf.internal.pageSize.getHeight()
-      const margin = 10
-      const headerH = 14
-      const contentW = pageW - 2 * margin
-      const contentHFirst = pageH - headerH - 2 * margin
-      const contentHRest = pageH - 2 * margin
-      const totalHeightMm = canvas.height * (contentW / canvas.width)
-      const clientLabel = liveData?.client_name || `@${slug}`
-
-      let remainingMm = totalHeightMm
-      let startMm = 0
-      let pageIndex = 0
-      while (remainingMm > 0.01) {
-        const chunkMm = pageIndex === 0
-          ? Math.min(remainingMm, contentHFirst)
-          : Math.min(remainingMm, contentHRest)
-        const sourceY = (startMm / totalHeightMm) * canvas.height
-        const sourceHeight = (chunkMm / totalHeightMm) * canvas.height
-
-        if (pageIndex > 0) pdf.addPage()
-
-        if (pageIndex === 0) {
-          pdf.setFontSize(10)
-          pdf.text(clientLabel, margin, 10)
-          pdf.text(`Gegenereerd op: ${new Date().toLocaleDateString('nl-NL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`, pageW - margin, 10, { align: 'right' })
-          pdf.setDrawColor(200, 200, 200)
-          pdf.line(margin, headerH, pageW - margin, headerH)
-        }
-
-        const sliceCanvas = document.createElement('canvas')
-        sliceCanvas.width = canvas.width
-        sliceCanvas.height = Math.max(1, Math.ceil(sourceHeight))
-        const ctx = sliceCanvas.getContext('2d')
-        ctx.drawImage(canvas, 0, sourceY, canvas.width, sourceHeight, 0, 0, canvas.width, sliceCanvas.height)
-        const sliceData = sliceCanvas.toDataURL('image/jpeg', 0.85)
-        const yPos = pageIndex === 0 ? headerH + margin : margin
-        pdf.addImage(sliceData, 'JPEG', margin, yPos, contentW, chunkMm)
-
-        startMm += chunkMm
-        remainingMm -= chunkMm
-        pageIndex += 1
-      }
-
-      const now = new Date()
-      const date = `${String(now.getFullYear()).slice(2)}${String(now.getMonth() + 1).padStart(2, '0')}${String(
-        now.getDate(),
-      ).padStart(2, '0')}`
-      const filename = `${date}_${slug}_Dashboard.pdf`
-      pdf.save(filename)
-    } finally {
-      setExporting(false)
-    }
+  /** PDF via browser print (Save as PDF) — avoids jspdf/html2canvas CVE surface. */
+  const handleExportPdf = () => {
+    window.print()
   }
 
   const overview = liveData?.overview || {}
@@ -292,15 +227,21 @@ export default function ClientDashboard({
         </div>
       )}
 
-      <div ref={dashboardRef}>
+      <div ref={dashboardRef} className="dashboard-print-area">
       {/* Block 1 — Overzicht */}
       <div className="mb-8">
+        <div className="print-only dashboard-print-header mb-4 pb-3 border-b border-slate-300">
+          <p className="text-lg font-semibold text-slate-900">{liveData?.client_name || `@${slug}`}</p>
+          <p className="text-sm text-slate-600">
+            Marketing dashboard — {new Date().toLocaleString('nl-NL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+          </p>
+        </div>
         <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
           <h2 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
             <BarChart3 className="w-5 h-5" />
             Marketing overzicht
           </h2>
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3 no-print">
             <span className="text-sm text-slate-500 hidden sm:inline">Periode (alle blokken):</span>
             <input
               type="date"
@@ -337,12 +278,11 @@ export default function ClientDashboard({
             <button
               type="button"
               onClick={handleExportPdf}
-              disabled={exporting}
-              style={exporting ? { visibility: 'hidden' } : undefined}
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 transition disabled:opacity-50 text-sm"
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 transition text-sm"
+              title="Opent het printvenster; kies 'Opslaan als PDF' om een PDF te maken"
             >
               <FileDown className="w-4 h-4" />
-              {exporting ? 'Exporteren...' : 'Export PDF'}
+              Export PDF
             </button>
           </div>
         </div>
