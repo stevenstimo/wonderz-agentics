@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, Fragment } from 'react'
 import { useParams, Link, useNavigate, useLocation, useSearchParams } from 'react-router-dom'
 import { Save, CheckCircle, XCircle, Link2, Plug, Gauge } from 'lucide-react'
 import { apiFetch } from './apiClient'
@@ -234,8 +234,8 @@ export default function ClientIntegrations() {
     .map((i) => INTEGRATION_TO_PLATFORM[i.integration_type])
     .filter(Boolean)
 
-  // Lighthouse staat als vaste kaart onder Google (niet in deze lijst), zodat die altijd zichtbaar is.
-  const allPlatforms = ['ga4', 'gsc', 'google_ads', 'meta_ads', 'shopify', 'klaviyo']
+  // Geen meta_ads hier: die heeft één eigen kaart onderaan. Lighthouse direct na Google Ads (in de map).
+  const allPlatforms = ['ga4', 'gsc', 'google_ads', 'shopify', 'klaviyo']
 
   const fetchGoogleOptions = useCallback(async (platform, _retried = false) => {
     const cfg = GOOGLE_DROPDOWN_CONFIG[platform]
@@ -608,8 +608,8 @@ export default function ClientIntegrations() {
           const fields = PLATFORM_FIELDS[platform] || []
 
           return (
+            <Fragment key={platform}>
             <div
-              key={platform}
               className={`panel-card rounded-xl border p-5 ${
                 canConfigure
                   ? 'bg-white border-slate-200'
@@ -823,82 +823,84 @@ export default function ClientIntegrations() {
                 </div>
               )}
             </div>
+
+            {platform === 'google_ads' && (
+              <div className="panel-card rounded-xl border border-violet-200 bg-violet-50/40 p-5 scroll-mt-4" id="client-lighthouse-settings">
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                  <div className="flex items-start gap-3">
+                    <Gauge className="w-6 h-6 text-violet-700 shrink-0 mt-0.5" aria-hidden />
+                    <div>
+                      <h3 className="font-semibold text-slate-800">Lighthouse / PageSpeed Insights</h3>
+                      <p className="text-sm text-slate-600 mt-1">
+                        Staat direct onder Google Ads. URL voor Lighthouse in het <strong>client-dashboard</strong>. Server:{' '}
+                        <code className="text-xs bg-white px-1 py-0.5 rounded border">PAGESPEED_API_KEY</code>{' '}
+                        (Google Cloud → PageSpeed Insights API).
+                      </p>
+                    </div>
+                  </div>
+                  <span
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-sm font-medium shrink-0 ${
+                      isConfigured('lighthouse')
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : 'bg-slate-100 text-slate-600'
+                    }`}
+                  >
+                    {isConfigured('lighthouse') ? (
+                      <>
+                        <CheckCircle className="w-4 h-4" />
+                        Geconfigureerd
+                      </>
+                    ) : (
+                      <>
+                        <XCircle className="w-4 h-4" />
+                        Nog geen URL
+                      </>
+                    )}
+                  </span>
+                </div>
+                <div className="space-y-3">
+                  {(PLATFORM_FIELDS.lighthouse || []).map(({ key, label, placeholder }) => (
+                    <div key={key}>
+                      <label className="block text-sm font-medium text-slate-700 mb-1" htmlFor={`lighthouse-${key}`}>
+                        {label}
+                      </label>
+                      <input
+                        id={`lighthouse-${key}`}
+                        type="url"
+                        value={(platformForms.lighthouse || {})[key] ?? getConfigForPlatform('lighthouse')[key] ?? ''}
+                        onChange={(e) => updateForm('lighthouse', key, e.target.value)}
+                        placeholder={placeholder}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-violet-500 focus:border-violet-500 bg-white"
+                      />
+                    </div>
+                  ))}
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => handleSavePlatform('lighthouse')}
+                      disabled={saving === 'lighthouse'}
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-violet-600 text-white font-medium hover:bg-violet-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <Save className="w-4 h-4" />
+                      {saving === 'lighthouse' ? 'Opslaan...' : 'Opslaan'}
+                    </button>
+                    {isConfigured('lighthouse') && (
+                      <button
+                        type="button"
+                        onClick={() => handleDeletePlatform('lighthouse')}
+                        disabled={saving === 'lighthouse'}
+                        className="px-4 py-2 rounded-lg border border-red-300 text-red-700 bg-white hover:bg-red-50 disabled:opacity-50"
+                      >
+                        Wis URL
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+            </Fragment>
           )
         })}
-      </div>
-
-      {/* Vaste kaart: Lighthouse/PageSpeed (Google PageSpeed Insights API — server: PAGESPEED_API_KEY) */}
-      <div className="mt-4 panel-card rounded-xl border border-violet-200 bg-violet-50/40 p-5">
-        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-          <div className="flex items-start gap-3">
-            <Gauge className="w-6 h-6 text-violet-700 shrink-0 mt-0.5" aria-hidden />
-            <div>
-              <h3 className="font-semibold text-slate-800">Lighthouse / PageSpeed Insights</h3>
-              <p className="text-sm text-slate-600 mt-1">
-                URL die we in het <strong>client-dashboard</strong> gebruiken voor Lighthouse-scores. Vereist een{' '}
-                <code className="text-xs bg-white px-1 py-0.5 rounded border">PAGESPEED_API_KEY</code> op de server
-                (Google Cloud → PageSpeed Insights API).
-              </p>
-            </div>
-          </div>
-          <span
-            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-sm font-medium shrink-0 ${
-              isConfigured('lighthouse')
-                ? 'bg-emerald-100 text-emerald-800'
-                : 'bg-slate-100 text-slate-600'
-            }`}
-          >
-            {isConfigured('lighthouse') ? (
-              <>
-                <CheckCircle className="w-4 h-4" />
-                Geconfigureerd
-              </>
-            ) : (
-              <>
-                <XCircle className="w-4 h-4" />
-                Nog geen URL
-              </>
-            )}
-          </span>
-        </div>
-        <div className="space-y-3">
-          {(PLATFORM_FIELDS.lighthouse || []).map(({ key, label, placeholder }) => (
-            <div key={key}>
-              <label className="block text-sm font-medium text-slate-700 mb-1" htmlFor={`lighthouse-${key}`}>
-                {label}
-              </label>
-              <input
-                id={`lighthouse-${key}`}
-                type="url"
-                value={(platformForms.lighthouse || {})[key] ?? getConfigForPlatform('lighthouse')[key] ?? ''}
-                onChange={(e) => updateForm('lighthouse', key, e.target.value)}
-                placeholder={placeholder}
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-violet-500 focus:border-violet-500 bg-white"
-              />
-            </div>
-          ))}
-          <div className="flex flex-wrap gap-2 pt-1">
-            <button
-              type="button"
-              onClick={() => handleSavePlatform('lighthouse')}
-              disabled={saving === 'lighthouse'}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-violet-600 text-white font-medium hover:bg-violet-700 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Save className="w-4 h-4" />
-              {saving === 'lighthouse' ? 'Opslaan...' : 'Opslaan'}
-            </button>
-            {isConfigured('lighthouse') && (
-              <button
-                type="button"
-                onClick={() => handleDeletePlatform('lighthouse')}
-                disabled={saving === 'lighthouse'}
-                className="px-4 py-2 rounded-lg border border-red-300 text-red-700 bg-white hover:bg-red-50 disabled:opacity-50"
-              >
-                Wis URL
-              </button>
-            )}
-          </div>
-        </div>
       </div>
 
       <div className="mt-4 panel-card rounded-xl border border-slate-200 p-5 bg-white">
