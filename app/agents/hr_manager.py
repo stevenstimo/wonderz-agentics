@@ -59,6 +59,40 @@ class HRManager:
     def __init__(self, pool: asyncpg.pool.Pool):
         self.pool = pool
 
+    async def _maybe_trigger_resource_discovery(
+        self,
+        conn: asyncpg.Connection,
+        point_id: str,
+        agent_id: str,
+        agent_role: str,
+        pattern_description: str,
+        impact: str,
+    ) -> None:
+        """Trigger discovery only for high/critical impact, never blocking point creation."""
+        impact_norm = (impact or "").strip().lower()
+        if impact_norm not in {"high", "critical"}:
+            return
+        try:
+            from app.services.hr_resource_discovery import HRResourceDiscovery
+
+            discovery = HRResourceDiscovery()
+            await discovery.discover_for_development_point(
+                conn=conn,
+                development_point_id=point_id,
+                agent_id=agent_id,
+                agent_role=agent_role or "",
+                pattern_description=pattern_description or "",
+                impact=impact_norm,
+            )
+        except Exception as exc:
+            logger.warning(
+                "[HRManager] resource discovery failed for point=%s agent=%s impact=%s: %s",
+                point_id,
+                agent_id,
+                impact_norm,
+                exc,
+            )
+
     async def scan_job_steps(self, since_days: int = 7) -> list[dict]:
         async with self.pool.acquire() as conn:
             retry_data = await conn.fetch(
@@ -102,9 +136,15 @@ class HRManager:
                 else:
                     severity = "HIGH" if row["freq"] >= 10 else "MEDIUM" if row["freq"] >= 5 else "LOW"
                     agent_name = row["agent_id"]
-                    name_row = await conn.fetchrow("SELECT name FROM hired_agents WHERE agent_id = $1", row["agent_id"])
+                    agent_role = ""
+                    name_row = await conn.fetchrow(
+                        "SELECT name, role FROM hired_agents WHERE agent_id = $1",
+                        row["agent_id"],
+                    )
                     if name_row and name_row.get("name"):
                         agent_name = name_row["name"]
+                    if name_row and name_row.get("role"):
+                        agent_role = name_row["role"]
                     ev = json.dumps([f"Job {row['first_job']}, {row['freq']}x gezien in {since_days} dagen"])
                     insert_sql = """
                         INSERT INTO agent_improvements (agent_id, agent_name, title, details, severity, status)
@@ -119,6 +159,14 @@ class HRManager:
                     results.append({"action": "created", "point_id": point_id,
                                     "agent_id": row["agent_id"], "issue": row["retry_reason"],
                                     "frequency": row["freq"], "impact": severity})
+                    await self._maybe_trigger_resource_discovery(
+                        conn=conn,
+                        point_id=point_id,
+                        agent_id=row["agent_id"],
+                        agent_role=agent_role,
+                        pattern_description=row["retry_reason"],
+                        impact=severity,
+                    )
             return results
 
     async def scan_direct_chats(self, since_days: int = 7) -> list[dict]:

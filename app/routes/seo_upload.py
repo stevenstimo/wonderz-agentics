@@ -9,11 +9,14 @@ from urllib.parse import urlparse
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
+
+from arq import ArqRedis
 
 from app.db import init_db_pool
 from app.middleware.auth import TokenPayload, get_current_user
+from app.dependencies import get_arq_pool
 from app.utils.seo_excel_generator import generate_seo_excel
 from app.utils.seo_parser import parse_keywords_file
 from app.agents.seo_agent import run_seo_agent
@@ -171,7 +174,7 @@ async def list_seo_jobs():
 
 @router.post("/upload")
 async def upload_seo_file(
-    background_tasks: BackgroundTasks,
+    arq_pool: ArqRedis = Depends(get_arq_pool),
     current_user: TokenPayload = Depends(get_current_user),
     file: UploadFile = File(...),
     brand_name: str = Form(""),
@@ -251,9 +254,8 @@ async def upload_seo_file(
             client_slug.strip() if client_slug else None,
         )
 
-    # TODO: migreer naar Celery/ARQ worker — sync task, risico op threadpool exhaustion (max 40 tokens)
-    background_tasks.add_task(
-        _process_seo_job,
+    await arq_pool.enqueue_job(
+        "_process_seo_job",
         job_id,
         input_path,
         resolved_brand,

@@ -14,8 +14,10 @@ from typing import Any, Optional
 from urllib.parse import urlencode, urlparse
 
 import httpx
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
+
+from arq import ArqRedis
 
 from app.database import get_db
 from app.middleware.auth import TokenPayload, get_current_user
@@ -38,6 +40,8 @@ from app.services.dashboard import (
     list_google_ads_accounts,
     list_gsc_sites,
 )
+
+from app.dependencies import get_arq_pool
 
 logger = logging.getLogger(__name__)
 
@@ -1211,7 +1215,7 @@ def _sitemap_filename(url: str) -> str:
 async def start_process(
     slug: str,
     datasource_id: int,
-    background_tasks: BackgroundTasks,
+    arq_pool: ArqRedis = Depends(get_arq_pool),
     current_user: TokenPayload = Depends(get_current_user),
 ):
     """Start processing (crawl, sitemap, text, or product_feed). Returns immediately; status via GET status."""
@@ -1248,8 +1252,8 @@ async def start_process(
                         sub_url,
                     )
                     if child_row:
-                        background_tasks.add_task(
-                            _process_datasource_background,
+                        await arq_pool.enqueue_job(
+                            "_process_datasource_background",
                             client_id,
                             child_row["id"],
                             "website_sitemap",
@@ -1272,8 +1276,8 @@ async def start_process(
                 )
             return {"status": "processing"}
 
-    background_tasks.add_task(
-        _process_datasource_background,
+    await arq_pool.enqueue_job(
+        "_process_datasource_background",
         client_id,
         datasource_id,
         row["source_type"],
@@ -1296,7 +1300,7 @@ async def start_process(
 async def upload_datasource_file(
     slug: str,
     datasource_id: int,
-    background_tasks: BackgroundTasks,
+    arq_pool: ArqRedis = Depends(get_arq_pool),
     current_user: TokenPayload = Depends(get_current_user),
     file: UploadFile = File(...),
 ):
@@ -1325,23 +1329,6 @@ async def upload_datasource_file(
     tmp.close()
     tmp_path = tmp.name
 
-    async def _run_file() -> None:
-        pool_inner = await get_db()
-        try:
-            with open(tmp_path, "rb") as f:
-                data = f.read()
-            proc = ClientFileProcessor(client_id, datasource_id, pool_inner)
-            if ext == "pdf":
-                await proc.process_pdf(data, name)
-            else:
-                await proc.process_csv(data, name)
-        finally:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
-
-    background_tasks.add_task(_run_file)
     async with pool.acquire() as conn:
         await conn.execute(
             "UPDATE client_datasources SET status = 'processing', file_name = $1, file_type = $2 WHERE id = $3",
@@ -1349,6 +1336,7 @@ async def upload_datasource_file(
             ext,
             datasource_id,
         )
+    await arq_pool.enqueue_job("_run_file", client_id, datasource_id, tmp_path, ext, name)
     return {"status": "processing", "file_name": name}
 
 

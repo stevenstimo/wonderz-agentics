@@ -4,6 +4,7 @@ FastAPI app — main backend entry point.
 Run: uvicorn app.main:app --host 0.0.0.0 --port 8090
 """
 import asyncio
+import json
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -15,10 +16,54 @@ from fastapi.responses import JSONResponse
 from app.db import init_db_pool, close_db_pool
 from app.logging_config import setup_logging
 
+from arq import create_pool as arq_create_pool
+from arq.connections import RedisSettings
+
 _log_level = getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO)
 setup_logging(_log_level)
 
 logger = logging.getLogger(__name__)
+
+
+async def recover_stuck_jobs(db_pool) -> None:
+    """
+    Safety guard: mark RUNNING jobs older than timeout as FAILED.
+
+    This prevents the UI from showing jobs forever when the worker is down or
+    the backend crashed while a job was in-flight.
+    """
+
+    try:
+        async with db_pool.acquire() as conn:
+            stuck_jobs = await conn.fetch(
+                """
+                SELECT id, updated_at
+                FROM jobs
+                WHERE status = 'RUNNING'
+                  AND updated_at < now() - interval '60 minutes'
+                """
+            )
+            if not stuck_jobs:
+                return
+
+            error_detail = "Backend herstart — job kon niet worden hervat."
+            payload_update = {"error_reason": error_detail}
+            payload_json = json.dumps(payload_update)
+
+            for row in stuck_jobs:
+                await conn.execute(
+                    """
+                    UPDATE jobs
+                    SET status = 'FAILED',
+                        updated_at = now(),
+                        payload = COALESCE(payload, '{}'::jsonb) || $1::jsonb
+                    WHERE id = $2
+                    """,
+                    payload_json,
+                    row["id"],
+                )
+    except Exception:
+        logger.exception("Failed to run stuck job recovery on startup")
 
 
 @asynccontextmanager
@@ -26,9 +71,21 @@ async def lifespan(app: FastAPI):
     """Startup: init DB pool, then start EmailPoller if Gmail credentials set. Shutdown: close pool."""
     pool = await init_db_pool()
     if pool:
+        app.state.db_pool = pool
+        await recover_stuck_jobs(pool)
         from app.services.system_events_service import SystemEventsService, set_global_instance
         app.state.system_events = SystemEventsService(pool)
         set_global_instance(app.state.system_events)
+
+    # ARQ pool for persistent background job processing.
+    try:
+        redis_settings = RedisSettings.from_dsn(os.environ.get("REDIS_URL", "redis://localhost:6379"))
+        app.state.arq_pool = await arq_create_pool(redis_settings)
+        logger.info("ARQ pool initialised")
+    except Exception as e:
+        app.state.arq_pool = None
+        logger.exception("Failed to initialise ARQ pool: %s", e)
+
     gmail_address = (os.getenv("GMAIL_ADDRESS") or "").strip()
     app_password = (os.getenv("GMAIL_APP_PASSWORD") or "").strip()
     if gmail_address and app_password:
@@ -60,6 +117,12 @@ async def lifespan(app: FastAPI):
     logger.info("HR scan loop gestart")
 
     yield
+    # Close ARQ pool first, so background enqueue can fail fast after shutdown.
+    if getattr(app.state, "arq_pool", None):
+        try:
+            await app.state.arq_pool.aclose()
+        except Exception:
+            logger.exception("Failed to close ARQ pool")
     await close_db_pool()
 
 

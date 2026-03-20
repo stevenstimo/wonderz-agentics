@@ -8,6 +8,7 @@ import { useAuthReady } from './useAuthReady'
 const TABS = [
   { id: 'points', label: 'Development Points' },
   { id: 'training', label: 'Trainingsverzoeken' },
+  { id: 'suggestions', label: 'Trainingssuggesties' },
   { id: 'improvements', label: 'Improvements' },
   { id: 'cross', label: 'Cross-Training' },
 ]
@@ -289,12 +290,434 @@ export function TrainingRequestsTabContent() {
   )
 }
 
+/**
+ * Value for POST /api/hr/training-suggestions/discover `development_point_id`.
+ * Must match the id used by the HR API for that development point (same as `point_id` / `id` from
+ * GET /api/hr/development-points): UUID strings as-is; integer ids as decimal string without
+ * scientific notation so the backend can bind BIGINT FKs when applicable.
+ */
+export function developmentPointIdForDiscoverApi(pointId) {
+  if (pointId == null || pointId === '') return ''
+  if (typeof pointId === 'number' && Number.isFinite(pointId)) return String(Math.trunc(pointId))
+  return String(pointId).trim()
+}
+
+/** Child route /hr/training-suggestions — discovered resources, approve/reject, manual discover. */
+export function TrainingSuggestionsTabContent() {
+  const { authReady } = useAuthReady()
+  const [suggestions, setSuggestions] = useState([])
+  const [points, setPoints] = useState([])
+  const [statusFilter, setStatusFilter] = useState('pending')
+  const [loading, setLoading] = useState(false)
+  const [pointsLoading, setPointsLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [unavailable, setUnavailable] = useState(false)
+  const [actionLoadingId, setActionLoadingId] = useState(null)
+  const [successMsg, setSuccessMsg] = useState(null)
+
+  const [discoverPointKey, setDiscoverPointKey] = useState('')
+  const [discoverPattern, setDiscoverPattern] = useState('')
+  const [discoverImpact, setDiscoverImpact] = useState('high')
+  const [discoverLoading, setDiscoverLoading] = useState(false)
+
+  const [notesModal, setNotesModal] = useState(null)
+
+  const loadSuggestions = useCallback(async () => {
+    setLoading(true)
+    setError('')
+    setUnavailable(false)
+    try {
+      const qs = new URLSearchParams({ status: statusFilter })
+      const res = await apiFetch(`/api/hr/training-suggestions?${qs}`)
+      if (res.status === 503) {
+        setUnavailable(true)
+        setSuggestions([])
+        return
+      }
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || 'Laden mislukt')
+      const data = await res.json()
+      const list = data?.suggestions ?? []
+      setSuggestions(Array.isArray(list) ? list : [])
+    } catch (err) {
+      setError(err.message || 'Laden mislukt')
+    } finally {
+      setLoading(false)
+    }
+  }, [statusFilter])
+
+  const loadPointsForDiscover = useCallback(async () => {
+    setPointsLoading(true)
+    try {
+      const res = await apiFetch('/api/hr/development-points')
+      if (!res.ok) return
+      const data = await res.json()
+      const list = data.development_points ?? (Array.isArray(data) ? data : [])
+      setPoints(Array.isArray(list) ? list : [])
+    } catch {
+      // ignore
+    } finally {
+      setPointsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!authReady) return
+    loadSuggestions()
+  }, [authReady, loadSuggestions])
+
+  useEffect(() => {
+    if (!authReady) return
+    loadPointsForDiscover()
+  }, [authReady, loadPointsForDiscover])
+
+  const selectedDiscoverPoint = points.find((p) => {
+    const key = String(p.point_id ?? p.id ?? '')
+    return key && key === discoverPointKey
+  })
+
+  function openNotesModal(suggestionId, mode) {
+    setNotesModal({ suggestionId, mode, notes: '' })
+    setError('')
+  }
+
+  async function submitSuggestionDecision() {
+    if (!notesModal) return
+    const { suggestionId, notes, mode } = notesModal
+    const path = mode === 'approve' ? 'approve' : 'reject'
+    setActionLoadingId(suggestionId)
+    try {
+      const res = await apiFetch(`/api/hr/training-suggestions/${suggestionId}/${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ approval_notes: notes?.trim() || null }),
+      })
+      if (res.status === 503) {
+        setUnavailable(true)
+        return
+      }
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || 'Actie mislukt')
+      setNotesModal(null)
+      setSuccessMsg(mode === 'approve' ? 'Suggestie goedgekeurd; training wordt op de achtergrond gestart.' : 'Suggestie afgewezen.')
+      setTimeout(() => setSuccessMsg(null), 5000)
+      await loadSuggestions()
+    } catch (err) {
+      setError(err.message || 'Actie mislukt')
+    } finally {
+      setActionLoadingId(null)
+    }
+  }
+
+  async function runManualDiscover() {
+    if (!selectedDiscoverPoint) {
+      setError('Kies een development point.')
+      return
+    }
+    const dpId = developmentPointIdForDiscoverApi(selectedDiscoverPoint.point_id ?? selectedDiscoverPoint.id)
+    if (!dpId) {
+      setError('Development point mist een geldig id.')
+      return
+    }
+    const pattern = (discoverPattern || selectedDiscoverPoint.issue_description || '').trim()
+    if (!pattern) {
+      setError('Vul een patroon / beschrijving in voor de zoekopdracht.')
+      return
+    }
+    const agentId = String(selectedDiscoverPoint.agent_id || '').trim()
+    if (!agentId) {
+      setError('Gekozen point mist agent_id; kies een ander point.')
+      return
+    }
+    setDiscoverLoading(true)
+    setError('')
+    try {
+      const res = await apiFetch('/api/hr/training-suggestions/discover', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          development_point_id: dpId,
+          agent_id: agentId,
+          agent_role: String(selectedDiscoverPoint.agent_role || '').trim(),
+          pattern_description: pattern,
+          impact: discoverImpact,
+        }),
+      })
+      if (res.status === 503) {
+        setUnavailable(true)
+        return
+      }
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || 'Discover mislukt')
+      const data = await res.json()
+      const n = data?.discovered ?? 0
+      setSuccessMsg(n > 0 ? `${n} nieuwe suggestie(s) toegevoegd.` : 'Geen nieuwe unieke suggesties (of API leverde geen resultaten).')
+      setTimeout(() => setSuccessMsg(null), 5000)
+      await loadSuggestions()
+    } catch (err) {
+      setError(err.message || 'Discover mislukt')
+    } finally {
+      setDiscoverLoading(false)
+    }
+  }
+
+  if (!authReady) return null
+
+  return (
+    <div className="space-y-8">
+      {unavailable && (
+        <div className="p-4 rounded-lg bg-amber-50 text-amber-900 border border-amber-200 text-sm">
+          Trainingssuggesties zijn in deze omgeving niet beschikbaar (database-tabel ontbreekt). Voer migratie 081 uit.
+        </div>
+      )}
+      {error && (
+        <div className="p-4 rounded-lg bg-red-50 text-red-700 border border-red-200 text-sm">{error}</div>
+      )}
+      {successMsg && (
+        <div className="p-4 rounded-lg bg-green-50 text-green-700 border border-green-200 text-sm">{successMsg}</div>
+      )}
+
+      <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <h2 className="text-lg font-semibold text-slate-900 mb-1">Handmatig bronnen zoeken</h2>
+        <p className="text-sm text-slate-600 mb-4">
+          Gebruik hetzelfde development point-id als in de HR-lijst (
+          <code className="text-xs bg-slate-100 px-1 rounded">point_id</code>
+          ). De payload stuurt dat als string (UUID of decimale id-string).
+        </p>
+        <div className="flex flex-col gap-3 max-w-2xl">
+          <label className="text-sm font-medium text-slate-700">Development point</label>
+          <select
+            value={discoverPointKey}
+            onChange={(e) => {
+              const key = e.target.value
+              setDiscoverPointKey(key)
+              const p = points.find((x) => String(x.point_id ?? x.id ?? '') === key)
+              if (p?.issue_description) setDiscoverPattern(p.issue_description)
+            }}
+            disabled={pointsLoading || unavailable}
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+          >
+            <option value="">{pointsLoading ? 'Laden…' : '— Kies een point —'}</option>
+            {points.map((p) => {
+              const key = String(p.point_id ?? p.id ?? '')
+              if (!key) return null
+              const label = `${key.slice(0, 8)}… · ${(p.agent_name || p.agent_id || '?')} · ${(p.issue_description || '').slice(0, 60)}${(p.issue_description || '').length > 60 ? '…' : ''}`
+              return (
+                <option key={key} value={key}>{label}</option>
+              )
+            })}
+          </select>
+          <label className="text-sm font-medium text-slate-700">Patroon / gap (zoekopdracht)</label>
+          <textarea
+            value={discoverPattern}
+            onChange={(e) => setDiscoverPattern(e.target.value)}
+            rows={3}
+            disabled={unavailable}
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            placeholder="Beschrijf wat de agent moet leren…"
+          />
+          <div className="flex flex-wrap items-end gap-3">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Impact</label>
+              <select
+                value={discoverImpact}
+                onChange={(e) => setDiscoverImpact(e.target.value)}
+                disabled={unavailable}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              >
+                <option value="critical">critical</option>
+                <option value="high">high</option>
+                <option value="medium">medium</option>
+                <option value="low">low</option>
+              </select>
+            </div>
+            <button
+              type="button"
+              disabled={discoverLoading || unavailable}
+              onClick={runManualDiscover}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
+            >
+              {discoverLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+              Zoek suggesties
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div className="flex flex-wrap items-center gap-3 mb-4">
+          <span className="text-sm font-medium text-slate-700">Status:</span>
+          {['pending', 'approved', 'rejected'].map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => setStatusFilter(s)}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium ${
+                statusFilter === s ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              {s === 'pending' ? 'Openstaand' : s === 'approved' ? 'Goedgekeurd' : 'Afgewezen'}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={loadSuggestions}
+            disabled={loading || unavailable}
+            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-100 text-slate-700 text-sm font-medium hover:bg-slate-200 disabled:opacity-50"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            Vernieuwen
+          </button>
+        </div>
+
+        {loading ? (
+          <div className="flex items-center gap-2 text-slate-500 py-8">
+            <Loader2 className="w-5 h-5 animate-spin shrink-0" />
+            <span>Laden...</span>
+          </div>
+        ) : unavailable ? (
+          <p className="text-sm text-slate-500 py-4">Suggestielijst niet beschikbaar in deze omgeving.</p>
+        ) : suggestions.length === 0 ? (
+          <div className="p-8 rounded-xl border border-slate-200 bg-slate-50 text-center text-slate-600">
+            Geen suggesties voor deze filter.
+          </div>
+        ) : (
+          <div className="overflow-x-auto rounded-lg border border-slate-200">
+            <table className="min-w-full text-sm">
+              <thead className="bg-slate-50">
+                <tr>
+                  <th className="px-4 py-2 text-left font-medium text-slate-700">Agent</th>
+                  <th className="px-4 py-2 text-left font-medium text-slate-700">Bron</th>
+                  <th className="px-4 py-2 text-left font-medium text-slate-700">Dev. point</th>
+                  <th className="px-4 py-2 text-left font-medium text-slate-700">Ontdekt</th>
+                  <th className="px-4 py-2 text-left font-medium text-slate-700">Besluit</th>
+                  <th className="px-4 py-2 text-left font-medium text-slate-700">Acties</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {suggestions.map((s) => {
+                  const id = s.id
+                  const st = (s.status || '').toLowerCase()
+                  const busy = actionLoadingId === id
+                  const dpRef = s.development_point_ref ?? s.development_point_id
+                  const dpLabel = dpRef != null ? String(dpRef) : '—'
+                  let decisionCell = '—'
+                  if (st === 'approved' && (s.approved_by || s.reviewed_at)) {
+                    decisionCell = `Goedgekeurd door ${s.approved_by || '—'}`
+                    if (s.reviewed_at) decisionCell += ` · ${new Date(s.reviewed_at).toLocaleString('nl-NL')}`
+                  } else if (st === 'rejected' && (s.approved_by || s.reviewed_at)) {
+                    decisionCell = `Afgewezen door ${s.approved_by || '—'}`
+                    if (s.reviewed_at) decisionCell += ` · ${new Date(s.reviewed_at).toLocaleString('nl-NL')}`
+                  }
+                  return (
+                    <tr key={id} className="hover:bg-slate-50">
+                      <td className="px-4 py-2 align-top">
+                        <div>{s.agent_name ?? s.agent_id ?? '—'}</div>
+                        {s.agent_role ? <div className="text-xs text-slate-500">{s.agent_role}</div> : null}
+                      </td>
+                      <td className="px-4 py-2 align-top max-w-xs">
+                        <div className="font-medium text-slate-800">{s.title || '—'}</div>
+                        {s.url ? (
+                          <a href={s.url} target="_blank" rel="noopener noreferrer" className="text-xs text-indigo-600 hover:underline break-all">
+                            {s.url}
+                          </a>
+                        ) : null}
+                        {s.rationale ? <p className="text-xs text-slate-600 mt-1">{s.rationale}</p> : null}
+                      </td>
+                      <td className="px-4 py-2 align-top font-mono text-xs text-slate-600 break-all max-w-[140px]" title={dpLabel}>
+                        {dpLabel}
+                      </td>
+                      <td className="px-4 py-2 align-top text-slate-600 whitespace-nowrap">
+                        {s.discovered_at ? new Date(s.discovered_at).toLocaleString('nl-NL') : '—'}
+                      </td>
+                      <td className="px-4 py-2 align-top text-slate-600 text-xs max-w-[220px]">
+                        {decisionCell}
+                        {s.approval_notes ? (
+                          <div className="mt-1 text-slate-500 italic">Opmerking: {s.approval_notes}</div>
+                        ) : null}
+                      </td>
+                      <td className="px-4 py-2 align-top">
+                        {st === 'pending' ? (
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              disabled={busy || unavailable}
+                              onClick={() => openNotesModal(id, 'approve')}
+                              className="text-xs font-medium text-green-600 hover:underline disabled:opacity-50"
+                            >
+                              Goedkeuren
+                            </button>
+                            <button
+                              type="button"
+                              disabled={busy || unavailable}
+                              onClick={() => openNotesModal(id, 'reject')}
+                              className="text-xs font-medium text-red-600 hover:underline disabled:opacity-50"
+                            >
+                              Afwijzen
+                            </button>
+                            {busy ? <Loader2 className="w-4 h-4 animate-spin text-slate-400" /> : null}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-slate-400">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      {notesModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" role="dialog" aria-modal="true">
+          <div className="bg-white rounded-xl shadow-lg max-w-md w-full p-6 border border-slate-200">
+            <h2 className="text-lg font-semibold text-slate-900 mb-2">
+              {notesModal.mode === 'approve' ? 'Suggestie goedkeuren' : 'Suggestie afwijzen'}
+            </h2>
+            <p className="text-sm text-slate-600 mb-3">
+              {notesModal.mode === 'approve'
+                ? 'Training start op de achtergrond na goedkeuring.'
+                : 'Je kunt een interne opmerking toevoegen (optioneel).'}
+            </p>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Opmerking (optioneel)</label>
+            <textarea
+              value={notesModal.notes}
+              onChange={(e) => setNotesModal((m) => (m ? { ...m, notes: e.target.value } : m))}
+              rows={3}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm mb-4"
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setNotesModal(null)}
+                className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 text-sm font-medium hover:bg-slate-50"
+              >
+                Annuleren
+              </button>
+              <button
+                type="button"
+                disabled={!!actionLoadingId}
+                onClick={() => submitSuggestionDecision()}
+                className={`px-4 py-2 rounded-lg text-white text-sm font-medium disabled:opacity-50 ${
+                  notesModal.mode === 'approve' ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'
+                }`}
+              >
+                {notesModal.mode === 'approve' ? 'Goedkeuren' : 'Afwijzen'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function HRDashboard() {
   const location = useLocation()
   const navigate = useNavigate()
   const { authReady } = useAuthReady()
   const isChildRoute = location.pathname !== '/hr'
   const isTrainingRoute = location.pathname === '/hr/training-requests'
+  const isSuggestionsRoute = location.pathname === '/hr/training-suggestions'
   const [tab, setTab] = useState('points')
   const [points, setPoints] = useState([])
   const [loading, setLoading] = useState(false)
@@ -584,12 +1007,32 @@ export default function HRDashboard() {
       <div className="flex gap-2 mb-6">
         {TABS.map((t) => {
           const isImprovementsRoute = location.pathname === '/hr/improvements'
-          const isActive = t.id === 'training' ? isTrainingRoute : t.id === 'improvements' ? isImprovementsRoute : tab === t.id
+          const isActive =
+            t.id === 'training'
+              ? isTrainingRoute
+              : t.id === 'suggestions'
+                ? isSuggestionsRoute
+                : t.id === 'improvements'
+                  ? isImprovementsRoute
+                  : tab === t.id
           if (t.id === 'training') {
             return (
               <Link
                 key={t.id}
                 to="/hr/training-requests"
+                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                  isActive ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                {t.label}
+              </Link>
+            )
+          }
+          if (t.id === 'suggestions') {
+            return (
+              <Link
+                key={t.id}
+                to="/hr/training-suggestions"
                 className={`px-4 py-2 rounded-lg font-medium transition-colors ${
                   isActive ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}

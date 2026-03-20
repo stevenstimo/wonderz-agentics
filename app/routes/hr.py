@@ -5,23 +5,32 @@ import json
 import re
 import uuid
 from datetime import datetime
-from typing import Optional, List, Dict, Set, Any
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, BackgroundTasks
+from typing import Optional, List, Dict, Set, Any, Annotated
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import JSONResponse
 
-from app.middleware.auth import require_admin_or_super_admin, require_super_admin, get_current_user
+from arq import ArqRedis
+
+from app.middleware.auth import require_admin_or_super_admin, require_super_admin, get_current_user, TokenPayload
 from pydantic import BaseModel, model_validator, Field, root_validator
 
 from app.database import get_db
+from app.dependencies import get_arq_pool
 from app.services.hr_manager import HRManager
 from app.services.job_pipeline import run_intake_inline
 from app.agents.hr_manager import HRManager as SpecHRManager, _serialize as _serialize_spec
 from app.orchestration.manager import OperationsManager
 from models.unified import JobStatus, StrategicBrief
 from app.services.training_workflow import TrainingWorkflow
+from app.services.hr_resource_discovery import HRResourceDiscovery
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/hr", tags=["hr"])
+
+TRAINING_SUGGESTIONS_UNAVAILABLE = {
+    "error": "training_suggestions niet beschikbaar",
+    "detail": "Tabel bestaat nog niet",
+}
 
 
 async def _run_start_training_safe(workflow: TrainingWorkflow, agent_id: str, url: str, approved_by: str) -> None:
@@ -30,6 +39,182 @@ async def _run_start_training_safe(workflow: TrainingWorkflow, agent_id: str, ur
         await workflow.start_training(agent_id, url, approved_by=approved_by)
     except Exception as e:
         logger.exception("TrainingWorkflow.start_training failed (background): %s", e)
+
+async def _run_insert_suggestion_into_knowledge_library_safe(
+    pool: Any,
+    suggestion: dict[str, Any],
+    approved_by: str,
+) -> None:
+    """Background ingest: HR training suggestion -> Knowledge Library entry.
+
+    Swallow errors so approve endpoint never becomes blocking.
+    """
+    try:
+        await _insert_suggestion_into_knowledge_library(pool=pool, suggestion=suggestion, approved_by=approved_by)
+    except Exception as e:
+        logger.exception("[HR approve->knowledge] library ingest failed (background): %s", e)
+
+
+async def _insert_suggestion_into_knowledge_library(
+    pool: Any,
+    suggestion: dict[str, Any],
+    approved_by: str,
+) -> None:
+    """Insert/approve a knowledge_documents entry for an approved HR suggestion.
+
+    Idempotency: best-effort dedupe on knowledge_documents.source_url.
+    """
+    from datetime import timezone
+
+    from app.services.knowledge_upload_service import create_document_with_chunks, run_embedding_task
+    from app.services.training import extract_text, scrape_url
+
+    source_url = str(suggestion.get("url") or "").strip()
+    if not source_url:
+        return
+
+    title = str(suggestion.get("title") or source_url).strip() or source_url
+    summary = str(suggestion.get("rationale") or suggestion.get("approval_notes") or "").strip() or None
+
+    now = datetime.now(timezone.utc)
+
+    def _json_serial_default(o: Any) -> Any:
+        if hasattr(o, "isoformat"):
+            return o.isoformat()
+        if hasattr(o, "hex"):
+            return str(o)
+        if isinstance(o, (dict, list, str, int, float, bool)) or o is None:
+            return o
+        return str(o)
+
+    document_id_to_embed: Optional[str] = None
+
+    async with pool.acquire() as conn:
+        existing = await conn.fetchrow(
+            """
+            SELECT document_id, status, embedding_status, version
+            FROM knowledge_documents
+            WHERE source_url = $1
+            ORDER BY updated_at DESC NULLS LAST, created_at DESC
+            LIMIT 1
+            """,
+            source_url,
+        )
+
+        if existing:
+            document_id = existing["document_id"]
+            status = existing.get("status")
+            embedding_status = existing.get("embedding_status")
+
+            if status != "approved":
+                await conn.execute(
+                    """
+                    UPDATE knowledge_documents
+                    SET status = 'approved',
+                        approved_by = $1,
+                        approved_at = $2,
+                        last_reviewed = $2,
+                        updated_at = NOW()
+                    WHERE document_id = $3
+                    """,
+                    approved_by or "hr-manager",
+                    now,
+                    document_id,
+                )
+
+                doc_after = await conn.fetchrow(
+                    "SELECT * FROM knowledge_documents WHERE document_id = $1",
+                    document_id,
+                )
+                if doc_after:
+                    snapshot = dict(doc_after)
+                    snapshot_json = json.dumps(snapshot, default=_json_serial_default)
+                    await conn.execute(
+                        """
+                        INSERT INTO knowledge_versions
+                            (document_id, version, change_note, created_by, approved_by, snapshot)
+                        VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+                        """,
+                        document_id,
+                        int(doc_after.get("version") or 1),
+                        "approved",
+                        approved_by or "hr-manager",
+                        approved_by or "hr-manager",
+                        snapshot_json,
+                    )
+
+            if embedding_status in ("pending", "failed"):
+                if embedding_status == "failed":
+                    await conn.execute(
+                        "UPDATE knowledge_documents SET embedding_status = 'pending' WHERE document_id = $1",
+                        document_id,
+                    )
+                document_id_to_embed = str(document_id)
+            elif embedding_status is None:
+                document_id_to_embed = str(document_id)
+        else:
+            html = await scrape_url(source_url)
+            text = extract_text(html)
+            if not text or len(text) < 50:
+                return
+
+            created = await create_document_with_chunks(
+                pool,
+                text,
+                source_url=source_url,
+                source_type="url",
+                title=title,
+                doc_type="sop",
+                domain="general",
+                function_tag="general",
+                client_slug=None,
+                approved_by=approved_by or "hr-manager",
+                access_level="approved",
+                summary=summary,
+                keywords=None,
+            )
+            document_id = created["document_id"]
+
+            await conn.execute(
+                """
+                UPDATE knowledge_documents
+                SET status = 'approved',
+                    approved_by = $1,
+                    approved_at = $2,
+                    last_reviewed = $2,
+                    updated_at = NOW()
+                WHERE document_id = $3::uuid
+                """,
+                approved_by or "hr-manager",
+                now,
+                document_id,
+            )
+
+            doc_after = await conn.fetchrow(
+                "SELECT * FROM knowledge_documents WHERE document_id = $1::uuid",
+                document_id,
+            )
+            if doc_after:
+                snapshot = dict(doc_after)
+                snapshot_json = json.dumps(snapshot, default=_json_serial_default)
+                await conn.execute(
+                    """
+                    INSERT INTO knowledge_versions
+                        (document_id, version, change_note, created_by, approved_by, snapshot)
+                    VALUES ($1::uuid, $2, $3, $4, $5, $6::jsonb)
+                    """,
+                    document_id,
+                    int(doc_after.get("version") or 1),
+                    "approved",
+                    approved_by or "hr-manager",
+                    approved_by or "hr-manager",
+                    snapshot_json,
+                )
+
+            document_id_to_embed = str(document_id)
+
+    if document_id_to_embed:
+        await run_embedding_task(pool, document_id_to_embed)
 
 TRAINING_REQUESTS_UNAVAILABLE = {
     "error": "training_requests niet beschikbaar",
@@ -99,6 +284,25 @@ def _decision_notes_column(columns: Set[str]) -> Optional[str]:
     return None
 
 
+async def _training_suggestions_table_exists(conn: Any) -> bool:
+    val = await conn.fetchval(
+        """
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = 'training_suggestions'
+        """
+    )
+    return bool(val)
+
+
+def _training_suggestion_to_json(row: Any) -> dict[str, Any]:
+    d = dict(row)
+    for key in ("discovered_at", "reviewed_at"):
+        v = d.get(key)
+        if v is not None and hasattr(v, "isoformat"):
+            d[key] = v.isoformat()
+    return d
+
+
 class DevelopmentPoint(BaseModel):
     point_id: Any
     agent_id: Optional[Any] = None
@@ -138,6 +342,26 @@ class ApproveTrainingRequest(BaseModel):
         elif not self.point_id:
             raise ValueError("point_id or request_id is required")
         return self
+
+
+class TrainingSuggestionNotesBody(BaseModel):
+    """Optional notes when approving or rejecting a training suggestion."""
+
+    approval_notes: Optional[str] = Field(default=None, max_length=4000)
+
+
+class ManualTrainingDiscoverBody(BaseModel):
+    """Trigger HR resource discovery for a development point (manual)."""
+
+    development_point_id: str = Field(
+        ...,
+        description="Development point id; persisted as training_suggestions.development_point_ref (TEXT) in production",
+    )
+    agent_id: str = Field(..., min_length=1)
+    agent_role: str = ""
+    pattern_description: str = Field(..., min_length=1)
+    impact: str = Field(default="high", description="Impact level (e.g. high, critical)")
+
 
 class ResolveRequest(BaseModel):
     resolution: str
@@ -577,7 +801,7 @@ async def scan_patterns():
 
 
 @router.post("/approve-training")
-async def approve_training(req: ApproveTrainingRequest, background_tasks: BackgroundTasks):
+async def approve_training(req: ApproveTrainingRequest, arq_pool: ArqRedis = Depends(get_arq_pool)):
     """Approve a development point and start training."""
     logger.info("[approve-training] request_id=%s point_id=%s approved=%s source_url=%s", req.request_id, req.point_id, req.approved, req.source_url)
     # Training request approval path (only when request_id is explicitly provided)
@@ -630,11 +854,8 @@ async def approve_training(req: ApproveTrainingRequest, background_tasks: Backgr
                 url = req.source_url or request.get("suggested_url")
                 if not url:
                     raise HTTPException(status_code=400, detail="No training URL provided")
-
-                workflow = TrainingWorkflow(pool)
-                background_tasks.add_task(
-                    _run_start_training_safe,
-                    workflow,
+                await arq_pool.enqueue_job(
+                    "start_agent_training",
                     request["agent_id"],
                     url,
                     req.approved_by or "ceo",
@@ -666,6 +887,161 @@ async def approve_training(req: ApproveTrainingRequest, background_tasks: Backgr
     except Exception as e:
         logger.error("Training approval failed: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def _normalize_development_point_key_for_discovery(raw: str) -> str:
+    """Trimmed string for training_suggestions.development_point_ref (TEXT); matches HR point_id / id."""
+    return (raw or "").strip()
+
+
+@router.get("/training-suggestions", dependencies=[Depends(get_current_user)])
+async def list_training_suggestions(
+    agent_id: Optional[str] = Query(None),
+    status: str = Query("pending", description="pending | approved | rejected"),
+):
+    """List training suggestions (resource discovery) with optional filters."""
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        if not await _training_suggestions_table_exists(conn):
+            return JSONResponse(status_code=503, content=TRAINING_SUGGESTIONS_UNAVAILABLE)
+        st = (status or "pending").strip().lower()
+        if st not in ("pending", "approved", "rejected"):
+            raise HTTPException(status_code=400, detail="status must be pending, approved, or rejected")
+        if agent_id:
+            rows = await conn.fetch(
+                """
+                SELECT ts.*, ha.name AS agent_name, ha.role AS agent_role
+                FROM training_suggestions ts
+                LEFT JOIN hired_agents ha ON ts.agent_id = ha.agent_id
+                WHERE ts.status = $1 AND ts.agent_id = $2
+                ORDER BY ts.discovered_at DESC NULLS LAST, ts.id DESC
+                """,
+                st,
+                agent_id,
+            )
+        else:
+            rows = await conn.fetch(
+                """
+                SELECT ts.*, ha.name AS agent_name, ha.role AS agent_role
+                FROM training_suggestions ts
+                LEFT JOIN hired_agents ha ON ts.agent_id = ha.agent_id
+                WHERE ts.status = $1
+                ORDER BY ts.discovered_at DESC NULLS LAST, ts.id DESC
+                """,
+                st,
+            )
+    return {"suggestions": [_training_suggestion_to_json(r) for r in rows], "count": len(rows)}
+
+
+@router.post("/training-suggestions/{suggestion_id}/approve")
+async def approve_training_suggestion(
+    suggestion_id: int,
+    body: TrainingSuggestionNotesBody,
+    arq_pool: ArqRedis = Depends(get_arq_pool),
+    current_user: TokenPayload = Depends(get_current_user),
+):
+    """Approve a pending suggestion and start training via TrainingWorkflow (background)."""
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        if not await _training_suggestions_table_exists(conn):
+            return JSONResponse(status_code=503, content=TRAINING_SUGGESTIONS_UNAVAILABLE)
+        row = await conn.fetchrow(
+            """
+            UPDATE training_suggestions
+            SET status = 'approved',
+                approved_by = $1,
+                approval_notes = COALESCE($2, ''),
+                reviewed_at = NOW()
+            WHERE id = $3 AND status = 'pending'
+            RETURNING *
+            """,
+            current_user.user_id,
+            body.approval_notes or "",
+            suggestion_id,
+        )
+        if not row:
+            raise HTTPException(status_code=404, detail="Suggestion not found or not pending")
+        suggestion = dict(row)
+
+    url = suggestion.get("url")
+    agent_id_s = suggestion.get("agent_id")
+    approver = current_user.user_id or "hr-dashboard"
+    if url and agent_id_s:
+        await arq_pool.enqueue_job(
+            "start_agent_training",
+            str(agent_id_s),
+            str(url),
+            approver,
+        )
+
+    # Additionally: make the approved resource visible in Knowledge Library (/knowledge).
+    # Enqueued to ARQ so the approve endpoint remains non-blocking.
+    if url:
+        await arq_pool.enqueue_job(
+            "insert_hr_suggestion_into_knowledge_library",
+            str(url),
+            str(suggestion.get("title") or ""),
+            str(suggestion.get("rationale") or ""),
+            approver,
+        )
+
+    return {
+        "suggestion": _training_suggestion_to_json(suggestion),
+        "training_started": bool(url and agent_id_s),
+    }
+
+
+@router.post("/training-suggestions/{suggestion_id}/reject")
+async def reject_training_suggestion(
+    suggestion_id: int,
+    body: TrainingSuggestionNotesBody,
+    current_user: Annotated[TokenPayload, Depends(get_current_user)],
+):
+    """Reject a pending training suggestion."""
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        if not await _training_suggestions_table_exists(conn):
+            return JSONResponse(status_code=503, content=TRAINING_SUGGESTIONS_UNAVAILABLE)
+        row = await conn.fetchrow(
+            """
+            UPDATE training_suggestions
+            SET status = 'rejected',
+                approved_by = $1,
+                approval_notes = COALESCE($2, ''),
+                reviewed_at = NOW()
+            WHERE id = $3 AND status = 'pending'
+            RETURNING *
+            """,
+            current_user.user_id,
+            body.approval_notes or "",
+            suggestion_id,
+        )
+        if not row:
+            raise HTTPException(status_code=404, detail="Suggestion not found or not pending")
+    return {"suggestion": _training_suggestion_to_json(row)}
+
+
+@router.post("/training-suggestions/discover", dependencies=[Depends(get_current_user)])
+async def manual_discover_training_suggestions(body: ManualTrainingDiscoverBody):
+    """Run HR resource discovery for a development point; inserts up to 3 pending suggestions."""
+    pool = await get_db()
+    discovery = HRResourceDiscovery()
+    dp_key = _normalize_development_point_key_for_discovery(body.development_point_id)
+    async with pool.acquire() as conn:
+        if not await _training_suggestions_table_exists(conn):
+            return JSONResponse(status_code=503, content=TRAINING_SUGGESTIONS_UNAVAILABLE)
+        created = await discovery.discover_for_development_point(
+            conn=conn,
+            development_point_id=dp_key,
+            agent_id=body.agent_id.strip(),
+            agent_role=(body.agent_role or "").strip(),
+            pattern_description=body.pattern_description.strip(),
+            impact=(body.impact or "high").strip(),
+        )
+    return {
+        "discovered": len(created),
+        "suggestions": [_training_suggestion_to_json(r) for r in created],
+    }
 
 
 @router.get("/hiring-requests")
@@ -1033,7 +1409,7 @@ async def update_development_point(point_id: str, body: UpdatePointBody):
 
 
 @router.post("/development-points/{point_id}/reproduce")
-async def reproduce_development_point(point_id: str, background_tasks: BackgroundTasks):
+async def reproduce_development_point(point_id: str, arq_pool: ArqRedis = Depends(get_arq_pool)):
     """
     Start a new job based on the same run_id as this development point.
     Spec: POST /api/hr/development-points/:pointId/reproduce.
@@ -1110,9 +1486,9 @@ async def reproduce_development_point(point_id: str, background_tasks: Backgroun
         )
 
     try:
-        background_tasks.add_task(run_intake_inline, new_job_id, job_post)
+        await arq_pool.enqueue_job("run_intake_inline", new_job_id, job_post)
     except Exception as e:
-        logger.warning("Reproduce: intake task queue failed for %s: %s", new_job_id, e)
+        logger.warning("Reproduce: intake enqueue failed for %s: %s", new_job_id, e)
 
     return {"job_id": new_job_id, "status": "RUNNING"}
 
@@ -1222,6 +1598,7 @@ async def add_knowledge_source_file(
 async def approve_development_point(
     point_id: str,
     body: ApproveTrainingRequest,
+    arq_pool: ArqRedis = Depends(get_arq_pool),
 ):
     """CEO: approve (set IN_TRAINING, start TrainingWorkflow) or reject (set DISMISSED) a development point."""
     pool = await get_db()
@@ -1255,16 +1632,7 @@ async def approve_development_point(
         final_url = body.source_url or point.get("source_url")
         if final_url:
             try:
-                import asyncio
-                from app.services.training_workflow import TrainingWorkflow
-                workflow = TrainingWorkflow(pool)
-                asyncio.create_task(
-                    workflow.start_training(
-                        agent_id=agent_id,
-                        url=final_url,
-                        approved_by=approved_by,
-                    )
-                )
+                await arq_pool.enqueue_job("start_agent_training", agent_id, final_url, approved_by)
             except Exception as e:
                 logger.warning("TrainingWorkflow start mislukt voor point %s: %s", point_id, e)
         return {"approved": True, "point_id": point_id, "training_started": bool(final_url)}

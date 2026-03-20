@@ -7,9 +7,12 @@ import uuid
 from datetime import date, datetime, timezone
 from typing import Any, Annotated, Dict, List, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status, Body
+from fastapi import APIRouter, Depends, HTTPException, Query, status, Body
+
+from arq import ArqRedis
 
 from app.middleware.auth import get_current_user, require_super_admin, TokenPayload
+from app.dependencies import get_arq_pool
 from pydantic import BaseModel, Field
 
 import httpx
@@ -790,8 +793,8 @@ async def _run_training_background(agent_id: str, url: str, approved_by: str) ->
 async def train_agent(
     agent_id: str,
     body: TrainAgentBody,
-    background_tasks: BackgroundTasks,
-    current_user: Annotated[TokenPayload, Depends(require_super_admin)],
+    arq_pool: ArqRedis = Depends(get_arq_pool),
+    current_user: TokenPayload = Depends(require_super_admin),
 ) -> Dict[str, Any]:
     """Start training for an agent with a URL. Returns 202; training runs in background. No CEO approval gate."""
     url = (body.url or "").strip()
@@ -823,7 +826,7 @@ async def train_agent(
 
     approved_by = (body.approved_by or "user").strip() or "user"
     await _append_knowledge_processing(pool, agent_id, url, approved_by)
-    background_tasks.add_task(_run_training_background, agent_id, url, approved_by)
+    await arq_pool.enqueue_job("_run_training_background", agent_id, url, approved_by)
 
     return {
         "agent_id": agent_id,

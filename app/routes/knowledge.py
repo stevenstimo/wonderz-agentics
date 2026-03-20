@@ -19,12 +19,14 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, HttpUrl
 
 from app.database import get_db
 from app.middleware.auth import TokenPayload, get_current_user
+from app.dependencies import get_arq_pool
+from arq import ArqRedis
 from app.services.knowledge_upload_service import (
     DOC_TYPES,
     create_document_with_chunks,
@@ -118,7 +120,7 @@ def _document_response(row: Any) -> dict:
 @router.post("/upload/url")
 async def upload_url(
     body: UploadUrlBody,
-    background_tasks: BackgroundTasks,
+    arq_pool: ArqRedis = Depends(get_arq_pool),
     current_user: TokenPayload = Depends(get_current_user),
 ):
     """Ingest document from URL. Store doc + chunks, start embeddings in background. Returns 202."""
@@ -156,8 +158,7 @@ async def upload_url(
     except TrainingError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    # TODO: migreer naar Celery/ARQ worker — sync task, risico op threadpool exhaustion (max 40 tokens)
-    background_tasks.add_task(run_embedding_task, pool, result["document_id"])
+    await arq_pool.enqueue_job("run_embedding_task", result["document_id"])
     return JSONResponse(
         status_code=202,
         content={"document_id": result["document_id"], "status": "processing", "chunks_stored": result["chunks_stored"]},
@@ -166,7 +167,7 @@ async def upload_url(
 
 @router.post("/upload")
 async def upload_file(
-    background_tasks: BackgroundTasks,
+    arq_pool: ArqRedis = Depends(get_arq_pool),
     file: UploadFile = File(...),
     title: Optional[str] = Form(None),
     doc_type: str = Form("sop"),
@@ -221,8 +222,7 @@ async def upload_file(
     except TrainingError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    # TODO: migreer naar Celery/ARQ worker — sync task, risico op threadpool exhaustion (max 40 tokens)
-    background_tasks.add_task(run_embedding_task, pool, result["document_id"])
+    await arq_pool.enqueue_job("run_embedding_task", result["document_id"])
     return JSONResponse(
         status_code=202,
         content={"document_id": result["document_id"], "status": "processing", "chunks_stored": result["chunks_stored"]},
@@ -356,7 +356,7 @@ async def delete_knowledge(
 async def patch_document(
     document_id: UUID,
     body: PatchDocumentBody,
-    background_tasks: BackgroundTasks,
+    arq_pool: ArqRedis = Depends(get_arq_pool),
     current_user: TokenPayload = Depends(get_current_user),
 ):
     """Update document metadata. If source_url changed (URL docs): deactivate chunks + run reindex in background."""
@@ -423,8 +423,7 @@ async def patch_document(
                 document_id,
             )
         try:
-            # TODO: migreer naar Celery/ARQ worker — sync task, risico op threadpool exhaustion (max 40 tokens)
-            background_tasks.add_task(reindex_document, pool, doc_id_str)
+            await arq_pool.enqueue_job("reindex_document", doc_id_str)
         except Exception:
             pass
 
@@ -573,7 +572,7 @@ async def reindex_knowledge_document(
 @router.post("/{document_id}/replace-content")
 async def replace_content(
     document_id: UUID,
-    background_tasks: BackgroundTasks,
+    arq_pool: ArqRedis = Depends(get_arq_pool),
     file: UploadFile = File(...),
     title: Optional[str] = Form(None),
     doc_type: Optional[str] = Form(None),
@@ -657,8 +656,7 @@ async def replace_content(
                 *values,
             )
 
-    # TODO: migreer naar Celery/ARQ worker — sync task, risico op threadpool exhaustion (max 40 tokens)
-    background_tasks.add_task(run_embedding_task, pool, str(document_id))
+    await arq_pool.enqueue_job("run_embedding_task", str(document_id))
 
     async with pool.acquire() as conn:
         row = await conn.fetchrow(

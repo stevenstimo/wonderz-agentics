@@ -17,9 +17,10 @@ import json
 import logging
 from datetime import datetime
 from typing import Annotated, Optional
-from fastapi import APIRouter, HTTPException, Depends, status, BackgroundTasks, File, UploadFile, Form, Request
+from fastapi import APIRouter, HTTPException, Depends, status, File, UploadFile, Form, Request
 from fastapi.responses import FileResponse
 from pydantic import ValidationError
+from arq import ArqRedis
 
 from app.utils.document_parser import extract_text_from_file, ALLOWED_EXTENSIONS
 
@@ -27,6 +28,7 @@ from app.database import get_db
 from app.middleware.auth import get_current_user, TokenPayload
 from app.orchestration.manager import OperationsManager
 from app.services.deployment import DeploymentService
+from app.dependencies import get_arq_pool
 from models.unified import JobStatus
 from tools.unified_bridge import UnifiedToolBridge
 from app.services.job_pipeline import (
@@ -157,7 +159,7 @@ async def upload_job_file(file: UploadFile = File(...)):
 @router.post("", response_model=CreateJobResponse, status_code=status.HTTP_201_CREATED)
 async def create_job(
     req: CreateJobRequest,
-    background_tasks: BackgroundTasks,
+    arq_pool: ArqRedis = Depends(get_arq_pool),
     current_user: Annotated[TokenPayload, Depends(get_current_user)] = None,
 ):
     """
@@ -244,7 +246,7 @@ async def create_job(
     
     # Queue intake flow (don't wait for result)
     try:
-        background_tasks.add_task(run_intake_inline, job_id, req.job_post)
+        await arq_pool.enqueue_job("run_intake_inline", job_id, req.job_post)
         logger.info(f"Intake task queued for job {job_id}")
     except Exception as e:
         logger.error(f"Failed to queue intake task for job {job_id}: {e}", exc_info=True)
@@ -437,7 +439,7 @@ def build_document_preview(job: dict) -> dict:
 async def send_chat_message(
     job_id: str,
     request: Request,
-    background_tasks: BackgroundTasks,
+    arq_pool: ArqRedis = Depends(get_arq_pool),
 ):
     """
     Send a chat message for this job. Accepts:
@@ -516,7 +518,7 @@ async def send_chat_message(
             else:
                 chat_history.append(user_entry)
                 await _update_job_context(conn, job_id, {"chat_history": chat_history})
-            background_tasks.add_task(run_intake_answers_inline, job_id, None)
+            await arq_pool.enqueue_job("run_intake_answers_inline", job_id, None)
             row = await conn.fetchrow("SELECT status FROM jobs WHERE id=$1", job_id)
             return {
                 "job_id": job_id,
@@ -568,7 +570,7 @@ async def send_chat_message(
 async def submit_intake_answer(
     job_id: str,
     req: SubmitAnswersRequest,
-    background_tasks: BackgroundTasks
+    arq_pool: ArqRedis = Depends(get_arq_pool),
 ):
     """
     User submits answers to clarification questions.
@@ -618,7 +620,7 @@ async def submit_intake_answer(
                 )
         
         # Queue intake answers processing
-        background_tasks.add_task(run_intake_answers_inline, job_id, req.answers)
+        await arq_pool.enqueue_job("run_intake_answers_inline", job_id, req.answers)
         logger.info(f"Intake answers task queued for job {job_id}")
         
         # Fetch updated job status
@@ -648,7 +650,7 @@ async def submit_intake_answer(
 @router.post("/{job_id}/approve-plan")
 async def approve_plan(
     job_id: str,
-    background_tasks: BackgroundTasks,
+    arq_pool: ArqRedis = Depends(get_arq_pool),
     manager: OperationsManager = Depends(get_operations_manager)
 ):
     """
@@ -716,7 +718,7 @@ async def approve_plan(
                     JobStatus.RUNNING.value,
                     job_id,
                 )
-            background_tasks.add_task(run_data_pipeline, job_id)
+            await arq_pool.enqueue_job("run_data_pipeline", job_id)
             logger.info("approve_plan: data_query job %s, run_data_pipeline queued", job_id)
             return {
                 "job_id": job_id,
@@ -746,17 +748,14 @@ async def approve_plan(
             job_post = (row["job_post"] or "") if row else ""
             platform = (row["source_platform"] or "browser") if row else "browser"
             token_budget = int(row.get("token_budget") or 50000) if row else 50000
-            pipeline = NEXUSPipeline()
-            asyncio.create_task(
-                pipeline.run(job_id, user_id, platform, job_post, token_budget, pool=pool)
-            )
-            logger.info("NEXUS pipeline started in background for job %s", job_id)
+            await arq_pool.enqueue_job("run_job_pipeline", job_id)
+            logger.info("NEXUS pipeline enqueued for job %s", job_id)
             return {
                 "job_id": job_id,
                 "status": JobStatus.RUNNING.value,
                 "message": "Plan approved. Workflow started."
             }
-        background_tasks.add_task(run_job_inline, job_id, context)
+        await arq_pool.enqueue_job("run_job_inline", job_id, context)
         logger.info("Pipeline queued in background for job %s", job_id)
         return {
             "job_id": job_id,
@@ -822,7 +821,7 @@ async def request_plan_changes(
 async def submit_feedback(
     job_id: str,
     req: FeedbackRequest,
-    background_tasks: BackgroundTasks
+    arq_pool: ArqRedis = Depends(get_arq_pool)
 ):
     """
     User submits feedback on completed workflow results.
@@ -861,7 +860,7 @@ async def submit_feedback(
                 job_id,
             )
         
-        background_tasks.add_task(run_intake_answers_inline, job_id, None)
+        await arq_pool.enqueue_job("run_intake_answers_inline", job_id, None)
         logger.info(f"Feedback submitted for job {job_id}, intake re-running")
         
         return {

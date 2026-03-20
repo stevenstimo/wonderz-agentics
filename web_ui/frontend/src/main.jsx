@@ -44,6 +44,7 @@ const NewJob = lazy(() => import('./NewJob.jsx'))
 const MissionControl = lazy(() => import('./MissionControl.jsx'))
 const HRDashboard = lazy(() => import('./HRDashboard.jsx'))
 const TrainingRequestsTabContent = lazy(() => import('./HRDashboard.jsx').then(m => ({ default: m.TrainingRequestsTabContent })))
+const TrainingSuggestionsTabContent = lazy(() => import('./HRDashboard.jsx').then(m => ({ default: m.TrainingSuggestionsTabContent })))
 const IssueDetail = lazy(() => import('./pages/IssueDetail.jsx'))
 const HRApprovalPage = lazy(() => import('./pages/HRApprovalPage.jsx'))
 const PersonalProjects = lazy(() => import('./PersonalProjects.jsx'))
@@ -117,6 +118,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
               <Route path="/approvals" element={<ApprovalDashboard />} />
               <Route path="/hr" element={<HRDashboard />}>
                 <Route path="training-requests" element={<TrainingRequestsTabContent />} />
+                <Route path="training-suggestions" element={<TrainingSuggestionsTabContent />} />
                 <Route path="improvements" element={<HRImprovements />} />
               </Route>
               <Route path="/hr/approval" element={<HRApprovalPage />} />

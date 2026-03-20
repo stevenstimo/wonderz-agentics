@@ -39,6 +39,13 @@ function StatusBadge({ status }) {
   )
 }
 
+function formatKnowledgeDate(dateStr) {
+  if (!dateStr) return '—'
+  const d = new Date(dateStr)
+  if (Number.isNaN(d.getTime())) return '—'
+  return d.toLocaleDateString('nl-NL', { day: 'numeric', month: 'short', year: 'numeric' })
+}
+
 export default function Newbies() {
   const navigate = useNavigate()
   const { authReady } = useAuthReady()
@@ -75,6 +82,13 @@ export default function Newbies() {
 
   const canEdit = true // tijdelijk: isAdmin(userRole) faalt omdat userRole niet correct wordt opgehaald na inloggen
   console.log('userRole:', userRole, 'canEdit:', canEdit)
+
+  const [activeTab, setActiveTab] = useState('newbies') // 'newbies' | 'knowledge'
+  const [knowledgeDocs, setKnowledgeDocs] = useState([])
+  const [knowledgeLoading, setKnowledgeLoading] = useState(false)
+  const [knowledgeError, setKnowledgeError] = useState('')
+  const [knowledgeSearch, setKnowledgeSearch] = useState('')
+  const [knowledgeRefreshKey, setKnowledgeRefreshKey] = useState(0)
 
   const fetchNewbies = async (silent = false) => {
     if (!silent) setLoading(true)
@@ -129,6 +143,35 @@ export default function Newbies() {
       listener.subscription.unsubscribe()
     }
   }, [authReady])
+
+  useEffect(() => {
+    if (!authReady) return
+    if (activeTab !== 'knowledge') return
+
+    let cancelled = false
+    const loadKnowledge = async () => {
+      setKnowledgeLoading(true)
+      setKnowledgeError('')
+      try {
+        const res = await apiFetch('/api/knowledge?limit=200')
+        if (!res.ok) {
+          const j = await res.json().catch(() => ({}))
+          throw new Error(j.detail || `Laden knowledge mislukt (${res.status})`)
+        }
+        const data = await res.json()
+        setKnowledgeDocs(Array.isArray(data) ? data : [])
+      } catch (err) {
+        if (!cancelled) setKnowledgeError(err.message || 'Laden kennis mislukt')
+      } finally {
+        if (!cancelled) setKnowledgeLoading(false)
+      }
+    }
+
+    loadKnowledge()
+    return () => {
+      cancelled = true
+    }
+  }, [authReady, activeTab, knowledgeRefreshKey])
 
   const submitAdd = async () => {
     if (!canEdit) return
@@ -364,20 +407,56 @@ export default function Newbies() {
             <p className="page-subtitle">Persona&apos;s in ontwikkeling. Train ze tot readiness ≥ 70, dan verschijnen ze in de Hiring Hall.</p>
           </div>
           <div className="flex items-center gap-2">
-            <button className="btn-icon-only" type="button" onClick={fetchNewbies} aria-label="Vernieuwen">
-              ↻
-            </button>
-            {canEdit && (
-              <button type="button" className="btn-manage gap-2" onClick={() => setShowAdd(true)}>
-                <Plus className="w-4 h-4" />
-                Add Newbie
-              </button>
-            )}
+              {activeTab === 'newbies' ? (
+                <>
+                  <button className="btn-icon-only" type="button" onClick={fetchNewbies} aria-label="Vernieuwen">
+                    ↻
+                  </button>
+                  {canEdit && (
+                    <button type="button" className="btn-manage gap-2" onClick={() => setShowAdd(true)}>
+                      <Plus className="w-4 h-4" />
+                      Add Newbie
+                    </button>
+                  )}
+                </>
+              ) : (
+                <button
+                  className="btn-icon-only"
+                  type="button"
+                  onClick={() => setKnowledgeRefreshKey((k) => k + 1)}
+                  aria-label="Vernieuwen kennisbronnen"
+                  disabled={knowledgeLoading}
+                >
+                  ↻
+                </button>
+              )}
           </div>
         </div>
 
         {error && <div className="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
 
+          <div className="flex gap-2 mb-5">
+            <button
+              type="button"
+              onClick={() => setActiveTab('newbies')}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium ${
+                activeTab === 'newbies' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              Newbies
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('knowledge')}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium ${
+                activeTab === 'knowledge' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              Kennisbronnen
+            </button>
+          </div>
+
+          <div className={activeTab === 'newbies' ? '' : 'hidden'}>
         {/* Library balk: URL 1x opslaan, daarna per Newbie aanbieden */}
         <div className="mb-5 rounded-lg border border-slate-200 bg-slate-50/50 p-4">
           <h3 className="text-sm font-semibold text-slate-800 mb-2">Kennisbibliotheek</h3>
@@ -436,8 +515,107 @@ export default function Newbies() {
             </div>
           </div>
         </div>
+          </div>
 
-        {loading ? (
+          {activeTab === 'knowledge' && (
+            <div className="mb-5 rounded-lg border border-slate-200 bg-white p-4">
+              <h3 className="text-sm font-semibold text-slate-900 mb-3">Kennisbronnen</h3>
+
+              <div className="flex flex-col sm:flex-row sm:items-end gap-3 mb-4">
+                <div className="flex-1">
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Zoeken</label>
+                  <input
+                    type="text"
+                    value={knowledgeSearch}
+                    onChange={(e) => setKnowledgeSearch(e.target.value)}
+                    placeholder="Zoek op titel, summary of bron-URL"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                  />
+                </div>
+                <div className="text-xs text-slate-500">
+                  Alleen <span className="font-medium text-slate-700">goedgekeurde</span> kennisbronnen worden getoond.
+                </div>
+              </div>
+
+              {knowledgeError && (
+                <div className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 border border-red-200">
+                  {knowledgeError}
+                </div>
+              )}
+
+              {knowledgeLoading ? (
+                <div className="text-sm text-slate-500 py-4">Laden...</div>
+              ) : (
+                <div className="space-y-3">
+                  {(() => {
+                    const q = (knowledgeSearch || '').trim().toLowerCase()
+                    const approved = Array.isArray(knowledgeDocs) ? knowledgeDocs : []
+                    const filtered = approved
+                      .filter((d) => (d?.status || '').toLowerCase() === 'approved')
+                      .filter((d) => {
+                        if (!q) return true
+                        const hay = [
+                          d?.title,
+                          d?.summary,
+                          d?.doc_type,
+                          d?.domain,
+                          d?.source_url,
+                        ]
+                          .filter(Boolean)
+                          .join(' ')
+                          .toLowerCase()
+                        return hay.includes(q)
+                      })
+
+                    if (!filtered.length) {
+                      return (
+                        <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                          Nog geen kennisbronnen beschikbaar.
+                        </div>
+                      )
+                    }
+
+                    return filtered.slice(0, 50).map((doc) => {
+                      const date = formatKnowledgeDate(doc?.updated_at || doc?.created_at)
+                      return (
+                        <div key={doc?.document_id} className="rounded-lg border border-slate-200 bg-white p-3">
+                          <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="font-semibold text-slate-900 truncate">
+                                {doc?.title || 'Untitled'}
+                              </div>
+                              <div className="text-xs text-slate-500 mt-1">
+                                {doc?.doc_type || '—'} · {doc?.domain || '—'} · {date}
+                              </div>
+                            </div>
+                          </div>
+
+                          {doc?.source_url ? (
+                            <a
+                              href={doc.source_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-sm text-indigo-700 hover:underline break-all mt-2 inline-block"
+                            >
+                              Open bron
+                            </a>
+                          ) : null}
+
+                          {doc?.summary ? (
+                            <p className="text-sm text-slate-700 mt-2 whitespace-pre-wrap">
+                              {doc.summary}
+                            </p>
+                          ) : null}
+                        </div>
+                      )
+                    })
+                  })()}
+                </div>
+              )}
+            </div>
+          )}
+
+        {activeTab === 'newbies' && (loading ? (
           <div className="text-sm text-slate-500">Laden...</div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full">
@@ -577,11 +755,11 @@ export default function Newbies() {
               </div>
             )}
           </div>
-        )}
+        ))}
       </div>
 
       {/* Modal: Add Newbie */}
-      {showAdd && (
+      {activeTab === 'newbies' && showAdd && (
         <div className="modal-overlay" onClick={() => !adding && setShowAdd(false)}>
           <div className="modal-card space-y-3" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-xl font-bold">Add Newbie</h2>
@@ -641,7 +819,7 @@ export default function Newbies() {
       )}
 
       {/* Modal: Train Newbie (evaluate flow) */}
-      {trainNewbie && (
+      {activeTab === 'newbies' && trainNewbie && (
         <div className="modal-overlay" onClick={() => !training && setTrainNewbie(null)}>
           <div className="modal-card space-y-3 max-w-lg" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-xl font-bold">Train: {trainNewbie.newbie_name}</h2>
