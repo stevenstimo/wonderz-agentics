@@ -84,39 +84,56 @@ async def _get_current_user_impl(
         logger.warning("SUPABASE_URL not configured - auth will fail")
         raise HTTPException(status_code=503, detail="Auth not configured")
 
+    # --- Fallback: service_role tokens are HS256, signed with SUPABASE_JWT_SECRET ---
+    _jwt_secret = os.getenv("SUPABASE_JWT_SECRET", "")
     try:
-        jwk_client = _get_jwk_client()
-        signing_key = jwk_client.get_signing_key_from_jwt(token)
+        # Try HS256 first (service_role / server-generated tokens)
         payload = jwt.decode(
             token,
-            signing_key.key,
-            algorithms=["ES256", "RS256"],
-            audience="authenticated",
+            _jwt_secret,
+            algorithms=["HS256"],
+            options={"verify_aud": False},
         )
-    except PyJWKClientError as e:
-        logger.warning(f"[auth] JWKS error: {e}")
+        logger.debug("[auth] Token validated via HS256 (service_role / server token)")
+    except (jwt.InvalidTokenError, Exception):
+        # Fallback to JWKS (ES256) for browser-issued Supabase Auth tokens
+        pass
+        payload = None
+
+    if payload is None:
         try:
-            with open("/home/exedev/wonderz-agentics/.cursor/debug-4539c6.log", "a") as _f:
-                _f.write(json.dumps({"sessionId": "4539c6", "location": "auth.py:JWKS", "message": "JWKS error", "data": {"err": str(e)[:50]}, "timestamp": time.time() * 1000, "hypothesisId": "H4"}) + "\n")
-        except Exception:
-            pass
-        raise HTTPException(status_code=503, detail="Auth service unavailable")
-    except jwt.ExpiredSignatureError as e:
-        logger.warning(f"[auth] 401: Token expired - {e}")
-        try:
-            with open("/home/exedev/wonderz-agentics/.cursor/debug-4539c6.log", "a") as _f:
-                _f.write(json.dumps({"sessionId": "4539c6", "location": "auth.py:Expired", "message": "Token expired", "data": {}, "timestamp": time.time() * 1000, "hypothesisId": "H4"}) + "\n")
-        except Exception:
-            pass
-        raise HTTPException(status_code=401, detail="Token expired")
-    except jwt.InvalidTokenError as e:
-        logger.warning(f"[auth] 401: Invalid token - {type(e).__name__}: {e}")
-        try:
-            with open("/home/exedev/wonderz-agentics/.cursor/debug-4539c6.log", "a") as _f:
-                _f.write(json.dumps({"sessionId": "4539c6", "location": "auth.py:InvalidToken", "message": "Invalid token", "data": {"errType": type(e).__name__, "err": str(e)[:80]}, "timestamp": time.time() * 1000, "hypothesisId": "H4"}) + "\n")
-        except Exception:
-            pass
-        raise HTTPException(status_code=401, detail="Invalid token")
+            jwk_client = _get_jwk_client()
+            signing_key = jwk_client.get_signing_key_from_jwt(token)
+            payload = jwt.decode(
+                token,
+                signing_key.key,
+                algorithms=["ES256", "RS256"],
+                audience="authenticated",
+            )
+        except PyJWKClientError as e:
+            logger.warning(f"[auth] JWKS error: {e}")
+            try:
+                with open("/home/exedev/wonderz-agentics/.cursor/debug-4539c6.log", "a") as _f:
+                    _f.write(json.dumps({"sessionId": "4539c6", "location": "auth.py:JWKS", "message": "JWKS error", "data": {"err": str(e)[:50]}, "timestamp": time.time() * 1000, "hypothesisId": "H4"}) + "\n")
+            except Exception:
+                pass
+            raise HTTPException(status_code=503, detail="Auth service unavailable")
+        except jwt.ExpiredSignatureError as e:
+            logger.warning(f"[auth] 401: Token expired - {e}")
+            try:
+                with open("/home/exedev/wonderz-agentics/.cursor/debug-4539c6.log", "a") as _f:
+                    _f.write(json.dumps({"sessionId": "4539c6", "location": "auth.py:Expired", "message": "Token expired", "data": {}, "timestamp": time.time() * 1000, "hypothesisId": "H4"}) + "\n")
+            except Exception:
+                pass
+            raise HTTPException(status_code=401, detail="Token expired")
+        except jwt.InvalidTokenError as e:
+            logger.warning(f"[auth] 401: Invalid token - {type(e).__name__}: {e}")
+            try:
+                with open("/home/exedev/wonderz-agentics/.cursor/debug-4539c6.log", "a") as _f:
+                    _f.write(json.dumps({"sessionId": "4539c6", "location": "auth.py:InvalidToken", "message": "Invalid token", "data": {"errType": type(e).__name__, "err": str(e)[:80]}, "timestamp": time.time() * 1000, "hypothesisId": "H4"}) + "\n")
+            except Exception:
+                pass
+            raise HTTPException(status_code=401, detail="Invalid token")
 
     sub = payload.get("sub")
     email = (payload.get("email") or "").lower().strip()
