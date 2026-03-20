@@ -59,6 +59,7 @@ const KnowledgeLibrary = lazy(() => import('./KnowledgeLibrary.jsx'))
 const KnowledgeDetail = lazy(() => import('./KnowledgeDetail.jsx'))
 const KnowledgeUpload = lazy(() => import('./KnowledgeUpload.jsx'))
 const SkillFactory = lazy(() => import('./SkillFactory.jsx'))
+const NewSkillForm = lazy(() => import('./pages/NewSkillForm.jsx'))
 const ClientIntelligence = lazy(() => import('./ClientIntelligence.jsx'))
 const KnowledgeGovernance = lazy(() => import('./KnowledgeGovernance.jsx'))
 const UsersPage = lazy(() => import('./pages/UsersPage.jsx'))
@@ -109,6 +110,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
               <Route path="/knowledge/upload" element={<KnowledgeUpload />} />
               <Route path="/knowledge/new" element={<Navigate to="/knowledge/upload" replace />} />
               <Route path="/knowledge/skills" element={<SkillFactory />} />
+              <Route path="/knowledge/skills/new" element={<NewSkillForm />} />
               <Route path="/knowledge/clients" element={<ClientIntelligence />} />
               <Route path="/knowledge/clients/:client_slug" element={<RouteErrorBoundary paramKey="client_slug"><ClientIntelligence /></RouteErrorBoundary>} />
               <Route path="/knowledge/governance" element={<KnowledgeGovernance />} />
