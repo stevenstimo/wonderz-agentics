@@ -576,12 +576,12 @@ async def get_client_dashboard(
     # --- Google Ads ---
     ads_int = int_by_type.get("google_ads")
     ads_cfg = config_by_platform.get("google_ads", {})
-    # Prefer customer_id from extra_config (google_ads_customer_id or customer_id), then platform config
+    # Prefer explicit platform config first (UI selection), then extra_config legacy keys.
     extra_config = _unwrap_extra(ads_int.get("extra_config") if ads_int else None)
     customer_id = (
-        extra_config.get("google_ads_customer_id")
+        (ads_cfg.get("customer_id") if isinstance(ads_cfg, dict) else None)
         or extra_config.get("customer_id")
-        or (ads_cfg.get("customer_id") if isinstance(ads_cfg, dict) else None)
+        or extra_config.get("google_ads_customer_id")
     )
     ads_used_fallback = False
 
@@ -869,6 +869,11 @@ async def save_integration_config(
     platform, allowed_keys = SERVICE_CONFIG_PLATFORM[service_type]
     config_dict = body.model_dump(exclude_none=True)
     config_dict = {k: v for k, v in config_dict.items() if k in allowed_keys}
+    if service_type == "google_ads" and config_dict.get("customer_id"):
+        # Keep legacy key in sync to prevent old account overriding selected account.
+        cid = str(config_dict["customer_id"]).replace("-", "").strip()
+        config_dict["customer_id"] = cid
+        config_dict["google_ads_customer_id"] = cid
     if not config_dict:
         raise HTTPException(status_code=400, detail="No valid config provided")
 

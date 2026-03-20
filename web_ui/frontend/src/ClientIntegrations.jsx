@@ -235,7 +235,7 @@ export default function ClientIntegrations() {
     .map((i) => INTEGRATION_TO_PLATFORM[i.integration_type])
     .filter(Boolean)
 
-  const allPlatforms = Object.keys(PLATFORM_LABELS)
+  const allPlatforms = ['ga4', 'gsc', 'google_ads', 'lighthouse', 'meta_ads', 'shopify', 'klaviyo']
 
   const fetchGoogleOptions = useCallback(async (platform, _retried = false) => {
     const cfg = GOOGLE_DROPDOWN_CONFIG[platform]
@@ -525,6 +525,8 @@ export default function ClientIntegrations() {
         fetchGoogleOptions('ga4')
         fetchGoogleOptions('google_ads')
         fetchGoogleOptions('gsc')
+        setSuccessMessage(`${PLATFORM_LABELS[platform]} opgeslagen`)
+        setTimeout(() => setSuccessMessage(''), 2500)
       } else {
         const j = await res.json().catch(() => ({}))
         setError(j.detail || 'Opslaan mislukt')
@@ -768,6 +770,12 @@ export default function ClientIntegrations() {
                     </button>
                   )}
                 </div>
+              )}
+
+              {platform === 'lighthouse' && (
+                <p className="text-sm text-slate-500 mt-2">
+                  Gebruik een volledige URL (bijv. `https://de-visman.com/`) voor Lighthouse/PageSpeed checks.
+                </p>
               )}
 
               {!isGoogle && !canConfigure && (
