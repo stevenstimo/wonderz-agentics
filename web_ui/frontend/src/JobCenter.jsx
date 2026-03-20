@@ -1,8 +1,10 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import PageLayout from './PageLayout'
-import { apiUrl, apiFetch } from './apiClient'
+import { fetchJson } from './apiClient'
 import { useAuthReady } from './useAuthReady'
+import { queryKeys } from './queryKeys'
 
 const STATUS_BADGE = {
   INTAKE_CLARIFICATION: 'wz-badge-warning',
@@ -96,10 +98,7 @@ const FAILED_STATUSES = ['FAILED', 'CANCELLED']
 export default function JobCenter() {
   const navigate = useNavigate()
   const { authReady } = useAuthReady()
-  const [jobs, setJobs] = useState([])
   const [filter, setFilter] = useState('all')
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [crew, setCrew] = useState([])
   const [sections, setSections] = useState([])
@@ -107,26 +106,16 @@ export default function JobCenter() {
   const [crewLoading, setCrewLoading] = useState(true)
   const [crewError, setCrewError] = useState(null)
 
-  const fetchJobs = useCallback(async () => {
-    try {
-      const res = await apiFetch('/api/jobs')
-      if (!res.ok) throw new Error('Failed to load jobs')
-      const data = await res.json()
-      setJobs(Array.isArray(data) ? data : [])
-      setError(null)
-    } catch (err) {
-      setError(err.message || 'Failed to load jobs')
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!authReady) return
-    fetchJobs()
-    const interval = setInterval(fetchJobs, 10000)
-    return () => clearInterval(interval)
-  }, [authReady, fetchJobs])
+  const {
+    data: jobs = [],
+    isLoading: loading,
+    error,
+  } = useQuery({
+    queryKey: queryKeys.jobs(),
+    queryFn: () => fetchJson('/api/jobs'),
+    enabled: authReady,
+    refetchInterval: 10_000,
+  })
 
   useEffect(() => {
     if (!authReady) return
@@ -224,7 +213,7 @@ export default function JobCenter() {
           <div className="p-8 text-center text-slate-500 text-sm">Loading jobs...</div>
         )}
         {!loading && error && (
-          <div className="p-8 text-center text-red-500 text-sm">{error}</div>
+          <div className="p-8 text-center text-red-500 text-sm">{error.message || 'Failed to load jobs'}</div>
         )}
         {!loading && !error && (
           <>

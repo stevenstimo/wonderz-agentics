@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import PageLayout from './PageLayout'
-import { apiUrl, apiFetch } from './apiClient'
+import { fetchJson } from './apiClient'
+import { queryKeys } from './queryKeys'
 
 function initials(name) {
   if (!name || typeof name !== 'string') return '?'
@@ -20,44 +22,26 @@ function StatusBadge({ isActive }) {
 }
 
 export default function AgentsOverview() {
-  const [agents, setAgents] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
   // Filter: 'all' | true (actief) | false (inactief)
   const [activeFilter, setActiveFilter] = useState('all')
-
-  async function loadAgents() {
-    setLoading(true)
-    setError('')
-    try {
-      const params = new URLSearchParams()
-      if (activeFilter === true) params.set('is_active', 'true')
-      if (activeFilter === false) params.set('is_active', 'false')
-      const qs = params.toString()
-      const url = qs ? `/api/agents?${qs}` : '/api/agents'
-      const res = await apiFetch(url)
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data?.detail || 'Failed to load agents')
+  const params = new URLSearchParams()
+  if (activeFilter === true) params.set('is_active', 'true')
+  if (activeFilter === false) params.set('is_active', 'false')
+  const qs = params.toString()
+  const endpoint = qs ? `/api/agents?${qs}` : '/api/agents'
+  const { data: agents = [], isLoading: loading, error, refetch } = useQuery({
+    queryKey: queryKeys.agents({ activeFilter }),
+    queryFn: async () => {
+      const data = await fetchJson(endpoint)
       const list = Array.isArray(data) ? data : (data?.agents || [])
-      const sorted = [...list].sort((a, b) => {
+      return [...list].sort((a, b) => {
         if ((a.role || '').toLowerCase() === 'ceo') return -1
         if ((b.role || '').toLowerCase() === 'ceo') return 1
         return (a.name || '').localeCompare(b.name || '')
       })
-      setAgents(sorted)
-    } catch (err) {
-      setError(err.message || 'Unknown error')
-      setAgents([])
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    loadAgents()
-    const interval = setInterval(loadAgents, 30000)
-    return () => clearInterval(interval)
-  }, [activeFilter])
+    },
+    refetchInterval: 30_000,
+  })
 
   return (
     <PageLayout>
@@ -70,7 +54,7 @@ export default function AgentsOverview() {
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={loadAgents}
+              onClick={() => refetch()}
               className="p-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition"
               aria-label="Refresh"
             >
@@ -115,7 +99,7 @@ export default function AgentsOverview() {
 
         {error && (
           <div className="mx-6 mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700 border border-red-100">
-            {error}
+            {error.message || 'Unknown error'}
           </div>
         )}
 

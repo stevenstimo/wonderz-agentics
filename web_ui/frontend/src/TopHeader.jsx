@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Bell } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
 import { supabase } from './supabase'
+import { queryKeys } from './queryKeys'
 
 function getInitials(user) {
   const source =
@@ -22,7 +24,6 @@ function getAvatarUrl(user) {
 
 export default function TopHeader() {
   const [user, setUser] = useState(null)
-  const [backendOk, setBackendOk] = useState(null)
   const navigate = useNavigate()
 
   const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || ''
@@ -44,25 +45,14 @@ export default function TopHeader() {
     }
   }, [])
 
-  useEffect(() => {
-    let active = true
-    const checkHealth = async () => {
-      try {
-        const res = await fetch(apiBaseUrl ? healthUrl : '/api/health')
-        if (!active) return
-        setBackendOk(res.ok)
-      } catch (_err) {
-        if (!active) return
-        setBackendOk(false)
-      }
-    }
-    checkHealth()
-    const timer = setInterval(checkHealth, 30000)
-    return () => {
-      active = false
-      clearInterval(timer)
-    }
-  }, [])
+  const { data: backendOk = null } = useQuery({
+    queryKey: queryKeys.health(),
+    queryFn: async () => {
+      const res = await fetch(apiBaseUrl ? healthUrl : '/api/health')
+      return res.ok
+    },
+    refetchInterval: 30_000,
+  })
 
   const avatarUrl = getAvatarUrl(user)
 

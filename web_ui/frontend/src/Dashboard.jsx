@@ -1,9 +1,11 @@
 import { apiBase } from './apiBase'
-import { useEffect, useState, useRef } from 'react'
+import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import PageLayout from './PageLayout'
 import SherlockWidget from './SherlockWidget.jsx'
 import { useAuthReady } from './useAuthReady'
+import { queryKeys } from './queryKeys'
 import {
   Layers, ClipboardList, Users, Code, PlusCircle,
   Activity, Briefcase, ArrowRight, Zap, CheckCircle2,
@@ -86,65 +88,42 @@ function ServiceCard({ label, ok, detail, icon: Icon }) {
 
 export default function Dashboard() {
   const { authReady } = useAuthReady()
-  const [recentJobs, setRecentJobs] = useState([])
-  const [stats, setStats] = useState({ total: 0, running: 0, ready: 0 })
-  const [services, setServices] = useState(null)
-  const [systemd, setSystemd] = useState(null)
-  const [settings, setSettings] = useState(null)
-  const [commits, setCommits] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [statusLoading, setStatusLoading] = useState(true)
-  const [lastRefresh, setLastRefresh] = useState(null)
-  const timerRef = useRef(null)
-
-  const fetchJobs = async () => {
-    try {
+  const { data: jobsData = [], isLoading: loading, refetch: refetchJobs } = useQuery({
+    queryKey: queryKeys.jobs(),
+    queryFn: async () => {
       const res = await fetch(`${apiBase}/api/jobs`)
-      if (res.ok) {
-        const data = await res.json()
-        const jobs = Array.isArray(data) ? data : data.jobs || []
-        setRecentJobs(jobs.slice(0, 5))
-        setStats({
-          total: jobs.length,
-          running: jobs.filter(j => ['RUNNING','INTAKE_CLARIFICATION','PLAN_PROPOSED'].includes(j.status)).length,
-          ready: jobs.filter(j => ['JOB_READY','COMPLETED'].includes(j.status)).length,
-        })
-      }
-    } catch (e) {
-      console.error('Failed to fetch jobs:', e)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const fetchStatus = async () => {
-    setStatusLoading(true)
-    try {
+      if (!res.ok) throw new Error('Failed to fetch jobs')
+      const data = await res.json()
+      return Array.isArray(data) ? data : data.jobs || []
+    },
+    enabled: authReady,
+  })
+  const {
+    data: statusData,
+    isLoading: statusLoading,
+    dataUpdatedAt,
+    refetch: refetchStatus,
+  } = useQuery({
+    queryKey: queryKeys.hrReport(),
+    queryFn: async () => {
       const res = await fetch(`${apiBase}/api/status/summary`)
-      if (res.ok) {
-        const data = await res.json()
-        setServices(data.health?.checks || {})
-        setSystemd(data.systemd || {})
-        setSettings(data.settings || {})
-        setCommits(data.recent?.recent_commits || [])
-      }
-    } catch (e) {
-      console.error('Failed to fetch status:', e)
-    } finally {
-      setStatusLoading(false)
-      setLastRefresh(new Date())
-    }
-  }
-
-  useEffect(() => {
-    if (!authReady) return
-    fetchJobs()
-    fetchStatus()
-    timerRef.current = setInterval(fetchStatus, 30000)
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current)
-    }
-  }, [authReady])
+      if (!res.ok) throw new Error('Failed to fetch status')
+      return res.json()
+    },
+    enabled: authReady,
+    refetchInterval: 30_000,
+  })
+  const recentJobs = jobsData.slice(0, 5)
+  const stats = useMemo(() => ({
+    total: jobsData.length,
+    running: jobsData.filter(j => ['RUNNING', 'INTAKE_CLARIFICATION', 'PLAN_PROPOSED'].includes(j.status)).length,
+    ready: jobsData.filter(j => ['JOB_READY', 'COMPLETED'].includes(j.status)).length,
+  }), [jobsData])
+  const services = statusData?.health?.checks || {}
+  const systemd = statusData?.systemd || {}
+  const settings = statusData?.settings || {}
+  const commits = statusData?.recent?.recent_commits || []
+  const lastRefresh = dataUpdatedAt ? new Date(dataUpdatedAt) : null
 
   const statusStyle = (status) => {
     const styles = {
@@ -197,7 +176,7 @@ export default function Dashboard() {
             </span>
           )}
           <button
-            onClick={() => { fetchStatus(); fetchJobs() }}
+            onClick={() => { refetchStatus(); refetchJobs() }}
             className="transition"
             title="Refresh"
             style={{

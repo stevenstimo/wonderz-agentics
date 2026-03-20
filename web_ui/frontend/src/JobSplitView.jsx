@@ -1,11 +1,13 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import { Upload, X, Paperclip, FileSpreadsheet, FileText, Image as ImageIcon, MessageCircle, Play, CheckCircle, XCircle, BookOpen, BookMarked, BookX, Layers } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkBreaks from 'remark-breaks'
 import PageLayout from './PageLayout'
 import DocumentViewer from './components/DocumentViewer'
 import { apiUrl, apiFetch, fetchJson } from './apiClient'
+import { queryKeys } from './queryKeys'
 
 /** Parses job context (object or JSON string). Never throws; returns {} on invalid input. */
 function parseContext(ctx) {
@@ -260,9 +262,20 @@ export default function JobSplitView() {
     }
   }, [jobId])
 
-  useEffect(() => {
-    if (jobId) fetchJob()
-  }, [jobId, fetchJob])
+  const { refetch: refetchJob } = useQuery({
+    queryKey: queryKeys.job(jobId),
+    queryFn: fetchJob,
+    enabled: !!jobId,
+    refetchInterval: (query) => {
+      const status = query.state.data?.job?.status
+      if (status === 'INTAKE_CLARIFICATION') return 10_000
+      if (status === 'RUNNING') return 5_000
+      if (['COMPLETED', 'FAILED', 'CANCELLED', 'JOB_READY', 'AWAITING_APPROVAL', 'PLAN_PROPOSED'].includes(status)) {
+        return false
+      }
+      return false
+    },
+  })
 
   // When background tasks don't run (e.g. exe.xyz): trigger intake synchronously when user opens job in INTAKE_CLARIFICATION with no plan yet
   useEffect(() => {
@@ -280,22 +293,11 @@ export default function JobSplitView() {
           setError(j.detail || 'Intake start mislukt')
           return
         }
-        await fetchJob()
+        await refetchJob()
       })
       .catch((err) => setError(err.message || 'Intake request failed'))
       .finally(() => setRunningIntake(false))
   }, [jobId, data?.job?.id, data?.job?.status, data?.job?.context, fetchJob])
-
-  // Poll while intake is running (so we pick up CEO's first reply) or while job is executing.
-  // When INTAKE_CLARIFICATION with empty chat_history, poll every 2s until the CEO responds.
-  useEffect(() => {
-    if (!data?.job) return
-    const status = data.job.status
-    if (status !== 'RUNNING' && status !== 'INTAKE_CLARIFICATION') return
-    const ms = status === 'INTAKE_CLARIFICATION' ? 10000 : 5000
-    const interval = setInterval(fetchJob, ms)
-    return () => clearInterval(interval)
-  }, [data?.job?.status, data?.job?.context, fetchJob])
 
   // V4: Event timeline — fetch events when job detail is open
   useEffect(() => {

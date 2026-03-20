@@ -1,56 +1,28 @@
-import { useState, useEffect } from 'react'
+import { useEffect } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import PageLayout from './PageLayout'
 import { Building, Plus } from 'lucide-react'
 
-import { apiUrl, apiFetch } from './apiClient'
+import { fetchJson } from './apiClient'
 import { useAuthReady } from './useAuthReady'
+import { queryKeys } from './queryKeys'
 
 export default function ClientsOverview() {
   const { authReady } = useAuthReady()
   const navigate = useNavigate()
   const location = useLocation()
-  const [clients, setClients] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const fetchClients = async () => {
-    setLoading(true)
-    setError('')
-    try {
-      const res = await apiFetch('/api/clients', {
-      })
-      if (res.status === 401) {
-        navigate('/login', { state: { from: location } })
-        return
-      }
-      if (res.ok) {
-        const data = await res.json()
-        setClients(data)
-      } else {
-        const j = await res.json().catch(() => ({}))
-        const detail = j.detail
-        if (typeof detail === 'string') {
-          setError(detail)
-        } else if (Array.isArray(detail)) {
-          setError(detail.map(d => d.msg || JSON.stringify(d)).join(', '))
-        } else if (detail && typeof detail === 'object') {
-          setError(JSON.stringify(detail))
-        } else {
-          setError('Laden mislukt')
-        }
-      }
-    } catch (err) {
-      console.error('Failed to load clients:', err)
-      setError(typeof err?.message === 'string' ? err.message : 'Laden mislukt')
-    } finally {
-      setLoading(false)
-    }
-  }
+  const { data: clients = [], isLoading: loading, error } = useQuery({
+    queryKey: queryKeys.clients(),
+    queryFn: () => fetchJson('/api/clients'),
+    enabled: authReady,
+  })
 
   useEffect(() => {
-    if (!authReady) return
-    fetchClients()
-  }, [authReady, navigate, location])
+    if (error?.message?.toLowerCase()?.includes('401')) {
+      navigate('/login', { state: { from: location } })
+    }
+  }, [error, navigate, location])
 
   if (loading) {
     return (
@@ -66,7 +38,7 @@ export default function ClientsOverview() {
     <PageLayout size="narrow" padded>
       {error && (
         <div className="mb-4 p-4 rounded-lg bg-red-50 text-red-700 border border-red-200 text-sm">
-          {typeof error === 'string' ? error : JSON.stringify(error)}
+          {error.message || 'Laden mislukt'}
         </div>
       )}
       <h1 className="page-title flex items-center gap-2">

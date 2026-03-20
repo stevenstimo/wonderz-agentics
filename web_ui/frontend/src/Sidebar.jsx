@@ -1,5 +1,6 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, NavLink } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import {
   LayoutDashboard,
   Briefcase,
@@ -34,7 +35,8 @@ import {
 } from 'lucide-react'
 import { supabase } from './supabase'
 import { getCurrentUserRole, isSuperAdmin } from './authz'
-import { apiUrl, apiFetch } from './apiClient'
+import { fetchJson } from './apiClient'
+import { queryKeys } from './queryKeys'
 
 const WORKSPACE = [
   { label: 'Dashboard', icon: LayoutDashboard, path: '/' },
@@ -176,98 +178,30 @@ export default function Sidebar() {
   const [user, setUser] = useState(null)
   const [role, setRole] = useState('member')
   const [mobileOpen, setMobileOpen] = useState(false)
-  const [inboxUnread, setInboxUnread] = useState(0)
-  const [hrNotifications, setHrNotifications] = useState(0)
-  const [systemEventsCount, setSystemEventsCount] = useState(0)
-  const [approvalCount, setApprovalCount] = useState(0)
-  const inboxIntervalRef = useRef(null)
-  const hrIntervalRef = useRef(null)
-  const systemEventsIntervalRef = useRef(null)
-  const approvalIntervalRef = useRef(null)
-
-  useEffect(() => {
-    let active = true
-    const fetchInboxSummary = async () => {
-      try {
-        const res = await apiFetch('/api/inbox/summary')
-        if (res.ok && active) {
-          const data = await res.json()
-          setInboxUnread(data?.unread ?? data?.total_unread ?? 0)
-        }
-      } catch {
-        if (active) setInboxUnread(0)
-      }
-    }
-    fetchInboxSummary()
-    inboxIntervalRef.current = setInterval(fetchInboxSummary, 30000)
-    return () => {
-      active = false
-      if (inboxIntervalRef.current) clearInterval(inboxIntervalRef.current)
-    }
-  }, [])
-
-  useEffect(() => {
-    let active = true
-    const fetchHrNotifications = async () => {
-      try {
-        const res = await apiFetch('/api/hr/notifications')
-        if (res.ok && active) {
-          const data = await res.json()
-          setHrNotifications(Array.isArray(data) ? data.length : 0)
-        }
-      } catch {
-        if (active) setHrNotifications(0)
-      }
-    }
-    fetchHrNotifications()
-    hrIntervalRef.current = setInterval(fetchHrNotifications, 60000)
-    return () => {
-      active = false
-      if (hrIntervalRef.current) clearInterval(hrIntervalRef.current)
-    }
-  }, [])
-
-  useEffect(() => {
-    let active = true
-    const fetchSystemEvents = async () => {
-      try {
-        const res = await apiFetch('/api/system-events?unresolved_only=true&limit=50')
-        if (res.ok && active) {
-          const data = await res.json()
-          setSystemEventsCount(data.count ?? 0)
-        }
-      } catch {
-        if (active) setSystemEventsCount(0)
-      }
-    }
-    fetchSystemEvents()
-    systemEventsIntervalRef.current = setInterval(fetchSystemEvents, 30000)
-    return () => {
-      active = false
-      if (systemEventsIntervalRef.current) clearInterval(systemEventsIntervalRef.current)
-    }
-  }, [])
-
-  useEffect(() => {
-    let active = true
-    const fetchApproval = async () => {
-      try {
-        const res = await apiFetch('/api/hr/development-points/awaiting-approval')
-        if (res.ok && active) {
-          const data = await res.json()
-          setApprovalCount(data.count ?? 0)
-        }
-      } catch {
-        if (active) setApprovalCount(0)
-      }
-    }
-    fetchApproval()
-    approvalIntervalRef.current = setInterval(fetchApproval, 60000)
-    return () => {
-      active = false
-      if (approvalIntervalRef.current) clearInterval(approvalIntervalRef.current)
-    }
-  }, [])
+  const { data: inboxData } = useQuery({
+    queryKey: queryKeys.inboxSummary(),
+    queryFn: () => fetchJson('/api/inbox/summary'),
+    refetchInterval: 30_000,
+  })
+  const { data: hrData } = useQuery({
+    queryKey: queryKeys.hrNotifications(),
+    queryFn: () => fetchJson('/api/hr/notifications'),
+    refetchInterval: 60_000,
+  })
+  const { data: systemEventsData } = useQuery({
+    queryKey: queryKeys.systemEvents(),
+    queryFn: () => fetchJson('/api/system-events?unresolved_only=true&limit=50'),
+    refetchInterval: 30_000,
+  })
+  const { data: approvalData } = useQuery({
+    queryKey: queryKeys.approvalSummary(),
+    queryFn: () => fetchJson('/api/hr/development-points/awaiting-approval'),
+    refetchInterval: 60_000,
+  })
+  const inboxUnread = inboxData?.unread ?? inboxData?.total_unread ?? 0
+  const hrNotifications = Array.isArray(hrData) ? hrData.length : 0
+  const systemEventsCount = systemEventsData?.count ?? 0
+  const approvalCount = approvalData?.count ?? 0
 
   // Assumption-based: Sidebar mounts only inside RequireAuth, so auth is already resolved.
   // getSession + onAuthStateChange here are for reactive user/role display (e.g. logout in another tab).

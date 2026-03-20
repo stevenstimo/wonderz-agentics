@@ -1,10 +1,12 @@
-import { useState, useEffect, useCallback } from 'react'
-import { Link, useNavigate, useLocation } from 'react-router-dom'
+import { useState } from 'react'
+import { Link } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import PageLayout from './PageLayout'
 import { Search, Plus, Lock, LockKeyhole, Pencil } from 'lucide-react'
 
-import { apiFetch } from './apiClient'
+import { fetchJson } from './apiClient'
 import { useAuthReady } from './useAuthReady'
+import { queryKeys } from './queryKeys'
 
 const DOMAINS = ['all', 'growth', 'gtm', 'sales', 'delivery', 'ai_systems', 'core']
 const DOC_TYPES = [
@@ -49,50 +51,29 @@ function formatRelative(dateStr) {
 
 export default function KnowledgeLibrary() {
   const { authReady } = useAuthReady()
-  const navigate = useNavigate()
-  const location = useLocation()
-  const [documents, setDocuments] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
   const [search, setSearch] = useState('')
   const [domain, setDomain] = useState('all')
   const [docType, setDocType] = useState('all')
   const [status, setStatus] = useState('all')
 
-  const fetchDocuments = useCallback(async () => {
-    setLoading(true)
-    setError('')
-    try {
-      const params = new URLSearchParams()
-      if (search.trim()) params.set('search', search.trim())
-      if (domain !== 'all') params.set('domain', domain)
-      if (docType !== 'all') params.set('doc_type', docType)
-      if (status !== 'all') params.set('status', status)
-      params.set('limit', '50')
-      const res = await apiFetch(`/api/knowledge?${params}`)
-      if (res.status === 401) {
-        navigate('/login', { state: { from: location } })
-        return
-      }
-      if (res.ok) {
-        const data = await res.json()
-        setDocuments(data)
-      } else {
-        const j = await res.json().catch(() => ({}))
-        setError(j.detail || 'Laden mislukt')
-      }
-    } catch (err) {
-      console.error('Failed to load documents:', err)
-      setError(err.message || 'Laden mislukt')
-    } finally {
-      setLoading(false)
-    }
-  }, [search, domain, docType, status, navigate, location])
+  const params = new URLSearchParams()
+  if (search.trim()) params.set('search', search.trim())
+  if (domain !== 'all') params.set('domain', domain)
+  if (docType !== 'all') params.set('doc_type', docType)
+  if (status !== 'all') params.set('status', status)
+  params.set('limit', '50')
+  const endpoint = `/api/knowledge?${params}`
 
-  useEffect(() => {
-    if (!authReady) return
-    fetchDocuments()
-  }, [authReady, fetchDocuments])
+  const {
+    data: documents = [],
+    isLoading: loading,
+    error,
+    refetch,
+  } = useQuery({
+    queryKey: queryKeys.knowledge({ search, domain, docType, status, limit: 50 }),
+    queryFn: () => fetchJson(endpoint),
+    enabled: authReady,
+  })
 
   return (
     <PageLayout size="wide" padded>
@@ -110,8 +91,8 @@ export default function KnowledgeLibrary() {
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                onBlur={fetchDocuments}
-                onKeyDown={(e) => e.key === 'Enter' && fetchDocuments()}
+                onBlur={() => refetch()}
+                onKeyDown={(e) => e.key === 'Enter' && refetch()}
                 placeholder="title, summary, keywords"
                 className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
               />
@@ -177,7 +158,7 @@ export default function KnowledgeLibrary() {
 
           {error && (
             <div className="mb-4 p-4 rounded-lg bg-red-50 text-red-700 border border-red-200 text-sm">
-              {error}
+              {error.message || 'Laden mislukt'}
             </div>
           )}
 

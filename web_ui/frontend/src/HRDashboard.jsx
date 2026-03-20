@@ -1,9 +1,11 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react'
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from './apiClient'
 import PageLayout from './PageLayout'
 import { RefreshCw, Loader2 } from 'lucide-react'
 import { useAuthReady } from './useAuthReady'
+import { queryKeys } from './queryKeys'
 
 const TABS = [
   { id: 'points', label: 'Development Points' },
@@ -31,8 +33,6 @@ const STATUS_BADGE = {
 /** Child route content for /hr/training-requests — rendered via <Outlet />. */
 export function TrainingRequestsTabContent() {
   const { authReady } = useAuthReady()
-  const [trainingRequests, setTrainingRequests] = useState([])
-  const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [approveModalRequest, setApproveModalRequest] = useState(null)
   const [approveSourceUrl, setApproveSourceUrl] = useState('')
@@ -40,28 +40,41 @@ export function TrainingRequestsTabContent() {
   const [trainingActionLoading, setTrainingActionLoading] = useState(null)
   const [modalLoading, setModalLoading] = useState(false)
   const [trainingSuccessMessage, setTrainingSuccessMessage] = useState(null)
-
-  const loadTrainingRequests = useCallback(async () => {
-    setLoading(true)
-    setError('')
-    try {
+  const queryClient = useQueryClient()
+  const {
+    data: trainingRequests = [],
+    isLoading: loading,
+    error: queryError,
+  } = useQuery({
+    queryKey: queryKeys.trainingRequests({ status: 'PENDING' }),
+    queryFn: async () => {
       const res = await apiFetch('/api/hr/training-requests?status=PENDING')
-      if (res.ok) {
-        const data = await res.json().catch(() => null)
-        const list = Array.isArray(data) ? data : (data?.training_requests != null ? data.training_requests : [])
-        setTrainingRequests(Array.isArray(list) ? list : [])
-      }
-    } catch (err) {
-      setError(err.message || 'Laden mislukt')
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!authReady) return
-    loadTrainingRequests()
-  }, [authReady, loadTrainingRequests])
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || 'Laden mislukt')
+      const data = await res.json().catch(() => null)
+      const list = Array.isArray(data) ? data : (data?.training_requests != null ? data.training_requests : [])
+      return Array.isArray(list) ? list : []
+    },
+    enabled: authReady,
+  })
+  const approveMutation = useMutation({
+    mutationFn: async ({ requestId, sourceUrl, approved }) => {
+      const res = await apiFetch('/api/hr/approve-training', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          request_id: requestId,
+          approved,
+          source_url: sourceUrl || undefined,
+          approved_by: 'hr-dashboard',
+        }),
+      })
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || 'Request failed')
+      return true
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.trainingRequests({ status: 'PENDING' }) })
+    },
+  })
 
   function openApproveModal(r) {
     if (!r || typeof r !== 'object') return
@@ -77,23 +90,16 @@ export function TrainingRequestsTabContent() {
     setModalLoading(true)
     setError('')
     try {
-      const res = await apiFetch('/api/hr/approve-training', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          request_id: id,
-          approved: true,
-          source_url: (approveSourceUrl ?? approveModalRequest?.suggested_url) || undefined,
-          approved_by: 'hr-dashboard',
-        }),
+      await approveMutation.mutateAsync({
+        requestId: id,
+        approved: true,
+        sourceUrl: (approveSourceUrl ?? approveModalRequest?.suggested_url) || '',
       })
-      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || 'Request failed')
       const agentName = approveModalRequest?.agent_name ?? approveModalRequest?.agent_id ?? 'agent'
       setTrainingSuccessMessage(`Training gestart voor ${agentName}.`)
       setTimeout(() => setTrainingSuccessMessage(null), 5000)
       setApproveModalRequest(null)
       setApproveSourceUrl('')
-      await loadTrainingRequests()
     } catch (err) {
       setError(err?.message || 'Goedkeuren mislukt')
     } finally {
@@ -113,14 +119,12 @@ export function TrainingRequestsTabContent() {
     setModalLoading(true)
     setError('')
     try {
-      const res = await apiFetch('/api/hr/approve-training', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ request_id: requestId, approved: false, approved_by: 'hr-dashboard' }),
+      await approveMutation.mutateAsync({
+        requestId,
+        approved: false,
+        sourceUrl: '',
       })
-      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || 'Request failed')
       setRejectConfirmRequestId(null)
-      await loadTrainingRequests()
     } catch (err) {
       setError(err?.message || 'Afwijzen mislukt')
     } finally {
@@ -135,6 +139,9 @@ export function TrainingRequestsTabContent() {
     <div>
       {error && (
         <div className="mb-4 p-4 rounded-lg bg-red-50 text-red-700 border border-red-200 text-sm">{error}</div>
+      )}
+      {queryError && !error && (
+        <div className="mb-4 p-4 rounded-lg bg-red-50 text-red-700 border border-red-200 text-sm">{queryError.message || 'Laden mislukt'}</div>
       )}
       {trainingSuccessMessage && (
         <div className="mb-4 p-4 rounded-lg bg-green-50 text-green-700 border border-green-200 text-sm">
