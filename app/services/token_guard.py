@@ -92,23 +92,51 @@ class TokenGuard:
     async def register_usage(
         self,
         job_id: str,
-        tokens_used: int,
-        step_id: Optional[str] = None,
+        tokens_used: int | str | None,
+        step_id: Optional[int | str] = None,
     ):
         """Record actual token usage after an LLM call."""
-        if tokens_used <= 0:
+        tokens_used_cast_failed = False
+        try:
+            tokens_used_int = int(tokens_used) if tokens_used is not None else 0
+        except (TypeError, ValueError):
+            logger.warning(
+                "[TokenGuard] register_usage: invalid tokens_used=%r for job_id=%s; fallback to 0",
+                tokens_used,
+                job_id,
+            )
+            tokens_used_int = 0
+            tokens_used_cast_failed = True
+
+        # If token casting succeeded and the value is <=0, keep previous behavior (no-op).
+        # If casting failed we still continue so we stay defensively non-blocking.
+        if tokens_used_int <= 0 and not tokens_used_cast_failed:
             return
+
+        step_id_int: Optional[int] = None
+        if step_id is not None and step_id != "":
+            try:
+                step_id_int = int(step_id)
+            except (TypeError, ValueError):
+                logger.warning(
+                    "[TokenGuard] register_usage: invalid step_id=%r for job_id=%s; skipping job_steps update",
+                    step_id,
+                    job_id,
+                )
+                step_id_int = None
 
         try:
             async with await self._get_conn() as conn:
                 await conn.execute(
                     "UPDATE jobs SET tokens_used = COALESCE(tokens_used, 0) + $1 WHERE id = $2",
-                    tokens_used, job_id,
+                    tokens_used_int,
+                    job_id,
                 )
-                if step_id:
+                if step_id_int is not None:
                     await conn.execute(
                         "UPDATE job_steps SET tokens_used = COALESCE(tokens_used, 0) + $1 WHERE id = $2",
-                        tokens_used, step_id,
+                        tokens_used_int,
+                        step_id_int,
                     )
         except Exception as e:
             logger.error("TokenGuard register_usage failed for job %s: %s", job_id, e)

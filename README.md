@@ -1,16 +1,14 @@
-# --- Fly.io Deployment ---
+# --- Deployment (exe.dev / systemd) ---
 
-## Deployen naar Fly.io
+## Deployen naar exe.dev
 
-1. Zorg dat je een Fly.io app hebt aangemaakt (appnaam: wonderz-agentics).
-2. Maak een Managed Postgres database aan via `fly postgres create` of `fly mpg create`.
-3. Koppel de database aan je app en kopieer de DATABASE_URL.
-4. Zet de DATABASE_URL als secret:
-    fly secrets set DATABASE_URL="postgres://<user>:<password>@<host>:<port>/<db>" --app wonderz-agentics
-5. Deploy de app:
-    fly deploy --app wonderz-agentics
+1. Zorg dat je `DATABASE_URL` als environment variabele in de systemd service hebt staan.
+2. Backend deploy:
+   `git pull && sudo systemctl restart wonderz-backend`
+3. Frontend deploy:
+   `cd web_ui/frontend && npm run build`
 
-De backend verwacht dat de DATABASE_URL als environment variable is gezet (zie .env.local.example).
+Voor details: zie `DEPLOY.md`.
 
 ---
 # AI Bureau - Multi-Agent Development System
@@ -19,8 +17,8 @@ A comprehensive multi-agent system using Claude AI for orchestrated software dev
 
 ## 🌐 Live URLs
 
-- **Frontend**: https://frontend-rho-one-99.vercel.app
-- **Backend API**: https://wonderz-agentics.fly.dev
+- **Frontend**: https://wonderz-agentic.exe.xyz
+- **Backend API**: https://wonderz-agentic.exe.xyz/api
 
 ## ✨ Features
 
@@ -33,7 +31,7 @@ A comprehensive multi-agent system using Claude AI for orchestrated software dev
 
 ### Phase 5: Error Handling & Validation (✅ Complete)
 - ✅ **5a**: LLM error handling with timeout retry logic and JSON parse fallbacks
-- ✅ **5b**: Celery task error handling with exponential backoff and dead-letter queues
+- ✅ **5b**: ARQ worker error handling with timeout/retry handling
 - ✅ **5c**: API input validation using Pydantic models
 - ✅ **5d**: Database constraints (foreign keys, status transitions, triggers)
 
@@ -56,7 +54,7 @@ API Gateway (FastAPI)
     │   ├─→ Developer Agent - Code generation
     │   ├─→ DevOps Agent - Infrastructure
     │   └─→ Reviewer Agent - Quality assurance
-    ├─→ Celery Task Queue - Async processing
+    ├─→ ARQ Queue (crew-worker) - Persistent background processing
     └─→ PostgreSQL - State persistence
 ```
 
@@ -126,9 +124,9 @@ docker-compose up -d
 uvicorn app.main:app --reload
 ```
 
-**Terminal 3: Celery Worker**
+**Terminal 3: ARQ Worker**
 ```bash
-celery -A workers.celery_app worker --loglevel=info
+./.venv/bin/python -m arq app.worker.WorkerSettings
 ```
 
 **Terminal 4: Access**
@@ -164,7 +162,7 @@ pytest tests/test_integration.py -v
 | Layer | Technology |
 |-------|-----------|
 | **API** | FastAPI, Uvicorn, Pydantic |
-| **Async** | Celery, Redis, asyncio |
+| **Async** | ARQ, Redis, asyncio |
 | **Database** | PostgreSQL, asyncpg |
 | **LLM** | Claude API via Anthropic |
 | **Deployment** | Docker, Docker Compose, Kubernetes |
@@ -177,11 +175,11 @@ pytest tests/test_integration.py -v
 - Rate limit backoff (2s, 4s, 8s)
 - JSON parse fallback with structured default
 
-### Celery Tasks
-- Max 3 retries per task
-- Soft timeout: 540s, Hard timeout: 600s
-- Dead-letter queue for permanent failures
-- Exponential backoff: BASE × 2^(retry_count)
+### ARQ Worker Tasks
+- Persistent queue via Redis
+- Worker service: `crew-worker.service` (systemd, `Restart=always`)
+- Job timeout: 3600s (60 minutes)
+- Recovery: stuck `RUNNING` jobs (>60 min) worden `FAILED` bij worker/backend herstart
 
 ### API Validation
 - UUID format validation on all resource IDs
@@ -207,8 +205,9 @@ curl http://localhost:8000/health
 # API
 docker-compose logs -f app
 
-# Celery  
-docker-compose logs -f celery
+# ARQ  
+# (production) journalctl -u crew-worker -f
+# (local) kijk naar de ARQ worker terminal
 
 # Database
 docker-compose logs -f postgres
@@ -216,11 +215,9 @@ docker-compose logs -f postgres
 
 ### Metrics
 ```bash
-# Active tasks
-celery -A workers.celery_app inspect active
-
-# Task stats
-celery -A workers.celery_app inspect stats
+# Active tasks / queue:
+# (production) journalctl -u crew-worker -f
+# (local) kijk naar de ARQ worker terminal
 ```
 
 ## 🚀 Deployment
@@ -246,7 +243,7 @@ kubectl apply -f k8s/
 Current test suite:
 - ✅ 15 core LLM/workflow tests
 - ✅ 8 API endpoint tests
-- ✅ 4 Celery task tests
+- ✅ 4 ARQ worker-related tests
 - ✅ 7 integration tests
 - **Total: 27+ tests passing**
 
@@ -320,9 +317,8 @@ ws.onmessage = (event) => {
 │   │   └── ui.py            # Response schemas
 │   └── routes/
 │       └── jobs.py          # Job endpoints
-├── workers/
-│   ├── celery_app.py        # Celery config
-│   └── tasks.py             # Async tasks
+├── app/
+│   └── worker.py            # ARQ worker entrypoint (crew-worker.service)
 ├── agents/
 │   ├── developer.py         # Code generation
 │   ├── devops.py            # Infrastructure
@@ -364,7 +360,7 @@ See [DEPLOYMENT.md](DEPLOYMENT.md) for:
 |-------|--------|-------|
 | 1-4: Core System | ✅ Complete | 15 tests |
 | 5a: LLM Errors | ✅ Complete | 5 tests |
-| 5b: Celery Errors | ✅ Complete | 4 tests |
+| 5b: ARQ Worker Errors | ✅ Complete | 4 tests |
 | 5c: API Validation | ✅ Complete | 8 tests |
 | 5d: DB Constraints | ✅ Complete | Migrations |
 | 6: Integration | ✅ Complete | 7 tests |
@@ -378,7 +374,7 @@ See [DEPLOYMENT.md](DEPLOYMENT.md) for:
 - Configure SSL/TLS
 - Implement user authentication
 - Add payment processing integration
-- Scale Celery workers as needed
+- Scale ARQ worker capacity as needed (crew-worker.service)
 
 ---
 
