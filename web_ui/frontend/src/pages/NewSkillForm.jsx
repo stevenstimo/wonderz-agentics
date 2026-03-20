@@ -4,33 +4,31 @@ import PageLayout from '../PageLayout'
 import { apiFetch } from '../apiClient'
 import { useAuthReady } from '../useAuthReady'
 
-const VALID_NAME_RE = /^[a-z0-9_]+$/
-
-const KNOWN_TOOLS = [
+const AVAILABLE_TOOLS = [
+  'approve_artifact',
+  'check_evidence',
+  'create_development_point',
+  'execute_query',
+  'flag_escalation',
   'knowledge_retrieval',
-  'search_internal_docs',
-  'read_lessons',
-  'write_copy',
-  'write_report',
-  'write_feedback',
-  'read_brief',
-  'read_product',
   'read_analytics',
   'read_artifact',
-  'validate_output',
-  'check_evidence',
-  'score_confidence',
-  'approve_artifact',
-  'web_search',
-  'search_web',
-  'read_url',
-  'submit_artifact',
-  'flag_escalation',
-  'create_development_point',
+  'read_brief',
+  'read_lessons',
   'read_logs',
   'read_metrics',
-  'execute_query',
-]
+  'read_product',
+  'read_url',
+  'score_confidence',
+  'search_internal_docs',
+  'search_web',
+  'submit_artifact',
+  'validate_output',
+  'web_search',
+  'write_copy',
+  'write_feedback',
+  'write_report',
+].sort()
 
 function normalizeSkillName(input) {
   return (input || '')
@@ -44,7 +42,8 @@ function normalizeSkillName(input) {
 function validateSkillName(name) {
   const v = (name || '').trim()
   if (!v) return 'Naam is verplicht'
-  if (!VALID_NAME_RE.test(v)) return 'Gebruik alleen lowercase letters, cijfers en underscores'
+  const isValidName = /^[a-z0-9_]+$/.test(v)
+  if (!isValidName) return 'Gebruik alleen lowercase letters, cijfers en underscores'
   if (v.startsWith('_') || v.endsWith('_')) return 'Naam mag niet starten of eindigen met underscore'
   return null
 }
@@ -293,7 +292,7 @@ export default function NewSkillForm() {
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-2">Vereiste tools</label>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              {KNOWN_TOOLS.map((tool) => (
+              {AVAILABLE_TOOLS.map((tool) => (
                 <label key={tool} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 hover:bg-slate-50">
                   <input
                     type="checkbox"
