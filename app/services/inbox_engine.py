@@ -32,8 +32,9 @@ Analyseer de email. Beoordeel op:
 - kpi (wanneer is het goed?)
 
 Scope-discipline (strikt):
-- Maak in je plan alleen werk aan voor exact wat de afzender vraagt. Voeg geen extra taken, agents of deliverables toe die niet gevraagd zijn.
-- Als de gebruiker expliciet zegt dat iets níet nodig is, ontbreekt of niet gedaan hoeft te worden: laat dat volledig weg uit het plan en uit de steps.
+- Maak alleen een job (plan) aan voor exact wat gevraagd wordt. Voeg geen extra taken toe die niet gevraagd zijn.
+- Maak in je plan alleen werk voor wat de afzender vraagt — geen extra agents of deliverables buiten die scope.
+- Als de gebruiker zegt dat iets niet nodig is: laat het weg uit het plan en uit de steps.
 
 BELANGRIJK — twee modi, geen tussenweg:
 1) Voldoende informatie (jouw inschatting: completeness_score >= 0.7):
