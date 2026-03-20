@@ -21,6 +21,7 @@ GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GA4_RUN_REPORT_URL = "https://analyticsdata.googleapis.com/v1beta"
 GA4_ADMIN_URL = "https://analyticsadmin.googleapis.com/v1beta"
 GSC_BASE_URL = "https://www.googleapis.com/webmasters/v3"
+PAGESPEED_BASE_URL = "https://www.googleapis.com/pagespeedonline/v5/runPagespeed"
 
 
 async def _refresh_access_token(refresh_token: str) -> tuple[Optional[str], int]:
@@ -863,6 +864,49 @@ async def fetch_gsc_top_pages(
                 "position": row.get("position", 0),
             })
         return pages
+
+
+async def fetch_lighthouse(url: str) -> dict[str, Any]:
+    """Fetch Lighthouse categories for mobile and desktop via PageSpeed Insights API."""
+    result: dict[str, Any] = {
+        "mobile": {},
+        "desktop": {},
+    }
+    if not url:
+        return result
+
+    async def _run(strategy: str) -> dict[str, Any]:
+        params = {
+            "url": url,
+            "strategy": strategy,
+            "category": ["performance", "accessibility", "best-practices", "seo"],
+        }
+        async with httpx.AsyncClient(timeout=40.0) as client:
+            r = await client.get(PAGESPEED_BASE_URL, params=params)
+        if r.status_code != 200:
+            logger.warning("Lighthouse API failed: strategy=%s status=%s body=%s", strategy, r.status_code, r.text[:300])
+            return {"error": f"Lighthouse API error: {r.status_code}"}
+
+        data = r.json() if r.content else {}
+        data = data if isinstance(data, dict) else {}
+        lhr = data.get("lighthouseResult") if isinstance(data.get("lighthouseResult"), dict) else {}
+        categories = lhr.get("categories") if isinstance(lhr.get("categories"), dict) else {}
+
+        def _score(cat: str) -> int:
+            raw = categories.get(cat, {}).get("score") if isinstance(categories.get(cat), dict) else None
+            return int(round(float(raw or 0) * 100))
+
+        return {
+            "performance": _score("performance"),
+            "accessibility": _score("accessibility"),
+            "best_practices": _score("best-practices"),
+            "seo": _score("seo"),
+            "fetched_at": datetime.utcnow().isoformat() + "Z",
+        }
+
+    result["mobile"] = await _run("mobile")
+    result["desktop"] = await _run("desktop")
+    return result
 
 
 async def fetch_meta_ads(

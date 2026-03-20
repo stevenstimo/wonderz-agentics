@@ -34,6 +34,7 @@ from app.services.dashboard import (
     fetch_gsc,
     fetch_google_ads_via_gaql,
     fetch_instagram_insights,
+    fetch_lighthouse,
     fetch_meta_ads,
     get_valid_access_token,
     list_ga4_properties,
@@ -516,6 +517,7 @@ async def get_client_dashboard(
         "ga4": None,
         "google_ads": None,
         "gsc": None,
+        "lighthouse": None,
         "meta": None,
     }
 
@@ -690,6 +692,22 @@ async def get_client_dashboard(
                 except Exception as e:
                     logger.exception("GSC fetch failed")
                     result["gsc"] = {"not_connected": False, "error": str(e)}
+
+    # --- Lighthouse ---
+    # Use the selected GSC site_url as canonical URL for Lighthouse checks.
+    if not site_url:
+        result["lighthouse"] = {
+            "not_connected": True,
+            "error": "Geen URL beschikbaar. Koppel/Search Console site eerst.",
+        }
+    else:
+        try:
+            lighthouse_data = await fetch_lighthouse(site_url)
+            lighthouse_data["url"] = site_url
+            result["lighthouse"] = lighthouse_data
+        except Exception as e:
+            logger.exception("Lighthouse fetch failed")
+            result["lighthouse"] = {"not_connected": False, "error": str(e), "url": site_url}
 
     # --- Meta (Facebook/Instagram Ads) ---
     meta_int = int_by_type.get("meta_ads")

@@ -14,7 +14,7 @@ import {
   ComposedChart,
 } from 'recharts'
 import PageLayout from './PageLayout'
-import { BarChart3, TrendingUp, DollarSign, MousePointer, Search, Globe, Plug, RefreshCw, FileDown, Share2 } from 'lucide-react'
+import { BarChart3, TrendingUp, DollarSign, MousePointer, Search, Globe, Plug, RefreshCw, FileDown, Share2, Gauge } from 'lucide-react'
 import { downloadClientPdf } from './components/pdf/ClientPdfDocument'
 
 // Formatters: kosten € met 2 decimalen, percentages %, grote aantallen met duizendscheiding
@@ -114,32 +114,9 @@ export default function ClientDashboard({
         name: liveData?.client_name || slug || 'Client rapport',
         domain: liveData?.domain || liveData?.client_domain || '',
       }
-      const metricsData = {
-        ga4: {
-          sessions: liveData?.ga4?.kpis?.sessions,
-          sessions_change: liveData?.ga4?.kpis?.sessions_change,
-          users: liveData?.ga4?.kpis?.users,
-          users_change: liveData?.ga4?.kpis?.users_change,
-          bounce_rate: liveData?.ga4?.kpis?.engagement_rate,
-          bounce_rate_change: liveData?.ga4?.kpis?.engagement_rate_change,
-          avg_session_duration: liveData?.ga4?.kpis?.avg_session_duration,
-        },
-        ads: {
-          impressions: liveData?.google_ads?.summary?.impressions,
-          clicks: liveData?.google_ads?.summary?.clicks,
-          ctr: liveData?.google_ads?.summary?.ctr,
-          cost: liveData?.google_ads?.summary?.cost,
-        },
-        meta: {
-          reach: liveData?.meta?.ads?.total_reach,
-          impressions: liveData?.meta?.ads?.total_impressions,
-          clicks: liveData?.meta?.ads?.total_clicks,
-          spend: liveData?.meta?.ads?.total_spend,
-        },
-      }
       await downloadClientPdf({
         client: clientData,
-        metrics: metricsData,
+        dashboardData: liveData,
         generatedAt: new Date().toISOString(),
       })
     } catch (err) {
@@ -153,6 +130,7 @@ export default function ClientDashboard({
   const ga4 = liveData?.ga4
   const googleAds = liveData?.google_ads
   const gsc = liveData?.gsc
+  const lighthouse = liveData?.lighthouse
   const meta = liveData?.meta
 
   const ga4Connected = ga4 && !ga4.not_connected
@@ -207,6 +185,16 @@ export default function ClientDashboard({
   const traffic = ga4?.traffic_by_channel || []
   const engagementRate = ga4?.kpis?.engagement_rate || 0
   const conversionRate = ga4?.kpis?.conversion_rate || overview?.conversion_rate || 0
+  const lighthouseMobile = lighthouse?.mobile || {}
+  const lighthouseDesktop = lighthouse?.desktop || {}
+  const lighthouseUrl = lighthouse?.url || null
+
+  const scoreTone = (score) => {
+    const n = Number(score || 0)
+    if (n >= 90) return 'text-emerald-600'
+    if (n >= 50) return 'text-amber-600'
+    return 'text-rose-600'
+  }
 
   if (error?.type === 'auth') {
     return (
@@ -621,7 +609,56 @@ export default function ClientDashboard({
         )}
       </div>
 
-      {/* Block 4 — Website gedrag (GA4) */}
+      {/* Block 4 — Lighthouse */}
+      <div className="mb-8">
+        <h2 className="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
+          <Gauge className="w-5 h-5" />
+          Lighthouse
+        </h2>
+        {lighthouse?.not_connected ? (
+          <EmptyState
+            title="Lighthouse URL niet beschikbaar"
+            description={lighthouse?.error || 'Koppel eerst Search Console met een site URL.'}
+            buttonText="Naar Integraties"
+            href={integrationsUrl}
+          />
+        ) : lighthouse?.error ? (
+          <div className="panel-card bg-amber-50 border border-amber-200 rounded-xl p-6">
+            <p className="font-medium text-amber-800">Lighthouse-fout</p>
+            <p className="text-sm text-amber-700 mt-1">{lighthouse.error}</p>
+          </div>
+        ) : (
+          <div className="panel-card bg-white border border-slate-200 rounded-xl p-6">
+            {lighthouseUrl && (
+              <p className="text-xs text-slate-500 mb-4">
+                URL: <a className="text-indigo-600 hover:underline" href={lighthouseUrl} target="_blank" rel="noreferrer">{lighthouseUrl}</a>
+              </p>
+            )}
+            <div className="grid sm:grid-cols-2 gap-6">
+              <div>
+                <h3 className="text-sm font-semibold text-slate-700 mb-3">Mobile</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <KpiCard label="Performance" value={lighthouseMobile.performance} formatter={(v) => <span className={scoreTone(v)}>{fmtNum(v)}</span>} />
+                  <KpiCard label="Accessibility" value={lighthouseMobile.accessibility} formatter={(v) => <span className={scoreTone(v)}>{fmtNum(v)}</span>} />
+                  <KpiCard label="Best Practices" value={lighthouseMobile.best_practices} formatter={(v) => <span className={scoreTone(v)}>{fmtNum(v)}</span>} />
+                  <KpiCard label="SEO" value={lighthouseMobile.seo} formatter={(v) => <span className={scoreTone(v)}>{fmtNum(v)}</span>} />
+                </div>
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-slate-700 mb-3">Desktop</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <KpiCard label="Performance" value={lighthouseDesktop.performance} formatter={(v) => <span className={scoreTone(v)}>{fmtNum(v)}</span>} />
+                  <KpiCard label="Accessibility" value={lighthouseDesktop.accessibility} formatter={(v) => <span className={scoreTone(v)}>{fmtNum(v)}</span>} />
+                  <KpiCard label="Best Practices" value={lighthouseDesktop.best_practices} formatter={(v) => <span className={scoreTone(v)}>{fmtNum(v)}</span>} />
+                  <KpiCard label="SEO" value={lighthouseDesktop.seo} formatter={(v) => <span className={scoreTone(v)}>{fmtNum(v)}</span>} />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Block 5 — Website gedrag (GA4) */}
       <div>
         <h2 className="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
           <Globe className="w-5 h-5" />
