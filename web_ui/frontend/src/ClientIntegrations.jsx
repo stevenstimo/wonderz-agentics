@@ -71,6 +71,20 @@ const PLATFORM_FIELDS = {
 
 const GOOGLE_PLATFORMS = ['ga4', 'gsc', 'google_ads']
 
+/** Normalize API platform row config (object or JSON string) for form state. */
+function platformConfigToForm(pc) {
+  let cfg = pc?.config
+  if (cfg == null) return {}
+  if (typeof cfg === 'string') {
+    try {
+      cfg = JSON.parse(cfg)
+    } catch {
+      return {}
+    }
+  }
+  return typeof cfg === 'object' && !Array.isArray(cfg) ? { ...cfg } : {}
+}
+
 /** Platforms that require a user-level link in /integrations before client config (Shopify, Klaviyo). */
 const GLOBAL_INTEGRATION_PLATFORMS = ['shopify', 'klaviyo']
 
@@ -302,7 +316,7 @@ export default function ClientIntegrations() {
         setIntegrations(integrationsData)
         const forms = {}
         for (const pc of clientData.platform_configs || []) {
-          forms[pc.platform] = { ...pc.config }
+          forms[pc.platform] = platformConfigToForm(pc)
         }
         for (const pi of integrationsData || []) {
           const platform = INTEGRATION_TO_PLATFORM[pi.integration_type]
@@ -384,7 +398,7 @@ export default function ClientIntegrations() {
             setIntegrations(integrationsData)
             const forms = {}
             for (const pc of clientData.platform_configs || []) {
-              forms[pc.platform] = { ...pc.config }
+              forms[pc.platform] = platformConfigToForm(pc)
             }
             for (const pi of integrationsData || []) {
               const platform = INTEGRATION_TO_PLATFORM[pi.integration_type]
@@ -417,7 +431,7 @@ export default function ClientIntegrations() {
 
   const getConfigForPlatform = (platform) => {
     const pc = client?.platform_configs?.find((p) => p.platform === platform)
-    return pc?.config || {}
+    return platformConfigToForm(pc)
   }
 
   const getCurrentGoogleValue = (platform) => {

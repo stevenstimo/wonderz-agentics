@@ -139,6 +139,11 @@ Geef ALLEEN JSON terug (zonder markdown):
             logger.warning("[HRResourceDiscovery] ANTHROPIC_API_KEY not set")
             return []
 
+        logger.info(
+            "[HRResourceDiscovery] web_search prompt (first 100 chars): %s",
+            (prompt[:100] + ("…" if len(prompt) > 100 else "")),
+        )
+
         payload = {
             "model": DEFAULT_MODEL,
             "max_tokens": 1200,
@@ -158,10 +163,28 @@ Geef ALLEEN JSON terug (zonder markdown):
                     },
                     json=payload,
                 )
+                body_text = res.text or ""
+                logger.info(
+                    "[HRResourceDiscovery] anthropic response status=%s body_first_200=%s",
+                    res.status_code,
+                    body_text[:200],
+                )
                 res.raise_for_status()
-                data = res.json()
+                try:
+                    data = res.json()
+                except Exception as exc:
+                    logger.warning(
+                        "[HRResourceDiscovery] response JSON decode failed: %s: %s",
+                        type(exc).__name__,
+                        exc,
+                    )
+                    return []
         except Exception as exc:
-            logger.warning("[HRResourceDiscovery] web_search request failed: %s", exc)
+            logger.warning(
+                "[HRResourceDiscovery] web_search request failed: %s: %s",
+                type(exc).__name__,
+                exc,
+            )
             return []
 
         text_blocks = [
@@ -171,21 +194,38 @@ Geef ALLEEN JSON terug (zonder markdown):
         ]
         raw = "\n".join(text_blocks).strip()
         if not raw:
+            logger.warning("[HRResourceDiscovery] geen content blocks in response")
             return []
 
         # Robust parsing: first try direct JSON, then first JSON array block.
         try:
             parsed = json.loads(raw)
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "[HRResourceDiscovery] JSON parse error: %s: %s raw_text=%s",
+                type(exc).__name__,
+                exc,
+                raw,
+            )
             match = re.search(r"\[\s*\{.*\}\s*\]", raw, flags=re.S)
             if not match:
                 return []
             try:
                 parsed = json.loads(match.group(0))
-            except Exception:
+            except Exception as exc2:
+                logger.warning(
+                    "[HRResourceDiscovery] JSON parse error (extracted): %s: %s raw_text=%s",
+                    type(exc2).__name__,
+                    exc2,
+                    match.group(0),
+                )
                 return []
 
         if not isinstance(parsed, list):
+            logger.warning(
+                "[HRResourceDiscovery] parsed JSON is not a list: type=%s",
+                type(parsed).__name__,
+            )
             return []
 
         cleaned: list[dict] = []
@@ -202,4 +242,6 @@ Geef ALLEEN JSON terug (zonder markdown):
                     "rationale": str(item.get("rationale") or "").strip(),
                 }
             )
+        if cleaned:
+            logger.info("[HRResourceDiscovery] web_search parsed %s valid URL item(s)", len(cleaned))
         return cleaned

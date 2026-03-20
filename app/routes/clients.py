@@ -62,6 +62,19 @@ def _unwrap_extra(raw) -> dict:
     return raw if isinstance(raw, dict) else {}
 
 
+def _platform_config_as_dict(value: Any) -> dict[str, Any]:
+    """Normalize jsonb config from DB (dict or occasional JSON string) to a dict."""
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str) and value.strip():
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, dict) else {}
+        except (json.JSONDecodeError, TypeError):
+            return {}
+    return {}
+
+
 def _slug_from_name(name: str) -> str:
     """Generate slug from client name: lowercase, spaces to underscores."""
     s = (name or "").strip().lower()
@@ -495,22 +508,21 @@ async def get_client_dashboard(
             current_user.user_id,
             slug,
         )
+        # Alle platform configs (incl. lighthouse); anders wordt opgeslagen Lighthouse-URL niet geladen.
         configs = await conn.fetch(
             """
             SELECT platform, config
             FROM client_platform_configs
-            WHERE user_id = $1 AND client_slug = $2 AND platform IN ('ga4', 'google_ads', 'gsc')
+            WHERE user_id = $1 AND client_slug = $2
             """,
             current_user.user_id,
             slug,
         )
 
     int_by_type = {r["integration_type"]: r for r in integrations}
-    # Normalize config to dict (asyncpg usually returns jsonb as dict; defensive for string/None)
-    config_by_platform = {}
-    for r in configs:
-        c = r.get("config")
-        config_by_platform[r["platform"]] = c if isinstance(c, dict) else {}
+    config_by_platform = {
+        r["platform"]: _platform_config_as_dict(r.get("config")) for r in configs
+    }
 
     result: dict[str, Any] = {
         "overview": None,
@@ -756,6 +768,7 @@ async def get_client_dashboard(
         else:
             meta_payload["instagram"] = {"error": "no_instagram_selected"}
 
+        meta_payload["not_connected"] = False
         result["meta"] = meta_payload
 
     # --- Overview (GA4 for users/sessions/conversions, Ads for cost) ---
@@ -982,7 +995,7 @@ async def get_client(
             {
                 "config_id": r["config_id"],
                 "platform": r["platform"],
-                "config": r["config"] or {},
+                "config": _platform_config_as_dict(r.get("config")),
                 "is_active": r["is_active"],
                 "created_at": r["created_at"].isoformat() if r["created_at"] else None,
             }

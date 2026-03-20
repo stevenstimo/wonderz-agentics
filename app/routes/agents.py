@@ -20,6 +20,7 @@ import httpx
 from app.database import get_db
 from app.orchestration.direct_chat_engine import DirectChatEngine
 from app.services.client_context import extract_client_context
+from app.services.inbox_engine import InboxEngine
 from app.services.training import (
     generate_embedding,
     scrape_url,
@@ -508,6 +509,12 @@ async def send_direct_chat_message(
             raise HTTPException(status_code=404, detail="Chat not found")
 
     user_message = body.message
+    approval_result = await InboxEngine.try_convert_on_chat_user_message(
+        pool, chat_id, str(current_user.user_id), user_message
+    )
+    if approval_result is not None:
+        return approval_result
+
     client_context = await extract_client_context(user_message, str(current_user.user_id))
     if client_context:
         enriched_message = f"{client_context}\n\nGebruikersvraag: {user_message}"

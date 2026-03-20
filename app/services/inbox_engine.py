@@ -7,6 +7,7 @@ Emails NOT in inbox_allowed_senders are completely ignored (no DB write, no resp
 import json
 import logging
 from datetime import datetime, timezone
+from typing import Any
 
 from app.db import init_db_pool
 from app.services.email_parser import ParsedEmail
@@ -29,6 +30,10 @@ Analyseer de email. Beoordeel op:
 - context (doelgroep, platform, domein?)
 - scope (omvang, deliverable?)
 - kpi (wanneer is het goed?)
+
+Scope-discipline (strikt):
+- Maak in je plan alleen werk aan voor exact wat de afzender vraagt. Voeg geen extra taken, agents of deliverables toe die niet gevraagd zijn.
+- Als de gebruiker expliciet zegt dat iets níet nodig is, ontbreekt of niet gedaan hoeft te worden: laat dat volledig weg uit het plan en uit de steps.
 
 BELANGRIJK — twee modi, geen tussenweg:
 1) Voldoende informatie (jouw inschatting: completeness_score >= 0.7):
@@ -71,6 +76,24 @@ class InboxEngine:
     Process incoming email only when sender is in inbox_allowed_senders.
     Otherwise: no processing, no storage, no response (sender must not know the system exists).
     """
+
+    @classmethod
+    async def try_convert_on_chat_user_message(
+        cls,
+        pool: Any,
+        chat_id: str,
+        user_id: str,
+        user_message: str,
+    ) -> dict | None:
+        """
+        If the user approves a plan_ready inbox thread in chat, create the job and persist
+        confirmation messages. Returns an API-shaped dict for POST .../message, or None.
+        """
+        from app.services.inbox_job_convert import (  # noqa: PLC0415
+            try_convert_inbox_chat_on_approval,
+        )
+
+        return await try_convert_inbox_chat_on_approval(pool, chat_id, user_id, user_message)
 
     @classmethod
     async def process(cls, parsed: ParsedEmail) -> None:

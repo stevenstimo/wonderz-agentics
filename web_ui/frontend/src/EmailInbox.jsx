@@ -169,15 +169,19 @@ export default function EmailInbox() {
       const data = await res.json().catch(() => ({}))
       if (res.ok && !data.error && data.agent_response) {
         const agentMsg = {
-          role: 'agent',
+          role: 'assistant',
           content: data.agent_response,
           created_at: new Date().toISOString(),
         }
         setDetail((prev) => ({
           ...prev,
           messages: [...(prev?.messages || []).filter((m) => m.content !== text), optimisticMsg, agentMsg],
+          email: data.job_id
+            ? { ...prev?.email, status: 'converted_to_job', job_id: data.job_id }
+            : prev?.email,
         }))
         refetchDetail()
+        refetchList()
       } else {
         setDetail((prev) => ({
           ...prev,
@@ -218,7 +222,8 @@ export default function EmailInbox() {
   const messages = detail?.messages || []
   const lastPlanIndex = (() => {
     for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].role === 'agent' && extractPlanFromContent(messages[i].content)) return i
+      const r = messages[i].role
+      if ((r === 'agent' || r === 'assistant') && extractPlanFromContent(messages[i].content)) return i
     }
     return -1
   })()
@@ -301,10 +306,13 @@ export default function EmailInbox() {
                 <div className="space-y-3">
                   {messages.map((m, idx) => {
                     const isUser = m.role === 'user'
-                    const plan = m.role === 'agent' ? extractPlanFromContent(m.content) : null
+                    const plan =
+                      m.role === 'agent' || m.role === 'assistant'
+                        ? extractPlanFromContent(m.content)
+                        : null
                     const isLastPlan = plan && lastPlanIndex === idx
                     const textWithoutPlan =
-                      m.role === 'agent' && m.content
+                      (m.role === 'agent' || m.role === 'assistant') && m.content
                         ? m.content
                             .replace(/\s*%%PLAN%%.*?%%\/PLAN%%\s*/s, '')
                             .trim()
@@ -321,7 +329,9 @@ export default function EmailInbox() {
                               : 'bg-slate-100 text-slate-800 rounded-tl-none'
                           }`}
                         >
-                          {!isUser && <span className="text-xs text-slate-500 block mb-1">CEO</span>}
+                          {!isUser && (m.role === 'agent' || m.role === 'assistant') && (
+                            <span className="text-xs text-slate-500 block mb-1">CEO</span>
+                          )}
                           {textWithoutPlan && (
                             <div className="text-sm prose prose-sm max-w-none">
                               <ReactMarkdown remarkPlugins={[remarkBreaks]}>{textWithoutPlan}</ReactMarkdown>

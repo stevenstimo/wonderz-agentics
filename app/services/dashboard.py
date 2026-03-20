@@ -922,11 +922,21 @@ async def fetch_meta_ads(
     Fetch Facebook Ads performance via Graph API Insights.
     Returns spend, clicks, impressions, conversions per campaign.
     """
+    raw_id = (ad_account_id or "").strip()
+    if not raw_id:
+        return {
+            "error": "no_ad_account_id",
+            "campaigns": [],
+            "message": "Geen Meta ad account ID geconfigureerd.",
+        }
+    # Graph API expects act_<numeric_id>
+    account_path = raw_id if raw_id.startswith("act_") else f"act_{raw_id}"
+
     date_to = date.today().isoformat()
     date_from = (date.today() - timedelta(days=days)).isoformat()
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.get(
-            f"https://graph.facebook.com/v19.0/{ad_account_id}/insights",
+            f"https://graph.facebook.com/v19.0/{account_path}/insights",
             params={
                 "fields": "campaign_name,impressions,clicks,spend,actions,ctr,cpm,reach",
                 "time_range": json.dumps({"since": date_from, "until": date_to}),
@@ -935,8 +945,24 @@ async def fetch_meta_ads(
             },
         )
     if resp.status_code != 200:
-        logger.error("Meta Ads API error: %s %s", resp.status_code, resp.text[:300])
-        return {"error": "meta_api_error", "campaigns": []}
+        err_msg: Optional[str] = None
+        try:
+            j = resp.json()
+            fb_err = j.get("error")
+            if isinstance(fb_err, dict):
+                err_msg = fb_err.get("message") or str(fb_err.get("type") or "")
+            elif isinstance(fb_err, str):
+                err_msg = fb_err
+        except Exception:
+            pass
+        if not err_msg:
+            err_msg = (resp.text or "")[:500]
+        logger.error("Meta Ads API error: %s %s", resp.status_code, err_msg)
+        return {
+            "error": "meta_api_error",
+            "campaigns": [],
+            "message": err_msg or f"HTTP {resp.status_code}",
+        }
     data = resp.json().get("data", [])
     campaigns = []
     for c in data:

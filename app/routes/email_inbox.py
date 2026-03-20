@@ -3,48 +3,21 @@ Email Inbox API: inbound_emails for the current user, chat, convert to job, allo
 All endpoints require authentication; list/detail filtered by user_id.
 """
 
-import json
 import logging
-import uuid
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.database import get_db
 from app.middleware.auth import TokenPayload, get_current_user
-from app.services.inbox_engine import _extract_plan_block
-from app.services.job_pipeline import _insert_plan_steps, _json_default
-from models.unified import ExecutionPlan, JobStep, StrategicBrief
+from app.services.inbox_job_convert import (
+    convert_plan_ready_row_to_job,
+    extract_latest_plan_from_chat,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/inbox", tags=["inbox"])
-
-
-def _ceo_plan_to_execution_plan(ceo_plan: dict) -> ExecutionPlan:
-    """Build ExecutionPlan from CEO %%PLAN%% JSON for _insert_plan_steps."""
-    steps_raw = ceo_plan.get("steps") or []
-    steps: list[JobStep] = []
-    for i, s in enumerate(steps_raw, 1):
-        if not isinstance(s, dict):
-            continue
-        steps.append(
-            JobStep(
-                step_index=i,
-                agent_role=str(s.get("agent_role") or "copywriter"),
-                unified_tool=str(s.get("unified_tool") or "write_content"),
-                requires_approval=bool(s.get("requires_approval", False)),
-                description=str(s.get("description") or ""),
-            )
-        )
-    brief = StrategicBrief(
-        job_post="",
-        is_complete=True,
-        clarifications=[],
-        context={},
-        message=None,
-    )
-    return ExecutionPlan(brief=brief, steps=steps, hired_agents=[], estimated_duration_seconds=0)
 
 
 def _row_to_out(r: Any) -> dict:
@@ -284,56 +257,16 @@ async def convert_to_job(
         chat_id = row.get("chat_id")
         if not chat_id:
             raise HTTPException(status_code=400, detail="No chat linked to this email")
-        msg_rows = await conn.fetch(
-            """
-            SELECT content FROM direct_chat_messages
-            WHERE chat_id = $1 AND role = 'agent'
-            ORDER BY message_id DESC
-            """,
-            chat_id,
-        )
-        plan_data = None
-        for m in msg_rows:
-            plan_data = _extract_plan_block(m.get("content") or "")
-            if plan_data:
-                break
+        plan_data = await extract_latest_plan_from_chat(conn, chat_id)
         if not plan_data:
             raise HTTPException(status_code=400, detail="No %%PLAN%% block found in chat")
-        job_id = str(uuid.uuid4())
         # Use the email owner's user_id for the job, not the admin's
         job_owner_id = str(row["user_id"]) if row.get("user_id") else user_id
-        context = {
-            "plan": plan_data,
-            "completeness_score": plan_data.get("completeness_score"),
-            "assumptions": plan_data.get("assumptions") or [],
-        }
-        await conn.execute(
-            """
-            INSERT INTO jobs (
-                id, user_id, job_post, status, source_platform, context,
-                token_budget, job_type, intake_source, inbound_email_id
-            )
-            VALUES ($1, $2::uuid, $3, $4, $5, $6::jsonb, $7, $8, $9, $10)
-            """,
-            job_id,
-            job_owner_id,
-            row["subject"] or "Email job",
-            "PLAN_PROPOSED",
-            "web",
-            json.dumps(context, default=_json_default),
-            50000,
-            "email",
-            "email",
-            email_id,
-        )
-        plan = _ceo_plan_to_execution_plan(plan_data)
-        await _insert_plan_steps(conn, job_id, plan)
-        await conn.execute(
-            """
-            UPDATE inbound_emails SET status = $1, job_id = $2::uuid WHERE email_id = $3
-            """,
-            "converted_to_job",
-            job_id,
-            email_id,
+        job_id = await convert_plan_ready_row_to_job(
+            conn,
+            email_id=email_id,
+            subject=row.get("subject"),
+            job_owner_id=job_owner_id,
+            plan_data=plan_data,
         )
     return {"job_id": job_id}
