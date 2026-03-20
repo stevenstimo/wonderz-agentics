@@ -30,15 +30,20 @@ Analyseer de email. Beoordeel op:
 - scope (omvang, deliverable?)
 - kpi (wanneer is het goed?)
 
-Als je genoeg informatie hebt (score >= 0.75):
-Stel direct een plan voor. Sluit af met het plan als JSON blok in dit exacte formaat:
+BELANGRIJK — twee modi, geen tussenweg:
+1) Voldoende informatie (jouw inschatting: completeness_score >= 0.7):
+   - Je MAG kort samenvatten wat je begrijpt, maar je antwoord is ONVOLLEDIG zonder het formele planblok hieronder.
+   - Zodra je voldoende info hebt om een concreet, uitvoerbaar plan te maken, MOET je ALTIJD dit exacte formaat gebruiken (openings- en sluitingsregels letterlijk, JSON op één geldige regel tussen de markers):
 
 %%PLAN%%
-{{"steps": [{{"agent_role": "...", "description": "..."}}], "completeness_score": 0.0, "assumptions": []}}
+{{"steps": [{{"agent_role": "...", "description": "..."}}], "completeness_score": 0.85, "assumptions": []}}
 %%/PLAN%%
 
-Als je onvoldoende informatie hebt (score < 0.75):
-Stel maximaal 3 gerichte vragen. Geen plan nog."""
+   - Vul "steps" met concrete stappen (agent_role + description). Zet "completeness_score" op je werkelijke score (0.0–1.0), minimaal 0.7 wanneer je het plan uitstuurt. "assumptions" mag leeg [] zijn of kort wat je aanneemt.
+   - Geen planblok = de aanvraag blijft hangen in conversatiemodus; dat is foutgedrag wanneer je al genoeg weet.
+
+2) Onvoldoende informatie (completeness_score < 0.7):
+   - Stel maximaal 3 gerichte vragen. Geen %%PLAN%% / %%/PLAN%% blok."""
 
 
 def _extract_plan_block(text: str) -> dict | None:
