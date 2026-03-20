@@ -61,6 +61,7 @@ class HRResourceDiscovery:
             try:
                 # Prefer development_point_ref (Opt B / production); Opt A uses development_point_id only.
                 if "development_point_ref" in col_set:
+                    ref_val = None if development_point_id is None else str(development_point_id)
                     row = await conn.fetchrow(
                         """
                         INSERT INTO training_suggestions
@@ -72,7 +73,7 @@ class HRResourceDiscovery:
                         )
                         RETURNING *
                         """,
-                        str(development_point_id),
+                        ref_val,
                         agent_id,
                         url,
                         title,

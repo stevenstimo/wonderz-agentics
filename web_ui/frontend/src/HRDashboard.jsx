@@ -317,8 +317,11 @@ export function TrainingSuggestionsTabContent() {
 
   const [discoverPointKey, setDiscoverPointKey] = useState('')
   const [discoverPattern, setDiscoverPattern] = useState('')
-  const [discoverImpact, setDiscoverImpact] = useState('high')
+  const [discoverImpact, setDiscoverImpact] = useState('medium')
   const [discoverLoading, setDiscoverLoading] = useState(false)
+
+  const [discoverAgentId, setDiscoverAgentId] = useState('')
+  const [discoverAgentRole, setDiscoverAgentRole] = useState('')
 
   const [notesModal, setNotesModal] = useState(null)
 
@@ -375,6 +378,33 @@ export function TrainingSuggestionsTabContent() {
     return key && key === discoverPointKey
   })
 
+  const agentOptions = []
+  const seenAgentIds = new Set()
+  for (const p of points) {
+    const id = String(p.agent_id ?? p.agentId ?? '').trim()
+    if (!id || seenAgentIds.has(id)) continue
+    seenAgentIds.add(id)
+    agentOptions.push({
+      agent_id: id,
+      agent_role: String(p.agent_role ?? '').trim(),
+    })
+  }
+
+  const agentRoleOptions = []
+  const seenRoles = new Set()
+  for (const o of agentOptions) {
+    const role = o.agent_role
+    if (!role || seenRoles.has(role)) continue
+    seenRoles.add(role)
+    agentRoleOptions.push(role)
+  }
+
+  useEffect(() => {
+    if (!selectedDiscoverPoint) return
+    setDiscoverAgentId(String(selectedDiscoverPoint.agent_id || '').trim())
+    setDiscoverAgentRole(String(selectedDiscoverPoint.agent_role || '').trim())
+  }, [discoverPointKey])
+
   function openNotesModal(suggestionId, mode) {
     setNotesModal({ suggestionId, mode, notes: '' })
     setError('')
@@ -408,25 +438,40 @@ export function TrainingSuggestionsTabContent() {
   }
 
   async function runManualDiscover() {
-    if (!selectedDiscoverPoint) {
-      setError('Kies een development point.')
-      return
-    }
-    const dpId = developmentPointIdForDiscoverApi(selectedDiscoverPoint.point_id ?? selectedDiscoverPoint.id)
-    if (!dpId) {
+    const usingDevPoint = !!selectedDiscoverPoint
+    const dpId = usingDevPoint
+      ? developmentPointIdForDiscoverApi(selectedDiscoverPoint.point_id ?? selectedDiscoverPoint.id)
+      : null
+
+    if (usingDevPoint && !dpId) {
       setError('Development point mist een geldig id.')
       return
     }
-    const pattern = (discoverPattern || selectedDiscoverPoint.issue_description || '').trim()
+
+    const pattern = (discoverPattern || (usingDevPoint ? (selectedDiscoverPoint.issue_description || '') : '') || '').trim()
     if (!pattern) {
       setError('Vul een patroon / beschrijving in voor de zoekopdracht.')
       return
     }
-    const agentId = String(selectedDiscoverPoint.agent_id || '').trim()
+
+    const agentId = usingDevPoint
+      ? String(selectedDiscoverPoint.agent_id || '').trim()
+      : String(discoverAgentId || '').trim()
+
     if (!agentId) {
-      setError('Gekozen point mist agent_id; kies een ander point.')
+      setError('Kies een agent.')
       return
     }
+
+    const agentRole = usingDevPoint
+      ? String(selectedDiscoverPoint.agent_role || '').trim()
+      : String(discoverAgentRole || '').trim()
+
+    if (!agentRole) {
+      setError('Kies een rol.')
+      return
+    }
+
     setDiscoverLoading(true)
     setError('')
     try {
@@ -434,9 +479,9 @@ export function TrainingSuggestionsTabContent() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          development_point_id: dpId,
+          development_point_id: usingDevPoint ? dpId : null,
           agent_id: agentId,
-          agent_role: String(selectedDiscoverPoint.agent_role || '').trim(),
+          agent_role: agentRole,
           pattern_description: pattern,
           impact: discoverImpact,
         }),
@@ -477,9 +522,9 @@ export function TrainingSuggestionsTabContent() {
       <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <h2 className="text-lg font-semibold text-slate-900 mb-1">Handmatig bronnen zoeken</h2>
         <p className="text-sm text-slate-600 mb-4">
-          Gebruik hetzelfde development point-id als in de HR-lijst (
+          Gebruik een development point-id uit de HR-lijst (
           <code className="text-xs bg-slate-100 px-1 rounded">point_id</code>
-          ). De payload stuurt dat als string (UUID of decimale id-string).
+          ) voor context. Optioneel: kies geen point en selecteer dan hieronder een agent en rol (proactieve toevoeging).
         </p>
         <div className="flex flex-col gap-3 max-w-2xl">
           <label className="text-sm font-medium text-slate-700">Development point</label>
@@ -494,7 +539,7 @@ export function TrainingSuggestionsTabContent() {
             disabled={pointsLoading || unavailable}
             className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
           >
-            <option value="">{pointsLoading ? 'Laden…' : '— Kies een point —'}</option>
+            <option value="">{pointsLoading ? 'Laden…' : '— Geen (proactieve toevoeging) —'}</option>
             {points.map((p) => {
               const key = String(p.point_id ?? p.id ?? '')
               if (!key) return null
@@ -504,6 +549,46 @@ export function TrainingSuggestionsTabContent() {
               )
             })}
           </select>
+
+          {!selectedDiscoverPoint && (
+            <>
+              <label className="text-sm font-medium text-slate-700">Agent</label>
+              <select
+                value={discoverAgentId}
+                onChange={(e) => {
+                  const id = e.target.value
+                  setDiscoverAgentId(id)
+                  const opt = agentOptions.find((x) => x.agent_id === id)
+                  setDiscoverAgentRole(opt?.agent_role || '')
+                }}
+                disabled={pointsLoading || unavailable}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              >
+                <option value="">{pointsLoading ? 'Laden…' : '— Kies een agent —'}</option>
+                {agentOptions.map((o) => (
+                  <option key={o.agent_id} value={o.agent_id}>
+                    {o.agent_id}{o.agent_role ? ` (${o.agent_role})` : ''}
+                  </option>
+                ))}
+              </select>
+
+              <label className="text-sm font-medium text-slate-700">Rol</label>
+              <select
+                value={discoverAgentRole}
+                onChange={(e) => setDiscoverAgentRole(e.target.value)}
+                disabled={pointsLoading || unavailable}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              >
+                <option value="">{pointsLoading ? 'Laden…' : '— Kies een rol —'}</option>
+                {agentRoleOptions.map((r) => (
+                  <option key={r} value={r}>
+                    {r}
+                  </option>
+                ))}
+              </select>
+            </>
+          )}
+
           <label className="text-sm font-medium text-slate-700">Patroon / gap (zoekopdracht)</label>
           <textarea
             value={discoverPattern}
