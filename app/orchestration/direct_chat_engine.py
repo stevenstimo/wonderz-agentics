@@ -128,8 +128,8 @@ class DirectChatEngine:
             # 8. Persist user message
             await self._save_message(conn, chat_id, "user", user_message, input_tokens)
 
-            # 9. Persist agent message
-            msg_row = await self._save_message(conn, chat_id, "agent", text, output_tokens)
+            # 9. Persist assistant message (DB role constraint: user|assistant)
+            msg_row = await self._save_message(conn, chat_id, "assistant", text, output_tokens)
 
             # 10. Update chat tokens
             new_token_used = token_used + total_tokens
