@@ -1,12 +1,14 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { Activity, CheckCircle2, AlertTriangle, Bot, Settings as SettingsIcon, RefreshCw } from 'lucide-react'
 import PageLayout from './PageLayout'
-import { apiUrl, apiFetch } from './apiClient'
+import { fetchJson } from './apiClient'
 import { useAuthReady } from './useAuthReady'
 import { getCurrentUserRole, isSuperAdmin } from './authz'
 import PipelineMetricsTab from './components/status/PipelineMetricsTab'
 import StorageCostsTab from './components/status/StorageCostsTab'
 import EdgeIntelligenceTab from './components/status/EdgeIntelligenceTab'
+import { queryKeys } from './queryKeys'
 
 function StatusRow({ label, ok, detail }) {
   return (
@@ -45,58 +47,22 @@ export default function Status() {
   const { authReady } = useAuthReady()
   const isSuper = useMemo(() => isSuperAdmin(userRole), [userRole])
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    setLoadError('')
-    try {
+  const {
+    data: summary,
+    isFetching,
+    error: summaryError,
+    refetch,
+  } = useQuery({
+    queryKey: [...queryKeys.health(), 'summary'],
+    queryFn: async () => {
       const summaryStart = performance.now()
-      const summaryRes = await apiFetch('/api/status/summary')
+      const result = await fetchJson('/api/status/summary')
       const summaryElapsed = Math.round(performance.now() - summaryStart)
-      setHealthLatencyMs(summaryElapsed)
-
-      if (summaryRes.ok) {
-        const summary = await summaryRes.json()
-        const healthData = summary?.health || {}
-        setHealthOk(healthData?.status === 'ok')
-        setHealthDetail(`Backend: ${healthData?.status || 'unknown'}`)
-        setDbOk(Boolean(healthData?.checks?.database?.ok))
-        setDbDetail(healthData?.checks?.database?.detail || 'Onbekend')
-
-        setDaveInfo({
-          status: summary?.dave_dev?.status || 'unknown',
-          specialization: summary?.dave_dev?.specialization || 'Geen data ontvangen',
-          id: summary?.dave_dev?.ok ? 'dave-dev' : null,
-        })
-        setDaveLatencyMs(summaryElapsed)
-
-        const providers = Array.isArray(summary?.settings?.active_providers)
-          ? summary.settings.active_providers
-          : []
-        setSettingsOk(Boolean(summary?.settings?.ok))
-        setSettingsDetail(providers.length > 0 ? `Actief: ${providers.join(', ')}` : 'Geen LLM sleutel gevonden')
-        setSettingsLatencyMs(summaryElapsed)
-
-        setRecentCommits(Array.isArray(summary?.recent?.recent_commits) ? summary.recent.recent_commits : [])
-        setRecentChanges(Array.isArray(summary?.recent?.working_tree_top) ? summary.recent.working_tree_top : [])
-      } else {
-        setLoadError('Status summary endpoint reageert niet.')
-      }
-      setLastUpdated(new Date())
-    } catch (_err) {
-      setLoadError('Status data laden is mislukt.')
-      setHealthOk(false)
-      setHealthDetail('Onbekend')
-      setDbOk(false)
-      setDbDetail('Onbekend')
-      setDaveInfo(null)
-      setSettingsOk(false)
-      setSettingsDetail('Onbekend')
-      setRecentCommits([])
-      setRecentChanges([])
-    } finally {
-      setLoading(false)
-    }
-  }, [])
+      return { result, summaryElapsed }
+    },
+    enabled: authReady,
+    refetchInterval: 30_000,
+  })
 
   useEffect(() => {
     if (!authReady) return
@@ -105,10 +71,53 @@ export default function Status() {
       .then((ctx) => setUserRole(ctx.role || 'member'))
       .catch(() => setUserRole('member'))
 
-    load()
-    const timer = setInterval(load, 30_000)
-    return () => clearInterval(timer)
-  }, [authReady, load])
+  }, [authReady])
+
+  useEffect(() => {
+    setLoading(isFetching)
+  }, [isFetching])
+
+  useEffect(() => {
+    if (!summary) return
+    setLoadError('')
+    const summaryElapsed = summary.summaryElapsed
+    const summaryData = summary.result
+    setHealthLatencyMs(summaryElapsed)
+    const healthData = summaryData?.health || {}
+    setHealthOk(healthData?.status === 'ok')
+    setHealthDetail(`Backend: ${healthData?.status || 'unknown'}`)
+    setDbOk(Boolean(healthData?.checks?.database?.ok))
+    setDbDetail(healthData?.checks?.database?.detail || 'Onbekend')
+    setDaveInfo({
+      status: summaryData?.dave_dev?.status || 'unknown',
+      specialization: summaryData?.dave_dev?.specialization || 'Geen data ontvangen',
+      id: summaryData?.dave_dev?.ok ? 'dave-dev' : null,
+    })
+    setDaveLatencyMs(summaryElapsed)
+    const providers = Array.isArray(summaryData?.settings?.active_providers)
+      ? summaryData.settings.active_providers
+      : []
+    setSettingsOk(Boolean(summaryData?.settings?.ok))
+    setSettingsDetail(providers.length > 0 ? `Actief: ${providers.join(', ')}` : 'Geen LLM sleutel gevonden')
+    setSettingsLatencyMs(summaryElapsed)
+    setRecentCommits(Array.isArray(summaryData?.recent?.recent_commits) ? summaryData.recent.recent_commits : [])
+    setRecentChanges(Array.isArray(summaryData?.recent?.working_tree_top) ? summaryData.recent.working_tree_top : [])
+    setLastUpdated(new Date())
+  }, [summary])
+
+  useEffect(() => {
+    if (!summaryError) return
+    setLoadError('Status data laden is mislukt.')
+    setHealthOk(false)
+    setHealthDetail('Onbekend')
+    setDbOk(false)
+    setDbDetail('Onbekend')
+    setDaveInfo(null)
+    setSettingsOk(false)
+    setSettingsDetail('Onbekend')
+    setRecentCommits([])
+    setRecentChanges([])
+  }, [summaryError])
 
   return (
     <PageLayout size="medium" padded className="space-y-6">
@@ -127,7 +136,7 @@ export default function Status() {
             </div>
           </div>
           <button
-            onClick={load}
+            onClick={() => refetch()}
             className="btn-manage gap-2"
             disabled={loading}
           >

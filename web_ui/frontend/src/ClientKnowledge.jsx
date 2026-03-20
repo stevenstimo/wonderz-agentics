@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import {
   Globe,
   MapPin,
@@ -13,7 +14,8 @@ import {
   XCircle,
   AlertCircle,
 } from 'lucide-react'
-import { apiFetch } from './apiClient'
+import { apiFetch, fetchJson } from './apiClient'
+import { queryKeys } from './queryKeys'
 
 const SOURCE_TYPES = [
   { id: 'website_crawl', label: 'Website crawlen', desc: 'Zoekt alle pagina\'s op het domein', icon: Globe },
@@ -35,7 +37,6 @@ export default function ClientKnowledge() {
   const location = useLocation()
   const [datasources, setDatasources] = useState([])
   const [knowledge, setKnowledge] = useState(null)
-  const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [modalOpen, setModalOpen] = useState(false)
   const [modalStep, setModalStep] = useState(1)
@@ -54,36 +55,47 @@ export default function ClientKnowledge() {
   const [pollingIds, setPollingIds] = useState(new Set())
   const [processingStatus, setProcessingStatus] = useState({})
   const [step2SourceType, setStep2SourceType] = useState(null)
-  const refreshIntervalRef = useRef(null)
-
-  const fetchDatasources = useCallback(async () => {
-    if (!slug) return
-    try {
-      const res = await apiFetch(`/api/clients/${slug}/datasources`)
-      if (res.status === 401) {
-        navigate('/login', { state: { from: location } })
-        return
-      }
-      if (res.ok) setDatasources(await res.json())
-    } catch (e) {
-      setError(e.message || 'Laden mislukt')
-    }
-  }, [slug, navigate, location])
-
-  const fetchKnowledge = useCallback(async () => {
-    if (!slug) return
-    try {
-      const res = await apiFetch(`/api/clients/${slug}/knowledge`)
-      if (res.ok) setKnowledge(await res.json())
-    } catch (_) {}
-  }, [slug])
+  const {
+    data: datasourcesData = [],
+    isLoading: loadingDatasources,
+    refetch: refetchDatasources,
+  } = useQuery({
+    queryKey: [...queryKeys.client(slug || 'none'), 'datasources'],
+    queryFn: () => fetchJson(`/api/clients/${slug}/datasources`),
+    enabled: !!slug,
+  })
+  const {
+    data: knowledgeData = null,
+    isLoading: loadingKnowledge,
+    refetch: refetchKnowledge,
+  } = useQuery({
+    queryKey: [...queryKeys.client(slug || 'none'), 'knowledge'],
+    queryFn: () => fetchJson(`/api/clients/${slug}/knowledge`),
+    enabled: !!slug,
+  })
+  const { data: processingStatuses = [] } = useQuery({
+    queryKey: [...queryKeys.client(slug || 'none'), 'datasource-status', Array.from(pollingIds).sort().join(',')],
+    queryFn: async () => {
+      const ids = Array.from(pollingIds)
+      const statuses = await Promise.all(ids.map(async (id) => ({
+        id,
+        status: await fetchJson(`/api/clients/${slug}/datasources/${id}/status`),
+      })))
+      return statuses
+    },
+    enabled: !!slug && pollingIds.size > 0,
+    refetchInterval: 10_000,
+  })
 
   useEffect(() => {
-    if (!slug) return
-    setLoading(true)
-    setError('')
-    Promise.all([fetchDatasources(), fetchKnowledge()]).finally(() => setLoading(false))
-  }, [slug, fetchDatasources, fetchKnowledge])
+    setDatasources(Array.isArray(datasourcesData) ? datasourcesData : [])
+  }, [datasourcesData])
+
+  useEffect(() => {
+    setKnowledge(knowledgeData)
+  }, [knowledgeData])
+
+  const loading = loadingDatasources || loadingKnowledge
 
   // Start polling for any datasource that is already processing (e.g. after refresh)
   useEffect(() => {
@@ -96,37 +108,25 @@ export default function ClientKnowledge() {
     })
   }, [datasources])
 
-  // Poll status for processing datasources
   useEffect(() => {
-    if (!slug || pollingIds.size === 0) return
-    const t = setInterval(async () => {
-      for (const id of pollingIds) {
-        try {
-          const res = await apiFetch(`/api/clients/${slug}/datasources/${id}/status`)
-          if (res.ok) {
-            const s = await res.json()
-            setProcessingStatus((prev) => ({ ...prev, [id]: s }))
-            if (s.status === 'done' || s.status === 'failed') {
-              setPollingIds((prev) => {
-                const next = new Set(prev)
-                next.delete(id)
-                return next
-              })
-            }
-          }
-        } catch (_) {}
-      }
-      fetchDatasources()
-      fetchKnowledge()
-    }, 10000)
-    return () => clearInterval(t)
-  }, [slug, pollingIds, fetchDatasources, fetchKnowledge])
-
-  useEffect(() => {
-    return () => {
-      if (refreshIntervalRef.current) clearInterval(refreshIntervalRef.current)
+    if (!processingStatuses.length) return
+    const updates = {}
+    const completed = []
+    for (const item of processingStatuses) {
+      updates[item.id] = item.status
+      if (item.status?.status === 'done' || item.status?.status === 'failed') completed.push(item.id)
     }
-  }, [])
+    setProcessingStatus((prev) => ({ ...prev, ...updates }))
+    if (completed.length > 0) {
+      setPollingIds((prev) => {
+        const next = new Set(prev)
+        completed.forEach((id) => next.delete(id))
+        return next
+      })
+    }
+    refetchDatasources()
+    refetchKnowledge()
+  }, [processingStatuses, refetchDatasources, refetchKnowledge])
 
   const createDatasource = async () => {
     setError('')
@@ -183,16 +183,8 @@ export default function ClientKnowledge() {
       } else if (sourceType === 'text' && body.raw_text) {
         await startProcess(datasourceId)
       }
-      await fetchDatasources()
-      let refreshCount = 0
-      refreshIntervalRef.current = setInterval(async () => {
-        await fetchDatasources()
-        refreshCount++
-        if (refreshCount >= 6) {
-          if (refreshIntervalRef.current) clearInterval(refreshIntervalRef.current)
-          refreshIntervalRef.current = null
-        }
-      }, 10000)
+      await refetchDatasources()
+      await refetchKnowledge()
     } catch (e) {
       setError(e?.message || 'Aanmaken mislukt')
     } finally {
@@ -207,7 +199,7 @@ export default function ClientKnowledge() {
       throw new Error(j.detail || 'Verwerken starten mislukt')
     }
     setPollingIds((prev) => new Set(prev).add(datasourceId))
-    await fetchDatasources()
+    await refetchDatasources()
   }
 
   const uploadFile = async (datasourceId, file) => {
@@ -221,7 +213,7 @@ export default function ClientKnowledge() {
       })
       if (res.ok) setPollingIds((prev) => new Set(prev).add(datasourceId))
       setMenuId(null)
-      fetchDatasources()
+      refetchDatasources()
     } catch (_) {}
   }
 
@@ -230,8 +222,8 @@ export default function ClientKnowledge() {
     try {
       await apiFetch(`/api/clients/${slug}/datasources/${id}`, { method: 'DELETE' })
       setMenuId(null)
-      fetchDatasources()
-      fetchKnowledge()
+      refetchDatasources()
+      refetchKnowledge()
     } catch (_) {}
   }
 

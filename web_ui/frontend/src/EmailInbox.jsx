@@ -1,10 +1,12 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import PageLayout from './PageLayout'
-import { apiFetch } from './apiClient'
+import { apiFetch, fetchJson } from './apiClient'
 import { Inbox, Send, Loader2, ChevronDown, ChevronRight, ExternalLink, Play } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkBreaks from 'remark-breaks'
+import { queryKeys } from './queryKeys'
 
 const POLL_INTERVAL_MS = 10_000
 
@@ -107,7 +109,6 @@ export default function EmailInbox() {
   const [emails, setEmails] = useState([])
   const [selectedEmailId, setSelectedEmailId] = useState(null)
   const [detail, setDetail] = useState(null)
-  const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
   const [convertLoading, setConvertLoading] = useState(false)
   const [chatInput, setChatInput] = useState('')
@@ -115,50 +116,32 @@ export default function EmailInbox() {
   const messagesEndRef = useRef(null)
   const fetchWithAuth = useCallback((url, opts = {}) => apiFetch(url, opts), [])
 
-  const fetchList = useCallback(async () => {
-    try {
-      const res = await fetchWithAuth('/api/inbox')
-      if (res.ok) {
-        const data = await res.json()
-        setEmails(Array.isArray(data) ? data : [])
-      }
-    } catch {
-      setEmails([])
-    } finally {
-      setLoading(false)
+  const {
+    data: listData = [],
+    isLoading: loading,
+    refetch: refetchList,
+  } = useQuery({
+    queryKey: ['inbox-list', ...queryKeys.inboxSummary()],
+    queryFn: () => fetchJson('/api/inbox'),
+    refetchInterval: POLL_INTERVAL_MS,
+  })
+  const { data: detailData, refetch: refetchDetail } = useQuery({
+    queryKey: ['inbox-detail', selectedEmailId],
+    queryFn: () => fetchJson(`/api/inbox/${encodeURIComponent(selectedEmailId)}`),
+    enabled: !!selectedEmailId,
+  })
+
+  useEffect(() => {
+    setEmails(Array.isArray(listData) ? listData : [])
+  }, [listData])
+
+  useEffect(() => {
+    if (!selectedEmailId) {
+      setDetail(null)
+      return
     }
-  }, [fetchWithAuth])
-
-  const fetchDetail = useCallback(
-    async (emailId) => {
-      if (!emailId) {
-        setDetail(null)
-        return
-      }
-      try {
-        const res = await fetchWithAuth(`/api/inbox/${encodeURIComponent(emailId)}`)
-        if (res.ok) {
-          const data = await res.json()
-          setDetail(data)
-        } else {
-          setDetail(null)
-        }
-      } catch {
-        setDetail(null)
-      }
-    },
-    [fetchWithAuth]
-  )
-
-  useEffect(() => {
-    fetchList()
-    const t = setInterval(fetchList, POLL_INTERVAL_MS)
-    return () => clearInterval(t)
-  }, [fetchList])
-
-  useEffect(() => {
-    fetchDetail(selectedEmailId)
-  }, [selectedEmailId, fetchDetail])
+    setDetail(detailData || null)
+  }, [selectedEmailId, detailData])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -194,7 +177,7 @@ export default function EmailInbox() {
           ...prev,
           messages: [...(prev?.messages || []).filter((m) => m.content !== text), optimisticMsg, agentMsg],
         }))
-        fetchDetail(selectedEmailId)
+        refetchDetail()
       } else {
         setDetail((prev) => ({
           ...prev,
@@ -220,8 +203,8 @@ export default function EmailInbox() {
       })
       if (res.ok) {
         const data = await res.json()
-        fetchDetail(selectedEmailId)
-        fetchList()
+        refetchDetail()
+        refetchList()
         if (data.job_id) {
           setDetail((prev) => ({ ...prev, email: { ...prev?.email, status: 'converted_to_job', job_id: data.job_id } }))
         }

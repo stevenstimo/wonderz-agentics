@@ -3,10 +3,11 @@
  * Vier blokken: Crew Status, Operationeel vandaag, Agent Health, Recente activiteit.
  * Auto-refresh 60s. Groen = goed, amber = aandacht, rood = actie.
  */
-import { useState, useEffect, useCallback } from 'react'
+import { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import PageLayout from './PageLayout'
-
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8090'
+import { fetchJson } from './apiClient'
+import { queryKeys } from './queryKeys'
 
 function MetricCard({ title, items, loading }) {
   const statusColor = (label, value) => {
@@ -36,36 +37,27 @@ function MetricCard({ title, items, loading }) {
 }
 
 export default function CEODashboard() {
-  const [data, setData] = useState(null)
-  const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-
-  const fetchData = useCallback(async () => {
-    try {
-      setError(null)
-      const r = await fetch(`${API_BASE}/api/dashboard/ceo`, { credentials: 'include' })
-      if (!r.ok) throw new Error(r.statusText)
-      const j = await r.json()
-      setData(j)
-    } catch (e) {
-      setError(e.message || 'Fout bij laden dashboard')
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    fetchData()
-    const interval = setInterval(fetchData, 60_000)
-    return () => clearInterval(interval)
-  }, [fetchData])
+  const { data, isLoading: loading, refetch } = useQuery({
+    queryKey: ['ceo-dashboard', ...queryKeys.hrReport()],
+    queryFn: async () => {
+      try {
+        setError(null)
+        return await fetchJson('/api/dashboard/ceo')
+      } catch (e) {
+        setError(e.message || 'Fout bij laden dashboard')
+        throw e
+      }
+    },
+    refetchInterval: 60_000,
+  })
 
   if (error) {
     return (
       <PageLayout size="wide" padded>
         <div className="panel-card border-red-200 bg-red-50">
           <p className="text-red-700">{error}</p>
-          <button onClick={fetchData} className="mt-2 px-3 py-1 bg-red-100 rounded text-red-800 text-sm">Opnieuw proberen</button>
+          <button onClick={() => refetch()} className="mt-2 px-3 py-1 bg-red-100 rounded text-red-800 text-sm">Opnieuw proberen</button>
         </div>
       </PageLayout>
     )

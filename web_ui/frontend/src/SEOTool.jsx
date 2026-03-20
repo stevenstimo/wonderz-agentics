@@ -1,9 +1,11 @@
 import { useState, useRef, useEffect } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { BarChart3, Upload, Loader2, Download, CheckCircle } from 'lucide-react'
 import PageLayout from './PageLayout'
-import { apiUrl, apiFetch, getAccessToken } from './apiClient'
+import { apiUrl, apiFetch, fetchJson, getAccessToken } from './apiClient'
 import { supabase } from './supabase'
 import { useAuthReady } from './useAuthReady'
+import { queryKeys } from './queryKeys'
 
 const MANUAL_ENTRY_VALUE = '__manual__'
 
@@ -44,7 +46,6 @@ export default function SEOTool() {
   const [error, setError] = useState(null)
   const [history, setHistory] = useState([])
   const fileInputRef = useRef(null)
-  const pollIntervalRef = useRef(null)
   const { authReady } = useAuthReady()
   const manualEntry = selectedClientSlug === MANUAL_ENTRY_VALUE
   const clientSelected = selectedClientSlug && selectedClientSlug !== MANUAL_ENTRY_VALUE
@@ -73,9 +74,6 @@ export default function SEOTool() {
       } catch (_) {}
     }
     loadClients()
-    return () => {
-      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current)
-    }
   }, [authReady])
 
   useEffect(() => {
@@ -120,50 +118,33 @@ export default function SEOTool() {
     }
   }, [selectedClientSlug, clients])
 
-  async function pollStatus(id) {
-    try {
-      const res = await apiFetch(`/api/seo/status/${id}`)
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.detail || 'Status check failed')
-      setStatus(data.status)
-      setProgress(data.progress ?? 0)
-      setKeywordsProcessed(data.keywords_processed ?? 0)
-      setKeywordsTotal(data.keywords_total ?? data.keyword_count ?? data.total ?? 0)
-      if (data.status === 'ready' && data.download_url) {
-        setDownloadUrl(apiUrl(data.download_url))
-        localStorage.removeItem('seo_active_job_id')
-        fetchJobHistory()
-        if (pollIntervalRef.current) {
-          clearInterval(pollIntervalRef.current)
-          pollIntervalRef.current = null
-        }
-      }
-      if (data.status === 'failed') {
-        setError('Verwerking mislukt')
-        localStorage.removeItem('seo_active_job_id')
-        fetchJobHistory()
-        if (pollIntervalRef.current) {
-          clearInterval(pollIntervalRef.current)
-          pollIntervalRef.current = null
-        }
-      }
-    } catch (err) {
-      setError(err.message)
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current)
-        pollIntervalRef.current = null
-      }
-    }
-  }
+  const { data: seoStatusData } = useQuery({
+    queryKey: queryKeys.seoJob(jobId || 'none'),
+    queryFn: () => fetchJson(`/api/seo/status/${jobId}`),
+    enabled: !!jobId && status !== 'ready' && status !== 'failed',
+    refetchInterval: (query) => {
+      const currentStatus = query.state.data?.status || status
+      return currentStatus === 'ready' || currentStatus === 'failed' ? false : 3000
+    },
+  })
 
   useEffect(() => {
-    if (!jobId || status === 'ready' || status === 'failed') return
-    pollStatus(jobId)
-    pollIntervalRef.current = setInterval(() => pollStatus(jobId), 3000)
-    return () => {
-      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current)
+    if (!seoStatusData) return
+    setStatus(seoStatusData.status)
+    setProgress(seoStatusData.progress ?? 0)
+    setKeywordsProcessed(seoStatusData.keywords_processed ?? 0)
+    setKeywordsTotal(seoStatusData.keywords_total ?? seoStatusData.keyword_count ?? seoStatusData.total ?? 0)
+    if (seoStatusData.status === 'ready' && seoStatusData.download_url) {
+      setDownloadUrl(apiUrl(seoStatusData.download_url))
+      localStorage.removeItem('seo_active_job_id')
+      fetchJobHistory()
     }
-  }, [jobId, status])
+    if (seoStatusData.status === 'failed') {
+      setError('Verwerking mislukt')
+      localStorage.removeItem('seo_active_job_id')
+      fetchJobHistory()
+    }
+  }, [seoStatusData])
 
   function handleFileSelect(files) {
     const f = files?.[0]

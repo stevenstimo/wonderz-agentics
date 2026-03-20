@@ -1,11 +1,13 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, Briefcase, Target, BookOpen, Activity, ImagePlus, Trash2, MessageCircle, GraduationCap } from 'lucide-react'
 import PageLayout from './PageLayout'
-import { apiUrl, apiFetch } from './apiClient'
+import { apiUrl, apiFetch, fetchJson } from './apiClient'
 import { VALID_TOOLS, VALID_CATEGORIES } from './agentConstants'
 import AgentDirectChat from './components/AgentDirectChat'
 import AgentKnowledgeTab from './components/AgentKnowledgeTab'
+import { queryKeys } from './queryKeys'
 
 const AVATAR_COLORS = [
   { name: 'indigo', bg: 'bg-indigo-600' },
@@ -161,6 +163,8 @@ export default function AgentDetail() {
   const [trainUrl, setTrainUrl] = useState('')
   const [trainMessage, setTrainMessage] = useState('')
   const [isTraining, setIsTraining] = useState(false)
+  const [trainingPollUrl, setTrainingPollUrl] = useState(null)
+  const [trainingPollAttempts, setTrainingPollAttempts] = useState(0)
 
   const loadDetail = useCallback(async () => {
     if (!agentId) return
@@ -204,12 +208,6 @@ export default function AgentDetail() {
     loadDetail()
   }, [loadDetail])
 
-  useEffect(() => {
-    return () => {
-      if (trainingPollRef.current) clearInterval(trainingPollRef.current)
-    }
-  }, [])
-
   const agent = data?.agent || {}
   const recentWork = data?.recent_work || []
   const developmentPoints = data?.development_points || []
@@ -220,8 +218,32 @@ export default function AgentDetail() {
   const avatarImageUrl = avatarConfig.imageDataUrl || avatarConfig.imageUrl || null
   const avatarBg = AVATAR_COLORS.find((c) => c.name === avatarColor)?.bg || 'bg-indigo-600'
   const fileInputRef = useRef(null)
-  const trainingPollRef = useRef(null)
   const knowledgeSources = Array.isArray(agent.knowledge_base_sources) ? agent.knowledge_base_sources : []
+  const { data: trainingAgentData } = useQuery({
+    queryKey: [...queryKeys.agent(agentId || 'none'), 'training-status', trainingPollUrl || 'none'],
+    queryFn: () => fetchJson(`/api/agents/${encodeURIComponent(agentId)}`),
+    enabled: !!agentId && isTraining && !!trainingPollUrl,
+    refetchInterval: trainingPollAttempts >= 20 ? false : 10_000,
+  })
+
+  useEffect(() => {
+    if (!isTraining || !trainingPollUrl || !trainingAgentData) return
+    setTrainingPollAttempts((prev) => prev + 1)
+    const sources = Array.isArray(trainingAgentData?.knowledge_base_sources) ? trainingAgentData.knowledge_base_sources : []
+    const source = sources.find((s) => s && s.url === trainingPollUrl)
+    if (source && source.status !== 'processing') {
+      setIsTraining(false)
+      setTrainingPollUrl(null)
+      setTrainMessage(source.status === 'active' ? 'Training voltooid ✓' : `Training mislukt${source.error ? `: ${source.error}` : ''}`)
+      setData((prev) => (prev ? { ...prev, agent: { ...prev.agent, ...trainingAgentData } } : prev))
+      return
+    }
+    if (trainingPollAttempts >= 20) {
+      setIsTraining(false)
+      setTrainingPollUrl(null)
+      setTrainMessage('Training duurt langer dan verwacht. Ververs de pagina later.')
+    }
+  }, [isTraining, trainingPollUrl, trainingAgentData, trainingPollAttempts])
 
   const totalTokens = recentWork.reduce((acc, s) => acc + (Number(s.tokens_used) || 0), 0)
   const completedSteps = recentWork.filter((s) => (s.status || '').toUpperCase() === 'COMPLETED').length
@@ -325,43 +347,12 @@ export default function AgentDetail() {
         return
       }
       setTrainUrl('')
-      const pollIntervalMs = 10000
-      const maxPolls = 20 // 60s
-      let polls = 0
-      trainingPollRef.current = setInterval(async () => {
-        polls += 1
-        try {
-          const agentRes = await apiFetch(`/api/agents/${encodeURIComponent(agentId)}`)
-          if (!agentRes.ok) return
-          const agentData = await agentRes.json()
-          const sources = Array.isArray(agentData?.knowledge_base_sources) ? agentData.knowledge_base_sources : []
-          const source = sources.find((s) => s && s.url === urlToTrain)
-          if (source && source.status !== 'processing') {
-            if (trainingPollRef.current) clearInterval(trainingPollRef.current)
-            trainingPollRef.current = null
-            setIsTraining(false)
-            setTrainMessage(source.status === 'active' ? 'Training voltooid ✓' : `Training mislukt${source.error ? `: ${source.error}` : ''}`)
-            setData((prev) => (prev ? { ...prev, agent: { ...prev.agent, ...agentData } } : prev))
-            return
-          }
-          if (polls >= maxPolls) {
-            if (trainingPollRef.current) clearInterval(trainingPollRef.current)
-            trainingPollRef.current = null
-            setIsTraining(false)
-            setTrainMessage('Training duurt langer dan verwacht. Ververs de pagina later.')
-          }
-        } catch (_) {
-          if (polls >= maxPolls) {
-            if (trainingPollRef.current) clearInterval(trainingPollRef.current)
-            trainingPollRef.current = null
-            setIsTraining(false)
-            setTrainMessage('Training duurt langer dan verwacht. Ververs de pagina later.')
-          }
-        }
-      }, pollIntervalMs)
+      setTrainingPollAttempts(0)
+      setTrainingPollUrl(urlToTrain)
     } catch (err) {
       setTrainMessage(err?.message || 'Fout')
       setIsTraining(false)
+      setTrainingPollUrl(null)
     }
   }
 
