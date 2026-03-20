@@ -12,6 +12,8 @@ export function apiUrl(path) {
 
 // Korte cache voor access token om lock-contention met Supabase Gotrue te verminderen
 const SESSION_CACHE_MS = 20_000
+/** Max wachten op getSession(); bij lock-warnings blijft anders apiFetch voor altijd hangen. */
+const GET_SESSION_TIMEOUT_MS = 8_000
 let cachedToken = null
 let cachedAt = 0
 
@@ -19,7 +21,13 @@ let cachedAt = 0
 export async function getAccessToken() {
   if (cachedToken && Date.now() - cachedAt < SESSION_CACHE_MS) return cachedToken
   try {
-    const result = await supabase.auth.getSession()
+    const result = await Promise.race([
+      supabase.auth.getSession(),
+      new Promise((resolve) => setTimeout(() => resolve({ __sessionTimeout: true }), GET_SESSION_TIMEOUT_MS)),
+    ])
+    if (result && result.__sessionTimeout) {
+      return cachedToken
+    }
     const token = result?.data?.session?.access_token ?? null
     cachedToken = token
     cachedAt = Date.now()
@@ -32,7 +40,7 @@ export async function getAccessToken() {
 // Centrale auth fetch — injecteert automatisch de Bearer token
 export async function apiFetch(path, options = {}) {
   const token = await getAccessToken()
-  const { headers: extraHeaders, body, ...rest } = options
+  const { headers: extraHeaders, body, signal, ...rest } = options
   const headers = {
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...(extraHeaders || {}),
@@ -41,7 +49,7 @@ export async function apiFetch(path, options = {}) {
   if (body !== undefined && typeof body === 'string' && !headers['Content-Type']) {
     headers['Content-Type'] = 'application/json'
   }
-  return fetch(apiUrl(path), { ...rest, body, headers })
+  return fetch(apiUrl(path), { ...rest, body, headers, signal })
 }
 
 // JSON helper met auth

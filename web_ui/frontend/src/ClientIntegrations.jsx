@@ -457,36 +457,74 @@ export default function ClientIntegrations() {
   const handleSavePlatform = async (platform) => {
     setSaving(platform)
     setError('')
+    const ac = typeof AbortController !== 'undefined' ? new AbortController() : null
+    const abortTimer =
+      ac &&
+      setTimeout(() => {
+        try {
+          ac.abort()
+        } catch (_) {
+          /* ignore */
+        }
+      }, 45_000)
     try {
-      const config = platformForms[platform] || {}
+      const fromServer = getConfigForPlatform(platform) || {}
+      let fromForm = platformForms[platform] || {}
+      if (platform === 'lighthouse') {
+        const el = typeof document !== 'undefined' ? document.getElementById('lighthouse-url') : null
+        const domUrl = (el?.value || '').trim()
+        if (domUrl) fromForm = { ...fromForm, url: domUrl }
+      }
+      const config = { ...fromServer, ...fromForm }
+      if (platform === 'lighthouse') {
+        const u = (config.url || '').trim()
+        if (!u) {
+          setError('Vul een geldige website-URL in (bijv. https://example.nl/)')
+          return
+        }
+        config.url = u
+      }
       const res = await apiFetch(`/api/clients/${slug}/platforms`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ platform, config }),
+        signal: ac?.signal,
       })
       if (res.status === 401) {
         navigate('/login', { state: { from: location } })
         return
       }
       if (res.ok) {
-        const clientRes = await apiFetch(`/api/clients/${slug}`)
+        const clientRes = await apiFetch(`/api/clients/${slug}`, { signal: ac?.signal })
         if (clientRes.ok) {
           const clientData = await clientRes.json()
           setClient(clientData)
           setPlatformForms((prev) => {
             const next = { ...prev }
-            next[platform] = config
+            next[platform] = { ...(prev[platform] || {}), ...config }
             return next
           })
+          if (platform === 'lighthouse') {
+            setSuccessMessage('Lighthouse-URL opgeslagen')
+            setTimeout(() => setSuccessMessage(''), 3000)
+          }
+        } else {
+          const j = await clientRes.json().catch(() => ({}))
+          setError(j.detail || 'Client ophalen na opslaan mislukt')
         }
       } else {
         const j = await res.json().catch(() => ({}))
-        setError(j.detail || 'Opslaan mislukt')
+        setError(j.detail || `Opslaan mislukt (${res.status})`)
       }
     } catch (err) {
-      console.error('Failed to save:', err)
-      setError(err.message || 'Opslaan mislukt')
+      if (err?.name === 'AbortError') {
+        setError('Opslaan duurde te lang of werd afgebroken. Probeer opnieuw of ververs de pagina.')
+      } else {
+        console.error('Failed to save:', err)
+        setError(err.message || 'Opslaan mislukt')
+      }
     } finally {
+      if (abortTimer) clearTimeout(abortTimer)
       setSaving(null)
     }
   }
