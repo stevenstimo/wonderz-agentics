@@ -51,6 +51,7 @@ class HRResourceDiscovery:
             return []
 
         created: list[dict] = []
+        agent_id_val = agent_id if agent_id else None
         for item in results[:3]:
             url = str(item.get("url") or "").strip()
             if not url.startswith(("http://", "https://")):
@@ -74,7 +75,7 @@ class HRResourceDiscovery:
                         RETURNING *
                         """,
                         ref_val,
-                        agent_id,
+                        agent_id_val,
                         url,
                         title,
                         rationale,
@@ -92,7 +93,7 @@ class HRResourceDiscovery:
                         RETURNING *
                         """,
                         development_point_id,
-                        agent_id,
+                        agent_id_val,
                         url,
                         title,
                         rationale,
