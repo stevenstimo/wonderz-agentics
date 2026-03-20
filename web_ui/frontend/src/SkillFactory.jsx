@@ -1,31 +1,17 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import PageLayout from './PageLayout'
-import { Search, Plus, AlertTriangle } from 'lucide-react'
+import { Search, Plus } from 'lucide-react'
 
 import { apiFetch } from './apiClient'
 import { useAuthReady } from './useAuthReady'
 
-const TARGET_AGENTS_PLACEHOLDER = [
-  { value: 'agent:seo-specialist', label: 'agent:seo-specialist' },
-  { value: 'agent:copywriter', label: 'agent:copywriter' },
-  { value: 'agent:gtm-strategist', label: 'agent:gtm-strategist' },
-  { value: 'agent:sales-enablement', label: 'agent:sales-enablement' },
-]
-
-const SCOPES = ['all', 'agency_wide', 'client_specific', 'per_job']
-const STATUSES = ['all', 'draft', 'approved', 'stale']
-
-const SCOPE_BADGE = {
-  agency_wide: 'wz-badge-running',
-  client_specific: 'wz-badge-warning',
-  per_job: 'wz-tag',
-}
+const STATUSES = ['all', 'active', 'draft', 'inactive']
 
 const STATUS_BADGE = {
-  draft: 'wz-tag',
-  approved: 'wz-badge-success',
-  stale: 'wz-badge-warning',
+  active: 'wz-badge-success',
+  draft: 'wz-badge-warning',
+  inactive: 'wz-tag',
 }
 
 function formatRelative(dateStr) {
@@ -51,53 +37,21 @@ export default function SkillFactory() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [search, setSearch] = useState('')
-  const [targetAgent, setTargetAgent] = useState('all')
-  const [scope, setScope] = useState('all')
-  const [status, setStatus] = useState('approved')
-  const [targetAgentOptions, setTargetAgentOptions] = useState(TARGET_AGENTS_PLACEHOLDER)
-
-  const fetchAgents = useCallback(async () => {
-    try {
-      const res = await apiFetch('/api/agents')
-      if (res.ok) {
-        const data = await res.json()
-        const agents = data?.agents || []
-        if (agents.length > 0) {
-          const opts = agents.map((a) => ({
-            value: a.agent_id || a.role || a.name,
-            label: a.agent_id || a.role || a.name,
-          }))
-          setTargetAgentOptions((prev) => {
-            const seen = new Set(prev.map((p) => p.value))
-            const newOpts = opts.filter((o) => !seen.has(o.value))
-            return newOpts.length ? [...prev, ...newOpts] : prev
-          })
-        }
-      }
-    } catch {
-      // Keep placeholder options
-    }
-  }, [])
+  const [status, setStatus] = useState('all')
+  const [expandedSkillId, setExpandedSkillId] = useState(null)
 
   const fetchSkills = useCallback(async () => {
     setLoading(true)
     setError('')
     try {
-      const params = new URLSearchParams()
-      params.set('doc_type', 'skill_spec')
-      if (search.trim()) params.set('search', search.trim())
-      if (targetAgent !== 'all') params.set('function_tag', targetAgent.replace(/^agent:/, ''))
-      if (scope !== 'all') params.set('scope', scope)
-      if (status !== 'all') params.set('status', status)
-      params.set('limit', '50')
-      const res = await apiFetch(`/api/knowledge?${params}`)
+      const res = await apiFetch('/api/skill-factory')
       if (res.status === 401) {
         navigate('/login', { state: { from: location } })
         return
       }
       if (res.ok) {
         const data = await res.json()
-        setSkills(data)
+        setSkills(data?.skills || [])
       } else {
         const j = await res.json().catch(() => ({}))
         setError(j.detail || 'Laden mislukt')
@@ -108,17 +62,38 @@ export default function SkillFactory() {
     } finally {
       setLoading(false)
     }
-  }, [search, targetAgent, scope, status, navigate, location])
-
-  useEffect(() => {
-    if (!authReady) return
-    fetchAgents()
-  }, [authReady, fetchAgents])
+  }, [navigate, location])
 
   useEffect(() => {
     if (!authReady) return
     fetchSkills()
   }, [authReady, fetchSkills])
+
+  const filteredSkills = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return (skills || []).filter((s) => {
+      if (status !== 'all' && (s?.status || '').toLowerCase() !== status) return false
+      if (!q) return true
+      const haystack = [
+        s?.display_name,
+        s?.name,
+        s?.skill_id,
+        s?.description,
+        s?.trigger_condition,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+      return haystack.includes(q)
+    })
+  }, [skills, search, status])
+
+  function truncate(text, maxLen) {
+    const t = (text || '').toString().trim()
+    if (!t) return ''
+    if (t.length <= maxLen) return t
+    return t.slice(0, maxLen - 1) + '…'
+  }
 
   return (
     <PageLayout size="wide" padded>
@@ -136,43 +111,9 @@ export default function SkillFactory() {
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                onBlur={fetchSkills}
-                onKeyDown={(e) => e.key === 'Enter' && fetchSkills()}
-                placeholder="title, summary"
+                placeholder="name, trigger, description"
                 className="wz-input w-full pl-9"
               />
-            </div>
-          </div>
-          <div>
-            <label className="wz-label block mb-1">Target agent</label>
-            <select
-              value={targetAgent}
-              onChange={(e) => setTargetAgent(e.target.value)}
-              className="wz-input w-full"
-            >
-              <option value="all">All</option>
-              {targetAgentOptions.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="wz-label block mb-1">Scope</label>
-            <div className="flex flex-wrap gap-1">
-              {SCOPES.map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => setScope(s)}
-                  className={`px-2.5 py-1 text-xs font-medium rounded-full transition-colors ${
-                    scope === s
-                      ? 'bg-indigo-100 text-indigo-700'
-                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                  }`}
-                >
-                  {s === 'all' ? 'All' : s.replace('_', ' ')}
-                </button>
-              ))}
             </div>
           </div>
           <div>
@@ -201,11 +142,11 @@ export default function SkillFactory() {
           <div className="flex items-center justify-between mb-6">
             <h1 className="text-2xl font-bold text-slate-900">Skill Factory</h1>
             <Link
-              to="/knowledge/upload?doc_type=skill_spec"
+              to="/knowledge/skills/new"
               className="wz-btn-primary inline-flex items-center gap-2"
             >
               <Plus className="w-4 h-4" />
-              Nieuwe Skill Spec
+              Nieuwe skill
             </Link>
           </div>
 
@@ -219,48 +160,104 @@ export default function SkillFactory() {
             <div className="wz-card p-8">
               Skills laden...
             </div>
-          ) : skills.length === 0 ? (
+          ) : filteredSkills.length === 0 ? (
             <div className="wz-card p-12 text-center text-slate-500">
-              Geen skill specs gevonden. Upload een document om te beginnen.
+              Geen skills geregistreerd. Maak je eerste skill aan.
             </div>
           ) : (
             <div className="grid gap-4">
-              {skills.map((doc) => (
-                <Link
-                  key={doc.document_id}
-                  to={`/knowledge/${doc.document_id}`}
-                  className="wz-card block p-4 wz-lift relative"
-                >
-                  {doc.status === 'stale' && (
-                    <div className="absolute top-0 left-0 right-0 rounded-t-xl bg-orange-50 border-b border-orange-200 px-4 py-2 flex items-center gap-2 text-orange-800 text-sm">
-                      <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-                      Brondocument gewijzigd — herziening vereist
+              {filteredSkills.map((s) => {
+                const sid = s?.skill_id || s?.name
+                const expanded = expandedSkillId === sid
+                const linkedCount = Number(s?.linked_agents_count ?? 0) || 0
+                const triggerText = s?.trigger_condition || s?.description || ''
+
+                return (
+                  <button
+                    key={sid}
+                    type="button"
+                    className="wz-card block p-4 wz-lift relative text-left"
+                    aria-expanded={expanded}
+                    onClick={() => setExpandedSkillId((prev) => (prev === sid ? null : sid))}
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0">
+                        <h3 className="font-semibold text-slate-900 truncate">
+                          {s?.display_name || s?.name || 'Untitled'}
+                        </h3>
+                        {sid && (
+                          <p className="wz-mono text-xs mt-0.5">
+                            {sid}
+                          </p>
+                        )}
+                      </div>
+                      <span className={`px-2 py-0.5 text-xs font-medium rounded ${STATUS_BADGE[s?.status] || 'wz-tag'}`}>
+                        {s?.status || 'active'}
+                      </span>
                     </div>
-                  )}
-                  <div className={doc.status === 'stale' ? 'pt-12' : ''}>
-                    <h3 className="font-semibold text-slate-900 truncate">{doc.title || 'Untitled'}</h3>
-                    {doc.function_tag && (
-                      <p className="wz-mono text-xs mt-0.5">agent:{doc.function_tag}</p>
-                    )}
-                    <div className="flex flex-wrap gap-1.5 mt-2">
-                      <span className="px-2 py-0.5 text-xs font-medium rounded bg-pink-100 text-pink-700">
-                        skill_spec
-                      </span>
-                      <span className={`px-2 py-0.5 text-xs font-medium rounded ${SCOPE_BADGE[doc.scope] || 'wz-tag'}`}>
-                        {doc.scope || 'agency_wide'}
-                      </span>
-                      <span className={`px-2 py-0.5 text-xs font-medium rounded ${STATUS_BADGE[doc.status] || 'wz-tag'}`}>
-                        {doc.status}
-                      </span>
+
+                    <div className="mt-2 flex items-start justify-between gap-3">
+                      <p className="mt-0 text-sm text-slate-600 line-clamp-2">
+                        {truncate(triggerText, 140)}
+                      </p>
+                      <p className="text-xs text-slate-500 whitespace-nowrap">
+                        Agents: {linkedCount}
+                      </p>
                     </div>
-                    {doc.summary && (
-                      <p className="mt-2 text-sm text-slate-600 line-clamp-2">{doc.summary}</p>
-                    )}
+
                     <p className="mt-2 text-xs text-slate-400">
-                      {formatRelative(doc.updated_at)}
+                      {formatRelative(s?.updated_at)}
                     </p>
-                  </div>
-                </Link>
+
+                    {expanded && (
+                      <div className="mt-3 pt-3 border-t border-slate-200 space-y-2">
+                        {s?.description && (
+                          <div>
+                            <div className="text-xs font-semibold text-slate-600">Description</div>
+                            <div className="text-sm text-slate-800 whitespace-pre-wrap">{s.description}</div>
+                          </div>
+                        )}
+
+                        {s?.trigger_condition && (
+                          <div>
+                            <div className="text-xs font-semibold text-slate-600">Trigger condition</div>
+                            <div className="text-sm text-slate-800 whitespace-pre-wrap">{s.trigger_condition}</div>
+                          </div>
+                        )}
+
+                        <div>
+                          <div className="text-xs font-semibold text-slate-600">Requires tools</div>
+                          <div className="flex flex-wrap gap-1.5 mt-1">
+                            {(s?.requires_tools || []).length ? (
+                              (s.requires_tools || []).map((t) => (
+                                <span key={t} className="px-2 py-0.5 text-xs font-medium rounded bg-slate-100 text-slate-700">
+                                  {t}
+                                </span>
+                              ))
+                            ) : (
+                              <span className="text-sm text-slate-500">None</span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div>
+                          <div className="text-xs font-semibold text-slate-600">Requires skills</div>
+                          <div className="flex flex-wrap gap-1.5 mt-1">
+                            {(s?.requires_skills || []).length ? (
+                              (s.requires_skills || []).map((t) => (
+                                <span key={t} className="px-2 py-0.5 text-xs font-medium rounded bg-slate-100 text-slate-700">
+                                  {t}
+                                </span>
+                              ))
+                            ) : (
+                              <span className="text-sm text-slate-500">None</span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </button>
+                )
               ))}
             </div>
           )}
