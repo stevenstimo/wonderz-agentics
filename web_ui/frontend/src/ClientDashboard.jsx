@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { useParams, useLocation, Link } from 'react-router-dom'
 import {
   LineChart,
@@ -15,6 +15,7 @@ import {
 } from 'recharts'
 import PageLayout from './PageLayout'
 import { BarChart3, TrendingUp, DollarSign, MousePointer, Search, Globe, Plug, RefreshCw, FileDown, Share2 } from 'lucide-react'
+import { downloadClientPdf } from './components/pdf/ClientPdfDocument'
 
 // Formatters: kosten € met 2 decimalen, percentages %, grote aantallen met duizendscheiding
 const fmtNum = (v) => (v == null ? '0' : Number(v).toLocaleString('nl-NL'))
@@ -103,11 +104,49 @@ export default function ClientDashboard({
   const { slug } = useParams()
   const location = useLocation()
   const dashboardRef = useRef(null)
+  const [isExporting, setIsExporting] = useState(false)
   const integrationsUrl = `/clients/${slug}/integrations`
 
-  /** PDF via browser print (Save as PDF) — avoids jspdf/html2canvas CVE surface. */
-  const handleExportPdf = () => {
-    window.print()
+  const handleExportPdf = async () => {
+    setIsExporting(true)
+    try {
+      const clientData = {
+        name: liveData?.client_name || slug || 'Client rapport',
+        domain: liveData?.domain || liveData?.client_domain || '',
+      }
+      const metricsData = {
+        ga4: {
+          sessions: liveData?.ga4?.kpis?.sessions,
+          sessions_change: liveData?.ga4?.kpis?.sessions_change,
+          users: liveData?.ga4?.kpis?.users,
+          users_change: liveData?.ga4?.kpis?.users_change,
+          bounce_rate: liveData?.ga4?.kpis?.engagement_rate,
+          bounce_rate_change: liveData?.ga4?.kpis?.engagement_rate_change,
+          avg_session_duration: liveData?.ga4?.kpis?.avg_session_duration,
+        },
+        ads: {
+          impressions: liveData?.google_ads?.summary?.impressions,
+          clicks: liveData?.google_ads?.summary?.clicks,
+          ctr: liveData?.google_ads?.summary?.ctr,
+          cost: liveData?.google_ads?.summary?.cost,
+        },
+        meta: {
+          reach: liveData?.meta?.ads?.total_reach,
+          impressions: liveData?.meta?.ads?.total_impressions,
+          clicks: liveData?.meta?.ads?.total_clicks,
+          spend: liveData?.meta?.ads?.total_spend,
+        },
+      }
+      await downloadClientPdf({
+        client: clientData,
+        metrics: metricsData,
+        generatedAt: new Date().toISOString(),
+      })
+    } catch (err) {
+      console.error('PDF export mislukt:', err)
+    } finally {
+      setIsExporting(false)
+    }
   }
 
   const overview = liveData?.overview || {}
@@ -278,11 +317,12 @@ export default function ClientDashboard({
             <button
               type="button"
               onClick={handleExportPdf}
+              disabled={isExporting}
               className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 transition text-sm"
-              title="Opent het printvenster; kies 'Opslaan als PDF' om een PDF te maken"
+              title="Exporteer dashboarddata als PDF"
             >
               <FileDown className="w-4 h-4" />
-              Export PDF
+              {isExporting ? 'Exporteren...' : 'Export PDF'}
             </button>
           </div>
         </div>

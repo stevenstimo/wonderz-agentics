@@ -10,6 +10,7 @@
     "check:layout-shell": "node ./scripts/check-layout-shell.mjs"
   },
   "dependencies": {
+    "@react-pdf/renderer": "^4.3.2",
     "@supabase/supabase-js": "2.38.5",
     "@tanstack/react-query": "^5.91.3",
     "lucide-react": "^0.294.0",
