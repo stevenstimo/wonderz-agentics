@@ -1,4 +1,4 @@
-"""Parse @client mentions from text and resolve to validated client_slug for a user."""
+"""Parse client mentions from text and resolve to validated client_slug for a user."""
 
 import re
 import logging
@@ -53,16 +53,51 @@ async def resolve_first_mention(pool, user_id: str, text: str) -> Optional[str]:
     Parse text for @mentions, validate first one against user's clients.
     Returns client_slug if found and valid, else None.
     """
-    slugs = parse_mention_slugs(text or "")
+    text_value = text or ""
+    slugs = parse_mention_slugs(text_value)
     result: Optional[str] = None
+
+    # 1) Explicit @slug mentions first.
     for slug in slugs:
         resolved = await resolve_client_slug(pool, user_id, slug)
         if resolved:
             result = resolved
             break
+
+    # 2) Fallback: plain-text match on slug or client_name (case-insensitive), without '@'.
+    if not result and pool and user_id and text_value:
+        try:
+            async with pool.acquire() as conn:
+                rows = await conn.fetch(
+                    """
+                    SELECT slug, client_name
+                    FROM clients
+                    WHERE user_id = $1 AND (is_active IS NULL OR is_active = true)
+                    """,
+                    user_id,
+                )
+            haystack = text_value.casefold()
+            for row in rows:
+                slug = (row["slug"] or "").strip()
+                client_name = (row["client_name"] or "").strip()
+                if not slug:
+                    continue
+
+                slug_pattern = re.compile(rf"\b{re.escape(slug.casefold())}\b")
+                name_pattern = (
+                    re.compile(rf"\b{re.escape(client_name.casefold())}\b")
+                    if client_name
+                    else None
+                )
+                if slug_pattern.search(haystack) or (name_pattern and name_pattern.search(haystack)):
+                    result = slug
+                    break
+        except Exception:
+            logger.exception("resolve_first_mention plain-text fallback failed for user_id=%s", user_id)
+
     logger.info(
         "resolve_first_mention result: slug=%s for job_post=%s",
         result,
-        (text or "")[:50],
+        text_value[:50],
     )
     return result
