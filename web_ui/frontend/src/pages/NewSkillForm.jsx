@@ -106,6 +106,11 @@ export default function NewSkillForm() {
   }, [authReady, fetchAgents, fetchSkillsOptions])
 
   const nameError = useMemo(() => validateSkillName(form.name), [form.name])
+  const liveNameError = useMemo(() => {
+    if (!form.name || !form.name.trim()) return null
+    return nameError
+  }, [form.name, nameError])
+  const activeNameError = fieldErrors.name || liveNameError
   const canSubmit = !nameError
 
   function toggleTool(tool) {
@@ -235,7 +240,7 @@ export default function NewSkillForm() {
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Naam *</label>
             <input
-              className={`w-full rounded-lg border px-3 py-2 ${fieldErrors.name ? 'border-red-500' : 'border-slate-300'}`}
+              className={`w-full rounded-lg border px-3 py-2 ${activeNameError ? 'border-red-500' : 'border-slate-300'}`}
               value={form.name}
               onChange={(e) => {
                 const next = e.target.value
@@ -249,7 +254,7 @@ export default function NewSkillForm() {
               placeholder="write_landing_page"
               autoComplete="off"
             />
-            {fieldErrors.name && <span className="field-error mt-1 text-xs text-red-600 block">{fieldErrors.name}</span>}
+            {activeNameError && <span className="field-error mt-1 text-xs text-red-600 block">{activeNameError}</span>}
           </div>
 
           <div>
