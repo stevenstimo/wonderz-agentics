@@ -76,6 +76,7 @@ class InboxEngine:
 
         from_address = (parsed.from_address or "").strip().lower()
         if not from_address:
+            logger.info("InboxEngine: skip empty from_address message_id=%s", parsed.message_id)
             return
 
         async with pool.acquire() as conn:
@@ -100,6 +101,11 @@ class InboxEngine:
                 parsed.message_id,
             )
             if existing:
+                logger.info(
+                    "InboxEngine: duplicate message_id=%s existing_email_id=%s, skip",
+                    parsed.message_id,
+                    existing["email_id"],
+                )
                 return
 
             # STAP 2 — Insert inbound_emails (status new), then create direct chat
@@ -121,6 +127,7 @@ class InboxEngine:
                 parsed.received_at,
                 "new",
             )
+            logger.info("InboxEngine: status → new for email_id=%s", email_id)
             await conn.execute(
                 "UPDATE inbound_emails SET user_id = $1::uuid WHERE email_id = $2",
                 user_id,
@@ -139,6 +146,7 @@ class InboxEngine:
                     "CEO agent not found",
                     email_id,
                 )
+                logger.info("InboxEngine: status → error for email_id=%s (no CEO agent)", email_id)
                 return
 
             ceo_agent_id = ceo_row["agent_id"]
@@ -174,6 +182,7 @@ class InboxEngine:
                 "analyzing",
                 email_id,
             )
+            logger.info("InboxEngine: status → analyzing for email_id=%s chat_id=%s", email_id, chat_id)
 
         # STAP 3 — First CEO message (outside conn so send_message can use its own pool)
         first_user_content = (
@@ -188,6 +197,7 @@ class InboxEngine:
             parsed.body_clean or "",
         )
         engine = DirectChatEngine()
+        logger.info("InboxEngine: starting CEO analysis for email_id=%s chat_id=%s", email_id, chat_id)
         result = await engine.send_message(
             chat_id,
             first_user_content,
@@ -205,10 +215,22 @@ class InboxEngine:
                     result.get("detail", "CEO response failed"),
                     email_id,
                 )
+                logger.info("InboxEngine: status → error for email_id=%s", email_id)
             return
 
         agent_response = result.get("agent_response") or ""
         plan_data = _extract_plan_block(agent_response)
+        score_for_log: int | float | None = None
+        if plan_data is not None:
+            s = plan_data.get("completeness_score")
+            if isinstance(s, (int, float)):
+                score_for_log = s
+        logger.info(
+            "InboxEngine: CEO response received for email_id=%s, has_plan_block=%s, score=%s",
+            email_id,
+            plan_data is not None,
+            score_for_log,
+        )
 
         async with pool.acquire() as conn:
             if plan_data is not None:
@@ -224,7 +246,7 @@ class InboxEngine:
                     score,
                     email_id,
                 )
-                logger.info("InboxEngine: email_id=%s status=plan_ready", email_id)
+                logger.info("InboxEngine: status → plan_ready for email_id=%s", email_id)
             else:
                 await conn.execute(
                     """
@@ -233,4 +255,4 @@ class InboxEngine:
                     "in_chat",
                     email_id,
                 )
-                logger.info("InboxEngine: email_id=%s status=in_chat", email_id)
+                logger.info("InboxEngine: status → in_chat for email_id=%s", email_id)
