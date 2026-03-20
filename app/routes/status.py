@@ -609,35 +609,60 @@ async def storage_costs(
 
             # Daily trend
             daily_trend: List[Dict[str, Any]] = []
-            trend_rows = await conn.fetch(
-                """
-                WITH step_tokens AS (
-                  SELECT
-                    DATE(created_at) AS day,
-                    COALESCE(SUM(tokens_used), 0) AS tokens
-                  FROM job_steps
-                  WHERE created_at >= $1::date
-                  GROUP BY DATE(created_at)
-                ),
-                chat_tokens AS (
-                  SELECT
-                    DATE(created_at) AS day,
-                    COALESCE(SUM(token_usage), 0) AS tokens
-                  FROM direct_chat_messages
-                  WHERE created_at >= $1::date
-                  GROUP BY DATE(created_at)
-                )
-                SELECT
-                  d.day,
-                  COALESCE(s.tokens, 0) + COALESCE(c.tokens, 0) AS tokens
-                FROM generate_series($1::date, $2::date, interval '1 day') AS d(day)
-                LEFT JOIN step_tokens s ON s.day = d.day
-                LEFT JOIN chat_tokens c ON c.day = d.day
-                ORDER BY d.day
-                """,
-                since,
-                date.today(),
+            dc_msg_has_token_usage = await _column_exists(
+                conn, "direct_chat_messages", "token_usage"
             )
+            if dc_msg_has_token_usage:
+                trend_rows = await conn.fetch(
+                    """
+                    WITH step_tokens AS (
+                      SELECT
+                        DATE(created_at) AS day,
+                        COALESCE(SUM(tokens_used), 0) AS tokens
+                      FROM job_steps
+                      WHERE created_at >= $1::date
+                      GROUP BY DATE(created_at)
+                    ),
+                    chat_tokens AS (
+                      SELECT
+                        DATE(created_at) AS day,
+                        COALESCE(SUM(token_usage), 0) AS tokens
+                      FROM direct_chat_messages
+                      WHERE created_at >= $1::date
+                      GROUP BY DATE(created_at)
+                    )
+                    SELECT
+                      d.day,
+                      COALESCE(s.tokens, 0) + COALESCE(c.tokens, 0) AS tokens
+                    FROM generate_series($1::date, $2::date, interval '1 day') AS d(day)
+                    LEFT JOIN step_tokens s ON s.day = d.day
+                    LEFT JOIN chat_tokens c ON c.day = d.day
+                    ORDER BY d.day
+                    """,
+                    since,
+                    date.today(),
+                )
+            else:
+                trend_rows = await conn.fetch(
+                    """
+                    WITH step_tokens AS (
+                      SELECT
+                        DATE(created_at) AS day,
+                        COALESCE(SUM(tokens_used), 0) AS tokens
+                      FROM job_steps
+                      WHERE created_at >= $1::date
+                      GROUP BY DATE(created_at)
+                    )
+                    SELECT
+                      d.day,
+                      COALESCE(s.tokens, 0) AS tokens
+                    FROM generate_series($1::date, $2::date, interval '1 day') AS d(day)
+                    LEFT JOIN step_tokens s ON s.day = d.day
+                    ORDER BY d.day
+                    """,
+                    since,
+                    date.today(),
+                )
             for r in trend_rows:
                 d = r["day"]
                 tks = _parse_int(r["tokens"])

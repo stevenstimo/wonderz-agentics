@@ -460,7 +460,7 @@ async def get_direct_chat(
 
         messages = await conn.fetch(
             """
-            SELECT message_id, chat_id, role, content, token_usage, created_at
+            SELECT message_id, chat_id, role, content, created_at
             FROM direct_chat_messages
             WHERE chat_id = $1
             ORDER BY message_id ASC

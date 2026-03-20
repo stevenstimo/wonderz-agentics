@@ -317,16 +317,18 @@ Geen response contract vereist. Wees direct, behulpzaam en authentiek."""
     async def _save_message(
         self, conn, chat_id: str, role: str, content: str, token_usage: int = 0
     ) -> Dict[str, Any]:
+        # ASSUMPTION: Some deployments have no token_usage column on direct_chat_messages;
+        # aggregate usage is tracked on direct_chats.token_used. Parameter kept for callers.
+        _ = token_usage
         row = await conn.fetchrow(
             """
-            INSERT INTO direct_chat_messages (chat_id, role, content, token_usage)
-            VALUES ($1, $2, $3, $4)
+            INSERT INTO direct_chat_messages (chat_id, role, content)
+            VALUES ($1, $2, $3)
             RETURNING message_id, role, content, created_at
             """,
             chat_id,
             role,
             content,
-            token_usage,
         )
         await conn.execute(
             """
