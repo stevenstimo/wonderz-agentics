@@ -694,20 +694,27 @@ async def get_client_dashboard(
                     result["gsc"] = {"not_connected": False, "error": str(e)}
 
     # --- Lighthouse ---
-    # Use the selected GSC site_url as canonical URL for Lighthouse checks.
-    if not site_url:
+    # Prefer explicit Lighthouse URL from platform config, fallback to selected GSC site URL.
+    lighthouse_cfg = config_by_platform.get("lighthouse", {})
+    lighthouse_url = None
+    if isinstance(lighthouse_cfg, dict):
+        lighthouse_url = lighthouse_cfg.get("url")
+    if not lighthouse_url:
+        lighthouse_url = site_url
+
+    if not lighthouse_url:
         result["lighthouse"] = {
             "not_connected": True,
-            "error": "Geen URL beschikbaar. Koppel/Search Console site eerst.",
+            "error": "Geen URL beschikbaar. Configureer Lighthouse URL in Integraties of koppel Search Console.",
         }
     else:
         try:
-            lighthouse_data = await fetch_lighthouse(site_url)
-            lighthouse_data["url"] = site_url
+            lighthouse_data = await fetch_lighthouse(lighthouse_url)
+            lighthouse_data["url"] = lighthouse_url
             result["lighthouse"] = lighthouse_data
         except Exception as e:
             logger.exception("Lighthouse fetch failed")
-            result["lighthouse"] = {"not_connected": False, "error": str(e), "url": site_url}
+            result["lighthouse"] = {"not_connected": False, "error": str(e), "url": lighthouse_url}
 
     # --- Meta (Facebook/Instagram Ads) ---
     meta_int = int_by_type.get("meta_ads")

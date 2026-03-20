@@ -32,6 +32,7 @@ ENV_VAR_SPEC = {
     "GOOGLE_CLIENT_SECRET": ("Google Client Secret", True, "Vereist voor Google OAuth"),
     "GOOGLE_REDIRECT_URI": ("Google Redirect URI", True, "OAuth callback URL voor Google (bijv. https://wonderz-agentic.exe.xyz/api/integrations/google/callback)"),
     "GOOGLE_ADS_DEVELOPER_TOKEN": ("Google Ads Developer Token", True, "Vereist voor Google Ads campagne data"),
+    "PAGESPEED_API_KEY": ("Google PageSpeed API Key", True, "Vereist voor Lighthouse data via Google PageSpeed Insights API"),
     "SUPABASE_URL": ("Supabase URL", True, "Vereist voor database en auth"),
     "SUPABASE_KEY": ("Supabase Key", True, "Vereist voor Supabase API"),
     "SUPABASE_JWT_SECRET": ("Supabase JWT Secret", True, "Vereist voor JWT verificatie"),

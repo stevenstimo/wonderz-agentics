@@ -18,6 +18,7 @@ const PLATFORM_LABELS = {
   ga4: 'GA4',
   gsc: 'Google Search Console',
   google_ads: 'Google Ads',
+  lighthouse: 'Lighthouse',
   meta_ads: 'Meta Business',
   shopify: 'Shopify',
   klaviyo: 'Klaviyo',
@@ -60,6 +61,7 @@ const PLATFORM_FIELDS = {
   ga4: [],
   gsc: [],
   google_ads: [],
+  lighthouse: [{ key: 'url', label: 'Website URL', placeholder: 'https://asured.nl/' }],
   shopify: [{ key: 'shop_domain', label: 'Shop domain', placeholder: 'vitbliss.myshopify.com' }],
   klaviyo: [
     { key: 'account_id', label: 'Account ID', placeholder: 'AbCdEf' },
@@ -68,6 +70,7 @@ const PLATFORM_FIELDS = {
 }
 
 const GOOGLE_PLATFORMS = ['ga4', 'gsc', 'google_ads']
+const STANDALONE_PLATFORMS = ['lighthouse']
 
 // Platform (frontend) -> service_type / integration_type (backend API)
 const PLATFORM_TO_SERVICE_TYPE = {
@@ -597,7 +600,7 @@ export default function ClientIntegrations() {
       <div className="space-y-4">
         {allPlatforms.map((platform) => {
           const isGoogle = GOOGLE_PLATFORMS.includes(platform)
-          const canConfigure = configuredPlatforms.includes(platform)
+          const canConfigure = configuredPlatforms.includes(platform) || STANDALONE_PLATFORMS.includes(platform)
           const configured = isConfigured(platform)
           const form = platformForms[platform] || {}
           const fields = PLATFORM_FIELDS[platform] || []

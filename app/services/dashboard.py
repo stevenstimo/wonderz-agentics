@@ -13,6 +13,7 @@ from app.core.config import (
     GOOGLE_ADS_LOGIN_CUSTOMER_ID,
     GOOGLE_CLIENT_ID,
     GOOGLE_CLIENT_SECRET,
+    PAGESPEED_API_KEY,
 )
 
 logger = logging.getLogger(__name__)
@@ -874,12 +875,15 @@ async def fetch_lighthouse(url: str) -> dict[str, Any]:
     }
     if not url:
         return result
+    if not PAGESPEED_API_KEY:
+        return {"error": "PAGESPEED_API_KEY not configured"}
 
     async def _run(strategy: str) -> dict[str, Any]:
         params = {
             "url": url,
             "strategy": strategy,
             "category": ["performance", "accessibility", "best-practices", "seo"],
+            "key": PAGESPEED_API_KEY,
         }
         async with httpx.AsyncClient(timeout=40.0) as client:
             r = await client.get(PAGESPEED_BASE_URL, params=params)
