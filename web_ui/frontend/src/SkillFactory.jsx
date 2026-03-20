@@ -146,7 +146,7 @@ export default function SkillFactory() {
               className="wz-btn-primary inline-flex items-center gap-2"
             >
               <Plus className="w-4 h-4" />
-              Nieuwe skill
+              Nieuwe Skill Spec
             </Link>
           </div>
 
