@@ -613,7 +613,7 @@ export default function ClientDashboard({
       <div className="mb-8">
         <h2 className="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
           <Gauge className="w-5 h-5" />
-          Lighthouse
+          Lighthouse (CWV)
         </h2>
         {lighthouse?.not_connected ? (
           <EmptyState
