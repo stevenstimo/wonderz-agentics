@@ -353,14 +353,14 @@ class TrainingSuggestionNotesBody(BaseModel):
 class ManualTrainingDiscoverBody(BaseModel):
     """Trigger HR resource discovery for a development point (manual)."""
 
-    development_point_id: str = Field(
-        ...,
-        description="Development point id; persisted as training_suggestions.development_point_ref (TEXT) in production",
+    development_point_id: Optional[str] = Field(
+        default=None,
+        description="Optional development point id; persisted as training_suggestions.development_point_ref (TEXT) in production",
     )
-    agent_id: str = Field(..., min_length=1)
+    agent_id: str = Field(default="")
     agent_role: str = ""
     pattern_description: str = Field(..., min_length=1)
-    impact: str = Field(default="high", description="Impact level (e.g. high, critical)")
+    impact: str = Field(default="medium", description="Impact level (e.g. high, critical)")
 
 
 class ResolveRequest(BaseModel):
@@ -889,9 +889,15 @@ async def approve_training(req: ApproveTrainingRequest, arq_pool: ArqRedis = Dep
         raise HTTPException(status_code=500, detail=str(e))
 
 
-def _normalize_development_point_key_for_discovery(raw: str) -> str:
-    """Trimmed string for training_suggestions.development_point_ref (TEXT); matches HR point_id / id."""
-    return (raw or "").strip()
+def _normalize_development_point_key_for_discovery(raw: Optional[str]) -> Optional[str]:
+    """Normalize dev-point key for training_suggestions.development_point_ref (TEXT).
+
+    Production expects NULL when no development point is selected.
+    """
+    if raw is None:
+        return None
+    normalized = str(raw).strip()
+    return normalized if normalized else None
 
 
 @router.get("/training-suggestions", dependencies=[Depends(get_current_user)])
@@ -1036,7 +1042,7 @@ async def manual_discover_training_suggestions(body: ManualTrainingDiscoverBody)
             agent_id=body.agent_id.strip(),
             agent_role=(body.agent_role or "").strip(),
             pattern_description=body.pattern_description.strip(),
-            impact=(body.impact or "high").strip(),
+            impact=(body.impact or "medium").strip(),
         )
     return {
         "discovered": len(created),
