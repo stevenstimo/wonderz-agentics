@@ -91,7 +91,7 @@ def _row_to_doc(row) -> dict:
         "created_at": row["created_at"].isoformat() if row.get("created_at") else None,
         "updated_at": row["updated_at"].isoformat() if row.get("updated_at") else None,
     }
-    for key in ("summary", "version", "owner"):
+    for key in ("summary", "version", "owner", "embedding_status"):
         if row.get(key) is not None:
             out[key] = row[key]
     return out
@@ -158,10 +158,11 @@ async def upload_url(
     except TrainingError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    await arq_pool.enqueue_job("run_embedding_task", result["document_id"])
+    document_id = result["document_id"]
+    await arq_pool.enqueue_job("run_embedding_task", document_id)
     return JSONResponse(
         status_code=202,
-        content={"document_id": result["document_id"], "status": "processing", "chunks_stored": result["chunks_stored"]},
+        content={"document_id": document_id, "status": "processing", "chunks_stored": result["chunks_stored"]},
     )
 
 
@@ -222,10 +223,11 @@ async def upload_file(
     except TrainingError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    await arq_pool.enqueue_job("run_embedding_task", result["document_id"])
+    document_id = result["document_id"]
+    await arq_pool.enqueue_job("run_embedding_task", document_id)
     return JSONResponse(
         status_code=202,
-        content={"document_id": result["document_id"], "status": "processing", "chunks_stored": result["chunks_stored"]},
+        content={"document_id": document_id, "status": "processing", "chunks_stored": result["chunks_stored"]},
     )
 
 
@@ -276,7 +278,8 @@ async def get_knowledge(
         row = await conn.fetchrow(
             """
             SELECT document_id, source_url, source_type, title, client_slug, approved_by,
-                   doc_type, domain, status, summary, version, owner, created_at, updated_at
+                   doc_type, domain, status, summary, version, owner, created_at, updated_at,
+                   embedding_status
             FROM knowledge_documents
             WHERE document_id = $1
             """,

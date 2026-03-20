@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { Link, useNavigate, useLocation, useSearchParams } from 'react-router-dom'
 import PageLayout from './PageLayout'
 import { Upload, Link2, FileText, Check, Loader2, X } from 'lucide-react'
@@ -16,6 +16,10 @@ const ACCESS_LEVELS = [
 const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB
 const ACCEPTED_TYPES = '.pdf,.docx,.txt,.md,.csv,.xlsx'
 const ACCEPTED_TYPES_DESC = 'PDF, DOCX, TXT, MD, CSV, XLSX'
+
+/** Worker can take 26s+; poll up to 120s (40 × 3s). */
+const EMBEDDING_POLL_INTERVAL_MS = 3000
+const EMBEDDING_MAX_POLL_ATTEMPTS = 40
 
 const PROGRESS_STEPS = [
   { id: 1, label: 'Document aanmaken...' },
@@ -49,6 +53,7 @@ export default function KnowledgeUpload() {
   const [result, setResult] = useState(null)
   const [error, setError] = useState('')
   const [fieldErrors, setFieldErrors] = useState({})
+  const uploadAbortRef = useRef(false)
 
   useEffect(() => {
     const dt = searchParams.get('doc_type')
@@ -92,6 +97,7 @@ export default function KnowledgeUpload() {
   }, [title, docType, domain, sourceTab, url, file, summary])
 
   const resetForm = useCallback(() => {
+    uploadAbortRef.current = true
     setTitle('')
     setDocType('')
     setDomain('')
@@ -112,13 +118,16 @@ export default function KnowledgeUpload() {
 
   const doUpload = useCallback(async () => {
     if (!validate()) return
+    uploadAbortRef.current = false
     setUploading(true)
     setError('')
     setProgressStep(1)
 
     const stepInterval = setInterval(() => {
-      setProgressStep((s) => Math.min(s + 1, 3))
+      setProgressStep((s) => Math.min(s + 1, 2))
     }, 800)
+
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
     try {
       let res
@@ -161,6 +170,8 @@ export default function KnowledgeUpload() {
       setProgressStep(3)
 
       if (res.status === 401) {
+        setUploading(false)
+        setProgressStep(0)
         navigate('/login', { state: { from: location } })
         return
       }
@@ -170,16 +181,57 @@ export default function KnowledgeUpload() {
         const msg = j.detail || (Array.isArray(j.detail) ? j.detail.map((d) => d.msg || d).join(', ') : '') || 'Upload mislukt'
         setError(msg)
         setUploading(false)
+        setProgressStep(0)
         return
       }
 
       const data = await res.json()
-      setResult(data)
+      const docId = data.document_id
+      const chunksStored = data.chunks_stored ?? null
+
+      for (let attempt = 0; attempt < EMBEDDING_MAX_POLL_ATTEMPTS; attempt++) {
+        await sleep(EMBEDDING_POLL_INTERVAL_MS)
+        if (uploadAbortRef.current) return
+
+        const pr = await apiFetch(`/api/knowledge/${encodeURIComponent(docId)}`)
+        if (!pr.ok) continue
+
+        const doc = await pr.json()
+        const emb = doc.embedding_status ?? 'pending'
+
+        if (emb === 'failed') {
+          setError('Embeddings genereren mislukt. Het document staat in de library; je kunt later opnieuw indexeren.')
+          setUploading(false)
+          setProgressStep(0)
+          return
+        }
+        if (emb === 'complete') {
+          setProgressStep(4)
+          setResult({
+            document_id: docId,
+            chunks_stored: chunksStored,
+            embedding_status: 'complete',
+          })
+          setUploading(false)
+          return
+        }
+      }
+
+      if (uploadAbortRef.current) return
+
+      setProgressStep(4)
+      setResult({
+        document_id: docId,
+        chunks_stored: chunksStored,
+        embedding_timeout: true,
+      })
       setUploading(false)
     } catch (err) {
-      clearInterval(stepInterval)
       setError(err.message || 'Upload mislukt')
       setUploading(false)
+      setProgressStep(0)
+    } finally {
+      clearInterval(stepInterval)
     }
   }, [
     sourceTab, url, file, title, docType, domain, accessLevel, functionTag, summary, keywords, clientSlug,
@@ -191,9 +243,19 @@ export default function KnowledgeUpload() {
   if (result) {
     return (
       <PageLayout size="medium" padded>
+        {result.embedding_timeout && (
+          <div className="mb-4 p-4 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-sm">
+            Embeddings duren langer dan 2 minuten. Het document staat in de library — controleer later of de status op het
+            detailpagina op &quot;voltooid&quot; staat.
+          </div>
+        )}
         <div className="mb-6 p-4 rounded-lg bg-green-50 border border-green-200 text-green-800">
-          Document aangemaakt als draft. {result.chunks_stored != null && `✓ ${result.chunks_stored} chunks geïndexeerd. `}
-          Goedkeuring vereist voor gebruik door agents.
+          {result.embedding_status === 'complete' && (
+            <p className="font-medium text-green-900 mb-1">✓ Embeddings voltooid — document is doorzoekbaar in de library.</p>
+          )}
+          Document staat als <strong>draft</strong> in de Knowledge Library.{' '}
+          {result.chunks_stored != null && `${result.chunks_stored} chunks opgeslagen. `}
+          Zet op de documentpagina de status op <strong>approved</strong> als agents dit mogen gebruiken.
         </div>
         <div className="flex gap-3">
           <Link
