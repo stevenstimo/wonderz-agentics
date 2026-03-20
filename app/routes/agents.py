@@ -404,7 +404,7 @@ async def list_direct_chats(
     agent_id: str,
     current_user: Annotated[TokenPayload, Depends(get_current_user)],
 ) -> List[Dict[str, Any]]:
-    """List Direct Chat sessions for this agent, sorted by last_message_at DESC."""
+    """List Direct Chat sessions for this agent, sorted by created_at DESC."""
     pool = await get_db()
     async with pool.acquire() as conn:
         agent = await conn.fetchrow(
@@ -416,10 +416,10 @@ async def list_direct_chats(
         rows = await conn.fetch(
             """
             SELECT chat_id, agent_id, user_id, title, message_count, token_used,
-                   created_at, last_message_at
+                   created_at
             FROM direct_chats
             WHERE agent_id = $1 AND user_id = $2
-            ORDER BY last_message_at DESC
+            ORDER BY created_at DESC
             """,
             agent_id,
             str(current_user.user_id),
@@ -447,7 +447,7 @@ async def get_direct_chat(
         chat = await conn.fetchrow(
             """
             SELECT chat_id, agent_id, user_id, title, message_count, token_used,
-                   created_at, last_message_at
+                   created_at
             FROM direct_chats
             WHERE chat_id = $1 AND agent_id = $2 AND user_id = $3
             """,

@@ -333,7 +333,7 @@ Geen response contract vereist. Wees direct, behulpzaam en authentiek."""
         await conn.execute(
             """
             UPDATE direct_chats
-            SET last_message_at = now(), message_count = message_count + 1
+            SET message_count = message_count + 1
             WHERE chat_id = $1
             """,
             chat_id,
@@ -342,7 +342,7 @@ Geen response contract vereist. Wees direct, behulpzaam en authentiek."""
 
     async def _update_chat_tokens(self, conn, chat_id: str, token_used: int) -> None:
         await conn.execute(
-            "UPDATE direct_chats SET token_used = $1, last_message_at = now() WHERE chat_id = $2",
+            "UPDATE direct_chats SET token_used = $1 WHERE chat_id = $2",
             token_used,
             chat_id,
         )
