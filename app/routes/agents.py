@@ -788,6 +788,7 @@ async def _run_training_background(agent_id: str, url: str, approved_by: str) ->
         await update_knowledge_sources(pool, agent_id, url, len(chunks), approved_by=approved_by)
         await _set_knowledge_source_status(pool, agent_id, url, "active")
         await update_hired_agent_readiness_from_knowledge(pool, agent_id)
+        logger.info(f"[TRAINING] readiness_score bijgewerkt voor {agent_id}")
         logger.info("Training completed for %s %s: %s chunks", agent_id, url, len(chunks))
     except TrainingError as e:
         logger.warning("Training failed for %s %s: %s", agent_id, url, e)
@@ -862,8 +863,12 @@ async def get_agent_context(
 async def get_agent_knowledge(
     agent_id: str,
     current_user: Annotated[TokenPayload, Depends(get_current_user)],
+    source_url: Optional[str] = Query(
+        None,
+        description="Optioneel: bij opgegeven URL alle actieve chunks voor die bron (i.p.v. aggregatie per URL).",
+    ),
 ) -> Dict[str, Any]:
-    """Overzicht van alle kennisbronnen van een agent (gegroepeerd per URL)."""
+    """Overzicht van alle kennisbronnen (gegroepeerd per URL), of alle chunks voor één bron."""
     pool = await get_db()
     async with pool.acquire() as conn:
         agent = await conn.fetchrow(
@@ -872,6 +877,47 @@ async def get_agent_knowledge(
         )
         if not agent:
             raise HTTPException(status_code=404, detail="Agent niet gevonden")
+
+        if source_url is not None and str(source_url).strip() != "":
+            su = str(source_url).strip()
+            col_rows = await conn.fetch(
+                """
+                SELECT column_name FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = 'agent_knowledge'
+                """
+            )
+            col_names = {r["column_name"] for r in col_rows}
+            if "knowledge_id" in col_names:
+                id_sql = "knowledge_id"
+            elif "id" in col_names:
+                id_sql = "id"
+            else:
+                raise HTTPException(
+                    status_code=500,
+                    detail="agent_knowledge: geen id/knowledge_id kolom gevonden",
+                )
+            rows = await conn.fetch(
+                f"""
+                SELECT {id_sql} AS knowledge_id, source_url, chunk_text, chunk_index, created_at, is_active
+                FROM agent_knowledge
+                WHERE agent_id = $1 AND source_url = $2 AND is_active = true
+                ORDER BY chunk_index ASC
+                """,
+                agent_id,
+                su,
+            )
+            chunks_out: List[Dict[str, Any]] = []
+            for r in rows:
+                d = dict(r)
+                if d.get("created_at") is not None and hasattr(d["created_at"], "isoformat"):
+                    d["created_at"] = d["created_at"].isoformat()
+                chunks_out.append(d)
+            return {
+                "agent_id": agent_id,
+                "source_url": su,
+                "chunks": chunks_out,
+                "count": len(chunks_out),
+            }
 
         rows = await conn.fetch(
             """
