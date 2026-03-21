@@ -18,9 +18,6 @@ import CommandCenter from './CommandCenter.jsx'
 import LoginPage from './LoginPage.jsx'
 import ErrorBoundary from './components/ErrorBoundary.jsx'
 import { RouteErrorBoundary } from './components/RouteErrorBoundary.jsx'
-import ClientDashboardPage from './ClientDashboardPage.jsx'
-import ClientIntegrations from './ClientIntegrations.jsx'
-import ClientKnowledge from './ClientKnowledge.jsx'
 
 import './index.css'
 
@@ -74,6 +71,9 @@ const NewSkillForm = lazy(() => import('./pages/NewSkillForm.jsx'))
 const ClientIntelligence = lazy(() => import('./ClientIntelligence.jsx'))
 const KnowledgeGovernance = lazy(() => import('./KnowledgeGovernance.jsx'))
 const UsersPage = lazy(() => import('./pages/UsersPage.jsx'))
+const ClientDashboardPage = lazy(() => import('./ClientDashboardPage.jsx'))
+const ClientIntegrations = lazy(() => import('./ClientIntegrations.jsx'))
+const ClientKnowledge = lazy(() => import('./ClientKnowledge.jsx'))
 
 function AuthenticatedLayout() {
   return (
