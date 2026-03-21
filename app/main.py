@@ -134,7 +134,7 @@ app = FastAPI(
 CORS_ORIGINS = [
     o.strip() for o in os.getenv(
         "CORS_ORIGINS",
-        "http://localhost:3000,http://localhost:3001,https://wonderz-agentic.exe.xyz",
+        "http://localhost:3000,http://localhost:3001,https://wonderz-agentic.exe.xyz,https://wonderz-agentics.vercel.app",
     ).split(",") if o.strip()
 ]
 app.add_middleware(

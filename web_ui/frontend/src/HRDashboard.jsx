@@ -265,8 +265,8 @@ export function TrainingRequestsTabContent() {
                 onClick={confirmApproveTraining}
                 className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:pointer-events-none inline-flex items-center gap-2"
               >
-                {modalLoading ? <span className="hr-inline-spinner" aria-label="Laden..." /> : null}
-                Goedkeuren
+                {modalLoading ? <Loader2 className="w-4 h-4 animate-spin shrink-0" aria-hidden /> : null}
+                {modalLoading ? 'Bezig...' : 'Goedkeuren'}
               </button>
             </div>
           </div>
@@ -298,8 +298,8 @@ export function TrainingRequestsTabContent() {
                 onClick={confirmRejectTraining}
                 className="px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700 disabled:opacity-50 disabled:pointer-events-none inline-flex items-center gap-2"
               >
-                {modalLoading ? <span className="hr-inline-spinner" aria-label="Laden..." /> : null}
-                Afwijzen
+                {modalLoading ? <Loader2 className="w-4 h-4 animate-spin shrink-0" aria-hidden /> : null}
+                {modalLoading ? 'Bezig...' : 'Afwijzen'}
               </button>
             </div>
           </div>
@@ -707,13 +707,21 @@ export function TrainingSuggestionsTabContent() {
               </button>
               <button
                 type="button"
-                disabled={!!actionLoadingId}
+                disabled={
+                  actionLoadingId != null &&
+                  String(actionLoadingId) === String(notesModal.suggestionId)
+                }
                 onClick={() => submitSuggestionDecision()}
-                className={`px-4 py-2 rounded-lg text-white text-sm font-medium disabled:opacity-50 ${
+                className={`px-4 py-2 rounded-lg text-white text-sm font-medium disabled:opacity-50 inline-flex items-center gap-2 ${
                   notesModal.mode === 'approve' ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'
                 }`}
               >
-                {notesModal.mode === 'approve' ? 'Goedkeuren' : 'Afwijzen'}
+                {String(actionLoadingId) === String(notesModal.suggestionId) ? (
+                  <Loader2 className="w-4 h-4 animate-spin shrink-0" aria-hidden />
+                ) : null}
+                {notesModal.mode === 'approve'
+                  ? (String(actionLoadingId) === String(notesModal.suggestionId) ? 'Bezig...' : 'Goedkeuren')
+                  : (String(actionLoadingId) === String(notesModal.suggestionId) ? 'Bezig...' : 'Afwijzen')}
               </button>
             </div>
           </div>
