@@ -9,6 +9,7 @@ Kolom: knowledge_base_sources (niet knowledge_sources)
 """
 
 import json
+import logging
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -29,23 +30,42 @@ try:
 except ImportError:
     BS4_AVAILABLE = False
 
+logger = logging.getLogger(__name__)
+
 
 async def update_hired_agent_readiness_from_knowledge(pool: asyncpg.pool.Pool, agent_id: str) -> None:
     """
     Zet hired_agents.readiness_score op basis van actieve knowledge-chunks:
     5 punten per chunk, maximaal 100.
     """
-    async with pool.acquire() as conn:
-        await conn.execute(
-            """
-            UPDATE hired_agents
-            SET readiness_score = LEAST(100, (
-                SELECT COUNT(*) * 5
-                FROM agent_knowledge
-                WHERE agent_id = $1 AND is_active = true
-            ))
-            WHERE agent_id = $1
-            """,
+    try:
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                UPDATE hired_agents
+                SET readiness_score = LEAST(100, (
+                    SELECT COUNT(*) * 5
+                    FROM agent_knowledge
+                    WHERE agent_id = $1 AND is_active = true
+                ))
+                WHERE agent_id = $1
+                RETURNING readiness_score
+                """,
+                agent_id,
+            )
+        if row is not None and row.get("readiness_score") is not None:
+            new_score = row["readiness_score"]
+            logger.info(
+                f"[TRAINING] readiness_score bijgewerkt voor {agent_id}: {new_score}"
+            )
+        else:
+            logger.warning(
+                "[TRAINING] readiness_score UPDATE: geen rij voor agent_id=%s",
+                agent_id,
+            )
+    except Exception:
+        logger.exception(
+            "[TRAINING] readiness_score bijwerken mislukt voor agent_id=%s",
             agent_id,
         )
 

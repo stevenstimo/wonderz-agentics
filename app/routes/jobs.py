@@ -319,12 +319,15 @@ def _coerce_context(raw) -> dict:
 
 
 def _job_for_response(job_row) -> dict:
-    """Prepare job dict for API response: inject job_number from job_number_int into context.
+    """Prepare job dict for API response: inject job_number from dedicated column(s) into context.
+    Prefer ``job_number`` (eigen kolom) then legacy ``job_number_int``.
     Uses payload or context (production may have payload only) so UI gets a single context object.
     """
     d = dict(job_row)
     d.pop("file_artifact_path", None)  # Don't expose server path to frontend
-    jni = d.get("job_number_int")
+    jni = d.get("job_number")
+    if jni is None:
+        jni = d.get("job_number_int")
     raw_ctx = d.get("payload") or d.get("context")
     ctx = _coerce_context(raw_ctx)
     if jni is not None:
