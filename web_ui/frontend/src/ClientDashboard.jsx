@@ -16,6 +16,7 @@ import {
 import PageLayout from './PageLayout'
 import { BarChart3, TrendingUp, DollarSign, MousePointer, Search, Globe, Plug, RefreshCw, FileDown, Share2, Gauge } from 'lucide-react'
 import { downloadClientPdf } from './components/pdf/ClientPdfDocument'
+import GoogleIntegrationsStatus from './components/integrations/GoogleIntegrationsStatus'
 
 // Formatters: kosten € met 2 decimalen, percentages %, grote aantallen met duizendscheiding
 const fmtNum = (v) => (v == null ? '0' : Number(v).toLocaleString('nl-NL'))
@@ -727,6 +728,14 @@ export default function ClientDashboard({
             </div>
           </>
         )}
+      </div>
+
+      <div className="mb-8">
+        <h2 className="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
+          <Plug className="w-5 h-5" />
+          Google Integraties
+        </h2>
+        <GoogleIntegrationsStatus />
       </div>
       </div>
     </PageLayout>

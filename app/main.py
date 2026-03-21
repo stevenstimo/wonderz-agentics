@@ -169,6 +169,7 @@ from app.routes import (
     events,
     explainer,
     graph,
+    google_integrations,
     hr,
     integrations,
     intelligence,
@@ -203,6 +204,7 @@ app.include_router(explainer.router)
 app.include_router(graph.router)
 app.include_router(hr.router)
 app.include_router(dashboard.router)
+app.include_router(google_integrations.router)
 app.include_router(integrations.router)
 app.include_router(intelligence.router)
 app.include_router(jobs.router)
