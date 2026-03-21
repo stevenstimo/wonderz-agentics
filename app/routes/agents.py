@@ -29,7 +29,7 @@ from app.services.training import (
     update_knowledge_sources,
     TrainingError,
 )
-from app.services.training_workflow import TrainingWorkflow
+from app.services.training_workflow import TrainingWorkflow, update_hired_agent_readiness_from_knowledge
 from app.data.agent_presets import AGENT_PRESETS
 try:
     from app.data.role_templates import get_role_template, list_role_templates
@@ -787,6 +787,7 @@ async def _run_training_background(agent_id: str, url: str, approved_by: str) ->
 
         await update_knowledge_sources(pool, agent_id, url, len(chunks), approved_by=approved_by)
         await _set_knowledge_source_status(pool, agent_id, url, "active")
+        await update_hired_agent_readiness_from_knowledge(pool, agent_id)
         logger.info("Training completed for %s %s: %s chunks", agent_id, url, len(chunks))
     except TrainingError as e:
         logger.warning("Training failed for %s %s: %s", agent_id, url, e)

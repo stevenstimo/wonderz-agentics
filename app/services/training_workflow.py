@@ -30,6 +30,26 @@ except ImportError:
     BS4_AVAILABLE = False
 
 
+async def update_hired_agent_readiness_from_knowledge(pool: asyncpg.pool.Pool, agent_id: str) -> None:
+    """
+    Zet hired_agents.readiness_score op basis van actieve knowledge-chunks:
+    5 punten per chunk, maximaal 100.
+    """
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """
+            UPDATE hired_agents
+            SET readiness_score = LEAST(100, (
+                SELECT COUNT(*) * 5
+                FROM agent_knowledge
+                WHERE agent_id = $1 AND is_active = true
+            ))
+            WHERE agent_id = $1
+            """,
+            agent_id,
+        )
+
+
 def _chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> list[str]:
     """Splitst tekst in overlappende chunks. Returns list[str]."""
     chunks_tuples = _chunk_text_legacy(text, chunk_size=chunk_size, overlap=overlap)
@@ -122,6 +142,8 @@ class TrainingWorkflow:
             processed,
             approved_by=approved_by,
         )
+
+        await update_hired_agent_readiness_from_knowledge(self.pool, agent_id)
 
         return {
             "chunks_processed": processed,
