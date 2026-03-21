@@ -23,6 +23,7 @@ from app.services.training import (
     update_knowledge_sources,
     TrainingError,
 )
+from app.services.content_filter import filter_chunks
 
 try:
     from bs4 import BeautifulSoup
@@ -127,6 +128,19 @@ class TrainingWorkflow:
         chunks = _chunk_text(text, chunk_size=chunk_size, overlap=overlap)
         if not chunks:
             raise TrainingError("Geen chunks gegenereerd — pagina mogelijk leeg")
+
+        chunks = await filter_chunks(chunks, context_hint=url or "", use_ai_filter=False)
+        if not chunks:
+            logger.warning(
+                "[FILTER] Geen bruikbare chunks na filtering voor agent=%s url=%s",
+                agent_id,
+                url,
+            )
+            return {
+                "chunks_processed": 0,
+                "agent_id": agent_id,
+                "source_url": url,
+            }
 
         processed = 0
         async with self.pool.acquire() as conn:

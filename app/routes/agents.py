@@ -30,6 +30,7 @@ from app.services.training import (
     TrainingError,
 )
 from app.services.training_workflow import TrainingWorkflow, update_hired_agent_readiness_from_knowledge
+from app.services.content_filter import filter_chunks
 from app.data.agent_presets import AGENT_PRESETS
 try:
     from app.data.role_templates import get_role_template, list_role_templates
@@ -757,6 +758,18 @@ async def _run_training_background(agent_id: str, url: str, approved_by: str) ->
         if not chunks:
             await _set_knowledge_source_status(
                 pool, agent_id, url, "failed", "Geen chunks gegenereerd"
+            )
+            return
+
+        chunks = await filter_chunks(chunks, context_hint=url or "", use_ai_filter=False)
+        if not chunks:
+            logger.warning(
+                "[FILTER] Geen bruikbare chunks na filtering voor agent=%s url=%s",
+                agent_id,
+                url,
+            )
+            await _set_knowledge_source_status(
+                pool, agent_id, url, "failed", "Geen bruikbare inhoud na filtering"
             )
             return
 

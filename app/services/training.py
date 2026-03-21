@@ -17,6 +17,8 @@ import asyncio
 import httpx
 from bs4 import BeautifulSoup
 
+from app.services.content_filter import filter_chunks
+
 logger = logging.getLogger(__name__)
 
 
@@ -339,6 +341,14 @@ async def train_agent_from_url(
     if not chunks:
         raise TrainingError("No chunks created from extracted text")
 
+    texts = [c[0] for c in chunks]
+    texts = await filter_chunks(texts, context_hint=str(validated), use_ai_filter=False)
+    if not texts:
+        logger.warning("[FILTER] Geen bruikbare chunks na filtering (train_agent_from_url) url=%s", validated)
+        raise TrainingError("Geen bruikbare chunks na inhoudsfilters")
+
+    chunks = [(t, 0) for t in texts]
+
     chunks_stored = await store_knowledge(pool, agent_id, validated, chunks)
     await update_knowledge_sources(pool, agent_id, validated, chunks_stored, approved_by)
 
@@ -384,6 +394,17 @@ async def run_training(db_pool, session_id: str, agent_id: str, url: str):
             raise TrainingError("Extracted text is too short")
 
         chunks = chunk_text(text, chunk_size=500, overlap=50)
+        if not chunks:
+            raise TrainingError("No chunks created from extracted text")
+
+        texts = [c[0] for c in chunks]
+        texts = await filter_chunks(texts, context_hint=url, use_ai_filter=False)
+        if not texts:
+            logger.warning("[FILTER] Geen bruikbare chunks na filtering (run_training) session=%s", session_id)
+            raise TrainingError("Geen bruikbare chunks na inhoudsfilters")
+
+        chunks = [(t, 0) for t in texts]
+
         async with db_pool.acquire() as conn:
             await conn.execute(
                 """
