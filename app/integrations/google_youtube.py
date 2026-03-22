@@ -13,6 +13,11 @@ DATA_BASE = "https://www.googleapis.com/youtube/v3"
 ANALYTICS_BASE = "https://youtubeanalytics.googleapis.com/v2"
 
 
+async def get_channels(access_token: str) -> dict:
+    """Alias: primair kanaal van de geautoriseerde gebruiker."""
+    return await get_channel_summary(access_token)
+
+
 async def get_channel_summary(access_token: str) -> dict:
     """Haalt channeldata op: naam, subscribers, views, videocount."""
     try:
@@ -45,8 +50,53 @@ async def get_channel_summary(access_token: str) -> dict:
         return {"enabled": True, "data": None, "error": str(e)}
 
 
+async def get_videos(access_token: str, channel_id: str, max_results: int = 25) -> dict:
+    """Video's voor een kanaal (meest recent)."""
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            resp = await client.get(
+                f"{DATA_BASE}/search",
+                params={
+                    "part": "snippet",
+                    "channelId": channel_id,
+                    "type": "video",
+                    "order": "date",
+                    "maxResults": max_results,
+                },
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            resp.raise_for_status()
+            items = resp.json().get("items", [])
+
+        def _vid(item):
+            iid = item.get("id")
+            if isinstance(iid, dict):
+                return iid.get("videoId")
+            return iid
+
+        return {
+            "enabled": True,
+            "data": {
+                "videos": [
+                    {
+                        "video_id": _vid(v),
+                        "title": v.get("snippet", {}).get("title"),
+                        "published_at": v.get("snippet", {}).get("publishedAt"),
+                        "thumbnail": (v.get("snippet", {}).get("thumbnails", {}).get("medium", {}) or {}).get(
+                            "url"
+                        ),
+                    }
+                    for v in items
+                ]
+            },
+        }
+    except Exception as e:
+        logger.error("YouTube videos fout: %s", e)
+        return {"enabled": True, "data": None, "error": str(e)}
+
+
 async def get_top_videos(access_token: str, max_results: int = 10) -> dict:
-    """Haalt top videos op gesorteerd op views."""
+    """Haalt top videos op gesorteerd op views (authenticated user's channel)."""
     try:
         async with httpx.AsyncClient(timeout=20.0) as client:
             resp = await client.get(
@@ -113,3 +163,11 @@ async def get_analytics(access_token: str, channel_id: str, start_date: str, end
     except Exception as e:
         logger.error("YouTube analytics fout: %s", e)
         return {"enabled": True, "data": None, "error": str(e)}
+
+
+class GoogleYouTubeAdapter:
+    get_channels = staticmethod(get_channels)
+    get_videos = staticmethod(get_videos)
+    get_analytics = staticmethod(get_analytics)
+    get_top_videos = staticmethod(get_top_videos)
+    get_channel_summary = staticmethod(get_channel_summary)

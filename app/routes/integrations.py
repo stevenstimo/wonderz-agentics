@@ -17,7 +17,7 @@ from urllib.parse import urlencode
 import httpx
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from fastapi.responses import RedirectResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.database import get_db
 from app.middleware.auth import TokenPayload, get_current_user
@@ -39,10 +39,33 @@ GOOGLE_SCOPES_PER_SERVICE = {
     "google_ads": [
         "https://www.googleapis.com/auth/adwords",
     ],
+    "business_profile": [
+        "https://www.googleapis.com/auth/business.manage",
+    ],
+    "youtube": [
+        "https://www.googleapis.com/auth/youtube.readonly",
+        "https://www.googleapis.com/auth/yt-analytics.readonly",
+    ],
+    "merchant_center": [
+        "https://www.googleapis.com/auth/content",
+    ],
+    "sheets": [
+        "https://www.googleapis.com/auth/spreadsheets.readonly",
+    ],
 }
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_INTEGRATION_TYPES = ["ga4", "google_ads", "google_search_console"]
+GOOGLE_OAUTH_INTEGRATION_TYPES = [
+    "ga4",
+    "google_ads",
+    "google_search_console",
+    "business_profile",
+    "youtube",
+    "merchant_center",
+    "sheets",
+]
+ALLOWED_GOOGLE_SERVICE_TYPES = frozenset(GOOGLE_OAUTH_INTEGRATION_TYPES)
 
 
 def _create_oauth_state(
@@ -107,12 +130,31 @@ def _verify_oauth_state(
 class GoogleAuthUrlRequest(BaseModel):
     return_to: Optional[str] = None
     client_slug: Optional[str] = None
-    service_type: str = Field(..., pattern="^(ga4|google_search_console|google_ads)$")
+    """If set, OAuth stores only that integration. If omitted, legacy bundle: GA4 + GSC + Google Ads."""
+    service_type: Optional[str] = None
+
+    @field_validator("service_type")
+    @classmethod
+    def validate_auth_service_type(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        if v not in ALLOWED_GOOGLE_SERVICE_TYPES:
+            raise ValueError("Invalid service_type")
+        return v
 
 
 class GoogleRefreshRequest(BaseModel):
     client_slug: str = Field(..., min_length=1)
-    service_type: Optional[str] = Field(None, pattern="^(ga4|google_search_console|google_ads)$")
+    service_type: Optional[str] = None
+
+    @field_validator("service_type")
+    @classmethod
+    def validate_refresh_service_type(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        if v not in ALLOWED_GOOGLE_SERVICE_TYPES:
+            raise ValueError("Invalid service_type")
+        return v
 
 
 async def _refresh_google_token(refresh_token: str) -> tuple[Optional[str], int]:
@@ -163,7 +205,7 @@ async def google_refresh(
     types_filter = (
         [body.service_type]
         if body.service_type
-        else ["ga4", "google_ads", "google_search_console"]
+        else list(GOOGLE_OAUTH_INTEGRATION_TYPES)
     )
     async with pool.acquire() as conn:
         rows = await conn.fetch(
@@ -229,7 +271,7 @@ async def google_auth_url(
     body: GoogleAuthUrlRequest,
     current_user: TokenPayload = Depends(get_current_user),
 ):
-    """Generate Google OAuth URL for a specific service (ga4, google_search_console, google_ads)."""
+    """Generate Google OAuth URL for a specific service, or legacy bundle (GA4 + GSC + Ads) when service_type omitted."""
     client_id = os.getenv("GOOGLE_CLIENT_ID")
     redirect_uri = os.getenv("GOOGLE_REDIRECT_URI")
     if not client_id or not redirect_uri:
@@ -237,14 +279,27 @@ async def google_auth_url(
             status_code=503,
             detail="Google OAuth not configured (GOOGLE_CLIENT_ID, GOOGLE_REDIRECT_URI)",
         )
-    scopes = GOOGLE_SCOPES_PER_SERVICE.get(body.service_type)
-    if not scopes:
-        raise HTTPException(status_code=400, detail="Invalid service_type")
+    if body.service_type:
+        scopes = GOOGLE_SCOPES_PER_SERVICE.get(body.service_type)
+        if not scopes:
+            raise HTTPException(status_code=400, detail="Invalid service_type")
+        state_service: Optional[str] = body.service_type
+    else:
+        scopes_flat: list[str] = []
+        for t in GOOGLE_INTEGRATION_TYPES:
+            scopes_flat.extend(GOOGLE_SCOPES_PER_SERVICE.get(t, []))
+        seen: set[str] = set()
+        scopes = []
+        for s in scopes_flat:
+            if s not in seen:
+                seen.add(s)
+                scopes.append(s)
+        state_service = None
     secret = os.getenv("SUPABASE_JWT_SECRET", "fallback-secret-change-me")
     return_to = body.return_to if body.return_to else None
     client_slug = body.client_slug if body.client_slug else None
     state = _create_oauth_state(
-        current_user.user_id, secret, return_to, client_slug, body.service_type
+        current_user.user_id, secret, return_to, client_slug, state_service
     )
     params = {
         "client_id": client_id,
@@ -450,28 +505,30 @@ async def google_oauth_callback(code: Optional[str] = None, state: Optional[str]
                         json.dumps(extra_config),
                     )
 
-    # Log what was saved: verify client_integrations records for this user+client
+    types_logged = list(integration_types) if integration_types else list(GOOGLE_INTEGRATION_TYPES)
     async with pool.acquire() as conn:
         if client_slug:
             saved = await conn.fetch(
                 """
                 SELECT integration_id, user_id, client_slug, integration_type, updated_at
                 FROM client_integrations
-                WHERE user_id = $1 AND client_slug = $2 AND integration_type IN ('ga4', 'google_ads', 'google_search_console')
+                WHERE user_id = $1 AND client_slug = $2 AND integration_type = ANY($3::text[])
                 ORDER BY integration_type
                 """,
                 user_id,
                 client_slug,
+                types_logged,
             )
         else:
             saved = await conn.fetch(
                 """
                 SELECT integration_id, user_id, client_slug, integration_type, updated_at
                 FROM client_integrations
-                WHERE user_id = $1 AND client_slug IS NULL AND integration_type IN ('ga4', 'google_ads', 'google_search_console')
+                WHERE user_id = $1 AND client_slug IS NULL AND integration_type = ANY($2::text[])
                 ORDER BY integration_type
                 """,
                 user_id,
+                types_logged,
             )
     logger.info(
         "Google OAuth callback: saved %d records for user_id=%s client_slug=%s: %s",
@@ -535,7 +592,10 @@ def _sanitize_extra_config(extra: Optional[dict], integration_type: str) -> dict
         except Exception:
             extra = {}
     out = {k: v for k, v in (extra or {}).items() if k not in ("access_token", "refresh_token")}
-    if integration_type in GOOGLE_INTEGRATION_TYPES and ("access_token" in extra or "refresh_token" in extra):
+    if (
+        integration_type in GOOGLE_OAUTH_INTEGRATION_TYPES
+        and ("access_token" in extra or "refresh_token" in extra)
+    ):
         out["oauth_connected"] = True
     return out
 

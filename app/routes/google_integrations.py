@@ -18,10 +18,21 @@ from app.integrations import (
 router = APIRouter(prefix="/api/integrations/google", tags=["google-integrations"])
 
 
+def _serialize_google_integration_status():
+    """Classes (OAuth client adapters) become null in JSON; booleans unchanged."""
+    out = {}
+    for key, val in GOOGLE_INTEGRATIONS_STATUS.items():
+        if isinstance(val, type):
+            out[key] = None
+        else:
+            out[key] = val
+    return out
+
+
 @router.get("/status")
 async def get_integration_status():
     """Retourneert welke Google-integraties actief zijn op platformniveau."""
-    return {"status": GOOGLE_INTEGRATIONS_STATUS}
+    return {"status": _serialize_google_integration_status()}
 
 
 class PageSpeedRequest(BaseModel):

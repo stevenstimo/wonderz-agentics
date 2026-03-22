@@ -9,6 +9,10 @@ const INTEGRATION_TO_PLATFORM = {
   ga4: 'ga4',
   google_search_console: 'gsc',
   google_ads: 'google_ads',
+  business_profile: 'business_profile',
+  youtube: 'youtube',
+  merchant_center: 'merchant_center',
+  sheets: 'sheets',
   meta_ads: 'meta_ads',
   shopify: 'shopify',
   klaviyo: 'klaviyo',
@@ -18,6 +22,10 @@ const PLATFORM_LABELS = {
   ga4: 'GA4',
   gsc: 'Google Search Console',
   google_ads: 'Google Ads',
+  business_profile: 'Google Business Profile',
+  youtube: 'YouTube',
+  merchant_center: 'Google Merchant Center',
+  sheets: 'Google Sheets',
   lighthouse: 'Lighthouse / PageSpeed Insights',
   meta_ads: 'Meta Business',
   shopify: 'Shopify',
@@ -61,6 +69,10 @@ const PLATFORM_FIELDS = {
   ga4: [],
   gsc: [],
   google_ads: [],
+  business_profile: [],
+  youtube: [],
+  merchant_center: [],
+  sheets: [],
   lighthouse: [{ key: 'url', label: 'Website URL', placeholder: 'https://asured.nl/' }],
   shopify: [{ key: 'shop_domain', label: 'Shop domain', placeholder: 'vitbliss.myshopify.com' }],
   klaviyo: [
@@ -69,7 +81,15 @@ const PLATFORM_FIELDS = {
   ],
 }
 
-const GOOGLE_PLATFORMS = ['ga4', 'gsc', 'google_ads']
+const GOOGLE_PLATFORMS = [
+  'ga4',
+  'gsc',
+  'google_ads',
+  'business_profile',
+  'youtube',
+  'merchant_center',
+  'sheets',
+]
 
 /** Normalize API platform row config (object or JSON string) for form state. */
 function platformConfigToForm(pc) {
@@ -93,6 +113,10 @@ const PLATFORM_TO_SERVICE_TYPE = {
   ga4: 'ga4',
   gsc: 'google_search_console',
   google_ads: 'google_ads',
+  business_profile: 'business_profile',
+  youtube: 'youtube',
+  merchant_center: 'merchant_center',
+  sheets: 'sheets',
   meta_ads: 'meta_ads',
 }
 
@@ -252,7 +276,18 @@ export default function ClientIntegrations() {
     .filter(Boolean)
 
   // meta_ads: alleen de kaart onderaan (OAuth). Lighthouse: eigen rij na Google Ads (geen /integrations prerequisite).
-  const allPlatforms = ['ga4', 'gsc', 'google_ads', 'lighthouse', 'shopify', 'klaviyo']
+  const allPlatforms = [
+    'ga4',
+    'gsc',
+    'google_ads',
+    'business_profile',
+    'youtube',
+    'merchant_center',
+    'sheets',
+    'lighthouse',
+    'shopify',
+    'klaviyo',
+  ]
 
   const fetchGoogleOptions = useCallback(async (platform, _retried = false) => {
     const cfg = GOOGLE_DROPDOWN_CONFIG[platform]
@@ -378,7 +413,17 @@ export default function ClientIntegrations() {
       return
     }
 
-    const connectedValues = ['google', 'ga4', 'google_search_console', 'google_ads', 'meta_ads']
+    const connectedValues = [
+      'google',
+      'ga4',
+      'google_search_console',
+      'google_ads',
+      'business_profile',
+      'youtube',
+      'merchant_center',
+      'sheets',
+      'meta_ads',
+    ]
     if (connectedValues.includes(connected)) {
       setSearchParams({}, { replace: true })
       setError('')
@@ -748,106 +793,133 @@ export default function ClientIntegrations() {
 
               {isGoogle && (
                 <div className="mt-2">
-                  {GOOGLE_DROPDOWN_CONFIG[platform]?.description && (
-                    <p className="text-sm text-slate-500 mb-3">{GOOGLE_DROPDOWN_CONFIG[platform].description}</p>
-                  )}
-                  {isPlatformConnected(platform) ? (
-                    <div className="space-y-3">
-                      {(() => {
-                        const cfg = GOOGLE_DROPDOWN_CONFIG[platform]
-                        const opts = googleOptions[platform] || []
-                        const load = googleLoading[platform]
-                        const loadErr = googleError[platform]
-                        const currentVal =
-                          platformForms[platform]?.[cfg.configKey] ?? getCurrentGoogleValue(platform)
-                        if (loadErr) {
-                          if (loadErr === 'token_expired') {
+                  {!GOOGLE_DROPDOWN_CONFIG[platform] ? (
+                    <>
+                      <p className="text-sm text-slate-500 mb-3">
+                        OAuth voor deze client — geen property- of site-selectie in deze stap.
+                      </p>
+                      {!isPlatformConnected(platform) ? (
+                        <button
+                          type="button"
+                          onClick={() => handleGoogleConnect(platform)}
+                          disabled={connecting === platform}
+                          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 transition disabled:opacity-50"
+                        >
+                          <Plug className="w-4 h-4" />
+                          {connecting === platform ? 'Bezig...' : `Verbind ${PLATFORM_LABELS[platform]}`}
+                        </button>
+                      ) : (
+                        getIntegrationForPlatform(platform)?.extra_config?.google_email && (
+                          <p className="text-sm text-slate-600">
+                            Verbonden als {getIntegrationForPlatform(platform).extra_config.google_email}
+                          </p>
+                        )
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      {GOOGLE_DROPDOWN_CONFIG[platform]?.description && (
+                        <p className="text-sm text-slate-500 mb-3">{GOOGLE_DROPDOWN_CONFIG[platform].description}</p>
+                      )}
+                      {isPlatformConnected(platform) ? (
+                        <div className="space-y-3">
+                          {(() => {
+                            const cfg = GOOGLE_DROPDOWN_CONFIG[platform]
+                            const opts = googleOptions[platform] || []
+                            const load = googleLoading[platform]
+                            const loadErr = googleError[platform]
+                            const currentVal =
+                              platformForms[platform]?.[cfg.configKey] ?? getCurrentGoogleValue(platform)
+                            if (loadErr) {
+                              if (loadErr === 'token_expired') {
+                                return (
+                                  <div className="flex items-center gap-3 mt-2">
+                                    <span className="text-amber-600 text-sm">⚠️ Token verlopen</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleGoogleConnect(platform)}
+                                      className="text-sm px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-medium"
+                                    >
+                                      Opnieuw verbinden
+                                    </button>
+                                  </div>
+                                )
+                              }
+                              return <p className="text-sm text-amber-600">{loadErr}</p>
+                            }
+                            if (load) {
+                              return <p className="text-sm text-slate-500">Laden...</p>
+                            }
+                            const isGoogleAdsGrouped =
+                              platform === 'google_ads' && Array.isArray(googleMccAccounts) && googleMccAccounts.length > 0
                             return (
-                              <div className="flex items-center gap-3 mt-2">
-                                <span className="text-amber-600 text-sm">⚠️ Token verlopen</span>
-                                <button
-                                  type="button"
-                                  onClick={() => handleGoogleConnect(platform)}
-                                  className="text-sm px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-medium"
+                              <>
+                                <select
+                                  value={currentVal}
+                                  onChange={(e) => updateForm(platform, cfg.configKey, e.target.value)}
+                                  disabled={saving === platform}
+                                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                                 >
-                                  Opnieuw verbinden
-                                </button>
-                              </div>
-                            )
-                          }
-                          return <p className="text-sm text-amber-600">{loadErr}</p>
-                        }
-                        if (load) {
-                          return <p className="text-sm text-slate-500">Laden...</p>
-                        }
-                        const isGoogleAdsGrouped =
-                          platform === 'google_ads' && Array.isArray(googleMccAccounts) && googleMccAccounts.length > 0
-                        return (
-                          <>
-                            <select
-                              value={currentVal}
-                              onChange={(e) => updateForm(platform, cfg.configKey, e.target.value)}
-                              disabled={saving === platform}
-                              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                            >
-                              {!currentVal && <option value="">— Selecteer —</option>}
-                              {isGoogleAdsGrouped
-                                ? googleMccAccounts.map((mcc) => (
-                                    <optgroup key={mcc.mcc_id} label={`${mcc.mcc_name} (${mcc.mcc_id})`}>
-                                      {(mcc.children || []).map((child) => (
-                                        <option key={child.customer_id} value={child.customer_id}>
-                                          {cfg.optionLabel ? cfg.optionLabel(child) : (child.descriptive_name || child.customer_id)}
+                                  {!currentVal && <option value="">— Selecteer —</option>}
+                                  {isGoogleAdsGrouped
+                                    ? googleMccAccounts.map((mcc) => (
+                                        <optgroup key={mcc.mcc_id} label={`${mcc.mcc_name} (${mcc.mcc_id})`}>
+                                          {(mcc.children || []).map((child) => (
+                                            <option key={child.customer_id} value={child.customer_id}>
+                                              {cfg.optionLabel ? cfg.optionLabel(child) : (child.descriptive_name || child.customer_id)}
+                                            </option>
+                                          ))}
+                                        </optgroup>
+                                      ))
+                                    : opts.map((opt) => (
+                                        <option key={opt[cfg.valueKey]} value={opt[cfg.valueKey]}>
+                                          {cfg.optionLabel ? cfg.optionLabel(opt) : (opt[cfg.labelKey] || opt[cfg.valueKey])}
                                         </option>
                                       ))}
-                                    </optgroup>
-                                  ))
-                                : opts.map((opt) => (
-                                    <option key={opt[cfg.valueKey]} value={opt[cfg.valueKey]}>
-                                      {cfg.optionLabel ? cfg.optionLabel(opt) : (opt[cfg.labelKey] || opt[cfg.valueKey])}
-                                    </option>
-                                  ))}
-                              {currentVal && !opts.some((o) => o[cfg.valueKey] === currentVal) && (
-                                <option value={currentVal}>{currentVal}</option>
-                              )}
-                            </select>
-                            <div className="flex flex-wrap items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  handleGoogleSave(
-                                    platform,
-                                    platformForms[platform]?.[cfg.configKey] ?? currentVal
-                                  )
-                                }
-                                disabled={!currentVal || saving === platform}
-                                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                              >
-                                <Save className="w-4 h-4" />
-                                {saving === platform ? 'Opslaan...' : 'Opslaan'}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleGoogleDisconnect(platform)}
-                                disabled={disconnecting === platform || saving === platform}
-                                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-300 text-slate-700 bg-white hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                              >
-                                {disconnecting === platform ? 'Bezig...' : 'Verbinding verbreken'}
-                              </button>
-                            </div>
-                          </>
-                        )
-                      })()}
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => handleGoogleConnect(platform)}
-                      disabled={connecting === platform}
-                      className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 transition disabled:opacity-50"
-                    >
-                      <Plug className="w-4 h-4" />
-                      {connecting === platform ? 'Bezig...' : `Verbind ${PLATFORM_LABELS[platform]}`}
-                    </button>
+                                  {currentVal && !opts.some((o) => o[cfg.valueKey] === currentVal) && (
+                                    <option value={currentVal}>{currentVal}</option>
+                                  )}
+                                </select>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleGoogleSave(
+                                        platform,
+                                        platformForms[platform]?.[cfg.configKey] ?? currentVal
+                                      )
+                                    }
+                                    disabled={!currentVal || saving === platform}
+                                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                  >
+                                    <Save className="w-4 h-4" />
+                                    {saving === platform ? 'Opslaan...' : 'Opslaan'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleGoogleDisconnect(platform)}
+                                    disabled={disconnecting === platform || saving === platform}
+                                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-300 text-slate-700 bg-white hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                  >
+                                    {disconnecting === platform ? 'Bezig...' : 'Verbinding verbreken'}
+                                  </button>
+                                </div>
+                              </>
+                            )
+                          })()}
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleGoogleConnect(platform)}
+                          disabled={connecting === platform}
+                          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 transition disabled:opacity-50"
+                        >
+                          <Plug className="w-4 h-4" />
+                          {connecting === platform ? 'Bezig...' : `Verbind ${PLATFORM_LABELS[platform]}`}
+                        </button>
+                      )}
+                    </>
                   )}
                 </div>
               )}

@@ -86,11 +86,19 @@ export default function ClientDetail() {
   }
 
   const handleGoogleDisconnect = async () => {
-    if (!confirm('Google (GA4, Google Ads, GSC) ontkoppelen voor deze client?')) return
+    if (!confirm('Alle Google-integraties (inclusief Business Profile, YouTube, Merchant Center, Sheets) ontkoppelen voor deze client?')) return
     setSaving('google')
     setError('')
     try {
-      const types = ['ga4', 'google_ads', 'google_search_console']
+      const types = [
+        'ga4',
+        'google_ads',
+        'google_search_console',
+        'business_profile',
+        'youtube',
+        'merchant_center',
+        'sheets',
+      ]
       for (const t of types) {
         await apiFetch(`/api/integrations/${t}?client_slug=${encodeURIComponent(slug)}`, {
           method: 'DELETE',

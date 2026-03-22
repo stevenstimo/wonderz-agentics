@@ -8,9 +8,52 @@ import { apiUrl, apiFetch } from './apiClient'
 const PLATFORMS = [
   { id: 'klaviyo', name: 'Klaviyo', connected: false, form: true, oauth: false },
   { id: 'shopify', name: 'Shopify', connected: false, form: false, oauth: false },
-  { id: 'google_ads', name: 'Google Ads', connected: false, form: false, oauth: true },
-  { id: 'ga4', name: 'GA4', connected: false, form: false, oauth: true },
-  { id: 'google_search_console', name: 'Google Search Console', connected: false, form: false, oauth: true },
+  { id: 'google_ads', name: 'Google Ads', connected: false, form: false, oauth: true, googleService: 'google_ads' },
+  { id: 'ga4', name: 'GA4', connected: false, form: false, oauth: true, googleService: 'ga4' },
+  {
+    id: 'google_search_console',
+    name: 'Google Search Console',
+    connected: false,
+    form: false,
+    oauth: true,
+    googleService: 'google_search_console',
+  },
+  {
+    id: 'business_profile',
+    name: 'Google Business Profile',
+    description: 'Locaties, reviews en berichten (Google Maps / Business Profile API).',
+    connected: false,
+    form: false,
+    oauth: true,
+    googleService: 'business_profile',
+  },
+  {
+    id: 'youtube',
+    name: 'YouTube',
+    description: 'Kanaal, video’s en YouTube Analytics (read-only).',
+    connected: false,
+    form: false,
+    oauth: true,
+    googleService: 'youtube',
+  },
+  {
+    id: 'merchant_center',
+    name: 'Google Merchant Center',
+    description: 'Productfeed en accountstatus (Content API).',
+    connected: false,
+    form: false,
+    oauth: true,
+    googleService: 'merchant_center',
+  },
+  {
+    id: 'sheets',
+    name: 'Google Sheets',
+    description: 'Spreadsheets lezen voor rapportages (read-only).',
+    connected: false,
+    form: false,
+    oauth: true,
+    googleService: 'sheets',
+  },
   { id: 'meta_business', name: 'Meta Business', connected: false, form: false, oauth: true },
   { id: 'pinterest', name: 'Pinterest', connected: false, form: false, oauth: false },
 ]
@@ -61,23 +104,21 @@ export default function Integrations() {
     fetchIntegrations()
   }, [navigate, location])
 
-  // Refetch when returning from OAuth callback (?connected=google)
+  // Refetch when returning from OAuth callback (?connected=...)
   useEffect(() => {
     const connected = searchParams.get('connected')
-    if (connected === 'google') {
-      setSearchParams({}, { replace: true })
-      const refetch = async () => {
-        try {
-          const res = await apiFetch('/api/integrations', {
-          })
-          if (res.ok) {
-            const data = await res.json()
-            setIntegrations(data)
-          }
-        } catch (_) {}
-      }
-      refetch()
+    if (!connected) return
+    setSearchParams({}, { replace: true })
+    const refetch = async () => {
+      try {
+        const res = await apiFetch('/api/integrations', {})
+        if (res.ok) {
+          const data = await res.json()
+          setIntegrations(data)
+        }
+      } catch (_) {}
     }
+    refetch()
   }, [searchParams])
 
   // meta_error from URL (e.g. redirect from failed Meta callback)
@@ -193,11 +234,14 @@ export default function Integrations() {
     }
   }
 
-  const handleGoogleConnect = async () => {
+  const handleGoogleConnect = async (serviceType) => {
+    if (!serviceType) return
     setError('')
     try {
       const res = await apiFetch('/api/integrations/google/auth-url', {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ service_type: serviceType }),
       })
       if (res.status === 401) {
         navigate('/login', { state: { from: location } })
@@ -215,6 +259,30 @@ export default function Integrations() {
     } catch (err) {
       console.error('Google connect failed:', err)
       setError(err.message || 'Verbinden mislukt')
+    }
+  }
+
+  const handleGoogleDisconnect = async (serviceType) => {
+    if (!serviceType) return
+    if (!confirm('Google-verbinding voor dit platform verbreken?')) return
+    setError('')
+    try {
+      const res = await apiFetch(`/api/integrations/${encodeURIComponent(serviceType)}`, {
+        method: 'DELETE',
+      })
+      if (res.status === 401) {
+        navigate('/login', { state: { from: location } })
+        return
+      }
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}))
+        setError(j.detail || 'Ontkoppelen mislukt')
+        return
+      }
+      const listRes = await apiFetch('/api/integrations', {})
+      if (listRes.ok) setIntegrations(await listRes.json())
+    } catch (err) {
+      setError(err.message || 'Ontkoppelen mislukt')
     }
   }
 
@@ -286,7 +354,12 @@ export default function Integrations() {
               className="panel-card flex flex-col"
             >
               <div className="flex items-center justify-between mb-4">
-                <h3 className="font-semibold text-slate-800">{platform.name}</h3>
+                <div>
+                  <h3 className="font-semibold text-slate-800">{platform.name}</h3>
+                  {platform.description && (
+                    <p className="text-sm text-slate-500 mt-1">{platform.description}</p>
+                  )}
+                </div>
                 <span
                   className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-sm font-medium ${
                     connected
@@ -350,15 +423,27 @@ export default function Integrations() {
                 </div>
               )}
 
-              {platform.oauth && !connected && platform.id !== 'meta_business' && (
+              {platform.oauth && platform.googleService && !connected && (
                 <div className="mt-2">
                   <button
                     type="button"
-                    onClick={handleGoogleConnect}
+                    onClick={() => handleGoogleConnect(platform.googleService)}
                     className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 transition"
                   >
                     <Plug className="w-4 h-4" />
                     Verbinden
+                  </button>
+                </div>
+              )}
+
+              {platform.oauth && platform.googleService && connected && (
+                <div className="mt-2">
+                  <button
+                    type="button"
+                    onClick={() => handleGoogleDisconnect(platform.googleService)}
+                    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-red-200 text-red-700 bg-white hover:bg-red-50 transition"
+                  >
+                    Verbreek verbinding
                   </button>
                 </div>
               )}
