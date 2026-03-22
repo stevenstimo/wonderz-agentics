@@ -5,6 +5,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { supabase } from './supabase'
 import PageLayout from './PageLayout'
+import { useJobWebSocket } from './hooks/useJobWebSocket'
 import { Sparkles, Play, CheckCircle, XCircle, Loader2, ChevronRight, Circle } from 'lucide-react'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:8090'
@@ -75,6 +76,26 @@ export default function JobFlow() {
   const [nowMs, setNowMs] = useState(Date.now())
   const bottomRef = useRef(null)
   const pollRef = useRef(null)
+  const wsConnectedRef = useRef(false)
+
+  const { jobData: wsRaw, connected } = useJobWebSocket(jobId)
+
+  useEffect(() => {
+    wsConnectedRef.current = connected
+  }, [connected])
+
+  useEffect(() => {
+    if (!wsRaw || !jobId) return
+    setJobData((prev) => {
+      if (wsRaw.job != null && Array.isArray(wsRaw.steps)) return wsRaw
+      if (wsRaw.job != null && Array.isArray(wsRaw.clarifications)) return wsRaw
+      if (typeof wsRaw.status === 'string' || wsRaw.id) {
+        const base = prev || {}
+        return { ...base, job: { ...(base.job || {}), ...wsRaw } }
+      }
+      return prev
+    })
+  }, [wsRaw, jobId])
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
 
@@ -115,6 +136,7 @@ export default function JobFlow() {
   const startPolling = (id) => {
     if (pollRef.current) clearInterval(pollRef.current)
     pollRef.current = setInterval(async () => {
+      if (wsConnectedRef.current) return
       const d = await loadJob(id)
       if (!d) return
       const status = d.job?.status

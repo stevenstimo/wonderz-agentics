@@ -756,11 +756,14 @@ export default function HRDashboard() {
   const [reportLoading, setReportLoading] = useState(false)
   const [resolveInput, setResolveInput] = useState({})
   const [expandedPointId, setExpandedPointId] = useState(null)
-  const scanIntervalRef = useRef(null)
+  const scanStepAnimRef = useRef(null)
+  const pointsPollRef = useRef(null)
 
-  const loadPoints = useCallback(async () => {
-    setLoading(true)
-    setError('')
+  const loadPoints = useCallback(async ({ silent } = {}) => {
+    if (!silent) {
+      setLoading(true)
+      setError('')
+    }
     try {
       const res = await apiFetch('/api/hr/development-points')
       if (res.ok) {
@@ -768,9 +771,9 @@ export default function HRDashboard() {
         setPoints(data.development_points ?? (Array.isArray(data) ? data : []))
       }
     } catch (err) {
-      setError(err.message || 'Laden mislukt')
+      if (!silent) setError(err.message || 'Laden mislukt')
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }, [])
 
@@ -811,6 +814,25 @@ export default function HRDashboard() {
     else if (tab === 'cross') loadCrossProposals()
   }, [authReady, tab, loadPoints, loadCrossProposals])
 
+  useEffect(() => {
+    if (!authReady || tab !== 'points') {
+      if (pointsPollRef.current) {
+        clearInterval(pointsPollRef.current)
+        pointsPollRef.current = null
+      }
+      return undefined
+    }
+    pointsPollRef.current = setInterval(() => {
+      void loadPoints({ silent: true })
+    }, 60_000)
+    return () => {
+      if (pointsPollRef.current) {
+        clearInterval(pointsPollRef.current)
+        pointsPollRef.current = null
+      }
+    }
+  }, [authReady, tab, loadPoints])
+
   // Mark CEO notifications as read when user lands on HR dashboard
   useEffect(() => {
     if (!authReady) return
@@ -836,7 +858,7 @@ export default function HRDashboard() {
 
   useEffect(() => {
     return () => {
-      if (scanIntervalRef.current) clearInterval(scanIntervalRef.current)
+      if (scanStepAnimRef.current) clearInterval(scanStepAnimRef.current)
     }
   }, [])
 
@@ -850,14 +872,14 @@ export default function HRDashboard() {
     setScanStep(0)
     setError('')
 
-    scanIntervalRef.current = setInterval(() => {
+    scanStepAnimRef.current = setInterval(() => {
       setScanStep((prev) => Math.min(prev + 1, 2))
     }, 1200)
 
     try {
       const res = await apiFetch('/api/hr/scan', { method: 'POST' })
-      if (scanIntervalRef.current) clearInterval(scanIntervalRef.current)
-      scanIntervalRef.current = null
+      if (scanStepAnimRef.current) clearInterval(scanStepAnimRef.current)
+      scanStepAnimRef.current = null
       setScanStep(2)
 
       const data = res.ok ? await res.json().catch(() => ({})) : {}
@@ -878,8 +900,8 @@ export default function HRDashboard() {
         setScanMessage('')
       }, 3000)
     } catch {
-      if (scanIntervalRef.current) clearInterval(scanIntervalRef.current)
-      scanIntervalRef.current = null
+      if (scanStepAnimRef.current) clearInterval(scanStepAnimRef.current)
+      scanStepAnimRef.current = null
       setScanStep(2)
       setScanOutcome('error')
       setScanResultText('Scan mislukt')

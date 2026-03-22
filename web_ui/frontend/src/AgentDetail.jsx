@@ -82,20 +82,17 @@ const TAB_PRESTATIES = 'prestaties'
 const TAB_CHAT = 'chat'
 
 function KennisTab({ agentId, knowledgeSources, relativeTime }) {
-  const [manualChunks, setManualChunks] = useState([])
-  const [loading, setLoading] = useState(true)
-  useEffect(() => {
-    if (!agentId) return
-    setLoading(true)
-    apiFetch(`/api/training/${encodeURIComponent(agentId)}/knowledge-base`)
-      .then((r) => (r.ok ? r.json() : []))
-      .then((data) => {
-        const list = Array.isArray(data) ? data : []
-        setManualChunks(list.filter((c) => (c.source_url || '').startsWith('direct_chat:')))
-      })
-      .catch(() => setManualChunks([]))
-      .finally(() => setLoading(false))
-  }, [agentId])
+  const { data: manualChunks = [], isLoading: loading } = useQuery({
+    queryKey: queryKeys.agentKnowledgeManual(agentId),
+    queryFn: async () => {
+      const r = await apiFetch(`/api/training/${encodeURIComponent(agentId)}/knowledge-base`)
+      if (!r.ok) return []
+      const data = await r.json()
+      const list = Array.isArray(data) ? data : []
+      return list.filter((c) => (c.source_url || '').startsWith('direct_chat:'))
+    },
+    enabled: Boolean(agentId),
+  })
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
       <h3 className="text-lg font-semibold text-slate-900 mb-4">Kennisbronnen</h3>

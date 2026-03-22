@@ -1,70 +1,74 @@
 import { useEffect, useState } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { CheckCircle, XCircle, Clock, RefreshCw, Loader } from 'lucide-react'
 import PageLayout from './PageLayout';
 import { ToastContainer, useToast } from './Toast'
+import { apiFetch } from './apiClient'
+import { queryKeys } from './queryKeys'
 
 export default function ApprovalDashboard() {
-  const [approvals, setApprovals] = useState([])
-  const [loading, setLoading] = useState(false)
-  const [decisionLoading, setDecisionLoading] = useState(null)
-  const [error, setError] = useState(null)
+  const queryClient = useQueryClient()
   const [filter, setFilter] = useState('pending')
   const [notes, setNotes] = useState({})
   const toast = useToast()
 
-  const fetchApprovals = async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/ceo/approvals`)
+  const {
+    data: approvals = [],
+    isLoading: loading,
+    isError,
+    error: queryError,
+    refetch,
+  } = useQuery({
+    queryKey: queryKeys.ceoApprovals(),
+    queryFn: async () => {
+      const res = await apiFetch('/api/ceo/approvals')
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}))
         throw new Error(errorData.detail || 'Failed to fetch approvals')
       }
       const data = await res.json()
-      setApprovals(Array.isArray(data) ? data : [])
-    } catch (err) {
-      const errorMsg = err.message || 'Failed to load approvals'
-      setError(errorMsg)
-      toast.error(errorMsg)
-    } finally {
-      setLoading(false)
-    }
-  }
+      return Array.isArray(data) ? data : []
+    },
+  })
+
+  const error = isError ? (queryError?.message || 'Failed to load approvals') : null
 
   useEffect(() => {
-    fetchApprovals()
-  }, [])
+    if (isError && queryError) {
+      toast.error(queryError.message || 'Failed to load approvals')
+    }
+  }, [isError, queryError, toast])
 
-  const handleDecision = async (approval_id, approved) => {
-    setDecisionLoading(approval_id)
-    try {
-      const res = await fetch(
-        `${import.meta.env.VITE_API_URL}/api/ceo/approval/${approval_id}/decide?approved=${approved}`,
+  const decideMutation = useMutation({
+    mutationFn: async ({ approval_id, approved, note }) => {
+      const res = await apiFetch(
+        `/api/ceo/approval/${approval_id}/decide?approved=${approved}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ note: notes[approval_id] || '' })
+          body: JSON.stringify({ note: note || '' }),
         }
       )
-      
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}))
         throw new Error(errorData.detail || errorData.error || 'Failed to process decision')
       }
-      
+    },
+    onSuccess: (_, { approval_id, approved }) => {
       const action = approved ? 'approved' : 'rejected'
       toast.success(`Request ${action} successfully`)
-      setNotes(prev => ({ ...prev, [approval_id]: '' }))
-      setError(null)
-      fetchApprovals()
-    } catch (err) {
-      const errorMsg = err.message || 'Failed to process decision'
-      setError(errorMsg)
-      toast.error(errorMsg)
-    } finally {
-      setDecisionLoading(null)
-    }
+      setNotes((prev) => ({ ...prev, [approval_id]: '' }))
+      queryClient.invalidateQueries({ queryKey: queryKeys.ceoApprovals() })
+    },
+    onError: (err) => {
+      toast.error(err.message || 'Failed to process decision')
+    },
+  })
+
+  const decisionLoading = decideMutation.isPending ? decideMutation.variables?.approval_id ?? null : null
+
+  const handleDecision = (approval_id, approved) => {
+    decideMutation.mutate({ approval_id, approved, note: notes[approval_id] || '' })
   }
 
   const filtered = approvals.filter(a => filter === 'all' || a.status === filter)
@@ -113,7 +117,8 @@ export default function ApprovalDashboard() {
                 <p className="page-subtitle">Approve high-impact changes and training requests.</p>
               </div>
               <button
-                onClick={fetchApprovals}
+                type="button"
+                onClick={() => refetch()}
                 className="wz-btn-primary gap-2 flex items-center"
               >
                 <RefreshCw className="w-4 h-4" />

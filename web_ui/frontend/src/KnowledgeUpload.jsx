@@ -123,13 +123,14 @@ export default function KnowledgeUpload() {
     setError('')
     setProgressStep(1)
 
-    const stepInterval = setInterval(() => {
-      setProgressStep((s) => Math.min(s + 1, 2))
-    }, 800)
-
+    let stepInterval = null
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
     try {
+      stepInterval = setInterval(() => {
+        setProgressStep((s) => Math.min(s + 1, 2))
+      }, 800)
+
       let res
       if (sourceTab === 'url') {
         res = await apiFetch('/api/knowledge/upload/url', {

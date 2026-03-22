@@ -1,13 +1,16 @@
 import { useState, useEffect } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import PageLayout from './PageLayout'
 import { Save, Eye, EyeOff, AlertCircle, Pencil, Check } from 'lucide-react'
 import { apiFetch } from './apiClient'
 import { useAuthReady } from './useAuthReady'
+import { queryKeys } from './queryKeys'
 
 
 const apiBase = (import.meta.env.VITE_API_URL || 'http://localhost:8090').replace(/\/$/, '')
 
 export default function Settings() {
+  const queryClient = useQueryClient()
   const { authReady } = useAuthReady()
   const [settings, setSettings] = useState({
     gemini_api_key: '',
@@ -21,34 +24,42 @@ export default function Settings() {
     supabase_url: false,
     supabase_key: false,
   })
-  const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState({ type: '', text: '' })
 
-  useEffect(() => {
-    if (!authReady) return
-    const fetchSettings = async () => {
-      setLoading(true)
-      try {
-        const response = await apiFetch('/api/settings')
-
-        if (response.ok) {
-          const data = await response.json()
-          setSettings((prev) => ({ ...prev, ...data }))
-        } else if (response.status === 401 || response.status === 403) {
-          setMessage({ type: 'error', text: 'Geen toegang. Alleen super admin kan settings bekijken.' })
-        } else {
-          setMessage({ type: 'error', text: `Failed to load settings (status ${response.status})` })
-        }
-      } catch (error) {
-        setMessage({ type: 'error', text: 'Failed to load settings (network error)' })
-      } finally {
-        setLoading(false)
+  const {
+    data: serverSettings,
+    isLoading: settingsQueryLoading,
+    error: settingsQueryError,
+  } = useQuery({
+    queryKey: queryKeys.settings(),
+    enabled: authReady,
+    queryFn: async () => {
+      const response = await apiFetch('/api/settings')
+      if (response.ok) return response.json()
+      if (response.status === 401 || response.status === 403) {
+        throw Object.assign(new Error('FORBIDDEN'), { code: 'FORBIDDEN' })
       }
-    }
+      throw new Error(`status ${response.status}`)
+    },
+  })
 
-    fetchSettings()
-  }, [authReady])
+  useEffect(() => {
+    if (serverSettings) {
+      setSettings((prev) => ({ ...prev, ...serverSettings }))
+    }
+  }, [serverSettings])
+
+  useEffect(() => {
+    if (!settingsQueryError) return
+    if (settingsQueryError.code === 'FORBIDDEN') {
+      setMessage({ type: 'error', text: 'Geen toegang. Alleen super admin kan settings bekijken.' })
+    } else {
+      setMessage({ type: 'error', text: 'Failed to load settings (network error)' })
+    }
+  }, [settingsQueryError])
+
+  const loading = !authReady || settingsQueryLoading
 
   const handleChange = (field, value) => {
     setSettings((prev) => ({ ...prev, [field]: value }))
@@ -67,6 +78,7 @@ export default function Settings() {
 
       if (response.ok) {
         setMessage({ type: 'success', text: 'Settings saved successfully.' })
+        queryClient.invalidateQueries({ queryKey: queryKeys.settings() })
       } else if (response.status === 401 || response.status === 403) {
         setMessage({ type: 'error', text: 'Geen toegang. Alleen super admin kan settings opslaan.' })
       } else {

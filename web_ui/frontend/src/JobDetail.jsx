@@ -6,6 +6,8 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import PageLayout from './PageLayout'
 import { apiUrl, apiFetch } from './apiClient'
+import { useJobWebSocket } from './hooks/useJobWebSocket'
+import { CONFIG } from './config'
 
 const STATUS_BADGE = {
   INTAKE_CLARIFICATION: 'bg-amber-100 text-amber-800',
@@ -108,10 +110,15 @@ export default function JobDetail() {
   const chatHistoryLengthRef = useRef(0)
   const intervalRef = useRef(null)
 
-  const fetchJob = useCallback(async () => {
+  const wsEnabled = CONFIG.features?.enableWebSocket !== false
+  const { jobData: wsPayload, connected } = useJobWebSocket(wsEnabled ? jobId : null)
+
+  const fetchJob = useCallback(async ({ silent } = {}) => {
     if (!jobId) return
-    setLoading(true)
-    setError(null)
+    if (!silent) {
+      setLoading(true)
+      setError(null)
+    }
     try {
       const url = apiUrl(`/api/jobs/${jobId}`)
       const controller = new AbortController()
@@ -138,9 +145,9 @@ export default function JobDetail() {
       setData(json)
     } catch (err) {
       if (err.name === 'AbortError') setError('Request timed out. Check your connection.')
-      else setError(err.message || 'Failed to load job')
+      else if (!silent) setError(err.message || 'Failed to load job')
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }, [jobId])
 
@@ -149,12 +156,34 @@ export default function JobDetail() {
   }, [fetchJob])
 
   useEffect(() => {
+    if (!wsPayload) return
+    setData((prev) => {
+      if (!prev) return prev
+      const p = wsPayload
+      if (
+        p.job != null &&
+        (Array.isArray(p.steps) || Array.isArray(p.clarifications) || p.document_preview != null)
+      ) {
+        return p
+      }
+      if (typeof p.status === 'string' || p.id) {
+        return { ...prev, job: { ...(prev.job || {}), ...p } }
+      }
+      return prev
+    })
+  }, [wsPayload])
+
+  useEffect(() => {
     if (!data?.job || data.job.status !== 'RUNNING') return
-    intervalRef.current = setInterval(fetchJob, 5000)
+    if (connected) {
+      if (intervalRef.current) clearInterval(intervalRef.current)
+      return undefined
+    }
+    intervalRef.current = setInterval(() => fetchJob({ silent: true }), 5000)
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current)
     }
-  }, [data?.job?.status, fetchJob])
+  }, [data?.job?.status, connected, fetchJob])
 
   useEffect(() => {
     if (!sendingChat && ceoTyping) {

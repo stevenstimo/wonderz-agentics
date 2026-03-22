@@ -1,10 +1,14 @@
 import { useEffect, useState } from 'react'
 import { apiFetch } from '../apiClient'
 
+const POLL_MS = 60_000
+
 export default function SystemEventsBadge() {
   const [count, setCount] = useState(0)
 
   useEffect(() => {
+    let intervalId = null
+
     const fetchCount = async () => {
       try {
         const res = await apiFetch('/api/system-events?unresolved_only=true&limit=50')
@@ -16,9 +20,30 @@ export default function SystemEventsBadge() {
       }
     }
 
-    fetchCount()
-    const interval = setInterval(fetchCount, 30000)
-    return () => clearInterval(interval)
+    const stop = () => {
+      if (intervalId != null) {
+        clearInterval(intervalId)
+        intervalId = null
+      }
+    }
+
+    const start = () => {
+      void fetchCount()
+      stop()
+      intervalId = setInterval(fetchCount, POLL_MS)
+    }
+
+    const onVisibility = () => {
+      if (document.hidden) stop()
+      else start()
+    }
+
+    if (!document.hidden) start()
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility)
+      stop()
+    }
   }, [])
 
   if (count === 0) return null

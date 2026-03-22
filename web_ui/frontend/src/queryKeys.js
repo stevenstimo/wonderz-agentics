@@ -18,4 +18,7 @@ export const queryKeys = {
   systemEvents: () => ['system', 'events'],
   approvalSummary: () => ['approval', 'summary'],
   health: () => ['health'],
+  ceoApprovals: () => ['ceo', 'approvals'],
+  settings: () => ['settings'],
+  agentKnowledgeManual: (agentId) => ['agents', agentId, 'knowledge-manual'],
 }
