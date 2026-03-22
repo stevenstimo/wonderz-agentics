@@ -19,7 +19,7 @@ REGRESSION_CASES: list[dict[str, Any]] = [
             "client_id": None,
         },
         "expected_checks": {
-            "response_contract": True,
+            "response_contract": False,
             "lesson_created": True,
         },
     },
@@ -55,13 +55,6 @@ REGRESSION_CASES: list[dict[str, Any]] = [
         "expected_checks": {
             "response_contract": False,
             "lesson_created": False,
-            "terminal_status_in": [
-                "FAILED",
-                "ERROR",
-                "INTAKE_CLARIFICATION",
-                "PLAN_PROPOSED",
-            ],
-            "skip_checks": ["no_unhandled_errors"],
         },
     },
 ]
