@@ -551,7 +551,26 @@ async def get_development_point_detail(point_id: str):
     async with pool.acquire() as conn:
         dp_row = await conn.fetchrow(
             """
-            SELECT ai.*, ha.name AS agent_name, ha.role AS agent_role, ha.agent_id AS ha_agent_id
+            SELECT
+                ai.id,
+                ai.point_id,
+                ai.agent_id,
+                ai.agent_role,
+                ai.issue_description,
+                ai.evidence_example,
+                ai.frequency,
+                ai.impact,
+                ai.status,
+                ai.source_url,
+                ai.approved_by,
+                ai.proposed_by,
+                ai.created_at,
+                ai.updated_at,
+                ai.source,
+                ai.metadata,
+                ha.name AS agent_name,
+                ha.role AS joined_ha_role,
+                ha.agent_id AS ha_agent_id
             FROM development_points ai
             LEFT JOIN hired_agents ha ON ai.agent_id = ha.agent_id
             WHERE ai.id::text = $1
@@ -560,7 +579,7 @@ async def get_development_point_detail(point_id: str):
         )
         if not dp_row:
             raise HTTPException(status_code=404, detail=f"Development point {point_id} niet gevonden")
-        point_id = str(dp_row["id"])
+        point_id = str(dp_row.get("id") or dp_row.get("point_id") or "")
 
         ha_cols = await _get_table_columns(conn, "hired_agents")
         agent_row = await conn.fetchrow(
@@ -568,7 +587,19 @@ async def get_development_point_detail(point_id: str):
             dp_row["agent_id"],
         ) if dp_row.get("agent_id") else None
 
-        run_id = _extract_job_id_from_evidence(dp_row.get("details"))
+        meta_raw = dp_row.get("metadata")
+        meta: Dict[str, Any] = {}
+        if isinstance(meta_raw, dict):
+            meta = meta_raw
+        elif isinstance(meta_raw, str) and meta_raw.strip():
+            try:
+                parsed = json.loads(meta_raw)
+                if isinstance(parsed, dict):
+                    meta = parsed
+            except (TypeError, ValueError):
+                meta = {}
+
+        run_id = _extract_job_id_from_evidence(dp_row.get("evidence_example"))
         if not run_id and dp_row.get("agent_id"):
             first_job = await conn.fetchval(
                 """
@@ -607,22 +638,32 @@ async def get_development_point_detail(point_id: str):
                     "notes": (s.get("retry_reason") or "").strip() or None,
                 })
 
-        confidence = dp_row.get("confidence_score")
+        confidence = meta.get("confidence_score")
         if confidence is not None:
-            confidence = float(confidence)
+            try:
+                confidence = float(confidence)
+            except (TypeError, ValueError):
+                confidence = None
+        resolved_raw = meta.get("resolved_at")
+        resolved_at = None
+        if resolved_raw is not None and hasattr(resolved_raw, "isoformat"):
+            resolved_at = resolved_raw.isoformat()
+        elif isinstance(resolved_raw, str):
+            resolved_at = resolved_raw
+        freq_val = dp_row.get("frequency")
         point = {
             "point_id": point_id,
-            "issue_description": dp_row.get("title") or "",
-            "root_cause": dp_row.get("summary"),
-            "evidence_example": dp_row.get("details"),
-            "frequency": 1,
+            "issue_description": dp_row.get("issue_description") or "",
+            "root_cause": meta.get("root_cause") or meta.get("summary"),
+            "evidence_example": dp_row.get("evidence_example"),
+            "frequency": int(freq_val) if freq_val is not None else 1,
             "impact": (dp_row.get("impact") or "low").lower(),
             "status": (dp_row.get("status") or "OPEN").upper(),
             "proposed_by": dp_row.get("proposed_by"),
             "source_url": dp_row.get("source_url"),
             "confidence_score": confidence,
             "created_at": dp_row["created_at"].isoformat() if dp_row.get("created_at") and hasattr(dp_row["created_at"], "isoformat") else None,
-            "resolved_at": dp_row["resolved_at"].isoformat() if dp_row.get("resolved_at") and hasattr(dp_row["resolved_at"], "isoformat") else None,
+            "resolved_at": resolved_at,
         }
 
         agent: Dict[str, Any] = {}
@@ -677,12 +718,12 @@ async def get_development_point_detail(point_id: str):
                 FROM development_points ai
                 LEFT JOIN hired_agents ha ON ai.agent_id = ha.agent_id
                 WHERE ai.status = 'OPEN' AND ai.agent_id != $1
-                  AND lower(trim(ai.title)) = lower(trim($2))
+                  AND lower(trim(COALESCE(ai.issue_description, ''))) = lower(trim(COALESCE($2::text, '')))
                 ORDER BY ai.created_at DESC
                 LIMIT 5
                 """,
                 agent_id_val,
-                (dp_row.get("title") or "")[:200],
+                (dp_row.get("issue_description") or "")[:200],
             )
             cross_agent.append({
                 "agent_id": agent_id_val,
