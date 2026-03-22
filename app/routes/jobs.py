@@ -13,6 +13,7 @@ Endpoints:
 """
 
 import os
+import re
 import uuid
 import json
 import logging
@@ -328,6 +329,30 @@ def _coerce_context(raw) -> dict:
     return val if isinstance(val, dict) else {}
 
 
+def _clean_content_for_display(text: str) -> str:
+    """Strip internal pipeline instruction lines from user-facing content.
+
+    Matches lines like ``[Long instruction text]`` or ``[Instruction] {"json": ...}``.
+    Short bracket spans (e.g. markdown links) are kept.
+    """
+    if not text or not isinstance(text, str):
+        return text if isinstance(text, str) else ""
+
+    lines = text.split("\n")
+    cleaned: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("[") and "]" in stripped:
+            close = stripped.index("]")
+            bracket_content = stripped[1:close]
+            after = stripped[close + 1 :].strip()
+            if len(bracket_content) > 20 or after.startswith("{"):
+                continue
+        cleaned.append(line)
+
+    return "\n".join(cleaned).strip()
+
+
 def _job_for_response(job_row) -> dict:
     """Prepare job dict for API response: inject job_number from dedicated column(s) into context.
     Prefer ``job_number`` (eigen kolom) then legacy ``job_number_int``.
@@ -425,6 +450,7 @@ def build_document_preview(job: dict) -> dict:
         partial = context.get("final_content") or context.get("partial_content") or context.get("draft") or ""
         if not partial and isinstance(payload.get("proposed_data"), str):
             partial = payload["proposed_data"]
+        partial = _clean_content_for_display(partial) if isinstance(partial, str) else ""
         return {
             "type": "draft",
             "title": "Bezig met genereren...",
@@ -432,7 +458,7 @@ def build_document_preview(job: dict) -> dict:
             "subtitle": "Live preview",
         }
     elif status in ("JOB_READY", "COMPLETED"):
-        content = _final_content()
+        content = _clean_content_for_display(_final_content())
         return {
             "type": "final",
             "title": title_fallback,
@@ -446,6 +472,298 @@ def build_document_preview(job: dict) -> dict:
             "content": "",
             "subtitle": "",
         }
+
+
+def _extract_word_count_from_description(description: str) -> int:
+    """Extract desired word count from free text (e.g. '300 woorden', '400-500 woorden')."""
+    if not description or not isinstance(description, str):
+        return 0
+    patterns = [
+        r"(\d+)\s*[-–]\s*\d+\s*woord",
+        r"(\d+)\s*woord",
+        r"(\d+)\s*word",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, description.lower())
+        if match:
+            return int(match.group(1))
+    return 0
+
+
+def _delivery_text_for_quality(job: dict) -> str:
+    """Same sources as document viewer final content; fallback JSON for structured proposed_data."""
+    preview = build_document_preview(job)
+    t = preview.get("content") or ""
+    if isinstance(t, str) and t.strip():
+        return t
+    ctx = job.get("context") or {}
+    if isinstance(ctx, str):
+        try:
+            ctx = json.loads(ctx)
+        except Exception:
+            ctx = {}
+    if not isinstance(ctx, dict):
+        ctx = {}
+    payload = job.get("payload") or {}
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except Exception:
+            payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+    for pd in (payload.get("proposed_data"), ctx.get("proposed_data")):
+        if isinstance(pd, dict):
+            inner = pd.get("content") or pd.get("text") or pd.get("output")
+            if isinstance(inner, str) and inner.strip():
+                return inner
+            try:
+                return json.dumps(pd, ensure_ascii=False)
+            except TypeError:
+                return str(pd)
+        if isinstance(pd, str) and pd.strip():
+            return pd
+    return ""
+
+
+async def _lesson_count_for_job(conn, job_id: str) -> tuple[int, str]:
+    """Count lessons linked to job; mirrors eval_runner when source_job_id missing."""
+    jid = uuid.UUID(job_id)
+    has_col = await conn.fetchval(
+        """
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'lessons' AND column_name = 'source_job_id'
+        """
+    )
+    if has_col:
+        n = await conn.fetchval(
+            "SELECT COUNT(*)::int FROM lessons WHERE source_job_id = $1",
+            jid,
+        )
+        return (int(n or 0), "source_job_id")
+    n = await conn.fetchval(
+        "SELECT COUNT(*)::int FROM lessons WHERE task_id = $1",
+        str(jid),
+    )
+    return (int(n or 0), "task_id")
+
+
+async def build_quality_report(conn, job_id: str) -> dict:
+    """Build quality checks and per-agent stats for a job (JOB_READY / COMPLETED delivery)."""
+    row = await conn.fetchrow("SELECT * FROM jobs WHERE id=$1", job_id)
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+
+    job = _job_for_response(dict(row))
+    steps = await conn.fetch(
+        "SELECT * FROM job_steps WHERE job_id=$1 ORDER BY step_index NULLS LAST, created_at",
+        job_id,
+    )
+    steps_list = [dict(s) for s in steps]
+
+    context = job.get("context") or {}
+    if isinstance(context, str):
+        try:
+            context = json.loads(context)
+        except Exception:
+            context = {}
+    if not isinstance(context, dict):
+        context = {}
+
+    brief = context.get("brief") if isinstance(context.get("brief"), dict) else {}
+    content_text = _clean_content_for_display(_delivery_text_for_quality(job))
+    word_count = len(content_text.split()) if content_text else 0
+
+    requested_words = (
+        context.get("word_count")
+        or context.get("words")
+        or brief.get("word_count")
+        or brief.get("words")
+    )
+    if not requested_words:
+        desc = (
+            context.get("description")
+            or brief.get("description")
+            or brief.get("job_post")
+            or job.get("job_post")
+            or ""
+        )
+        if isinstance(desc, str):
+            requested_words = _extract_word_count_from_description(desc)
+        else:
+            requested_words = 0
+
+    checks = []
+
+    if requested_words:
+        try:
+            rw = int(requested_words)
+        except (TypeError, ValueError):
+            rw = 0
+        if rw > 0:
+            margin = 0.15
+            lower = int(rw * (1 - margin))
+            upper = int(rw * (1 + margin))
+            passed = lower <= word_count <= upper
+            checks.append(
+                {
+                    "id": "word_count",
+                    "label": "Woordtelling",
+                    "passed": passed,
+                    "detail": f"{word_count} woorden geleverd"
+                    + (f" (gevraagd: ~{rw})" if not passed else ""),
+                    "expected": f"~{rw} woorden (±15%)",
+                    "actual": f"{word_count} woorden",
+                }
+            )
+        else:
+            checks.append(
+                {
+                    "id": "word_count",
+                    "label": "Woordtelling",
+                    "passed": True,
+                    "detail": f"{word_count} woorden geleverd",
+                    "expected": "Niet gespecificeerd",
+                    "actual": f"{word_count} woorden",
+                }
+            )
+    else:
+        checks.append(
+            {
+                "id": "word_count",
+                "label": "Woordtelling",
+                "passed": True,
+                "detail": f"{word_count} woorden geleverd",
+                "expected": "Niet gespecificeerd",
+                "actual": f"{word_count} woorden",
+            }
+        )
+
+    checks.append(
+        {
+            "id": "content_present",
+            "label": "Content aanwezig",
+            "passed": word_count > 10,
+            "detail": "Content gegenereerd" if word_count > 10 else "Geen content gegenereerd",
+            "expected": "Content aanwezig",
+            "actual": f"{word_count} woorden",
+        }
+    )
+
+    failed_steps = [s for s in steps_list if (s.get("status") or "").lower() == "failed"]
+    checks.append(
+        {
+            "id": "no_errors",
+            "label": "Geen fouten",
+            "passed": len(failed_steps) == 0,
+            "detail": f"{len(failed_steps)} fout(en)" if failed_steps else "Geen fouten",
+            "expected": "0 fouten",
+            "actual": f"{len(failed_steps)} fouten",
+        }
+    )
+
+    tone = context.get("tone") or context.get("toon") or brief.get("tone") or brief.get("toon")
+    if tone and content_text:
+        checks.append(
+            {
+                "id": "tone",
+                "label": f"Toon: {tone}",
+                "passed": True,
+                "detail": f"Gevraagde toon: {tone}",
+                "expected": str(tone),
+                "actual": "Niet automatisch verifieerbaar",
+            }
+        )
+
+    lesson_count, lesson_src = await _lesson_count_for_job(conn, job_id)
+    checks.append(
+        {
+            "id": "lesson_created",
+            "label": "Lesson opgeslagen",
+            "passed": lesson_count > 0,
+            "detail": f"{lesson_count} lesson(s) ({lesson_src})"
+            if lesson_count > 0
+            else f"Geen lesson ({lesson_src})",
+            "expected": "1+ lessons",
+            "actual": f"{lesson_count} lessons",
+        }
+    )
+
+    agent_stats: dict = {}
+    for step in steps_list:
+        aid = step.get("agent") or step.get("agent_role") or "unknown"
+        if aid not in agent_stats:
+            agent_stats[aid] = {
+                "agent_id": aid,
+                "total_steps": 0,
+                "failed_steps": 0,
+                "retries": 0,
+                "step_names": [],
+            }
+        agent_stats[aid]["total_steps"] += 1
+        if (step.get("status") or "").lower() == "failed":
+            agent_stats[aid]["failed_steps"] += 1
+        sname = step.get("step_name") or ""
+        if sname and sname not in agent_stats[aid]["step_names"]:
+            agent_stats[aid]["step_names"].append(sname)
+
+    step_name_counts: dict[str, int] = {}
+    for step in steps_list:
+        ag = step.get("agent") or step.get("agent_role") or "unknown"
+        key = f"{ag}:{step.get('step_name') or ''}"
+        step_name_counts[key] = step_name_counts.get(key, 0) + 1
+    for key, count in step_name_counts.items():
+        if count > 1:
+            aid = key.split(":", 1)[0]
+            if aid in agent_stats:
+                agent_stats[aid]["retries"] += count - 1
+
+    content_checks_failed = any(
+        not c["passed"] for c in checks if c.get("id") in ("word_count", "content_present")
+    )
+
+    _perf_rank = {"good": 0, "warning": 1, "poor": 2}
+
+    def _copywriter_role(role: str) -> bool:
+        rl = role.lower()
+        return any(x in rl for x in ("copywriter", "copy", "writer", "content"))
+
+    def _reviewer_role(role: str) -> bool:
+        rl = role.lower()
+        return any(x in rl for x in ("reviewer", "review", "talent", "validator"))
+
+    agents = []
+    for aid, stats in agent_stats.items():
+        performance = "good"
+        if stats["failed_steps"] > 0 or stats["retries"] >= 3:
+            performance = "poor"
+        elif stats["retries"] > 0:
+            performance = "warning"
+
+        rank = _perf_rank[performance]
+        performance_reason = ""
+        if content_checks_failed:
+            if _copywriter_role(aid):
+                rank = max(rank, _perf_rank["poor"])
+                performance_reason = "Content voldoet niet aan de eisen"
+            elif _reviewer_role(aid):
+                rank = max(rank, _perf_rank["warning"])
+                performance_reason = "Heeft content goedgekeurd die niet aan eisen voldoet"
+
+        inv = ("good", "warning", "poor")
+        performance = inv[rank]
+        agents.append({**stats, "performance": performance, "performance_reason": performance_reason})
+
+    agents.sort(key=lambda x: (-x["total_steps"], x["agent_id"]))
+
+    return {
+        "job_id": str(job_id),
+        "checks": checks,
+        "checks_passed": sum(1 for c in checks if c["passed"]),
+        "checks_total": len(checks),
+        "agents": agents,
+        "word_count": word_count,
+    }
 
 
 @router.post("/{job_id}/chat")
@@ -1115,6 +1433,25 @@ async def get_job_system_events(job_id: str, request: Request):
         return {"events": [], "count": 0}
     events = await svc.get_events(job_id=job_id)
     return {"events": events, "count": len(events)}
+
+
+@router.get("/{job_id}/quality-report")
+async def get_job_quality_report(job_id: str):
+    """Quality checklist and agent performance for delivery view (JOB_READY / COMPLETED)."""
+    job_id = _validate_job_id(job_id)
+    pool = await get_db()
+    try:
+        async with pool.acquire() as conn:
+            report = await build_quality_report(conn, job_id)
+        return _to_jsonable(report)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("quality-report failed for job %s: %s", job_id, e, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to build quality report",
+        )
 
 
 @router.get("/{job_id}")
