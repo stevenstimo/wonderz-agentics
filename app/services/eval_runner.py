@@ -243,25 +243,27 @@ async def _create_eval_job(
     description = eval_payload.get("description", "")
 
     job_id = uuid.uuid4()
+    job_type = eval_payload.get("job_type") or "copywriting"
     await conn.execute(
         """
         INSERT INTO jobs (
-            id, user_id, job_post, status, source_platform, context, token_budget, intake_source, payload
+            id, user_id, job_post, status, source_platform, context, token_budget, intake_source, payload, job_type
         )
-        VALUES ($1, $2, $3, 'RUNNING', 'eval', '{}'::jsonb, 50000, 'eval', $4::jsonb)
+        VALUES ($1, $2, $3, 'RUNNING', 'eval', '{}'::jsonb, 50000, 'eval', $4::jsonb, $5)
         """,
         job_id,
         user_id,
         description if description else "(empty eval)",
         json.dumps(eval_payload),
+        job_type,
     )
     for idx, (step_name, agent_role) in enumerate(
         [("copywriting", "copywriter"), ("review", "reviewer")]
     ):
         await conn.execute(
             """
-            INSERT INTO job_steps (job_id, step_index, step_name, agent_role, status, input_payload)
-            VALUES ($1, $2, $3, $4, 'pending', '{}'::jsonb)
+            INSERT INTO job_steps (job_id, step_index, step_name, agent, agent_role, status, input_payload)
+            VALUES ($1, $2, $3, $4, $4, 'pending', '{}'::jsonb)
             """,
             job_id,
             idx,
