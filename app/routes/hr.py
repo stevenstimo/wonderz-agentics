@@ -492,7 +492,7 @@ async def list_development_points(
     for r in rows:
         d = dict(r)
         d["point_id"] = str(d.get("id", ""))
-        d["issue_description"] = d.get("title") or ""
+        d["issue_description"] = d.get("issue_description") or d.get("title") or ""
         d["root_cause"] = d.get("summary")
         d["impact"] = (d.get("impact") or "low").lower()
         d["evidence_example"] = d.get("details")
