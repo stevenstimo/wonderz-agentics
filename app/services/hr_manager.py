@@ -62,7 +62,7 @@ class HRManager:
             "root_cause": row.get("summary"),
             "evidence_example": row.get("details"),
             "frequency": 1,
-            "impact": (row.get("severity") or "low").lower(),
+            "impact": (row.get("impact") or "low").lower(),
             "status": (row.get("status") or "OPEN").upper(),
             "source_url": row.get("source_url"),
             "agent_id": row.get("agent_id"),
@@ -203,7 +203,7 @@ class HRManager:
             agent_name = name_row["name"]
 
         severity = self._calculate_impact(frequency)
-        insert_cols = ["agent_id", "agent_name", "title", "severity", "status"]
+        insert_cols = ["agent_id", "agent_name", "title", "impact", "status"]
         values: List[Any] = [agent_id, agent_name, issue, severity, "OPEN"]
 
         if "summary" in columns and evidence:
@@ -316,11 +316,11 @@ class HRManager:
 
                 rows = await conn.fetch(
                     """
-                    SELECT id, title, severity, created_at
+                    SELECT id, title, impact, created_at
                     FROM development_points
                     WHERE agent_id = $1 AND status = 'OPEN'
                     ORDER BY
-                        CASE severity
+                        CASE impact
                             WHEN 'high' THEN 3
                             WHEN 'medium' THEN 2
                             WHEN 'low' THEN 1
@@ -491,7 +491,7 @@ class HRManager:
                 idx += 1
 
             if impact:
-                query += f" AND severity = ${idx}"
+                query += f" AND impact = ${idx}"
                 params.append(impact)
                 idx += 1
 

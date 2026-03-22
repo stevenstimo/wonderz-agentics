@@ -470,7 +470,7 @@ async def list_development_points(
             params.append(agent_id)
             idx += 1
         if impact:
-            conditions.append(f"ai.severity = ${idx}")
+            conditions.append(f"ai.impact = ${idx}")
             params.append(impact)
             idx += 1
         if status:
@@ -482,7 +482,7 @@ async def list_development_points(
             SELECT ai.*, ha.name as ha_agent_name FROM development_points ai
             LEFT JOIN hired_agents ha ON ai.agent_id = ha.agent_id
             WHERE {' AND '.join(conditions)}
-            ORDER BY CASE ai.severity WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
+            ORDER BY CASE ai.impact WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
                      ai.created_at DESC
             """,
             *params,
@@ -494,7 +494,7 @@ async def list_development_points(
         d["point_id"] = str(d.get("id", ""))
         d["issue_description"] = d.get("title") or ""
         d["root_cause"] = d.get("summary")
-        d["impact"] = (d.get("severity") or "low").lower()
+        d["impact"] = (d.get("impact") or "low").lower()
         d["evidence_example"] = d.get("details")
         d["frequency"] = 1
         mapped.append(d)
@@ -516,7 +516,7 @@ def _extract_job_id_from_evidence(details_or_evidence: Optional[str]) -> Optiona
 
 @router.get("/development-points/awaiting-approval", dependencies=[Depends(get_current_user)])
 async def get_awaiting_approval():
-    """CEO: list development points waiting for approval, sorted by severity and created_at."""
+    """CEO: list development points waiting for approval, sorted by impact and created_at."""
     pool = await get_db()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
@@ -526,7 +526,7 @@ async def get_awaiting_approval():
             JOIN hired_agents ha ON ai.agent_id = ha.agent_id
             WHERE ai.status = 'AWAITING_APPROVAL'
             ORDER BY
-                CASE ai.severity WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
+                CASE ai.impact WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
                 ai.created_at ASC
             """
         )
@@ -616,7 +616,7 @@ async def get_development_point_detail(point_id: str):
             "root_cause": dp_row.get("summary"),
             "evidence_example": dp_row.get("details"),
             "frequency": 1,
-            "impact": (dp_row.get("severity") or "low").lower(),
+            "impact": (dp_row.get("impact") or "low").lower(),
             "status": (dp_row.get("status") or "OPEN").upper(),
             "proposed_by": dp_row.get("proposed_by"),
             "source_url": dp_row.get("source_url"),
@@ -673,7 +673,7 @@ async def get_development_point_detail(point_id: str):
             # Current agent as first row (is_current=True); then others with same issue pattern
             open_same = await conn.fetch(
                 """
-                SELECT ai.id, ai.agent_id, ai.severity, ha.name AS agent_name
+                SELECT ai.id, ai.agent_id, ai.impact, ha.name AS agent_name
                 FROM development_points ai
                 LEFT JOIN hired_agents ha ON ai.agent_id = ha.agent_id
                 WHERE ai.status = 'OPEN' AND ai.agent_id != $1
@@ -689,7 +689,7 @@ async def get_development_point_detail(point_id: str):
                 "agent_name": agent_row.get("name") or agent_row.get("agent_name") if agent_row else str(agent_id_val),
                 "version": agent.get("agent_version") if agent else "—",
                 "failures_30d": freq,
-                "impact": (dp_row.get("severity") or "low").lower(),
+                "impact": (dp_row.get("impact") or "low").lower(),
                 "is_current": True,
             })
             for r in open_same:
@@ -698,7 +698,7 @@ async def get_development_point_detail(point_id: str):
                     "agent_name": r["agent_name"] or r["agent_id"],
                     "version": "—",
                     "failures_30d": 1,
-                    "impact": (r["severity"] or "low").lower(),
+                    "impact": (r["impact"] or "low").lower(),
                     "is_current": False,
                 })
 
