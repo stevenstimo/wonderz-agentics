@@ -49,13 +49,13 @@ class HRManager:
         return None
 
     async def _get_development_points_agent_column(self, conn) -> Optional[str]:
-        cols = await self._get_table_columns(conn, "agent_improvements")
+        cols = await self._get_table_columns(conn, "development_points")
         if "agent_id" in cols:
             return "agent_id"
         return None
 
     def _row_to_legacy(self, row: Dict[str, Any]) -> Dict[str, Any]:
-        """Map agent_improvements row to legacy keys for frontend compatibility."""
+        """Map development_points row to legacy keys for frontend compatibility."""
         out = {
             "point_id": str(row.get("id", "")),
             "issue_description": row.get("title") or "",
@@ -169,15 +169,15 @@ class HRManager:
         evidence: Optional[str] = None,
         suggested_url: Optional[str] = None,
     ) -> Tuple[str, str]:
-        columns = await self._get_table_columns(conn, "agent_improvements")
+        columns = await self._get_table_columns(conn, "development_points")
         agent_col = await self._get_development_points_agent_column(conn)
         if not agent_col:
-            raise RuntimeError("agent_improvements missing agent_id column")
+            raise RuntimeError("development_points missing agent_id column")
 
         existing = await conn.fetchrow(
             """
             SELECT id, created_at
-            FROM agent_improvements
+            FROM development_points
             WHERE agent_id = $1
               AND title = $2
               AND status IN ('OPEN', 'AWAITING_APPROVAL')
@@ -188,7 +188,7 @@ class HRManager:
 
         if existing:
             await conn.execute(
-                "UPDATE agent_improvements SET updated_at = NOW() WHERE id = $1",
+                "UPDATE development_points SET updated_at = NOW() WHERE id = $1",
                 existing["id"],
             )
             logger.info("Updated existing point %s", existing["id"])
@@ -221,7 +221,7 @@ class HRManager:
         placeholders = ", ".join(f"${i}" for i in range(1, len(values) + 1))
         row = await conn.fetchrow(
             f"""
-            INSERT INTO agent_improvements ({', '.join(insert_cols)})
+            INSERT INTO development_points ({', '.join(insert_cols)})
             VALUES ({placeholders})
             RETURNING id
             """,
@@ -317,7 +317,7 @@ class HRManager:
                 rows = await conn.fetch(
                     """
                     SELECT id, title, severity, created_at
-                    FROM agent_improvements
+                    FROM development_points
                     WHERE agent_id = $1 AND status = 'OPEN'
                     ORDER BY
                         CASE severity
@@ -385,14 +385,14 @@ class HRManager:
 
         async with self.pool.acquire() as conn:
             point = await conn.fetchrow(
-                "SELECT * FROM agent_improvements WHERE id = $1 OR id::text = $1",
+                "SELECT * FROM development_points WHERE id = $1 OR id::text = $1",
                 point_id,
             )
             if not point:
                 raise ValueError(f"Development point not found: {point_id}")
             point_id = str(point["id"])
 
-            columns = await self._get_table_columns(conn, "agent_improvements")
+            columns = await self._get_table_columns(conn, "development_points")
             set_clauses = ["status = 'IN_TRAINING'", "updated_at = NOW()"]
             params: List[Any] = []
             if "source_url" in columns:
@@ -404,7 +404,7 @@ class HRManager:
             params.append(point_id)
             await conn.execute(
                 f"""
-                UPDATE agent_improvements
+                UPDATE development_points
                 SET {', '.join(set_clauses)}
                 WHERE id = ${len(params)}
                 """,
@@ -423,7 +423,7 @@ class HRManager:
 
             async with self.pool.acquire() as conn:
                 await conn.execute(
-                    "UPDATE agent_improvements SET status = 'RESOLVED', updated_at = NOW() WHERE id = $1",
+                    "UPDATE development_points SET status = 'RESOLVED', updated_at = NOW() WHERE id = $1",
                     point_id,
                 )
 
@@ -438,7 +438,7 @@ class HRManager:
 
             async with self.pool.acquire() as conn:
                 await conn.execute(
-                    "UPDATE agent_improvements SET status = 'OPEN', updated_at = NOW() WHERE id = $1",
+                    "UPDATE development_points SET status = 'OPEN', updated_at = NOW() WHERE id = $1",
                     point_id,
                 )
 
@@ -460,7 +460,7 @@ class HRManager:
         }
 
     async def scan_job_performance(self) -> list[str]:
-        """Lage GSC-cijfers → agent_improvements (bron: job_performance)."""
+        """Lage GSC-cijfers → development_points (bron: job_performance)."""
         if not self.pool:
             return []
         from app.services.gsc_performance import scan_job_performance as scan_gsc_performance
@@ -481,7 +481,7 @@ class HRManager:
         async with self.pool.acquire() as conn:
             agent_col = await self._get_development_points_agent_column(conn)
 
-            query = "SELECT * FROM agent_improvements WHERE 1=1"
+            query = "SELECT * FROM development_points WHERE 1=1"
             params: List[Any] = []
             idx = 1
 
@@ -517,7 +517,7 @@ class HRManager:
 
         async with self.pool.acquire() as conn:
             result = await conn.execute(
-                "UPDATE agent_improvements SET status = $1, updated_at = NOW() WHERE id = $2 OR id::text = $2",
+                "UPDATE development_points SET status = $1, updated_at = NOW() WHERE id = $2 OR id::text = $2",
                 "RESOLVED",
                 point_id,
             )
@@ -531,7 +531,7 @@ class HRManager:
 
         async with self.pool.acquire() as conn:
             result = await conn.execute(
-                "UPDATE agent_improvements SET status = $1, updated_at = NOW() WHERE id = $2 OR id::text = $2",
+                "UPDATE development_points SET status = $1, updated_at = NOW() WHERE id = $2 OR id::text = $2",
                 "DISMISSED",
                 point_id,
             )
