@@ -554,7 +554,7 @@ async def get_development_point_detail(point_id: str):
             SELECT ai.*, ha.name AS agent_name, ha.role AS agent_role, ha.agent_id AS ha_agent_id
             FROM development_points ai
             LEFT JOIN hired_agents ha ON ai.agent_id = ha.agent_id
-            WHERE ai.id = $1 OR ai.id::text = $1
+            WHERE ai.id::text = $1
             """,
             point_id,
         )
