@@ -237,10 +237,10 @@ def _merge_job_output(job_row: asyncpg.Record, job_steps: list) -> dict:
 async def _create_eval_job(
     conn: asyncpg.Connection, case: dict, user_id: uuid.UUID
 ) -> uuid.UUID:
-    raw_payload = dict(case.get("input_payload") or {})
-    job_type_meta = raw_payload.pop("job_type", case.get("job_type", "copywriting"))
-    description = raw_payload.get("description", "")
-    eval_payload = {**raw_payload, "_eval_job_type": job_type_meta}
+    eval_payload = dict(case.get("input_payload") or {})
+    # Authoritief vanuit eval_cases.job_type — pipeline leest o.a. payload.job_type
+    eval_payload["job_type"] = case.get("job_type") or eval_payload.get("job_type") or "copywriting"
+    description = eval_payload.get("description", "")
 
     job_id = uuid.uuid4()
     await conn.execute(
