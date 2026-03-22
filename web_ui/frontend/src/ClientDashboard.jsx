@@ -15,7 +15,6 @@ import {
 } from 'recharts'
 import PageLayout from './PageLayout'
 import { BarChart3, TrendingUp, DollarSign, MousePointer, Search, Globe, Plug, RefreshCw, FileDown, Share2, Gauge } from 'lucide-react'
-import { downloadClientPdf } from './components/pdf/ClientPdfDocument'
 import GoogleIntegrationsStatus from './components/integrations/GoogleIntegrationsStatus'
 
 // Formatters: kosten € met 2 decimalen, percentages %, grote aantallen met duizendscheiding
@@ -111,6 +110,7 @@ export default function ClientDashboard({
   const handleExportPdf = async () => {
     setIsExporting(true)
     try {
+      const { downloadClientPdf } = await import('./components/pdf/ClientPdfDocument')
       const clientData = {
         name: liveData?.client_name || slug || 'Client rapport',
         domain: liveData?.domain || liveData?.client_domain || '',

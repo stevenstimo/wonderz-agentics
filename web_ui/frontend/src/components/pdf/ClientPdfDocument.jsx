@@ -285,6 +285,8 @@ function sanitizeClientName(name) {
  * Trigger een PDF download vanuit een onClick handler.
  * Gebruik: await downloadClientPdf({ client, metrics, generatedAt })
  */
+export default ClientPdfDocument
+
 export async function downloadClientPdf({ client, dashboardData, generatedAt }) {
   const blob = await pdf(<ClientPdfDocument client={client} dashboardData={dashboardData} generatedAt={generatedAt} />).toBlob()
   const url = URL.createObjectURL(blob)
