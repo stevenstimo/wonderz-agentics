@@ -108,6 +108,7 @@ async def lifespan(app: FastAPI):
                 pool = await get_db()
                 hr = HRManager(pool)
                 await hr.scan_job_steps(since_days=7)
+                await hr.scan_job_performance()
                 logger.info("HR scan voltooid")
             except Exception as e:
                 logger.error("HR scan fout: %s", e, exc_info=True)

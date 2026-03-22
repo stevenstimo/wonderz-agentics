@@ -169,6 +169,12 @@ class HRManager:
                     )
             return results
 
+    async def scan_job_performance(self) -> list[str]:
+        """Lage GSC-performance (job_performance) → agent_improvements; zie gsc_performance."""
+        from app.services.gsc_performance import scan_job_performance as scan_gsc_performance
+
+        return await scan_gsc_performance(self.pool)
+
     async def scan_direct_chats(self, since_days: int = 7) -> list[dict]:
         """Scan direct_chat_messages for knowledge gap signals. Spec §8.1."""
         results = []

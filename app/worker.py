@@ -13,6 +13,7 @@ import os
 from typing import Any, Optional
 
 from arq.connections import RedisSettings
+from arq.cron import cron
 
 from app.db import close_db_pool, init_db_pool
 
@@ -324,6 +325,69 @@ async def _process_seo_job(
     )
 
 
+async def run_gsc_performance_check(ctx: dict[str, Any]) -> None:
+    """
+    Wekelijks: GSC ophalen voor jobs met published_url (≥7 dagen live, geen recente meting),
+    daarna HR-scan voor lage performers.
+    """
+    pool = ctx.get("db_pool")
+    if not pool:
+        logger.warning("[ARQ] GSC performance check: geen db_pool")
+        return
+
+    async with pool.acquire() as conn:
+        has_jobs = await conn.fetchval(
+            """
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = 'jobs' AND column_name = 'published_url'
+            """
+        )
+        has_jp = await conn.fetchval(
+            """
+            SELECT 1 FROM information_schema.tables
+            WHERE table_schema = 'public' AND table_name = 'job_performance'
+            """
+        )
+        if not has_jobs or not has_jp:
+            logger.info("[ARQ] GSC performance check overgeslagen (migratie / tabellen ontbreken)")
+            return
+
+        jobs_to_check = await conn.fetch(
+            """
+            SELECT j.id FROM jobs j
+            WHERE j.published_url IS NOT NULL
+              AND trim(j.published_url) <> ''
+              AND j.published_at IS NOT NULL
+              AND j.published_at < now() - INTERVAL '7 days'
+              AND (
+                  NOT EXISTS (
+                      SELECT 1 FROM job_performance jp
+                      WHERE jp.job_id = j.id
+                        AND jp.measured_at > now() - INTERVAL '7 days'
+                  )
+              )
+            """
+        )
+
+    from app.services.gsc_performance import fetch_url_performance, scan_job_performance
+
+    for row in jobs_to_check:
+        jid = str(row["id"])
+        try:
+            result = await fetch_url_performance(pool, jid)
+            if result.get("error"):
+                logger.warning("[ARQ] GSC fetch job %s: %s", jid, result["error"])
+        except Exception:
+            logger.exception("[ARQ] GSC fetch job %s gefaald", jid)
+
+    try:
+        created = await scan_job_performance(pool)
+        if created:
+            logger.info("[ARQ] GSC HR-scan: punten voor jobs %s", created)
+    except Exception:
+        logger.exception("[ARQ] GSC HR-scan gefaald")
+
+
 class WorkerSettings:
     """
     ARQ worker settings consumed by `python -m arq app.worker.WorkerSettings`.
@@ -343,6 +407,16 @@ class WorkerSettings:
         run_embedding_task,
         reindex_document,
         _process_seo_job,
+    ]
+
+    cron_jobs = [
+        cron(
+            run_gsc_performance_check,
+            weekday={0},
+            hour=6,
+            minute=0,
+            run_at_startup=False,
+        ),
     ]
 
     on_startup = startup

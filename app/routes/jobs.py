@@ -9,17 +9,18 @@ Endpoints:
 - POST /api/jobs/{job_id}/feedback - Submit feedback on completed work
 - POST /api/jobs/{job_id}/approve - Final approval and deploy
 - GET /api/jobs/{job_id} - Get job details
+- PATCH /api/jobs/{job_id}/publish - Sla gepubliceerde URL op (COMPLETED jobs)
 """
 
 import os
 import uuid
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Annotated, Optional
 from fastapi import APIRouter, HTTPException, Depends, status, File, UploadFile, Form, Request
 from fastapi.responses import FileResponse
-from pydantic import ValidationError
+from pydantic import BaseModel, Field, ValidationError
 from arq import ArqRedis
 
 from app.utils.document_parser import extract_text_from_file, ALLOWED_EXTENSIONS
@@ -55,6 +56,15 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/jobs", tags=["jobs"], dependencies=[Depends(get_current_user)])
 
 GTM_JOB_KEYWORDS = ["gtm", "campagne", "campaign", "launch", "go-to-market", "lancering", "marktintroductie", "marketing strategie"]
+
+
+class PublishJobBody(BaseModel):
+    published_url: str = Field(..., min_length=10)
+    published_at: Optional[datetime] = None
+
+
+def _normalize_published_url(u: str) -> str:
+    return (u or "").strip().rstrip("/").lower()
 
 
 def get_token_budget(job_post: str) -> int:
@@ -957,6 +967,86 @@ async def approve_and_deploy(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to deploy: {str(e)}"
         )
+
+
+@router.patch("/{job_id}/publish")
+async def publish_job(
+    job_id: str,
+    body: PublishJobBody,
+    current_user: TokenPayload = Depends(get_current_user),
+):
+    """
+    Koppel de live URL aan een afgeronde job (GSC feedback loop).
+    Alleen COMPLETED; URL moet http(s) zijn en uniek over alle jobs.
+    """
+    job_id = _validate_job_id(job_id)
+    raw_url = (body.published_url or "").strip()
+    if not raw_url.startswith("http://") and not raw_url.startswith("https://"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="published_url moet met http:// of https:// beginnen",
+        )
+
+    pool = await get_db()
+    when = body.published_at
+    if when is not None and when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    if when is None:
+        when = datetime.now(timezone.utc)
+
+    norm = _normalize_published_url(raw_url)
+
+    async with pool.acquire() as conn:
+        has_col = await conn.fetchval(
+            """
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = 'jobs' AND column_name = 'published_url'
+            """
+        )
+        if not has_col:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="published_url kolom ontbreekt — migratie 088_gsc_feedback_loop.sql uitvoeren",
+            )
+
+        job = await conn.fetchrow(
+            "SELECT id, user_id, status, published_url FROM jobs WHERE id = $1",
+            job_id,
+        )
+        if not job:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+        if str(job["user_id"]) != str(current_user.user_id):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Geen toegang tot deze job")
+        if job["status"] != JobStatus.COMPLETED.value:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Alleen COMPLETED jobs kunnen een published_url krijgen (nu: {job['status']})",
+            )
+
+        others = await conn.fetch(
+            "SELECT id, published_url FROM jobs WHERE published_url IS NOT NULL AND id <> $1",
+            uuid.UUID(job_id),
+        )
+        for row in others:
+            if row.get("published_url") and _normalize_published_url(row["published_url"]) == norm:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Deze URL is al gekoppeld aan een andere job",
+                )
+
+        await conn.execute(
+            """
+            UPDATE jobs
+            SET published_url = $1, published_at = $2, updated_at = now()
+            WHERE id = $3
+            """,
+            raw_url,
+            when,
+            uuid.UUID(job_id),
+        )
+        updated = await conn.fetchrow("SELECT * FROM jobs WHERE id = $1", job_id)
+
+    return _to_jsonable(_job_for_response(updated))
 
 
 @router.get("")

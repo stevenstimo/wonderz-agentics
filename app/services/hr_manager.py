@@ -459,6 +459,14 @@ class HRManager:
             "points_updated": result["points_updated"],
         }
 
+    async def scan_job_performance(self) -> list[str]:
+        """Lage GSC-cijfers → agent_improvements (bron: job_performance)."""
+        if not self.pool:
+            return []
+        from app.services.gsc_performance import scan_job_performance as scan_gsc_performance
+
+        return await scan_gsc_performance(self.pool)
+
     async def get_development_points(
         self,
         agent_id: Optional[str] = None,
