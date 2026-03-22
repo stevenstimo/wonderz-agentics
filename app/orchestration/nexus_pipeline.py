@@ -358,6 +358,21 @@ class NEXUSPipeline:
                 for step, result in zip(wave, results):
                     if isinstance(result, Exception):
                         await self._mark_step_failed(job_id, step.get("step_id") or "", str(result))
+                        if self._pool:
+                            try:
+                                from app.services.agent_performance import record_step_completion
+
+                                aid = step.get("agent_id")
+                                if aid:
+                                    sid = aid.strip() if isinstance(aid, str) else str(aid)
+                                    if sid:
+                                        await record_step_completion(self._pool, sid, success=False)
+                            except Exception as perf_e:
+                                logger.warning(
+                                    "Performance tracking (parallel failure) skipped: %s",
+                                    perf_e,
+                                    exc_info=True,
+                                )
                         await self._handle_pipeline_failure(job_id, ctx, {"error": str(result)})
                         return
         await self._handle_pipeline_failure(
@@ -672,6 +687,26 @@ class NEXUSPipeline:
                     retries_done,
                     int(step_id) if step_id is not None else None,
                 )
+            if self._pool:
+                try:
+                    from app.services.agent_performance import record_step_completion
+
+                    aid = step.get("agent_id")
+                    if aid:
+                        sid = aid.strip() if isinstance(aid, str) else str(aid)
+                        if sid:
+                            await record_step_completion(
+                                self._pool,
+                                sid,
+                                success=(final_status == "completed"),
+                            )
+                except Exception as perf_e:
+                    logger.warning(
+                        "Performance tracking skipped for step %s: %s",
+                        step_name,
+                        perf_e,
+                        exc_info=True,
+                    )
 
     async def _update_job_status(
         self, job_id: str, status: str, ctx: HandoffContext
