@@ -1420,7 +1420,7 @@ async def update_development_point(point_id: str, body: UpdatePointBody):
     valid_statuses = {"OPEN", "AWAITING_APPROVAL", "IN_TRAINING", "RESOLVED", "DISMISSED"}
     pool = await get_db()
     async with pool.acquire() as conn:
-        existing = await conn.fetchrow("SELECT id FROM development_points WHERE id = $1 OR id::text = $1", point_id)
+        existing = await conn.fetchrow("SELECT id FROM development_points WHERE id::text = $1", point_id)
     if not existing:
         raise HTTPException(status_code=404, detail=f"Point {point_id} niet gevonden")
     point_id = str(existing["id"])
