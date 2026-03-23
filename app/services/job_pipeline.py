@@ -13,7 +13,7 @@ from app.core.config import DEFAULT_MODEL
 from app.db import init_db_pool
 from app.database import get_db
 from app.services.token_guard import TokenGuard
-from app.orchestration.intake_engine import IntakeEngine
+from app.orchestration.intake_engine import IntakeEngine, detect_language, normalize_language_label
 from app.utils.job_file_generator import generate_job_artifact, parse_output_to_sections
 from app.orchestration.strategy_room import StrategyRoom
 from models.unified import JobStatus, ExecutionPlan
@@ -475,13 +475,57 @@ async def _fetch_available_agents(conn) -> List[str]:
         return []
 
 
+def count_words(text: str) -> int:
+    return len((text or "").split())
+
+
+def _reviewer_minimum_word_target(context: Dict[str, Any]) -> Optional[int]:
+    """
+    Minimum word count only when job/brief text explicitly specifies a number (Dutch/English).
+    Does not use the default ~400 copywriter target — avoids false positives.
+    """
+    bc = _brief_ctx(context)
+    parts: List[str] = [
+        str(bc.get("objective") or ""),
+        str(context.get("job_post") or ""),
+    ]
+    brief = context.get("brief") if isinstance(context.get("brief"), dict) else {}
+    try:
+        parts.append(json.dumps(brief, ensure_ascii=False))
+    except (TypeError, ValueError):
+        parts.append(str(brief))
+    blob = "\n".join(parts).lower()
+    candidates: List[int] = []
+    for pattern in (
+        r"min(?:imaal)?\s*(\d{2,5})\s*woorden?",
+        r"minimum\s+of\s*(\d{2,5})\s*words?",
+        r"at\s+least\s*(\d{2,5})\s*words?",
+        r"(?:^|[\s\n])(\d{2,5})\s*woorden\b",
+        r"(?:^|[\s\n])(\d{2,5})\s*words\b",
+    ):
+        for m in re.finditer(pattern, blob, re.IGNORECASE):
+            try:
+                n = int(m.group(1))
+                if 50 <= n <= 100_000:
+                    candidates.append(n)
+            except (TypeError, ValueError):
+                continue
+    return max(candidates) if candidates else None
+
+
 def _brief_ctx(context: Dict[str, Any]) -> Dict[str, Any]:
     """Extract objective, language, tone, focus, word_count from job context.brief."""
     brief = context.get("brief") if isinstance(context.get("brief"), dict) else {}
     ctx = brief.get("context") if isinstance(brief.get("context"), dict) else {}
+    jp = str(context.get("job_post") or "")
+    lang_raw = ctx.get("language") or brief.get("language") or context.get("language")
+    if lang_raw is not None and str(lang_raw).strip():
+        language = normalize_language_label(str(lang_raw), jp)
+    else:
+        language = detect_language(jp) if jp.strip() else "English"
     result = {
         "objective": ctx.get("objective") or brief.get("objective") or context.get("objective") or "",
-        "language": ctx.get("language") or brief.get("language") or context.get("language") or "English",
+        "language": language,
         "tone": ctx.get("tone") or brief.get("tone") or context.get("tone") or "informative",
         "focus": ctx.get("focus") or brief.get("focus") or context.get("focus") or "general",
         "word_count": ctx.get("word_count") or brief.get("word_count") or context.get("word_count") or 400,
@@ -685,6 +729,8 @@ def _run_step_agent(
             "- When you receive CRITICAL USER FEEDBACK, write a completely new version from scratch. Do not request, expect, or paste any previous draft text.\n"
             f"- Use ## for section headings (not ###, not bold text like **Heading**)\n"
             f"- Write in {language}\n"
+            f"- Schrijf alle door jou geproduceerde content in deze taal: {language}. "
+            f"(Write all output in this language.)\n"
             f"- Tone: {tone}\n"
             f"- Write approximately {word_count} words\n\n"
             "EXAMPLE of what you should produce:\n"
@@ -788,12 +834,27 @@ Het focus keyword moet voorkomen in de eerste alinea en minimaal 2x in de volled
             return ({"status": "skipped", "review": "No content to review.", "approved": True, "agent_role": agent_role}, 0)
         system = (
             "You are a content reviewer. Check quality, grammar, and tone consistency. Reply in the same language as the content. Keep the reply concise. End with APPROVED or CHANGES NEEDED. "
-            "If the content looks like a plan or outline instead of actual article text, mark it as NOT APPROVED and explain that actual content is needed, not a plan."
+            "If the content looks like a plan or outline instead of actual article text, mark it as NOT APPROVED and explain that actual content is needed, not a plan.\n\n"
+            "KWALITEITSCHECK WOORDENAANTAL:\n"
+            "- Als de brief of opdracht een minimum woordenaantal specificeert (bijv. \"2000 woorden\", \"minimaal 1500 woorden\", \"at least 2000 words\"):\n"
+            "  - Tel het aantal woorden in de aangeleverde content.\n"
+            "  - Als de content meer dan 20% onder dat minimum zit (dus strikt minder dan 80% van het gevraagde minimum): geef CHANGES NEEDED.\n"
+            "  - Vermeld in je feedback expliciet: \"Content bevat X woorden maar brief vraagt minimaal Y woorden\" (met echte X en Y).\n"
+            "- Als de brief geen expliciet woordenaantal noemt: geen woordenaantal-check toepassen op basis van dit blok.\n"
         )
         knowledge_block = context.get("_knowledge_block") or ""
         if knowledge_block:
             system += "\n\n" + knowledge_block
+        min_w = _reviewer_minimum_word_target(context)
+        wc = count_words(previous_content)
         user = f"Review this content:\n\n{previous_content[:12000]}"
+        if min_w is not None:
+            threshold = int(min_w * 0.8)
+            user += (
+                f"\n\n[Opdracht-context] Er is een expliciet minimum van ongeveer {min_w} woorden geïdentificeerd in de opdracht. "
+                f"De content telt ongeveer {wc} woorden. "
+                f"Als {wc} < {threshold}, moet je CHANGES NEEDED geven en het werkelijke woordenaantal noemen."
+            )
         try:
             response = client.messages.create(
                 model=CLAUDE_MODEL,

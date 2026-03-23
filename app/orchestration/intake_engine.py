@@ -8,6 +8,38 @@ the LLM; data_query uses targeted clarification questions from job_context (Chec
 
 from typing import List, Dict, Optional, Any
 from models.unified import StrategicBrief, ClarificationQuestion, JobStatus
+
+
+def detect_language(text: str) -> str:
+    """Heuristic: Dutch vs English from job_post-style text (for brief + pipeline)."""
+    dutch_indicators = [
+        "een ",
+        "voor ",
+        "van ",
+        "het ",
+        "de ",
+        "dat ",
+        "dit ",
+        "met ",
+        "over ",
+        "naar ",
+        "blog ",
+        "artikel ",
+    ]
+    text_lower = (text or "").lower()
+    dutch_count = sum(1 for w in dutch_indicators if w in text_lower)
+    return "Nederlands" if dutch_count >= 2 else "English"
+
+
+def normalize_language_label(raw: Optional[str], job_post: str = "") -> str:
+    """Normalize CEO/LLM language labels to Nederlands or English; else detect from job_post."""
+    if raw is not None and str(raw).strip():
+        s = str(raw).strip().lower()
+        if s in ("dutch", "nl", "nederlands", "nederlandse") or "nederland" in s:
+            return "Nederlands"
+        if s in ("english", "en", "engels"):
+            return "English"
+    return detect_language(job_post or "")
 from datetime import datetime
 import hashlib
 import os
@@ -72,7 +104,9 @@ class IntakeEngine:
     def _get_fallback_brief(self, job_post: str, reason: str = "", key_fingerprint: Optional[str] = None) -> StrategicBrief:
         """Generate a fallback brief when API call fails. key_fingerprint (first 8 of sha256) is included so the UI can verify which key was used."""
         logger.warning(f"Using fallback brief for intake. Reason: {reason}")
-        ctx = {"error": reason} if reason else {}
+        ctx: Dict[str, Any] = {"language": detect_language(job_post or "")}
+        if reason:
+            ctx["error"] = reason
         if key_fingerprint is not None:
             ctx["key_fingerprint"] = key_fingerprint
         return StrategicBrief(
@@ -223,21 +257,25 @@ class IntakeEngine:
                 for q in clarification_questions
             ]
             # Leave message empty so job_pipeline uses the single clarification as ceo_content (no duplicate).
+            out_ctx = dict(ctx)
+            out_ctx.setdefault("language", detect_language(job_post or ""))
             return StrategicBrief(
                 job_post=job_post or "",
                 is_complete=False,
                 clarifications=clarifications,
-                context=dict(ctx),
+                context=out_ctx,
                 message="",
             )
 
         # Data query complete -> no LLM, proceed with data pipeline
         if type_detection["task_type"] == "data_query" and type_detection["is_complete"]:
+            out_ctx = dict(ctx)
+            out_ctx.setdefault("language", detect_language(job_post or ""))
             return StrategicBrief(
                 job_post=job_post or "",
                 is_complete=True,
                 clarifications=[],
-                context=dict(ctx),
+                context=out_ctx,
                 message="Duidelijk, ik haal de data op.",
             )
 
@@ -389,11 +427,15 @@ IMPORTANT: You can only acknowledge feedback and confirm the team will work on i
                         if isinstance(q, dict) and "question" in q
                     ]
 
+                    norm_ctx = self._normalize_context(data.get("context", {}))
+                    norm_ctx["language"] = normalize_language_label(
+                        norm_ctx.get("language"), job_post or ""
+                    )
                     brief = StrategicBrief(
                         job_post=job_post,
                         is_complete=data.get("is_complete", False),
                         clarifications=clarifications,
-                        context=self._normalize_context(data.get("context", {})),
+                        context=norm_ctx,
                         message=data.get("message") or "",
                     )
 

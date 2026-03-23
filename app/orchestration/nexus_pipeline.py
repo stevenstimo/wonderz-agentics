@@ -118,9 +118,35 @@ class NEXUSPipeline:
 
     async def phase_1_intake(self, ctx: HandoffContext, job_post: str) -> None:
         """Bouw StrategicBrief uit job_post. Status blijft RUNNING (we komen uit approve_plan)."""
+        from app.services.job_pipeline import _coerce_context
+        from app.orchestration.intake_engine import detect_language, normalize_language_label
+
+        language: Optional[str] = None
+        brief_inner: Dict[str, Any] = {}
+        if self._pool:
+            async with self._pool.acquire() as conn:
+                job_row = await conn.fetchrow(
+                    "SELECT payload, context FROM jobs WHERE id = $1",
+                    ctx.job_id,
+                )
+            raw = (job_row.get("payload") or job_row.get("context")) if job_row else None
+            jc = _coerce_context(raw)
+            stored = jc.get("brief")
+            if isinstance(stored, dict):
+                inner = stored.get("context")
+                if isinstance(inner, dict):
+                    brief_inner = dict(inner)
+                lang_cand = stored.get("language") or brief_inner.get("language")
+                if lang_cand:
+                    language = normalize_language_label(str(lang_cand), job_post or "")
+        if not language:
+            language = detect_language(job_post or "")
+
         ctx.strategic_brief = {
             "objective": job_post,
             "platform": ctx.platform,
+            "language": language,
+            "context": brief_inner,
         }
 
     def _merge_depends_on_into_steps(
