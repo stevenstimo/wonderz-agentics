@@ -346,7 +346,7 @@ class HRManager:
                 idx += 1
             params.append(point_id)
             await conn.execute(
-                f"UPDATE agent_improvements SET {', '.join(sets)} WHERE id = ${idx} OR id::text = ${idx}",
+                f"UPDATE agent_improvements SET {', '.join(sets)} WHERE id::text = ${idx}",
                 *params,
             )
             return {"point_id": point_id, "status": new_status}
