@@ -858,7 +858,7 @@ async def approve_training(req: ApproveTrainingRequest, arq_pool: ArqRedis = Dep
                     return JSONResponse(status_code=503, content=TRAINING_REQUESTS_UNAVAILABLE)
 
                 request = await conn.fetchrow(
-                    "SELECT * FROM training_requests WHERE request_id = $1",
+                    "SELECT * FROM training_requests WHERE request_id::text = $1",
                     req.request_id,
                 )
                 if not request:
@@ -873,7 +873,7 @@ async def approve_training(req: ApproveTrainingRequest, arq_pool: ArqRedis = Dep
                         approved_at = NOW(),
                         approved_by = $2,
                         approval_notes = $3
-                    WHERE request_id = $4
+                    WHERE request_id::text = $4
                     """,
                     new_status,
                     req.approved_by,
@@ -886,7 +886,7 @@ async def approve_training(req: ApproveTrainingRequest, arq_pool: ArqRedis = Dep
                         """
                         UPDATE development_points
                         SET status = 'IN_TRAINING', updated_at = NOW()
-                        WHERE id = $1 OR id::text = $1
+                        WHERE id::text = $1
                         """,
                         req.point_id,
                     )

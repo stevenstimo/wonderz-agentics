@@ -385,7 +385,7 @@ class HRManager:
 
         async with self.pool.acquire() as conn:
             point = await conn.fetchrow(
-                "SELECT * FROM development_points WHERE id = $1 OR id::text = $1",
+                "SELECT * FROM development_points WHERE id::text = $1",
                 point_id,
             )
             if not point:
@@ -406,7 +406,7 @@ class HRManager:
                 f"""
                 UPDATE development_points
                 SET {', '.join(set_clauses)}
-                WHERE id = ${len(params)}
+                WHERE id::text = ${len(params)}
                 """,
                 *params,
             )
@@ -423,7 +423,7 @@ class HRManager:
 
             async with self.pool.acquire() as conn:
                 await conn.execute(
-                    "UPDATE development_points SET status = 'RESOLVED', updated_at = NOW() WHERE id = $1",
+                    "UPDATE development_points SET status = 'RESOLVED', updated_at = NOW() WHERE id::text = $1",
                     point_id,
                 )
 
@@ -438,7 +438,7 @@ class HRManager:
 
             async with self.pool.acquire() as conn:
                 await conn.execute(
-                    "UPDATE development_points SET status = 'OPEN', updated_at = NOW() WHERE id = $1",
+                    "UPDATE development_points SET status = 'OPEN', updated_at = NOW() WHERE id::text = $1",
                     point_id,
                 )
 
