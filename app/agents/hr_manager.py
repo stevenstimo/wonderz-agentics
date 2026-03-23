@@ -332,8 +332,16 @@ class HRManager:
 
     async def update_point_status(self, point_id, new_status, approved_by=None, source_url=None) -> dict:
         async with self.pool.acquire() as conn:
+            point_row = await conn.fetchrow(
+                """
+                SELECT agent_id, issue_description
+                FROM development_points
+                WHERE id::text = $1
+                """,
+                point_id,
+            )
             cols = await conn.fetch(
-                "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='agent_improvements'"
+                "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='development_points'"
             )
             col_set = {r["column_name"] for r in cols}
             sets = ["status = $1", "updated_at = now()"]
@@ -346,9 +354,24 @@ class HRManager:
                 idx += 1
             params.append(point_id)
             await conn.execute(
-                f"UPDATE agent_improvements SET {', '.join(sets)} WHERE id::text = ${idx}",
+                f"UPDATE development_points SET {', '.join(sets)} WHERE id::text = ${idx}",
                 *params,
             )
+            if new_status == "AWAITING_APPROVAL" and point_row and point_row.get("agent_id"):
+                await conn.execute(
+                    """
+                    INSERT INTO training_requests (request_id, agent_id, reason, status, created_at)
+                    SELECT
+                      'TR-' || to_char(now(), 'YYYYMMDD-HH24MISS'),
+                      agent_id,
+                      issue_description,
+                      'PENDING',
+                      now()
+                    FROM development_points
+                    WHERE id::text = $1
+                    """,
+                    point_id,
+                )
             return {"point_id": point_id, "status": new_status}
 
     async def run_ab_validation(self, pool: asyncpg.pool.Pool) -> dict[str, int]:
