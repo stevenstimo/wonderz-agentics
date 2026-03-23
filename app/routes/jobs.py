@@ -14,6 +14,7 @@ Endpoints:
 
 import os
 import re
+import time
 import uuid
 import json
 import logging
@@ -257,7 +258,12 @@ async def create_job(
     
     # Queue intake flow (don't wait for result)
     try:
-        await arq_pool.enqueue_job("run_intake_inline", job_id, req.job_post)
+        await arq_pool.enqueue_job(
+            "run_intake_inline",
+            job_id,
+            req.job_post,
+            _job_id=f"intake_inline_{job_id}_{int(time.time() * 1000)}",
+        )
         logger.info(f"Intake task queued for job {job_id}")
     except Exception as e:
         logger.error(f"Failed to queue intake task for job {job_id}: {e}", exc_info=True)
@@ -849,7 +855,12 @@ async def send_chat_message(
             else:
                 chat_history.append(user_entry)
                 await _update_job_context(conn, job_id, {"chat_history": chat_history})
-            await arq_pool.enqueue_job("run_intake_answers_inline", job_id, None)
+            await arq_pool.enqueue_job(
+                "run_intake_answers_inline",
+                job_id,
+                None,
+                _job_id=f"intake_answers_{job_id}_{int(time.time() * 1000)}",
+            )
             row = await conn.fetchrow("SELECT status FROM jobs WHERE id=$1", job_id)
             return {
                 "job_id": job_id,
@@ -951,7 +962,12 @@ async def submit_intake_answer(
                 )
         
         # Queue intake answers processing
-        await arq_pool.enqueue_job("run_intake_answers_inline", job_id, req.answers)
+        await arq_pool.enqueue_job(
+            "run_intake_answers_inline",
+            job_id,
+            req.answers,
+            _job_id=f"intake_answers_{job_id}_{int(time.time() * 1000)}",
+        )
         logger.info(f"Intake answers task queued for job {job_id}")
         
         # Fetch updated job status
@@ -1191,7 +1207,12 @@ async def submit_feedback(
                 job_id,
             )
         
-        await arq_pool.enqueue_job("run_intake_answers_inline", job_id, None)
+        await arq_pool.enqueue_job(
+            "run_intake_answers_inline",
+            job_id,
+            None,
+            _job_id=f"intake_answers_{job_id}_{int(time.time() * 1000)}",
+        )
         logger.info(f"Feedback submitted for job {job_id}, intake re-running")
         
         return {
