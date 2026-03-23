@@ -1653,7 +1653,7 @@ async def approve_development_point(
         point = await conn.fetchrow(
             """
             SELECT * FROM development_points
-            WHERE (id = $1 OR id::text = $1) AND status = 'AWAITING_APPROVAL'
+            WHERE id::text = $1 AND status = 'AWAITING_APPROVAL'
             """,
             point_id,
         )
@@ -1671,7 +1671,7 @@ async def approve_development_point(
                 SET status = 'IN_TRAINING',
                     source_url = COALESCE($2, source_url),
                     updated_at = now()
-                WHERE id = $1
+                WHERE id::text = $1
                 """,
                 point_id,
                 body.source_url or point.get("source_url"),
@@ -1695,7 +1695,7 @@ async def approve_development_point(
                 f"""
                 UPDATE development_points
                 SET {', '.join(set_clauses)}
-                WHERE id = $1
+                WHERE id::text = $1
                 """,
                 *params,
             )
