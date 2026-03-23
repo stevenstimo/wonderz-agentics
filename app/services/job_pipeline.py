@@ -1154,7 +1154,12 @@ async def run_intake_inline(job_id: str, job_post: str):
             ceo_content = brief.clarifications[0].question
         else:
             ceo_content = brief.message or ""
-            if not brief.is_complete and brief.clarifications:
+            # If message already contains questions (?), it is leading — do not append clarifications.
+            if (
+                not brief.is_complete
+                and brief.clarifications
+                and "?" not in (ceo_content or "")
+            ):
                 questions_text = "\n\n".join(
                     f"{i + 1}. {q.question}" for i, q in enumerate(brief.clarifications)
                 )

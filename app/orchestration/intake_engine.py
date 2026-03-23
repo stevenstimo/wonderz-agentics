@@ -109,18 +109,15 @@ class IntakeEngine:
             ctx["error"] = reason
         if key_fingerprint is not None:
             ctx["key_fingerprint"] = key_fingerprint
+        # Language is already in ctx — do not ask a separate language clarification.
         return StrategicBrief(
             job_post=job_post,
             is_complete=False,
-            clarifications=[
-                ClarificationQuestion(
-                    id=str(uuid.uuid4()),
-                    question="What language should the content be in, and any particular angle?",
-                    created_at=datetime.utcnow()
-                )
-            ],
+            clarifications=[],
             context=ctx,
-            message="Something went wrong on my side. Could you tell me the language and angle you have in mind?",
+            message=(
+                "Something went wrong on my side. Could you tell me more about the angle or focus you have in mind?"
+            ),
         )
 
     def _detect_task_type(self, raw_text: str, job_context: Dict[str, Any]) -> Dict[str, Any]:
