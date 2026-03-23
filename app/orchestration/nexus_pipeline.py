@@ -616,6 +616,9 @@ class NEXUSPipeline:
             )
         job_context = _coerce_context(job_row.get("payload") if job_row else None)
         job_post = (job_row.get("job_post") or "") if job_row else ""
+        # SEO/copywriter system prompts are built in app.services.job_pipeline._run_step_agent
+        # using context["brief"] (strategic_brief) and _brief_ctx for language
+        # (strategic_brief.context.language or strategic_brief.language).
         agent_context: Dict[str, Any] = {
             "brief": ctx.strategic_brief,
             "objective": job_context.get("objective", job_post),

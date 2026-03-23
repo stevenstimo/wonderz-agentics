@@ -720,6 +720,9 @@ def _run_step_agent(
         system = (
             "You are a professional copywriter for a content bureau. Your ONLY job is to write the actual article text.\n\n"
             "CRITICAL RULES:\n"
+            f"BELANGRIJK: Schrijf de volledige content in {language}. "
+            "Dit is verplicht en heeft prioriteit boven alles. "
+            f"Gebruik de keywords als SEO-richtlijn maar schrijf altijd in {language}.\n"
             "- Write the COMPLETE, FINAL article text ready for publication\n"
             "- Do NOT write a plan, outline, structure overview, or project description\n"
             "- Do NOT include meta-commentary like \"Projectoverzicht\", \"Leveringscriteria\", \"Status: GOEDGEKEURD\"\n"
@@ -883,6 +886,8 @@ Het focus keyword moet voorkomen in de eerste alinea en minimaal 2x in de volled
             "- focus_keyword: one primary query for the page\n"
             "- seo_keywords: 4-7 strings total, must include focus_keyword once; add sensible variants\n"
             '- keyword_intent: one of: informatief, transactioneel, commercieel, navigational\n'
+            f"\nGenereer alle keywords in de volgende taal: {language}. "
+            f"Gebruik geen Engelse keywords als de taal Nederlands is.\n"
         )
         knowledge_block = context.get("_knowledge_block") or ""
         if knowledge_block:
