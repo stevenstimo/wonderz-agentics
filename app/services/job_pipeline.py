@@ -720,6 +720,7 @@ def _run_step_agent(
         system = (
             "You are a professional copywriter for a content bureau. Your ONLY job is to write the actual article text.\n\n"
             "CRITICAL RULES:\n"
+            f"Communiceer altijd in de volgende taal: {language}. Dit geldt voor je analyse, feedback en alle output.\n"
             f"BELANGRIJK: Schrijf de volledige content in {language}. "
             "Dit is verplicht en heeft prioriteit boven alles. "
             f"Gebruik de keywords als SEO-richtlijn maar schrijf altijd in {language}.\n"
@@ -837,7 +838,8 @@ Het focus keyword moet voorkomen in de eerste alinea en minimaal 2x in de volled
             return ({"status": "skipped", "review": "No content to review.", "approved": True, "agent_role": agent_role}, 0)
         system = (
             "You are a content reviewer. Check quality, grammar, and tone consistency. Reply in the same language as the content. Keep the reply concise. End with APPROVED or CHANGES NEEDED. "
-            "If the content looks like a plan or outline instead of actual article text, mark it as NOT APPROVED and explain that actual content is needed, not a plan.\n\n"
+            "If the content looks like a plan or outline instead of actual article text, mark it as NOT APPROVED and explain that actual content is needed, not a plan.\n"
+            f"Communiceer altijd in de volgende taal: {language}. Dit geldt voor je analyse, feedback en alle output.\n\n"
             "KWALITEITSCHECK WOORDENAANTAL:\n"
             "- Als de brief of opdracht een minimum woordenaantal specificeert (bijv. \"2000 woorden\", \"minimaal 1500 woorden\", \"at least 2000 words\"):\n"
             "  - Tel het aantal woorden in de aangeleverde content.\n"
@@ -886,6 +888,7 @@ Het focus keyword moet voorkomen in de eerste alinea en minimaal 2x in de volled
             "- focus_keyword: one primary query for the page\n"
             "- seo_keywords: 4-7 strings total, must include focus_keyword once; add sensible variants\n"
             '- keyword_intent: one of: informatief, transactioneel, commercieel, navigational\n'
+            f"Communiceer altijd in de volgende taal: {language}. Dit geldt voor je analyse, feedback en alle output.\n"
             f"\nGenereer alle keywords in de volgende taal: {language}. "
             f"Gebruik geen Engelse keywords als de taal Nederlands is.\n"
         )
@@ -930,7 +933,10 @@ Het focus keyword moet voorkomen in de eerste alinea en minimaal 2x in de volled
             return ({"status": "failed", "content": "", "error": str(e), "agent_role": agent_role}, 0)
 
     # Generic: one Claude call
-    system = f"You are a helpful assistant. Write in {language}. Tone: {tone}."
+    system = (
+        f"You are a helpful assistant. Write in {language}. Tone: {tone}. "
+        f"Communiceer altijd in de volgende taal: {language}. Dit geldt voor je analyse, feedback en alle output."
+    )
     knowledge_block = context.get("_knowledge_block") or ""
     if knowledge_block:
         system += "\n\n" + knowledge_block
