@@ -14,6 +14,8 @@ from app.db import init_db_pool
 from app.database import get_db
 from app.services.token_guard import TokenGuard
 from app.orchestration.intake_engine import IntakeEngine, detect_language, normalize_language_label
+from app.orchestration.ceo_intent import check_resources, detect_job_type
+from app.orchestration.nexus_pipeline import _missing_roles_for_payload
 from app.utils.job_file_generator import generate_job_artifact, parse_output_to_sections
 from app.orchestration.strategy_room import StrategyRoom
 from models.unified import JobStatus, ExecutionPlan
@@ -178,6 +180,27 @@ def _coerce_context(raw: Any) -> Dict[str, Any]:
         else:
             return {}
     return val if isinstance(val, dict) else {}
+
+
+async def _block_job(conn, job_id: str, reason: str, missing_roles: list) -> None:
+    """Zet job op BLOCKED en merge preset-blockvelden in payload (jsonb)."""
+    block_data = {
+        "block_reason": reason,
+        "ceo_preset_blocked": True,
+        "missing_roles": missing_roles,
+    }
+    await conn.execute(
+        """
+        UPDATE jobs
+        SET status = $1,
+            payload = COALESCE(payload, '{}'::jsonb) || $2::jsonb,
+            updated_at = now()
+        WHERE id = $3
+        """,
+        JobStatus.BLOCKED.value,
+        json.dumps(block_data),
+        job_id,
+    )
 
 
 async def _load_job(conn, job_id: str):
@@ -1217,6 +1240,27 @@ async def run_intake_inline(job_id: str, job_post: str):
                 asyncio.create_task(run_data_pipeline(job_id))
                 return
 
+            preset_id = await detect_job_type(conn, job_post)
+            if preset_id:
+                resource_report = await check_resources(conn, preset_id)
+                if not resource_report["ready"]:
+                    await _block_job(
+                        conn,
+                        job_id,
+                        resource_report["message"],
+                        _missing_roles_for_payload(resource_report.get("missing") or []),
+                    )
+                    return
+            else:
+                await _block_job(
+                    conn,
+                    job_id,
+                    "Onbekend jobtype. Geen passende preset gevonden. "
+                    "Omschrijf de opdracht specifieker of hire de juiste agent voor dit type werk.",
+                    [],
+                )
+                return
+
             # Content path: plan and steps
             await conn.execute(
                 "UPDATE jobs SET status=$1, updated_at=now() WHERE id=$2",
@@ -1420,6 +1464,27 @@ async def run_intake_answers_inline(job_id: str, answers: dict):
                 )
                 run_revision = True
             else:
+                preset_id = await detect_job_type(conn, job_post)
+                if preset_id:
+                    resource_report = await check_resources(conn, preset_id)
+                    if not resource_report["ready"]:
+                        await _block_job(
+                            conn,
+                            job_id,
+                            resource_report["message"],
+                            _missing_roles_for_payload(resource_report.get("missing") or []),
+                        )
+                        return
+                else:
+                    await _block_job(
+                        conn,
+                        job_id,
+                        "Onbekend jobtype. Geen passende preset gevonden. "
+                        "Omschrijf de opdracht specifieker of hire de juiste agent voor dit type werk.",
+                        [],
+                    )
+                    return
+
                 # Update status first so job leaves INTAKE_CLARIFICATION even if plan generation fails
                 await conn.execute(
                     "UPDATE jobs SET status=$1, updated_at=now() WHERE id=$2",
