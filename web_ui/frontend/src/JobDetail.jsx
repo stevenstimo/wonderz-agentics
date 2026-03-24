@@ -17,6 +17,7 @@ const STATUS_BADGE = {
   AWAITING_APPROVAL: 'bg-slate-100 text-slate-800',
   COMPLETED: 'bg-green-100 text-green-800',
   FAILED: 'bg-red-100 text-red-800',
+  BLOCKED: 'bg-amber-200 text-amber-950',
   CANCELLED: 'bg-gray-100 text-gray-600',
 }
 
@@ -676,7 +677,7 @@ export default function JobDetail() {
       )}
 
       {/* Fallback: onbekende status */}
-      {job?.status && !['INTAKE_CLARIFICATION', 'PLAN_PROPOSED', 'RUNNING', 'JOB_READY', 'COMPLETED', 'FAILED'].includes(job.status) && (
+      {job?.status && !['INTAKE_CLARIFICATION', 'PLAN_PROPOSED', 'RUNNING', 'JOB_READY', 'COMPLETED', 'FAILED', 'BLOCKED'].includes(job.status) && (
         <div className="panel-card text-slate-600">
           Status: <strong>{job.status}</strong>. Geen specifieke weergave voor deze status.
         </div>

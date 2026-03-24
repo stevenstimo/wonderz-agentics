@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { supabase } from '../supabase';
 import { wsBase } from '../apiBase';
 import IntakeChatView from './IntakeChatView';
@@ -190,7 +191,18 @@ export function JobLifecycleView({ jobId }) {
       return {};
     }
   };
+  const parseJobPayload = (raw) => {
+    if (raw == null) return {};
+    if (typeof raw === 'object' && !Array.isArray(raw)) return raw;
+    try {
+      const parsed = JSON.parse(String(raw));
+      return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+      return {};
+    }
+  };
   const jobContext = parseJobContext(job.context);
+  const jobPayload = parseJobPayload(job.payload);
   const extractedPlan = jobContext.plan;
 
   return (
@@ -256,6 +268,31 @@ export function JobLifecycleView({ jobId }) {
       {job.status === 'FAILED' && (
         <FailureView errorMessage={jobContext.error} />
       )}
+
+      {job.status === 'BLOCKED' && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 p-6 text-amber-950">
+          <h3 className="text-lg font-semibold mb-2">Job geblokkeerd</h3>
+          <p className="text-sm whitespace-pre-wrap mb-3">
+            {jobPayload.block_reason || 'Deze job kan niet worden uitgevoerd.'}
+          </p>
+          {Array.isArray(jobPayload.missing_roles) && jobPayload.missing_roles.length > 0 && (
+            <div className="text-sm">
+              <p className="font-medium mb-1">Ontbrekende rollen</p>
+              <ul className="list-disc pl-5 space-y-0.5 mb-3">
+                {jobPayload.missing_roles.map((role, i) => (
+                  <li key={i}>{typeof role === 'string' ? role : JSON.stringify(role)}</li>
+                ))}
+              </ul>
+              <Link
+                to="/agents/new"
+                className="inline-flex text-sm font-medium text-indigo-700 hover:text-indigo-900 underline"
+              >
+                Hire de juiste agent →
+              </Link>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -271,7 +308,8 @@ function StatusBadge({ status }) {
     AWAITING_APPROVAL: { color: 'badge-approval', label: 'Awaiting Approval' },
     JOB_READY: { color: 'bg-orange-100 text-orange-800', label: '✍️ Ready for Review' },
     COMPLETED: { color: 'bg-green-100 text-green-800', label: '✅ Completed' },
-    FAILED: { color: 'bg-red-100 text-red-800', label: '❌ Failed' }
+    FAILED: { color: 'bg-red-100 text-red-800', label: '❌ Failed' },
+    BLOCKED: { color: 'bg-amber-200 text-amber-950', label: '⛔ Geblokkeerd' },
   };
 
   const config = statusConfig[status] || { color: 'bg-gray-100 text-gray-800', label: status };

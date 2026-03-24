@@ -22,6 +22,18 @@ function parseContext(ctx) {
   }
 }
 
+/** Parses jobs.payload (JSONB / object / string). */
+function parsePayload(raw) {
+  if (raw == null) return {}
+  if (typeof raw === 'object' && !Array.isArray(raw)) return raw
+  try {
+    const parsed = JSON.parse(String(raw))
+    return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed) ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
 function getOutputContent(job, context) {
   // Alleen tonen bij JOB_READY of COMPLETED
   if (!['JOB_READY', 'COMPLETED'].includes(job?.status)) return null
@@ -59,6 +71,7 @@ const STATUS_BADGE = {
   AWAITING_APPROVAL: 'bg-slate-100 text-slate-800',
   COMPLETED: 'bg-green-100 text-green-800',
   FAILED: 'bg-red-100 text-red-800',
+  BLOCKED: 'bg-amber-200 text-amber-950',
   CANCELLED: 'bg-gray-100 text-gray-600',
 }
 
@@ -270,7 +283,7 @@ export default function JobSplitView() {
       const status = query.state.data?.job?.status
       if (status === 'INTAKE_CLARIFICATION') return 10_000
       if (status === 'RUNNING') return 5_000
-      if (['COMPLETED', 'FAILED', 'CANCELLED', 'JOB_READY', 'AWAITING_APPROVAL', 'PLAN_PROPOSED'].includes(status)) {
+      if (['COMPLETED', 'FAILED', 'CANCELLED', 'JOB_READY', 'AWAITING_APPROVAL', 'PLAN_PROPOSED', 'BLOCKED'].includes(status)) {
         return false
       }
       return false
@@ -322,6 +335,7 @@ export default function JobSplitView() {
   const steps = data?.steps ?? []
   const artifacts = data?.artifacts ?? []
   const context = job ? parseContext(job.context) : {}
+  const jobPayload = job ? parsePayload(job.payload) : {}
   const imageUrl = context.image_url
   const plan = context.plan || {}
   const planSteps = Array.isArray(plan.steps) ? plan.steps : []
@@ -347,7 +361,7 @@ export default function JobSplitView() {
     return list
   })()
   const displayChatHistory = [...fullChatHistory, ...optimisticMessages]
-  const inputDisabled = sendingChat
+  const inputDisabled = sendingChat || statusUpper === 'BLOCKED'
 
   // When showing API key error, fetch current server fingerprint so user can compare
   useEffect(() => {
@@ -735,6 +749,30 @@ export default function JobSplitView() {
             )}
           </div>
           <div className="flex-1 min-h-0 overflow-y-auto space-y-4 p-4">
+            {statusUpper === 'BLOCKED' && (
+              <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-950">
+                <h3 className="text-base font-semibold text-amber-950 mb-2">Job geblokkeerd</h3>
+                <p className="text-sm text-amber-900 whitespace-pre-wrap mb-3">
+                  {jobPayload.block_reason || 'Deze job kan niet worden uitgevoerd.'}
+                </p>
+                {Array.isArray(jobPayload.missing_roles) && jobPayload.missing_roles.length > 0 && (
+                  <div className="text-sm">
+                    <p className="font-medium text-amber-950 mb-1">Ontbrekende rollen</p>
+                    <ul className="list-disc pl-5 space-y-0.5 text-amber-900 mb-3">
+                      {jobPayload.missing_roles.map((role, i) => (
+                        <li key={i}>{typeof role === 'string' ? role : JSON.stringify(role)}</li>
+                      ))}
+                    </ul>
+                    <Link
+                      to="/agents/new"
+                      className="inline-flex text-sm font-medium text-indigo-700 hover:text-indigo-900 underline"
+                    >
+                      Hire de juiste agent →
+                    </Link>
+                  </div>
+                )}
+              </div>
+            )}
             {displayChatHistory.length === 0 && !ceoTyping && !jobId && (
               <p className="text-slate-500 text-sm">Describe your task below. {ceoDisplayName} will create a plan for you.</p>
             )}
