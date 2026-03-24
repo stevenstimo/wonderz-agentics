@@ -2,7 +2,8 @@ import { useEffect, useState, useCallback } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, GraduationCap, UserPlus, Loader2, BookOpen, Target, Activity, Info } from 'lucide-react'
 import PageLayout from './PageLayout'
-import { apiUrl, apiFetch } from './apiClient'
+import HireCelebration from './components/HireCelebration'
+import { apiFetch } from './apiClient'
 
 const CATEGORIES = [
   { key: 'score_management', label: 'Management', apiValue: 'management' },
@@ -97,6 +98,9 @@ export default function NewbieDetail() {
   const [training, setTraining] = useState(false)
   const [trainError, setTrainError] = useState('')
   const [trainProgress, setTrainProgress] = useState({ current: 0, total: 0, skipped: [] })
+
+  const [hiring, setHiring] = useState(false)
+  const [celebration, setCelebration] = useState(null)
 
   const loadDetail = useCallback(async () => {
     if (!newbieId) return
@@ -210,8 +214,39 @@ export default function NewbieDetail() {
     setTraining(false)
   }
 
-  const handleHireNow = () => {
-    navigate(`/hiring?promote=${encodeURIComponent(newbieId)}`)
+  const handleHire = async () => {
+    if (!newbieId || !newbie) return
+    const roleLabel = newbie.suggested_role || 'agent'
+    if (!window.confirm(`${newbie.newbie_name} aannemen als ${roleLabel}?`)) return
+    setHiring(true)
+    try {
+      const res = await apiFetch(`/api/newbies/${encodeURIComponent(newbieId)}/hire`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        const d = data?.detail
+        const msg = typeof d === 'string' ? d : Array.isArray(d) ? d.map((x) => x?.msg || x).join(', ') : 'Fout bij aannemen'
+        throw new Error(msg)
+      }
+      setCelebration({
+        agentName: data.name,
+        roleName: data.role,
+        badge: data.badge || null,
+      })
+      await loadDetail()
+    } catch (err) {
+      window.alert(err.message || 'Fout bij aannemen')
+    } finally {
+      setHiring(false)
+    }
+  }
+
+  const closeCelebration = () => {
+    setCelebration(null)
+    navigate('/agents')
   }
 
   const readiness = newbie?.readiness_score ?? 0
@@ -240,6 +275,15 @@ export default function NewbieDetail() {
 
   return (
     <PageLayout size="wide" padded className="!max-w-none">
+      {celebration && (
+        <HireCelebration
+          visible
+          agentName={celebration.agentName}
+          roleName={celebration.roleName}
+          badge={celebration.badge}
+          onClose={closeCelebration}
+        />
+      )}
       <div className="mb-4 flex items-center gap-2">
         <Link
           to="/newbies"
@@ -300,10 +344,20 @@ export default function NewbieDetail() {
                 <GraduationCap className="w-4 h-4" />
                 Train
               </button>
-              {canHire && (
-                <button type="button" onClick={handleHireNow} className="btn-manage gap-2 text-green-700 border-green-300 hover:bg-green-50">
-                  <UserPlus className="w-4 h-4" />
-                  Hire Now
+              {newbie.status !== 'hired' && (
+                <button
+                  type="button"
+                  onClick={handleHire}
+                  disabled={hiring || !canHire}
+                  title={
+                    !canHire
+                      ? 'Bereid eerst readiness ≥ 70 en status Ready (train met URLs).'
+                      : undefined
+                  }
+                  className="inline-flex items-center gap-2 rounded-lg border border-green-600 bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <UserPlus className="w-4 h-4 shrink-0" />
+                  {hiring ? 'Bezig…' : 'Aannemen'}
                 </button>
               )}
             </div>
