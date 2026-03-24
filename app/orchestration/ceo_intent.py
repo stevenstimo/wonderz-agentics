@@ -32,6 +32,11 @@ logger = logging.getLogger(__name__)
 AGENT_CEO = "agent:personal-assistant:donna"
 AGENT_COO = "agent:ceo:mr-klein"
 
+# Fase 3 (260324_CURSOR_ceo_orchestration_presets): één bron voor BLOCKED bij geen preset-match.
+UNKNOWN_JOBTYPE_MESSAGE = (
+    "Onbekend jobtype. Omschrijf de opdracht specifieker of hire de juiste agent."
+)
+
 
 def _normalize_slots(raw: Any) -> List[Dict[str, Any]]:
     if raw is None:
@@ -125,7 +130,7 @@ async def _has_role_any(conn: asyncpg.Connection, roles: List[str]) -> bool:
 
 
 async def detect_job_type(
-    conn: asyncpg.Connection, job_description: str
+    db: asyncpg.Connection, job_description: str
 ) -> Optional[str]:
     """
     Match job-beschrijving op comma-gescheiden trigger_hint keywords.
@@ -134,7 +139,7 @@ async def detect_job_type(
     if not job_description or not str(job_description).strip():
         return None
     text = job_description.lower()
-    rows = await conn.fetch(
+    rows = await db.fetch(
         """
         SELECT preset_id, trigger_hint
         FROM job_type_presets
@@ -157,12 +162,12 @@ async def detect_job_type(
     return scored[0][1]
 
 
-async def check_resources(conn: asyncpg.Connection, preset_id: str) -> Dict[str, Any]:
+async def check_resources(db: asyncpg.Connection, preset_id: str) -> Dict[str, Any]:
     """
     Controleer of vereiste agenten (CEO/COO + worker/talent rollen) actief zijn.
     Retourneert o.a. ready, covered, missing, message.
     """
-    row = await conn.fetchrow(
+    row = await db.fetchrow(
         """
         SELECT agent_slots
         FROM job_type_presets
@@ -190,7 +195,7 @@ async def check_resources(conn: asyncpg.Connection, preset_id: str) -> Dict[str,
         role_label = slot.get("role", "")
 
         if agent_type == "ceo":
-            ok = await _ceo_active(conn)
+            ok = await _ceo_active(db)
             if ok:
                 covered.append({"slot": slot_name, "agent_id": AGENT_CEO, "kind": "ceo"})
             else:
@@ -200,7 +205,7 @@ async def check_resources(conn: asyncpg.Connection, preset_id: str) -> Dict[str,
             continue
 
         if agent_type == "coo":
-            ok = await _coo_active(conn)
+            ok = await _coo_active(db)
             if ok:
                 covered.append({"slot": slot_name, "agent_id": AGENT_COO, "kind": "coo"})
             else:
@@ -211,7 +216,7 @@ async def check_resources(conn: asyncpg.Connection, preset_id: str) -> Dict[str,
 
         if agent_type in ("worker", "talent"):
             db_roles = _db_roles_for_worker_slot(role_label)
-            ok = await _has_role_any(conn, db_roles)
+            ok = await _has_role_any(db, db_roles)
             if ok:
                 covered.append(
                     {
@@ -251,7 +256,7 @@ async def check_resources(conn: asyncpg.Connection, preset_id: str) -> Dict[str,
 
 
 async def build_execution_plan(
-    conn: asyncpg.Connection,
+    db: asyncpg.Connection,
     job_id: str | UUID,
     preset_id: str,
     resource_report: Dict[str, Any],
@@ -264,14 +269,14 @@ async def build_execution_plan(
         raise ValueError("build_execution_plan vereist resource_report['ready'] == True")
 
     jid = UUID(str(job_id)) if not isinstance(job_id, UUID) else job_id
-    job = await conn.fetchrow(
+    job = await db.fetchrow(
         "SELECT job_post FROM jobs WHERE id = $1",
         jid,
     )
     if not job:
         raise ValueError(f"Job niet gevonden: {job_id}")
 
-    prow = await conn.fetchrow(
+    prow = await db.fetchrow(
         """
         SELECT job_type, description, agent_slots
         FROM job_type_presets

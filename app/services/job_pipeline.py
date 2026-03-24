@@ -14,7 +14,11 @@ from app.db import init_db_pool
 from app.database import get_db
 from app.services.token_guard import TokenGuard
 from app.orchestration.intake_engine import IntakeEngine, detect_language, normalize_language_label
-from app.orchestration.ceo_intent import check_resources, detect_job_type
+from app.orchestration.ceo_intent import (
+    UNKNOWN_JOBTYPE_MESSAGE,
+    check_resources,
+    detect_job_type,
+)
 from app.orchestration.nexus_pipeline import _missing_roles_for_payload
 from app.utils.job_file_generator import generate_job_artifact, parse_output_to_sections
 from app.orchestration.strategy_room import StrategyRoom
@@ -1255,8 +1259,7 @@ async def run_intake_inline(job_id: str, job_post: str):
                 await _block_job(
                     conn,
                     job_id,
-                    "Onbekend jobtype. Geen passende preset gevonden. "
-                    "Omschrijf de opdracht specifieker of hire de juiste agent voor dit type werk.",
+                    UNKNOWN_JOBTYPE_MESSAGE,
                     [],
                 )
                 return
@@ -1479,8 +1482,7 @@ async def run_intake_answers_inline(job_id: str, answers: dict):
                     await _block_job(
                         conn,
                         job_id,
-                        "Onbekend jobtype. Geen passende preset gevonden. "
-                        "Omschrijf de opdracht specifieker of hire de juiste agent voor dit type werk.",
+                        UNKNOWN_JOBTYPE_MESSAGE,
                         [],
                     )
                     return

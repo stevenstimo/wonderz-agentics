@@ -174,6 +174,7 @@ class NEXUSPipeline:
         Returns True als job op BLOCKED gezet is en de pipeline moet stoppen.
         """
         from app.orchestration.ceo_intent import (
+            UNKNOWN_JOBTYPE_MESSAGE,
             build_execution_plan,
             check_resources,
             compute_deviation_slots,
@@ -189,7 +190,7 @@ class NEXUSPipeline:
             if not preset_id:
                 await self._block_job(
                     ctx,
-                    "Onbekend jobtype. Omschrijf de opdracht specifieker of hire de juiste agent.",
+                    UNKNOWN_JOBTYPE_MESSAGE,
                     missing_roles=[],
                 )
                 return True

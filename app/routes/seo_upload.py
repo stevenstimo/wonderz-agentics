@@ -1,6 +1,9 @@
 """
 SEO Keyword Plan — file upload, processing, status polling, download.
 POST /api/seo/upload, GET /api/seo/status/{job_id}, GET /api/seo/download/{job_id}
+
+Fase 3 CEO-orchestratie: alle routes vereisen query/form ``initiated_by`` in (``ceo``, ``coo``);
+anders HTTP 403 — zie ``_require_seo_initiator``.
 """
 import logging
 import os
