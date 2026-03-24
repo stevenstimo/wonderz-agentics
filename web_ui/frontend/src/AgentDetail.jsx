@@ -7,6 +7,7 @@ import { apiUrl, apiFetch, fetchJson } from './apiClient'
 import { VALID_TOOLS, VALID_CATEGORIES } from './agentConstants'
 import AgentDirectChat from './components/AgentDirectChat'
 import AgentKnowledgeTab from './components/AgentKnowledgeTab'
+import HireCelebration from './components/HireCelebration'
 import { queryKeys } from './queryKeys'
 
 const AVATAR_COLORS = [
@@ -162,6 +163,8 @@ export default function AgentDetail() {
   const [isTraining, setIsTraining] = useState(false)
   const [trainingPollUrl, setTrainingPollUrl] = useState(null)
   const [trainingPollAttempts, setTrainingPollAttempts] = useState(0)
+  const [celebration, setCelebration] = useState(null)
+  const closeCelebration = useCallback(() => setCelebration(null), [])
 
   const loadDetail = useCallback(async () => {
     if (!agentId) return
@@ -306,6 +309,7 @@ export default function AgentDetail() {
   }
 
   const setProfileIsActive = async (value) => {
+    const wasInactive = agent.is_active === false
     setSavingStatus(true)
     try {
       const res = await apiFetch(`/api/agents/${encodeURIComponent(agentId)}`, {
@@ -315,6 +319,19 @@ export default function AgentDetail() {
       })
       if (!res.ok) throw new Error((await res.json()).detail || 'Update failed')
       await loadDetail()
+      if (value === true && wasInactive) {
+        const displayName = agent.name || agent.agent_name || '—'
+        const roleLabel = agent.role || agent.specialization || 'Agent'
+        const cat = agent.category || ''
+        setCelebration({
+          agentName: displayName,
+          roleName: roleLabel,
+          badge:
+            cat && roleLabel
+              ? `${cat} · ${roleLabel}`
+              : cat || null,
+        })
+      }
     } catch (err) {
       alert(err.message)
     } finally {
@@ -488,6 +505,15 @@ export default function AgentDetail() {
 
   return (
     <PageLayout size="wide" padded className="!max-w-none">
+      {celebration && (
+        <HireCelebration
+          visible
+          agentName={celebration.agentName}
+          roleName={celebration.roleName}
+          badge={celebration.badge}
+          onClose={closeCelebration}
+        />
+      )}
       {showDeactivateModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true" aria-labelledby="deactivate-modal-title">
           <div className="rounded-xl bg-white p-6 shadow-xl max-w-md mx-4">

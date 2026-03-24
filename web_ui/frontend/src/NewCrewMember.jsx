@@ -1,9 +1,10 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import PageLayout from './PageLayout'
 import { apiUrl, apiFetch } from './apiClient'
 
 import { VALID_TOOLS, VALID_CATEGORIES } from './agentConstants'
+import HireCelebration from './components/HireCelebration'
 
 const ROLE_OPTIONS = [
   'copywriter', 'seo', 'hr-manager', 'support',
@@ -35,6 +36,15 @@ export default function NewCrewMember() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [fieldErrors, setFieldErrors] = useState({})
+  const [celebration, setCelebration] = useState(null)
+  const postCelebrationPathRef = useRef(null)
+
+  const closeCelebration = useCallback(() => {
+    setCelebration(null)
+    const path = postCelebrationPathRef.current
+    postCelebrationPathRef.current = null
+    if (path) navigate(path)
+  }, [navigate])
 
   const isValid = useMemo(() => {
     return (
@@ -159,7 +169,12 @@ export default function NewCrewMember() {
 
       const agentId = data.agent_id || data.agentId
       if (agentId) {
-        navigate(`/agents/${encodeURIComponent(agentId)}`)
+        postCelebrationPathRef.current = `/agents/${encodeURIComponent(agentId)}`
+        setCelebration({
+          agentName: form.agent_name.trim(),
+          roleName: form.role.trim(),
+          badge: `${form.category} · ${form.role.trim()}`,
+        })
       } else {
         setError('Agent aangemaakt maar redirect niet mogelijk (geen agent_id in response).')
       }
@@ -172,6 +187,15 @@ export default function NewCrewMember() {
 
   return (
     <PageLayout>
+      {celebration && (
+        <HireCelebration
+          visible
+          agentName={celebration.agentName}
+          roleName={celebration.roleName}
+          badge={celebration.badge}
+          onClose={closeCelebration}
+        />
+      )}
       <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden max-w-3xl">
         <div className="p-6 border-b border-slate-200">
           <h1 className="text-2xl font-bold text-slate-900">Nieuwe agent</h1>
