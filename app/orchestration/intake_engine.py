@@ -79,7 +79,7 @@ def _build_data_clarification_questions(missing_params: List[str], job_context: 
         options = " / ".join(available_clients)
         questions.append(f"Voor welke klant wil je de data? ({options})")
 
-    if "site_url" in missing_params and gsc_properties:
+    if "site_url" in missing_params and gsc_properties and len(gsc_properties) > 1:
         options = " / ".join(gsc_properties)
         questions.append(f"Voor welke website wil je de data? ({options})")
 

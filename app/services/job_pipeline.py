@@ -219,12 +219,14 @@ def _parse_extra_config_gsc_sites(extra_config: Any) -> List[str]:
             return []
     if not isinstance(extra_config, dict):
         return []
+    single = extra_config.get("site_url")
+    if isinstance(single, str) and single.strip():
+        # Preferred: when a direct site is selected for this client, keep scope to that one site.
+        return [single.strip()]
+
     sites = extra_config.get("gsc_sites")
     if isinstance(sites, list) and sites:
         return [s for s in sites if isinstance(s, str) and s.strip()]
-    single = extra_config.get("site_url")
-    if isinstance(single, str) and single.strip():
-        return [single.strip()]
     return []
 
 
