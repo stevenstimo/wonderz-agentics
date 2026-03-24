@@ -189,6 +189,7 @@ from app.routes import (
     alex_dev,
     admin,
     skills,
+    skill_registry,
     skill_factory,
     evals,
 )
@@ -226,6 +227,7 @@ app.include_router(admin.router)
 app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(skills.router)
+app.include_router(skill_registry.router)
 app.include_router(skill_factory.router)
 app.include_router(evals.router)
 

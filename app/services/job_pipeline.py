@@ -14,10 +14,11 @@ from app.db import init_db_pool
 from app.database import get_db
 from app.services.token_guard import TokenGuard
 from app.orchestration.intake_engine import IntakeEngine, detect_language, normalize_language_label
-from app.orchestration.ceo_intent import (
-    UNKNOWN_JOBTYPE_MESSAGE,
-    check_resources,
-    detect_job_type,
+from app.orchestration.ceo_intent import check_resources, detect_job_type
+from app.services.skill_matcher import (
+    UNKNOWN_PRESET_AND_SKILL_MESSAGE,
+    match_skill,
+    persist_matched_skill,
 )
 from app.orchestration.nexus_pipeline import _missing_roles_for_payload
 from app.utils.job_file_generator import generate_job_artifact, parse_output_to_sections
@@ -1256,13 +1257,17 @@ async def run_intake_inline(job_id: str, job_post: str):
                     )
                     return
             else:
-                await _block_job(
-                    conn,
-                    job_id,
-                    UNKNOWN_JOBTYPE_MESSAGE,
-                    [],
-                )
-                return
+                matched = await match_skill(conn, job_post)
+                if matched:
+                    await persist_matched_skill(conn, job_id, matched)
+                else:
+                    await _block_job(
+                        conn,
+                        job_id,
+                        UNKNOWN_PRESET_AND_SKILL_MESSAGE,
+                        [],
+                    )
+                    return
 
             # Content path: plan and steps
             await conn.execute(
@@ -1479,13 +1484,17 @@ async def run_intake_answers_inline(job_id: str, answers: dict):
                         )
                         return
                 else:
-                    await _block_job(
-                        conn,
-                        job_id,
-                        UNKNOWN_JOBTYPE_MESSAGE,
-                        [],
-                    )
-                    return
+                    matched = await match_skill(conn, job_post)
+                    if matched:
+                        await persist_matched_skill(conn, job_id, matched)
+                    else:
+                        await _block_job(
+                            conn,
+                            job_id,
+                            UNKNOWN_PRESET_AND_SKILL_MESSAGE,
+                            [],
+                        )
+                        return
 
                 # Update status first so job leaves INTAKE_CLARIFICATION even if plan generation fails
                 await conn.execute(

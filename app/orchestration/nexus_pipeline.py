@@ -174,7 +174,6 @@ class NEXUSPipeline:
         Returns True als job op BLOCKED gezet is en de pipeline moet stoppen.
         """
         from app.orchestration.ceo_intent import (
-            UNKNOWN_JOBTYPE_MESSAGE,
             build_execution_plan,
             check_resources,
             compute_deviation_slots,
@@ -182,15 +181,29 @@ class NEXUSPipeline:
             register_preset_bookings,
         )
         from app.services.job_pipeline import _insert_plan_steps
+        from app.services.skill_matcher import (
+            UNKNOWN_PRESET_AND_SKILL_MESSAGE,
+            match_skill,
+            persist_matched_skill,
+        )
 
         if not self._pool:
             return False
         async with self._pool.acquire() as conn:
             preset_id = await detect_job_type(conn, job_post or "")
             if not preset_id:
+                matched = await match_skill(conn, job_post or "")
+                if matched:
+                    await persist_matched_skill(conn, ctx.job_id, matched)
+                    logger.info(
+                        "Job %s: geen preset, matched_skill=%s",
+                        ctx.job_id,
+                        matched.get("skill_id"),
+                    )
+                    return False
                 await self._block_job(
                     ctx,
-                    UNKNOWN_JOBTYPE_MESSAGE,
+                    UNKNOWN_PRESET_AND_SKILL_MESSAGE,
                     missing_roles=[],
                 )
                 return True
