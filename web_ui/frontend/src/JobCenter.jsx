@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import PageLayout from './PageLayout'
-import { fetchJson } from './apiClient'
+import { fetchJson, apiFetch } from './apiClient'
 import { useAuthReady } from './useAuthReady'
 import { queryKeys } from './queryKeys'
 
