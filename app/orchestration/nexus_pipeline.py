@@ -72,6 +72,8 @@ class NEXUSPipeline:
         )
         try:
             await self.phase_1_intake(ctx, job_post)
+            if await self._ceo_preset_gate(ctx, job_post):
+                return ctx
             await self.phase_2_planning(ctx)
             await self.phase_3_execution(ctx)
             await self.phase_4_qa_loop(ctx)
@@ -148,6 +150,75 @@ class NEXUSPipeline:
             "language": language,
             "context": brief_inner,
         }
+
+    async def _ceo_preset_gate(self, ctx: HandoffContext, job_post: str) -> bool:
+        """
+        Na jobbeschrijving: preset detecteren + resourcecheck vóór execution plan laden.
+        Returns True als job op BLOCKED gezet is en de pipeline moet stoppen.
+        """
+        from app.orchestration.ceo_intent import (
+            build_execution_plan,
+            check_resources,
+            detect_job_type,
+        )
+        from app.services.job_pipeline import _insert_plan_steps
+
+        if not self._pool:
+            return False
+        async with self._pool.acquire() as conn:
+            preset_id = await detect_job_type(conn, job_post or "")
+            if not preset_id:
+                await self._block_job(
+                    ctx,
+                    "Onbekend jobtype. Omschrijf de opdracht specifieker of hire de juiste agent.",
+                )
+                return True
+            report = await check_resources(conn, preset_id)
+            if not report.get("ready"):
+                await self._block_job(
+                    ctx,
+                    str(report.get("message") or "Resources niet beschikbaar."),
+                )
+                return True
+            n = await conn.fetchval(
+                "SELECT COUNT(*)::int FROM job_steps WHERE job_id = $1",
+                ctx.job_id,
+            )
+            plan = await build_execution_plan(conn, ctx.job_id, preset_id, report)
+            if n == 0:
+                await _insert_plan_steps(conn, ctx.job_id, plan)
+            else:
+                plan_blob = json.loads(plan.model_dump_json())
+                await conn.execute(
+                    """
+                    UPDATE jobs
+                    SET payload = COALESCE(payload, '{}'::jsonb) || $1::jsonb,
+                        updated_at = now()
+                    WHERE id = $2
+                    """,
+                    {"preset_id": preset_id, "preset_execution_plan": plan_blob},
+                    ctx.job_id,
+                )
+        return False
+
+    async def _block_job(self, ctx: HandoffContext, message: str) -> None:
+        """Zet job op BLOCKED met reden in payload."""
+        ctx.error = message
+        if not self._pool:
+            return
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                """
+                UPDATE jobs
+                SET status = $1, updated_at = now(),
+                    payload = COALESCE(payload, '{}'::jsonb) || $2::jsonb
+                WHERE id = $3
+                """,
+                "BLOCKED",
+                {"block_reason": message, "ceo_preset_blocked": True},
+                ctx.job_id,
+            )
+        logger.info("Job %s → BLOCKED: %s", ctx.job_id, message[:200])
 
     def _merge_depends_on_into_steps(
         self, steps: list, job_context: dict

@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 
 from arq import ArqRedis
@@ -25,6 +25,18 @@ from app.services.seo_gsc_fetcher import fetch_gsc_for_keywords, get_gsc_site_ur
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/seo", tags=["seo"])
+
+
+def _require_seo_initiator(initiated_by: str | None) -> str:
+    """Alleen CEO/COO-orchestratie mag SEO-jobs starten of opvragen."""
+    if initiated_by not in ("ceo", "coo"):
+        raise HTTPException(
+            status_code=403,
+            detail="Alleen CEO of COO mag dit endpoint gebruiken (initiated_by=ceo of initiated_by=coo).",
+        )
+    return initiated_by
+
+
 MAX_KEYWORDS = 2000
 MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
 
@@ -159,8 +171,11 @@ async def _mark_failed(job_id: str, error: str):
 
 
 @router.get("/jobs")
-async def list_seo_jobs():
+async def list_seo_jobs(
+    initiated_by: str | None = Query(None, description="ceo of coo"),
+):
     """Return last 20 SEO jobs for history and download links."""
+    _require_seo_initiator(initiated_by)
     pool = await init_db_pool()
     if not pool:
         raise HTTPException(status_code=503, detail="Database unavailable")
@@ -182,11 +197,13 @@ async def upload_seo_file(
     audience: str = Form(""),
     language: str = Form("nl"),
     client_slug: Optional[str] = Form(None),
+    initiated_by: Optional[str] = Form(None, description="ceo of coo"),
 ):
     """
     Upload CSV or XLSX keyword file. Returns job_id for status polling and download.
     When client_slug is set, brand_name and domain are resolved from DB/GSC if empty.
     """
+    _require_seo_initiator(initiated_by)
     user_id = current_user.user_id
     resolved_brand = brand_name.strip()
     resolved_domain = domain.strip()
@@ -274,8 +291,12 @@ async def upload_seo_file(
 
 
 @router.get("/status/{job_id}")
-async def get_seo_status(job_id: str):
+async def get_seo_status(
+    job_id: str,
+    initiated_by: str | None = Query(None, description="ceo of coo"),
+):
     """Poll job status. Returns progress and download_url when ready."""
+    _require_seo_initiator(initiated_by)
     pool = await init_db_pool()
     if not pool:
         raise HTTPException(status_code=503, detail="Database unavailable")
@@ -303,13 +324,19 @@ async def get_seo_status(job_id: str):
         "keywords_total": keyword_count,
     }
     if status == "ready" and row.get("output_file_path"):
-        result["download_url"] = f"/api/seo/download/{job_id}"
+        result["download_url"] = (
+            f"/api/seo/download/{job_id}?initiated_by={initiated_by}"
+        )
     return result
 
 
 @router.get("/download/{job_id}")
-async def download_seo_plan(job_id: str):
+async def download_seo_plan(
+    job_id: str,
+    initiated_by: str | None = Query(None, description="ceo of coo"),
+):
     """Stream Excel file. Content-Disposition: attachment."""
+    _require_seo_initiator(initiated_by)
     pool = await init_db_pool()
     if not pool:
         raise HTTPException(status_code=503, detail="Database unavailable")

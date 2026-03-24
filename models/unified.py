@@ -15,6 +15,7 @@ class JobStatus(str, Enum):
     CANCELLED = "CANCELLED"                         # Job cancelled
     FAILED = "FAILED"                               # Job failed
     AWAITING_APPROVAL = "AWAITING_APPROVAL"         # Manual approval required during execution
+    BLOCKED = "BLOCKED"                             # CEO preset/resources: cannot proceed
 
 
 # ============ Intake Models ============

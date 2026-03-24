@@ -55,7 +55,7 @@ async def test_job(db_pool):
             """,
             job_id,
             user_id,
-            "Test job for NEXUS integration",
+            "schrijf een blog artikel over SEO voor integratietest",
             "RUNNING",
             "browser",
             "{}",
@@ -126,6 +126,7 @@ async def test_phase2_loads_job_steps_from_db(test_job_with_steps, db_pool):
 @pytest.mark.asyncio
 async def test_execute_step_writes_output_to_db(test_job, db_pool):
     """_execute_step schrijft status, output, timing_ms en tokens_used naar job_steps."""
+    pytest.importorskip("fastapi")
     job_id = test_job
     step_id = uuid.uuid4()
     async with db_pool.acquire() as conn:
@@ -178,18 +179,19 @@ async def test_phase6_sets_job_ready(test_job, db_pool):
     pipeline._pool = db_pool
     await pipeline.phase_6_approval_gate(ctx)
     async with db_pool.acquire() as conn:
-        row = await conn.fetchrow("SELECT status, context FROM jobs WHERE id = $1", uuid.UUID(job_id))
+        row = await conn.fetchrow("SELECT status, payload FROM jobs WHERE id = $1", uuid.UUID(job_id))
     assert row is not None
     assert row["status"] == "JOB_READY"
-    ctx_json = row["context"]
-    if isinstance(ctx_json, str):
-        ctx_json = json.loads(ctx_json)
-    assert "final_content" in ctx_json
+    payload = row["payload"]
+    if isinstance(payload, str):
+        payload = json.loads(payload)
+    assert "final_content" in payload
 
 
 @pytest.mark.asyncio
 async def test_full_pipeline_completes_without_error(test_job, db_pool):
     """Volledige pipeline.run() eindigt in JOB_READY of FAILED (smoke, LLM gemockt)."""
+    pytest.importorskip("fastapi")
     job_id = test_job
     step_id = uuid.uuid4()
     async with db_pool.acquire() as conn:
@@ -208,7 +210,7 @@ async def test_full_pipeline_completes_without_error(test_job, db_pool):
             job_id,
             "u1",
             "browser",
-            "Test post",
+            "schrijf een blog artikel over SEO",
             50000,
             pool=db_pool,
         )
