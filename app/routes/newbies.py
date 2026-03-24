@@ -1359,10 +1359,14 @@ async def hire_newbie(newbie_id: str, req: HireNewbieRequest = HireNewbieRequest
         logger.warning("Hire: agent_knowledge training from newbie_library failed: %s", e)
 
     logger.info("Hired newbie %s as agent %s", newbie_id, agent_id)
+    badge = row.get("suggested_role")
     return {
+        "success": True,
         "agent_id": agent_id,
         "name": name,
         "role": role,
+        "badge": badge,
+        "message": f"{name} is aangenomen als {role}",
         "status": "active",
         "hired_from_newbie": newbie_id,
         "agent": dict(agent_row) if agent_row else None,
