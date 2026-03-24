@@ -1,5 +1,8 @@
 """Knowledge Upload Service — document ingest voor AI Agency Knowledge Centre.
 
+Pattern: fire-and-forget / Aanpak A — status via knowledge_documents.embedding_status;
+zware stappen (URL-fetch, file-parse, chunk, embed) draaien in ARQ (`process_knowledge_ingest`, enz.).
+
 Hergebruikt chunk_text en generate_embedding uit training.py.
 Slaat op in knowledge_documents + knowledge_chunks (agency-wide of client-scoped).
 Geen agent mag ooit zelf een document approven — approved_by is altijd user.

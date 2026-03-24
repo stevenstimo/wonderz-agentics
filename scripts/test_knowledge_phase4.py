@@ -60,11 +60,11 @@ def main():
             "domain": "growth",
         },
     )
-    if status != 200:
-        print(f"  FAIL: {status} {resp}")
+    if status != 202:
+        print(f"  FAIL: expected 202, got {status} {resp}")
         sys.exit(1)
     doc_id = resp.get("document_id")
-    print(f"  OK: document_id={doc_id}, status={resp.get('status')}")
+    print(f"  OK: document_id={doc_id}, status={resp.get('status')} (async ingest)")
 
     print("\n=== Test 2: GET /api/knowledge ===")
     status, resp = req("GET", "/api/knowledge")
@@ -112,8 +112,8 @@ def main():
             "domain": "compliance",
         },
     )
-    if status2 != 200:
-        print(f"  FAIL: upload policy failed {status2} {resp2}")
+    if status2 != 202:
+        print(f"  FAIL: upload policy expected 202, got {status2} {resp2}")
         sys.exit(1)
     policy_id = resp2.get("document_id")
     status3, resp3 = req(

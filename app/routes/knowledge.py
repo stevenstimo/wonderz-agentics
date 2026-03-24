@@ -15,6 +15,8 @@ Endpoints:
 
 import json
 import logging
+import os
+import tempfile
 from datetime import datetime, timezone
 from typing import Any, Optional
 from uuid import UUID
@@ -27,15 +29,7 @@ from app.database import get_db
 from app.middleware.auth import TokenPayload, get_current_user
 from app.dependencies import get_arq_pool
 from arq import ArqRedis
-from app.services.knowledge_upload_service import (
-    DOC_TYPES,
-    create_document_with_chunks,
-    reindex_document,
-    replace_document_content_from_text,
-    run_embedding_task,
-)
-from app.services.training import TrainingError, extract_text, scrape_url
-from app.utils.document_parser import extract_text_from_file
+from app.services.knowledge_upload_service import DOC_TYPES, insert_pending_document_row
 
 logger = logging.getLogger(__name__)
 
@@ -123,46 +117,50 @@ async def upload_url(
     arq_pool: ArqRedis = Depends(get_arq_pool),
     current_user: TokenPayload = Depends(get_current_user),
 ):
-    """Ingest document from URL. Store doc + chunks, start embeddings in background. Returns 202."""
+    """Create pending document; scrape, chunk and embed on ARQ worker. Returns 202 immediately."""
     if body.doc_type not in DOC_TYPES:
         raise HTTPException(status_code=400, detail=f"doc_type must be one of: {DOC_TYPES}")
     if body.domain == "general":
         raise HTTPException(status_code=400, detail="domain cannot be 'general'")
 
-    try:
-        html = await scrape_url(str(body.url))
-        text = extract_text(html)
-    except TrainingError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-    if not text or len(text.strip()) < 50:
-        raise HTTPException(status_code=400, detail="Could not extract enough text from URL")
-
     pool = await get_db()
+    approved_by = current_user.email or str(current_user.user_id)
+    document_id = await insert_pending_document_row(
+        pool,
+        source_url=str(body.url),
+        source_type="url",
+        title=body.title or str(body.url),
+        doc_type=body.doc_type,
+        domain=body.domain,
+        function_tag=body.function_tag,
+        client_slug=body.client_slug,
+        approved_by=approved_by,
+        access_level=body.access_level or "reference",
+        summary=body.summary,
+        keywords=body.keywords,
+    )
     try:
-        result = await create_document_with_chunks(
-            pool,
-            text,
-            source_url=str(body.url),
-            source_type="url",
-            title=body.title or str(body.url),
-            doc_type=body.doc_type,
-            domain=body.domain,
-            function_tag=body.function_tag,
-            client_slug=body.client_slug,
-            approved_by=current_user.email or str(current_user.user_id),
-            access_level=body.access_level or "reference",
-            summary=body.summary,
-            keywords=body.keywords,
-        )
-    except TrainingError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        await arq_pool.enqueue_job("process_knowledge_ingest", document_id, "", "")
+    except Exception as e:
+        logger.exception("enqueue process_knowledge_ingest failed for %s: %s", document_id, e)
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "DELETE FROM knowledge_documents WHERE document_id = $1::uuid",
+                document_id,
+            )
+        raise HTTPException(
+            status_code=503,
+            detail="Kon verwerking niet in de wachtrij zetten; probeer opnieuw.",
+        ) from e
 
-    document_id = result["document_id"]
-    await arq_pool.enqueue_job("run_embedding_task", document_id)
     return JSONResponse(
         status_code=202,
-        content={"document_id": document_id, "status": "processing", "chunks_stored": result["chunks_stored"]},
+        content={
+            "document_id": document_id,
+            "status": "pending",
+            "chunks_stored": 0,
+            "embedding_status": "pending",
+        },
     )
 
 
@@ -180,22 +178,36 @@ async def upload_file(
     keywords: Optional[str] = Form(None),
     current_user: TokenPayload = Depends(get_current_user),
 ):
-    """Upload document (PDF, docx, txt, md, csv, xlsx). Store doc + chunks, start embeddings in background. Returns 202."""
+    """Stream file to temp; pending row; extract/chunk/embed on ARQ worker. Returns 202."""
     pool = await get_db()
     filename = file.filename or "document"
-    try:
-        raw = await file.read()
-        text = extract_text_from_file(filename, raw)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.exception("Upload read failed: %s", e)
-        raise HTTPException(status_code=400, detail="Failed to read file")
+    max_bytes = 10 * 1024 * 1024
 
     if doc_type not in DOC_TYPES:
         raise HTTPException(status_code=400, detail=f"doc_type must be one of: {DOC_TYPES}")
     if not domain or domain == "general":
         raise HTTPException(status_code=400, detail="domain is required and cannot be 'general'")
+
+    raw = await file.read()
+    if len(raw) > max_bytes:
+        raise HTTPException(status_code=400, detail="Bestand mag maximaal 10MB zijn")
+
+    suffix = os.path.splitext(filename)[1] or ".bin"
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    tmp_path = tmp.name
+    try:
+        tmp.write(raw)
+        tmp.close()
+    except Exception:
+        try:
+            tmp.close()
+        except Exception:
+            pass
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise HTTPException(status_code=400, detail="Failed to store upload")
 
     kw_list = None
     if keywords:
@@ -204,30 +216,47 @@ async def upload_file(
         except json.JSONDecodeError:
             kw_list = [k.strip() for k in keywords.split(",") if k.strip()] if isinstance(keywords, str) else []
 
+    approved_by = current_user.email or str(current_user.user_id)
+    document_id = await insert_pending_document_row(
+        pool,
+        source_url=None,
+        source_type="file",
+        title=title or filename,
+        doc_type=doc_type,
+        domain=domain,
+        function_tag=function_tag,
+        client_slug=client_slug,
+        approved_by=approved_by,
+        access_level=access_level or "reference",
+        summary=summary,
+        keywords=kw_list,
+    )
     try:
-        result = await create_document_with_chunks(
-            pool,
-            text,
-            source_url=None,
-            source_type="file",
-            title=title or filename,
-            doc_type=doc_type,
-            domain=domain,
-            function_tag=function_tag,
-            client_slug=client_slug,
-            approved_by=current_user.email or str(current_user.user_id),
-            access_level=access_level or "reference",
-            summary=summary,
-            keywords=kw_list,
-        )
-    except TrainingError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        await arq_pool.enqueue_job("process_knowledge_ingest", document_id, tmp_path, filename)
+    except Exception as e:
+        logger.exception("enqueue process_knowledge_ingest (file) failed for %s: %s", document_id, e)
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "DELETE FROM knowledge_documents WHERE document_id = $1::uuid",
+                document_id,
+            )
+        raise HTTPException(
+            status_code=503,
+            detail="Kon verwerking niet in de wachtrij zetten; probeer opnieuw.",
+        ) from e
 
-    document_id = result["document_id"]
-    await arq_pool.enqueue_job("run_embedding_task", document_id)
     return JSONResponse(
         status_code=202,
-        content={"document_id": document_id, "status": "processing", "chunks_stored": result["chunks_stored"]},
+        content={
+            "document_id": document_id,
+            "status": "pending",
+            "chunks_stored": 0,
+            "embedding_status": "pending",
+        },
     )
 
 
@@ -257,7 +286,8 @@ async def list_knowledge(
         limit_param = len(params)
         q = f"""
             SELECT document_id, source_url, source_type, title, client_slug, approved_by,
-                   doc_type, domain, status, summary, version, owner, created_at, updated_at
+                   doc_type, domain, status, summary, version, owner, created_at, updated_at,
+                   embedding_status
             FROM knowledge_documents
             WHERE 1=1 {where}
             ORDER BY updated_at DESC NULLS LAST, created_at DESC
@@ -558,18 +588,45 @@ async def archive_document(
 @router.post("/{document_id}/reindex")
 async def reindex_knowledge_document(
     document_id: UUID,
+    arq_pool: ArqRedis = Depends(get_arq_pool),
     current_user: TokenPayload = Depends(get_current_user),
 ):
-    """Re-fetch URL, re-parse, deactivate old chunks, create new chunks. URL-sourced docs only."""
+    """Queue URL re-fetch + re-chunk + re-embed on worker. URL-sourced docs only. Returns 202."""
     pool = await get_db()
+    doc_id_str = str(document_id)
+    async with pool.acquire() as conn:
+        doc = await conn.fetchrow(
+            """
+            SELECT document_id, source_type, source_url
+            FROM knowledge_documents
+            WHERE document_id = $1
+            """,
+            document_id,
+        )
+        if not doc:
+            raise HTTPException(status_code=404, detail="Document not found")
+        if doc["source_type"] != "url" or not (doc.get("source_url") or "").strip():
+            raise HTTPException(
+                status_code=400,
+                detail="Reindex only supported for URL-sourced documents",
+            )
+        await conn.execute(
+            "UPDATE knowledge_documents SET embedding_status = 'pending', updated_at = now() WHERE document_id = $1",
+            document_id,
+        )
     try:
-        result = await reindex_document(pool, str(document_id))
-    except TrainingError as e:
-        msg = str(e)
-        if "not found" in msg.lower():
-            raise HTTPException(status_code=404, detail=msg)
-        raise HTTPException(status_code=400, detail=msg)
-    return result
+        await arq_pool.enqueue_job("reindex_document", doc_id_str)
+    except Exception as e:
+        logger.exception("enqueue reindex_document failed for %s: %s", doc_id_str, e)
+        raise HTTPException(
+            status_code=503,
+            detail="Kon herindexering niet in de wachtrij zetten; probeer opnieuw.",
+        ) from e
+
+    return JSONResponse(
+        status_code=202,
+        content={"document_id": doc_id_str, "status": "pending", "embedding_status": "pending"},
+    )
 
 
 @router.post("/{document_id}/replace-content")
@@ -587,8 +644,9 @@ async def replace_content(
     client_slug: Optional[str] = Form(None),
     current_user: TokenPayload = Depends(get_current_user),
 ):
-    """Replace document content from uploaded file; update metadata; run embeddings in background. Returns 200 with document."""
+    """Stream file to worker: extract, re-chunk, embed on ARQ. Metadata updated sync. Returns 202."""
     pool = await get_db()
+    doc_id_str = str(document_id)
     async with pool.acquire() as conn:
         doc = await conn.fetchrow(
             "SELECT * FROM knowledge_documents WHERE document_id = $1",
@@ -600,21 +658,29 @@ async def replace_content(
             raise HTTPException(status_code=400, detail="Cannot replace content of archived document")
 
     filename = file.filename or "document"
-    try:
-        raw = await file.read()
-        text = extract_text_from_file(filename, raw)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.exception("Replace content read failed: %s", e)
-        raise HTTPException(status_code=400, detail="Failed to read file")
+    max_bytes = 10 * 1024 * 1024
+    raw = await file.read()
+    if len(raw) > max_bytes:
+        raise HTTPException(status_code=400, detail="Bestand mag maximaal 10MB zijn")
 
+    suffix = os.path.splitext(filename)[1] or ".bin"
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    tmp_path = tmp.name
     try:
-        chunks_stored = await replace_document_content_from_text(pool, str(document_id), text)
-    except TrainingError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        tmp.write(raw)
+        tmp.close()
+    except Exception:
+        try:
+            tmp.close()
+        except Exception:
+            pass
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise HTTPException(status_code=400, detail="Failed to store upload")
 
-    # Optional metadata update
+    # Optional metadata update (before worker replaces body)
     updates = []
     values = []
     idx = 1
@@ -659,11 +725,24 @@ async def replace_content(
                 *values,
             )
 
-    await arq_pool.enqueue_job("run_embedding_task", str(document_id))
+    try:
+        await arq_pool.enqueue_job("process_knowledge_replace_content", doc_id_str, tmp_path, filename)
+    except Exception as e:
+        logger.exception("enqueue process_knowledge_replace_content failed for %s: %s", doc_id_str, e)
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise HTTPException(
+            status_code=503,
+            detail="Kon verwerking niet in de wachtrij zetten; probeer opnieuw.",
+        ) from e
 
-    async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            "SELECT * FROM knowledge_documents WHERE document_id = $1",
-            document_id,
-        )
-    return _document_response(row)
+    return JSONResponse(
+        status_code=202,
+        content={
+            "document_id": doc_id_str,
+            "status": "pending",
+            "embedding_status": "pending",
+        },
+    )

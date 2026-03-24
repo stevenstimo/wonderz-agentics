@@ -274,6 +274,125 @@ async def _run_file(
 # Knowledge (embeddings)
 # -----------------------
 
+async def process_knowledge_ingest(
+    ctx: dict[str, Any],
+    document_id: str,
+    tmp_path: str = "",
+    original_filename: str = "",
+) -> None:
+    """
+    Fire-and-forget: URL scrape + chunk + embed, or file extract + chunk + embed.
+    tmp_path empty → URL ingest for document_id; else temp file (deleted here).
+    """
+    import os
+
+    from app.services.knowledge_upload_service import (
+        ingest_file_from_temp_then_embed,
+        ingest_url_document_then_embed,
+    )
+
+    pool = ctx.get("db_pool")
+    if not pool:
+        logger.warning("[ARQ] db_pool missing; knowledge_ingest skip for %s", document_id)
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+        return
+
+    logger.info("[ARQ] knowledge_ingest gestart: %s", document_id)
+    try:
+        if tmp_path:
+            await ingest_file_from_temp_then_embed(
+                pool, document_id, tmp_path, original_filename or "upload"
+            )
+        else:
+            await ingest_url_document_then_embed(pool, document_id)
+    finally:
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+
+async def process_knowledge_replace_content(
+    ctx: dict[str, Any],
+    document_id: str,
+    tmp_path: str,
+    original_filename: str,
+) -> None:
+    """Replace document body from uploaded file: extract, chunk, embed on worker."""
+    import os
+
+    from app.services.knowledge_upload_service import replace_document_content_from_text, run_embedding_task
+    from app.services.training import TrainingError
+    from app.utils.document_parser import extract_text_from_file
+
+    pool = ctx.get("db_pool")
+    if not pool:
+        logger.warning("[ARQ] db_pool missing; knowledge_replace skip for %s", document_id)
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        return
+
+    logger.info("[ARQ] knowledge_replace gestart: %s", document_id)
+    try:
+        try:
+            with open(tmp_path, "rb") as f:
+                raw = f.read()
+            text = extract_text_from_file(original_filename or "upload", raw)
+        except ValueError as e:
+            logger.warning("knowledge_replace extract failed %s: %s", document_id, e)
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    """
+                    UPDATE knowledge_documents
+                    SET embedding_status = 'failed', updated_at = now()
+                    WHERE document_id = $1::uuid
+                    """,
+                    document_id,
+                )
+            return
+
+        if not text or len(text.strip()) < 50:
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    """
+                    UPDATE knowledge_documents
+                    SET embedding_status = 'failed', updated_at = now()
+                    WHERE document_id = $1::uuid
+                    """,
+                    document_id,
+                )
+            return
+
+        try:
+            await replace_document_content_from_text(pool, document_id, text)
+        except TrainingError as e:
+            logger.warning("knowledge_replace chunk failed %s: %s", document_id, e)
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    """
+                    UPDATE knowledge_documents
+                    SET embedding_status = 'failed', updated_at = now()
+                    WHERE document_id = $1::uuid
+                    """,
+                    document_id,
+                )
+            return
+
+        await run_embedding_task(pool, document_id)
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+
 async def run_embedding_task(ctx: dict[str, Any], document_id: str) -> None:
     from app.services.knowledge_upload_service import run_embedding_task
 
@@ -404,6 +523,8 @@ class WorkerSettings:
         _run_training_background,
         _process_datasource_background,
         _run_file,
+        process_knowledge_ingest,
+        process_knowledge_replace_content,
         run_embedding_task,
         reindex_document,
         _process_seo_job,

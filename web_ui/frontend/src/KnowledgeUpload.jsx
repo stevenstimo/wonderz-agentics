@@ -210,7 +210,7 @@ export default function KnowledgeUpload() {
           setProgressStep(4)
           setResult({
             document_id: docId,
-            chunks_stored: chunksStored,
+            chunks_stored: doc.chunk_count ?? chunksStored,
             embedding_status: 'complete',
           })
           setUploading(false)
