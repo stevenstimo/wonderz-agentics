@@ -319,3 +319,90 @@ async def build_execution_plan(
         hired_agents=hired,
         estimated_duration_seconds=max(60 * len(steps), 300),
     )
+
+
+async def _first_active_agent_id(
+    conn: asyncpg.Connection, roles: List[str]
+) -> Optional[str]:
+    if not roles:
+        return None
+    row = await conn.fetchrow(
+        """
+        SELECT agent_id FROM hired_agents
+        WHERE is_active = true
+          AND COALESCE(is_suspended, false) = false
+          AND role = ANY($1::text[])
+        ORDER BY hired_at ASC NULLS LAST
+        LIMIT 1
+        """,
+        roles,
+    )
+    return str(row["agent_id"]) if row and row.get("agent_id") else None
+
+
+async def compute_deviation_slots(
+    conn: asyncpg.Connection, job_id: str | UUID
+) -> set[str]:
+    """
+    Slots waarbij geboekte agent afwijkt van preset-CEO (Donna) of preset-COO (Mr. Klein).
+    Vergelijkt job_steps.agent_id met AGENT_CEO / AGENT_COO op basis van agent_role (slot-naam).
+    """
+    jid = UUID(str(job_id)) if not isinstance(job_id, UUID) else job_id
+    rows = await conn.fetch(
+        """
+        SELECT agent_role, agent_id
+        FROM job_steps
+        WHERE job_id = $1
+        ORDER BY step_index ASC
+        """,
+        jid,
+    )
+    out: set[str] = set()
+    for r in rows:
+        role = (r.get("agent_role") or "").strip().lower()
+        aid = (r.get("agent_id") or "").strip() if r.get("agent_id") else ""
+        if role == "ceo" and aid and aid != AGENT_CEO:
+            out.add("ceo")
+        if role == "coo" and aid and aid != AGENT_COO:
+            out.add("coo")
+    return out
+
+
+async def register_preset_bookings(
+    conn: asyncpg.Connection,
+    job_id: str | UUID,
+    preset_id: str,
+    covered: List[Dict[str, Any]],
+    deviation_slots: Optional[set[str]] = None,
+) -> None:
+    """
+    Registreer geboekte agents voor preset_bookings.
+    Vereist unieke index (job_id, preset_id, slot_role) — migratie 048.
+    """
+    deviation_slots = deviation_slots or set()
+    jid = UUID(str(job_id)) if not isinstance(job_id, UUID) else job_id
+    for agent in covered:
+        if not isinstance(agent, dict):
+            continue
+        slot = str(agent.get("slot") or "").strip() or "unknown"
+        aid = agent.get("agent_id")
+        if not aid and agent.get("roles_checked"):
+            aid = await _first_active_agent_id(conn, list(agent["roles_checked"]))
+        if not aid:
+            logger.warning(
+                "preset_bookings: geen agent_id voor slot %s job %s", slot, job_id
+            )
+            continue
+        dev = slot in deviation_slots
+        await conn.execute(
+            """
+            INSERT INTO preset_bookings (job_id, preset_id, agent_id, slot_role, deviation)
+            VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT (job_id, preset_id, slot_role) DO NOTHING
+            """,
+            jid,
+            preset_id,
+            str(aid),
+            slot,
+            dev,
+        )
