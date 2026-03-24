@@ -35,6 +35,23 @@ def _json_default(obj: Any) -> Any:
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 
+def _missing_roles_for_payload(missing: list) -> list[str]:
+    """Leesbare regels voor payload.missing_roles (frontend)."""
+    out: list[str] = []
+    for m in missing:
+        if not isinstance(m, dict):
+            continue
+        slot = m.get("slot", "") or ""
+        reason = m.get("reason", "") or ""
+        if slot and reason:
+            out.append(f"{slot}: {reason}")
+        elif reason:
+            out.append(str(reason))
+        elif slot:
+            out.append(str(slot))
+    return out
+
+
 class NEXUSPipeline:
     """
     7-fase CEO orchestrator pipeline.
@@ -159,7 +176,9 @@ class NEXUSPipeline:
         from app.orchestration.ceo_intent import (
             build_execution_plan,
             check_resources,
+            compute_deviation_slots,
             detect_job_type,
+            register_preset_bookings,
         )
         from app.services.job_pipeline import _insert_plan_steps
 
@@ -171,13 +190,16 @@ class NEXUSPipeline:
                 await self._block_job(
                     ctx,
                     "Onbekend jobtype. Omschrijf de opdracht specifieker of hire de juiste agent.",
+                    missing_roles=[],
                 )
                 return True
             report = await check_resources(conn, preset_id)
             if not report.get("ready"):
+                missing_roles = _missing_roles_for_payload(report.get("missing") or [])
                 await self._block_job(
                     ctx,
                     str(report.get("message") or "Resources niet beschikbaar."),
+                    missing_roles=missing_roles,
                 )
                 return True
             n = await conn.fetchval(
@@ -199,13 +221,31 @@ class NEXUSPipeline:
                     {"preset_id": preset_id, "preset_execution_plan": plan_blob},
                     ctx.job_id,
                 )
+            dev_slots = await compute_deviation_slots(conn, ctx.job_id)
+            await register_preset_bookings(
+                conn,
+                ctx.job_id,
+                preset_id,
+                report.get("covered") or [],
+                deviation_slots=dev_slots,
+            )
         return False
 
-    async def _block_job(self, ctx: HandoffContext, message: str) -> None:
-        """Zet job op BLOCKED met reden in payload."""
+    async def _block_job(
+        self,
+        ctx: HandoffContext,
+        message: str,
+        missing_roles: Optional[list] = None,
+    ) -> None:
+        """Zet job op BLOCKED met reden en ontbrekende rollen in payload."""
         ctx.error = message
         if not self._pool:
             return
+        block_payload: Dict[str, Any] = {
+            "block_reason": message,
+            "ceo_preset_blocked": True,
+            "missing_roles": missing_roles if missing_roles is not None else [],
+        }
         async with self._pool.acquire() as conn:
             await conn.execute(
                 """
@@ -215,7 +255,7 @@ class NEXUSPipeline:
                 WHERE id = $3
                 """,
                 "BLOCKED",
-                {"block_reason": message, "ceo_preset_blocked": True},
+                block_payload,
                 ctx.job_id,
             )
         logger.info("Job %s → BLOCKED: %s", ctx.job_id, message[:200])
@@ -835,8 +875,39 @@ class NEXUSPipeline:
             payload_updates["proposed_data"] = final_content
         if status == "FAILED" and ctx.error:
             payload_updates["error_reason"] = ctx.error
-        payload_json = json.dumps(payload_updates, default=_json_default)
+
         async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT COALESCE(payload, '{}'::jsonb) AS p FROM jobs WHERE id = $1",
+                job_id,
+            )
+            cur_payload: Dict[str, Any] = {}
+            if row and row.get("p") is not None:
+                rawp = row["p"]
+                if isinstance(rawp, dict):
+                    cur_payload = dict(rawp)
+                elif isinstance(rawp, str):
+                    try:
+                        cur_payload = json.loads(rawp) if rawp.strip() else {}
+                    except json.JSONDecodeError:
+                        cur_payload = {}
+
+            if status == "JOB_READY":
+                preset_id = cur_payload.get("preset_id")
+                already_counted = cur_payload.get("preset_usage_counted") is True
+                if preset_id and not already_counted:
+                    await conn.execute(
+                        """
+                        UPDATE job_type_presets
+                        SET usage_count = COALESCE(usage_count, 0) + 1,
+                            updated_at = now()
+                        WHERE preset_id = $1
+                        """,
+                        str(preset_id),
+                    )
+                    payload_updates["preset_usage_counted"] = True
+
+            payload_json = json.dumps(payload_updates, default=_json_default)
             await conn.execute(
                 """
                 UPDATE jobs
