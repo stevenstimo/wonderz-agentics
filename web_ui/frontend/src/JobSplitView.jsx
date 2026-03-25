@@ -764,10 +764,10 @@ export default function JobSplitView() {
                       ))}
                     </ul>
                     <Link
-                      to="/agents/new"
+                      to={`/hr/blocked-jobs?job_id=${encodeURIComponent(jobId || '')}`}
                       className="inline-flex text-sm font-medium text-indigo-700 hover:text-indigo-900 underline"
                     >
-                      Hire de juiste agent →
+                      Bekijk bij HR →
                     </Link>
                   </div>
                 )}

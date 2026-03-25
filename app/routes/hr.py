@@ -413,6 +413,70 @@ async def list_improvements():
              "created_at": str(p.get("created_at", ""))} for p in points]
 
 
+@router.get("/blocked-jobs")
+async def list_blocked_jobs(
+    job_id: Optional[str] = Query(None),
+    _: None = Depends(require_admin_or_super_admin),
+):
+    """
+    Return BLOCKED jobs that were converted into HR improvements by
+    `hr_blocked_job_notifier`, including a candidate newbie list.
+    """
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT details, created_at
+            FROM agent_improvements
+            WHERE source = 'hr_blocked_job_notifier'
+              AND status = 'OPEN'
+            ORDER BY created_at DESC NULLS LAST
+            """
+        )
+
+    by_job: dict[str, dict[str, Any]] = {}
+    for r in rows:
+        details_raw = r.get("details")
+        if not details_raw:
+            continue
+        try:
+            details = json.loads(details_raw) if isinstance(details_raw, str) else (details_raw or {})
+        except Exception:
+            details = {}
+
+        jid = str(details.get("job_id") or "").strip()
+        if not jid:
+            continue
+        if job_id and jid != str(job_id).strip():
+            continue
+
+        if jid not in by_job:
+            by_job[jid] = {
+                "job_id": jid,
+                "block_reason": details.get("block_reason") or "",
+                "missing_roles": [],
+            }
+
+        by_job[jid]["missing_roles"].append(
+            {
+                "missing_role_key": details.get("missing_role_key"),
+                "missing_role_label": details.get("missing_role_label"),
+                "candidates": details.get("candidates") if isinstance(details.get("candidates"), list) else (details.get("candidates") or []),
+            }
+        )
+
+    # Normalize candidates array & sort roles.
+    for job in by_job.values():
+        for mr in job["missing_roles"]:
+            if not isinstance(mr.get("candidates"), list):
+                mr["candidates"] = []
+        job["missing_roles"] = [
+            mr for mr in job["missing_roles"] if mr.get("missing_role_key") or mr.get("missing_role_label")
+        ]
+
+    return {"blocked_jobs": list(by_job.values())}
+
+
 @router.get("/development-points")
 async def list_development_points(
     agent_id: Optional[str] = Query(None),

@@ -1351,6 +1351,14 @@ async def hire_newbie(newbie_id: str, req: HireNewbieRequest = HireNewbieRequest
 
         agent_row = await conn.fetchrow("SELECT * FROM hired_agents WHERE agent_id = $1", agent_id)
 
+        # HR: auto-unblock BLOCKED jobs after hire/activation.
+        try:
+            from app.services.job_unblock import unblock_blocked_jobs_after_hire
+
+            await unblock_blocked_jobs_after_hire(conn)
+        except Exception:
+            logger.exception("unblock_blocked_jobs_after_hire failed after hire_newbie job scan")
+
     # Best-effort: copy accepted library items into the agent's initial knowledge base.
     try:
         stored_chunks = await _train_agent_knowledge_from_newbie_library(pool, agent_id, newbie_id)
@@ -1495,6 +1503,14 @@ async def promote_newbie(newbie_id: str):
             newbie_id,
         )
         agent_row = await conn.fetchrow("SELECT * FROM hired_agents WHERE agent_id = $1", agent_id)
+
+        # HR: auto-unblock BLOCKED jobs after hire/activation.
+        try:
+            from app.services.job_unblock import unblock_blocked_jobs_after_hire
+
+            await unblock_blocked_jobs_after_hire(conn)
+        except Exception:
+            logger.exception("unblock_blocked_jobs_after_hire failed after promote_newbie job scan")
 
     # Best-effort: copy accepted library items into the agent's initial knowledge base.
     try:

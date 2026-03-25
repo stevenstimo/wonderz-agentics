@@ -207,6 +207,19 @@ async def _block_job(conn, job_id: str, reason: str, missing_roles: list) -> Non
         job_id,
     )
 
+    # Fire-and-forget via best-effort: create HR improvements record for dashboard.
+    try:
+        from app.services.hr_blocked_job_notifier import notify_blocked_job_improvements
+
+        await notify_blocked_job_improvements(
+            conn=conn,
+            job_id=job_id,
+            block_reason=reason,
+            missing_roles=missing_roles,
+        )
+    except Exception:
+        logger.exception("[job_pipeline] HR blocked job notifier failed job=%s", job_id)
+
 
 async def _load_job(conn, job_id: str):
     job = await conn.fetchrow(

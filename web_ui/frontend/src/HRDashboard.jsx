@@ -12,6 +12,7 @@ const TABS = [
   { id: 'training', label: 'Trainingsverzoeken' },
   { id: 'suggestions', label: 'Trainingssuggesties' },
   { id: 'improvements', label: 'Improvements' },
+  { id: 'blocked-jobs', label: 'Blocked Jobs' },
   { id: 'cross', label: 'Cross-Training' },
 ]
 
@@ -731,6 +732,130 @@ export function TrainingSuggestionsTabContent() {
   )
 }
 
+export function BlockedJobsTabContent() {
+  const { authReady } = useAuthReady()
+  const location = useLocation()
+  const apiBase = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
+  const [blockedJobs, setBlockedJobs] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
+
+  const searchParams = new URLSearchParams(location.search || '')
+  const jobId = searchParams.get('job_id')
+
+  const loadBlockedJobs = useCallback(async () => {
+    if (!authReady) return
+    setLoading(true)
+    setError(null)
+    try {
+      const url = jobId
+        ? `/api/hr/blocked-jobs?job_id=${encodeURIComponent(jobId)}`
+        : `/api/hr/blocked-jobs`
+
+      const res = await apiFetch(url)
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || 'Laden mislukt')
+      const data = await res.json().catch(() => ({}))
+      setBlockedJobs(Array.isArray(data?.blocked_jobs) ? data.blocked_jobs : [])
+    } catch (err) {
+      setError(err?.message || 'Laden mislukt')
+      setBlockedJobs([])
+    } finally {
+      setLoading(false)
+    }
+  }, [authReady, jobId])
+
+  useEffect(() => {
+    loadBlockedJobs()
+  }, [loadBlockedJobs])
+
+  if (!authReady) return null
+
+  return (
+    <div className="pt-2">
+      {error && (
+        <div className="mb-4 p-4 rounded-lg bg-red-50 text-red-700 border border-red-200 text-sm">
+          {error}
+        </div>
+      )}
+
+      {loading ? (
+        <div className="flex items-center gap-2 text-slate-500 py-8">
+          <Loader2 className="w-5 h-5 animate-spin shrink-0" />
+          <span>Laden...</span>
+        </div>
+      ) : blockedJobs.length === 0 ? (
+        <div className="p-8 rounded-xl border border-slate-200 bg-slate-50 text-center">
+          <p className="text-slate-600">Geen geblokkeerde jobs.</p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {blockedJobs.map((job) => {
+            const safeMissingRoles = Array.isArray(job?.missing_roles) ? job.missing_roles : []
+            return (
+              <div key={job.job_id} className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+                  <div className="min-w-0">
+                    <h3 className="text-base font-semibold text-amber-950 truncate">Job {job.job_id}</h3>
+                    {job.block_reason ? (
+                      <p className="text-sm text-amber-900 whitespace-pre-wrap mt-1">{job.block_reason}</p>
+                    ) : (
+                      <p className="text-sm text-amber-900 whitespace-pre-wrap mt-1">Deze job is geblokkeerd.</p>
+                    )}
+                  </div>
+                  <Link
+                    to={`/jobs/${job.job_id}`}
+                    className="self-start sm:self-auto inline-flex text-sm font-medium text-indigo-700 hover:text-indigo-900 underline"
+                  >
+                    Open job →
+                  </Link>
+                </div>
+
+                {safeMissingRoles.length > 0 && (
+                  <div className="mt-3">
+                    <p className="text-sm font-medium text-amber-950 mb-2">Ontbrekende rollen</p>
+                    <div className="space-y-2">
+                      {safeMissingRoles.map((mr, idx) => {
+                        const mrKey = mr?.missing_role_key ?? mr?.missing_role_label ?? `mr-${idx}`
+                        const candidates = Array.isArray(mr?.candidates) ? mr.candidates : []
+                        return (
+                          <div key={mrKey} className="rounded-lg border border-amber-200 bg-amber-100/40 p-3">
+                            <p className="text-sm font-medium text-amber-950">
+                              {mr?.missing_role_label || mrKey}
+                            </p>
+                            {candidates.length > 0 ? (
+                              <ul className="mt-2 text-sm text-amber-950 space-y-1">
+                                {candidates.map((c) => (
+                                  <li key={c.newbie_id} className="flex items-center justify-between gap-2">
+                                    <span className="min-w-0 truncate">
+                                      {c.newbie_name || c.newbie_id}
+                                      {c.suggested_role ? (
+                                        <span className="text-xs text-amber-900/80"> — {c.suggested_role}</span>
+                                      ) : null}
+                                    </span>
+                                    <span className="flex-shrink-0 text-xs font-medium px-2 py-0.5 rounded bg-amber-200 text-amber-950">
+                                      {c.readiness_score != null ? `${c.readiness_score}%` : '—'}
+                                    </span>
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : (
+                              <p className="text-sm text-amber-950/90 mt-2">Geen geschikte newbies gevonden.</p>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function HRDashboard() {
   const location = useLocation()
   const navigate = useNavigate()
@@ -738,6 +863,7 @@ export default function HRDashboard() {
   const isChildRoute = location.pathname !== '/hr'
   const isTrainingRoute = location.pathname === '/hr/training-requests'
   const isSuggestionsRoute = location.pathname === '/hr/training-suggestions'
+  const isBlockedJobsRoute = location.pathname === '/hr/blocked-jobs'
   const [tab, setTab] = useState('points')
   const [points, setPoints] = useState([])
   const [loading, setLoading] = useState(false)
@@ -1056,7 +1182,9 @@ export default function HRDashboard() {
                 ? isSuggestionsRoute
                 : t.id === 'improvements'
                   ? isImprovementsRoute
-                  : tab === t.id
+                  : t.id === 'blocked-jobs'
+                    ? isBlockedJobsRoute
+                    : tab === t.id
           if (t.id === 'training') {
             return (
               <Link
@@ -1088,6 +1216,19 @@ export default function HRDashboard() {
               <Link
                 key={t.id}
                 to="/hr/improvements"
+                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                  isActive ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                {t.label}
+              </Link>
+            )
+          }
+          if (t.id === 'blocked-jobs') {
+            return (
+              <Link
+                key={t.id}
+                to="/hr/blocked-jobs"
                 className={`px-4 py-2 rounded-lg font-medium transition-colors ${
                   isActive ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}

@@ -198,6 +198,14 @@ async def promote_talent(talent_id: str, req: PromoteTalentRequest):
         # Remove from talent pool after promotion
         await conn.execute("DELETE FROM talents WHERE id = $1", talent_id)
 
+        # HR: auto-unblock BLOCKED jobs after hire/activation.
+        try:
+            from app.services.job_unblock import unblock_blocked_jobs_after_hire
+
+            await unblock_blocked_jobs_after_hire(conn)
+        except Exception:
+            logger.exception("unblock_blocked_jobs_after_hire failed after promote_talent")
+
     logger.info(f"Promoted talent {talent_id} ({talent['name']}) to agent {agent_id}")
     return {
         "agent_id": agent_id,
