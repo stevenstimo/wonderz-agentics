@@ -325,11 +325,7 @@ export function developmentPointIdForDiscoverApi(pointId) {
 /** Child route /hr/training-suggestions — discovered resources, approve/reject, manual discover. */
 export function TrainingSuggestionsTabContent() {
   const { authReady } = useAuthReady()
-  const [suggestions, setSuggestions] = useState([])
-  const [points, setPoints] = useState([])
   const [statusFilter, setStatusFilter] = useState('pending')
-  const [loading, setLoading] = useState(false)
-  const [pointsLoading, setPointsLoading] = useState(false)
   const [error, setError] = useState('')
   const [unavailable, setUnavailable] = useState(false)
   const [actionLoadingId, setActionLoadingId] = useState(null)
@@ -345,53 +341,42 @@ export function TrainingSuggestionsTabContent() {
 
   const [notesModal, setNotesModal] = useState(null)
 
-  const loadSuggestions = useCallback(async () => {
-    setLoading(true)
-    setError('')
-    setUnavailable(false)
-    try {
+  const {
+    data: suggestions = [],
+    isLoading: loading,
+    refetch: refetchSuggestions,
+  } = useQuery({
+    queryKey: ['hr', 'training-suggestions', statusFilter],
+    queryFn: async () => {
       const qs = new URLSearchParams({ status: statusFilter })
       const res = await apiFetch(`/api/hr/training-suggestions?${qs}`)
       if (res.status === 503) {
         setUnavailable(true)
-        setSuggestions([])
-        return
+        setError('')
+        return []
       }
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || 'Laden mislukt')
+      setUnavailable(false)
       const data = await res.json()
       const list = data?.suggestions ?? []
-      setSuggestions(Array.isArray(list) ? list : [])
-    } catch (err) {
-      setError(err.message || 'Laden mislukt')
-    } finally {
-      setLoading(false)
-    }
-  }, [statusFilter])
+      return Array.isArray(list) ? list : []
+    },
+    enabled: authReady,
+    retry: false,
+  })
 
-  const loadPointsForDiscover = useCallback(async () => {
-    setPointsLoading(true)
-    try {
+  const { data: points = [], isLoading: pointsLoading } = useQuery({
+    queryKey: ['hr', 'development-points', 'discover'],
+    queryFn: async () => {
       const res = await apiFetch('/api/hr/development-points')
-      if (!res.ok) return
+      if (!res.ok) return []
       const data = await res.json()
       const list = data.development_points ?? (Array.isArray(data) ? data : [])
-      setPoints(Array.isArray(list) ? list : [])
-    } catch {
-      // ignore
-    } finally {
-      setPointsLoading(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!authReady) return
-    loadSuggestions()
-  }, [authReady, loadSuggestions])
-
-  useEffect(() => {
-    if (!authReady) return
-    loadPointsForDiscover()
-  }, [authReady, loadPointsForDiscover])
+      return Array.isArray(list) ? list : []
+    },
+    enabled: authReady,
+    retry: false,
+  })
 
   const selectedDiscoverPoint = points.find((p) => {
     const key = String(p.point_id ?? p.id ?? '')
@@ -449,7 +434,7 @@ export function TrainingSuggestionsTabContent() {
       setNotesModal(null)
       setSuccessMsg(mode === 'approve' ? 'Suggestie goedgekeurd; training wordt op de achtergrond gestart.' : 'Suggestie afgewezen.')
       setTimeout(() => setSuccessMsg(null), 5000)
-      await loadSuggestions()
+      await refetchSuggestions()
     } catch (err) {
       setError(err.message || 'Actie mislukt')
     } finally {
@@ -487,7 +472,7 @@ export function TrainingSuggestionsTabContent() {
       const n = data?.discovered ?? 0
       setSuccessMsg(n > 0 ? `${n} nieuwe suggestie(s) toegevoegd.` : 'Geen nieuwe unieke suggesties (of API leverde geen resultaten).')
       setTimeout(() => setSuccessMsg(null), 5000)
-      await loadSuggestions()
+      await refetchSuggestions()
     } catch (err) {
       setError(err.message || 'Discover mislukt')
     } finally {
@@ -571,7 +556,7 @@ export function TrainingSuggestionsTabContent() {
           ))}
           <button
             type="button"
-            onClick={loadSuggestions}
+            onClick={() => refetchSuggestions()}
             disabled={loading || unavailable}
             className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-100 text-slate-700 text-sm font-medium hover:bg-slate-200 disabled:opacity-50"
           >
@@ -736,37 +721,27 @@ export function BlockedJobsTabContent() {
   const { authReady } = useAuthReady()
   const location = useLocation()
   const apiBase = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
-  const [blockedJobs, setBlockedJobs] = useState([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState(null)
 
   const searchParams = new URLSearchParams(location.search || '')
   const jobId = searchParams.get('job_id')
 
-  const loadBlockedJobs = useCallback(async () => {
-    if (!authReady) return
-    setLoading(true)
-    setError(null)
-    try {
+  const {
+    data: blockedJobs = [],
+    isLoading: loading,
+    error,
+  } = useQuery({
+    queryKey: ['hr', 'blocked-jobs', jobId || 'all'],
+    queryFn: async () => {
       const url = jobId
         ? `/api/hr/blocked-jobs?job_id=${encodeURIComponent(jobId)}`
         : `/api/hr/blocked-jobs`
-
       const res = await apiFetch(url)
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || 'Laden mislukt')
       const data = await res.json().catch(() => ({}))
-      setBlockedJobs(Array.isArray(data?.blocked_jobs) ? data.blocked_jobs : [])
-    } catch (err) {
-      setError(err?.message || 'Laden mislukt')
-      setBlockedJobs([])
-    } finally {
-      setLoading(false)
-    }
-  }, [authReady, jobId])
-
-  useEffect(() => {
-    loadBlockedJobs()
-  }, [loadBlockedJobs])
+      return Array.isArray(data?.blocked_jobs) ? data.blocked_jobs : []
+    },
+    enabled: authReady,
+  })
 
   if (!authReady) return null
 
@@ -774,7 +749,7 @@ export function BlockedJobsTabContent() {
     <div className="pt-2">
       {error && (
         <div className="mb-4 p-4 rounded-lg bg-red-50 text-red-700 border border-red-200 text-sm">
-          {error}
+          {error?.message || 'Laden mislukt'}
         </div>
       )}
 
