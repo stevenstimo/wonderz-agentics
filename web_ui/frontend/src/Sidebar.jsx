@@ -32,9 +32,10 @@ import {
   Database,
   Upload,
   Cpu,
+  Coins,
 } from 'lucide-react'
 import { supabase } from './supabase'
-import { getCurrentUserRole, isSuperAdmin } from './authz'
+import { getCurrentUserRole, isAdmin, isSuperAdmin } from './authz'
 import { fetchJson } from './apiClient'
 import { queryKeys } from './queryKeys'
 
@@ -300,6 +301,9 @@ export default function Sidebar() {
                 badgeRed={item.badgeKey === 'approvalCount' && approvalCount > 0}
               />
             ))}
+            {isAdmin(role) && (
+              <NavItem item={{ label: 'CFO', icon: Coins, path: '/cfo' }} />
+            )}
 
             <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 px-3 mt-4 mb-2">Tools &amp; Settings</div>
             {LEGACY_OPERATIONS.map((item) => (
