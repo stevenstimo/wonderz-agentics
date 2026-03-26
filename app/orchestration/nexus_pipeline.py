@@ -255,10 +255,11 @@ class NEXUSPipeline:
         ctx.error = message
         if not self._pool:
             return
+        roles = missing_roles if missing_roles is not None else []
         block_payload: Dict[str, Any] = {
             "block_reason": message,
             "ceo_preset_blocked": True,
-            "missing_roles": missing_roles if missing_roles is not None else [],
+            "missing_roles": roles,
         }
         async with self._pool.acquire() as conn:
             await conn.execute(
@@ -272,6 +273,23 @@ class NEXUSPipeline:
                 block_payload,
                 ctx.job_id,
             )
+            # Zelfde HR-notifier als job_pipeline._block_job (ARQ → nexus zonder job_pipeline gate).
+            try:
+                from app.services.hr_blocked_job_notifier import (
+                    notify_blocked_job_improvements,
+                )
+
+                await notify_blocked_job_improvements(
+                    conn=conn,
+                    job_id=str(ctx.job_id),
+                    block_reason=message,
+                    missing_roles=roles,
+                )
+            except Exception:
+                logger.exception(
+                    "[nexus_pipeline] HR blocked job notifier failed job=%s",
+                    ctx.job_id,
+                )
         logger.info("Job %s → BLOCKED: %s", ctx.job_id, message[:200])
 
     def _merge_depends_on_into_steps(
