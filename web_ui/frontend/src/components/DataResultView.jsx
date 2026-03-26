@@ -14,6 +14,32 @@ export default function DataResultView({ proposedData, onApprove, approvingDeplo
 
   const { gevonden, resultaat, volledigheid, volgende_actie } = proposedData
   const rows = Array.isArray(resultaat) ? resultaat : []
+  const headers = rows.length > 0 ? Object.keys(rows[0]) : []
+
+  const formatCellValue = (key, val) => {
+    if (val == null || val === '') return '—'
+    const keyNorm = String(key || '').toLowerCase()
+
+    if (keyNorm === 'ctr') {
+      const num = Number(val)
+      if (!Number.isFinite(num)) return String(val)
+      return `${(num * 100).toFixed(1)}%`
+    }
+
+    if (keyNorm === 'position') {
+      const num = Number(val)
+      if (!Number.isFinite(num)) return String(val)
+      return num.toFixed(1)
+    }
+
+    if (keyNorm === 'clicks' || keyNorm === 'impressions') {
+      const num = Number(val)
+      if (!Number.isFinite(num)) return String(val)
+      return Math.round(num).toLocaleString('nl-NL')
+    }
+
+    return String(val)
+  }
 
   return (
     <div className="space-y-4">
@@ -30,7 +56,7 @@ export default function DataResultView({ proposedData, onApprove, approvingDeplo
           <table className="w-full text-sm border-collapse">
             <thead>
               <tr className="bg-slate-100 text-slate-700">
-                {Object.keys(rows[0]).map((key) => (
+                {headers.map((key) => (
                   <th
                     key={key}
                     className="border border-slate-200 px-3 py-2 text-left font-medium"
@@ -46,12 +72,12 @@ export default function DataResultView({ proposedData, onApprove, approvingDeplo
                   key={i}
                   className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}
                 >
-                  {Object.values(row).map((val, j) => (
+                  {headers.map((key) => (
                     <td
-                      key={j}
+                      key={key}
                       className="border border-slate-200 px-3 py-2 text-slate-800"
                     >
-                      {val != null && val !== '' ? String(val) : '—'}
+                      {formatCellValue(key, row?.[key])}
                     </td>
                   ))}
                 </tr>
