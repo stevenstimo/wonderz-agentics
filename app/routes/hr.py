@@ -18,6 +18,7 @@ from app.database import get_db
 from app.dependencies import get_arq_pool
 from app.services.hr_manager import HRManager
 from app.services.job_pipeline import run_intake_inline
+from app.services.hr_blocked_job_notifier import _find_candidates_for_role_key
 from app.agents.hr_manager import HRManager as SpecHRManager, _serialize as _serialize_spec
 from app.orchestration.manager import OperationsManager
 from models.unified import JobStatus, StrategicBrief
@@ -423,6 +424,7 @@ async def list_blocked_jobs(
     `hr_blocked_job_notifier`, including a candidate newbie list.
     """
     pool = await get_db()
+    by_job: dict[str, dict[str, Any]] = {}
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             """
@@ -434,45 +436,52 @@ async def list_blocked_jobs(
             """
         )
 
-    by_job: dict[str, dict[str, Any]] = {}
-    for r in rows:
-        details_raw = r.get("details")
-        if not details_raw:
-            continue
-        try:
-            details = json.loads(details_raw) if isinstance(details_raw, str) else (details_raw or {})
-        except Exception:
-            details = {}
+        for r in rows:
+            details_raw = r.get("details")
+            if not details_raw:
+                continue
+            try:
+                details = json.loads(details_raw) if isinstance(details_raw, str) else (details_raw or {})
+            except Exception:
+                details = {}
 
-        jid = str(details.get("job_id") or "").strip()
-        if not jid:
-            continue
-        if job_id and jid != str(job_id).strip():
-            continue
+            jid = str(details.get("job_id") or "").strip()
+            if not jid:
+                continue
+            if job_id and jid != str(job_id).strip():
+                continue
 
-        if jid not in by_job:
-            by_job[jid] = {
-                "job_id": jid,
-                "block_reason": details.get("block_reason") or "",
-                "missing_roles": [],
-            }
+            if jid not in by_job:
+                by_job[jid] = {
+                    "job_id": jid,
+                    "block_reason": details.get("block_reason") or "",
+                    "missing_roles": [],
+                }
 
-        by_job[jid]["missing_roles"].append(
-            {
-                "missing_role_key": details.get("missing_role_key"),
-                "missing_role_label": details.get("missing_role_label"),
-                "candidates": details.get("candidates") if isinstance(details.get("candidates"), list) else (details.get("candidates") or []),
-            }
-        )
+            missing_role_key = str(details.get("missing_role_key") or "").strip()
+            missing_role_label = str(details.get("missing_role_label") or missing_role_key).strip()
+            live_candidates = await _find_candidates_for_role_key(
+                conn,
+                missing_role_key,
+                missing_role_label,
+            ) if missing_role_key else []
 
-    # Normalize candidates array & sort roles.
-    for job in by_job.values():
-        for mr in job["missing_roles"]:
-            if not isinstance(mr.get("candidates"), list):
-                mr["candidates"] = []
-        job["missing_roles"] = [
-            mr for mr in job["missing_roles"] if mr.get("missing_role_key") or mr.get("missing_role_label")
-        ]
+            by_job[jid]["missing_roles"].append(
+                {
+                    "missing_role_key": missing_role_key,
+                    "missing_role_label": missing_role_label,
+                    "candidates": live_candidates,
+                }
+            )
+
+        # Normalize candidates array & sort roles.
+        for job in by_job.values():
+            for mr in job["missing_roles"]:
+                if not isinstance(mr.get("candidates"), list):
+                    mr["candidates"] = []
+            job["missing_roles"] = [
+                mr for mr in job["missing_roles"] if mr.get("missing_role_key") or mr.get("missing_role_label")
+            ]
 
     return {"blocked_jobs": list(by_job.values())}
 
