@@ -1344,6 +1344,33 @@ async def run_data_pipeline(job_id: str) -> None:
                     missing_integrations.append(canonical)
 
             fetched_data = {"gsc": proposed_data}
+            if "google_ads" in available_integrations:
+                from app.services.ads_fetcher import fetch_ads_data_for_client
+
+                async with pool.acquire() as ads_conn:
+                    ads_result = await fetch_ads_data_for_client(
+                        db=ads_conn,
+                        client_slug=client_slug or "",
+                        user_id=user_id,
+                        date_range_days=28,
+                    )
+                if ads_result["available"]:
+                    fetched_data["google_ads"] = ads_result["data"]
+                    logger.info(
+                        "run_data_pipeline: Google Ads data toegevoegd aan fetched_data job=%s",
+                        job_id,
+                    )
+                else:
+                    fetched_data["google_ads"] = {
+                        "available": False,
+                        "reason": ads_result["reason"],
+                    }
+                    logger.info(
+                        "run_data_pipeline: Google Ads niet beschikbaar job=%s reden=%s",
+                        job_id,
+                        ads_result["reason"],
+                    )
+
             analysis_payload = await run_analysis(
                 job_id=job_id,
                 client_name=str(client_slug or "onbekende klant"),
