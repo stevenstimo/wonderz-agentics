@@ -185,66 +185,52 @@ async def notify_blocked_job_improvements(
         }
         details = _safe_json_dumps(details_obj)
 
-        # Dedupe on (job_id + missing_role_key) while OPEN.
-        job_need = json.dumps(job_id_str)
-        key_need = json.dumps(missing_role_key)
-        needle = f"%{{\\\"job_id\\\":{job_need}%\"missing_role_key\\\":{key_need}%}}%"
-        # The above is too brittle for JSON order; use a simpler combined needle:
-        needle = f'%\"job_id\":\"{job_id_str}\"%' + f'%\"missing_role_key\":\"{missing_role_key}\"%'
-
-        existing = await conn.fetchrow(
-            """
-            SELECT id
-            FROM agent_improvements
-            WHERE source = 'hr_blocked_job_notifier'
-              AND status = 'OPEN'
-              AND details::text LIKE $1
-            LIMIT 1
-            """,
-            needle,
-        )
-
         severity = "HIGH" if len(missing_entries) >= 2 else "MEDIUM"
         title = f"HR: BLOCKED job ontbreekt rol — {missing_role_label}"
 
+        # Atomisch upsert: voorkomt dubbele rijen bij gelijktijdige calls (job_pipeline + nexus_pipeline).
+        # Vereist migratie 050: uq_agent_improvements_hr_blocked_job_role + kolommen hr_*.
         try:
-            if existing:
-                await conn.execute(
-                    """
-                    UPDATE agent_improvements
-                    SET agent_name = $1,
-                        title = $2,
-                        summary = $3,
-                        details = $4,
-                        severity = $5,
-                        updated_at = now()
-                    WHERE id = $6
-                    """,
-                    missing_role_label,
+            await conn.execute(
+                """
+                INSERT INTO agent_improvements (
+                    agent_id,
+                    agent_name,
                     title,
-                    block_reason,
+                    summary,
                     details,
                     severity,
-                    existing["id"],
+                    status,
+                    source,
+                    hr_blocked_job_id,
+                    hr_missing_role_key
                 )
-            else:
-                await conn.execute(
-                    """
-                    INSERT INTO agent_improvements
-                        (agent_id, agent_name, title, summary, details, severity, status, source)
-                    VALUES
-                        ($1, $2, $3, $4, $5, $6, 'OPEN', 'hr_blocked_job_notifier')
-                    """,
-                    missing_role_key,
-                    missing_role_label,
-                    title,
-                    block_reason,
-                    details,
-                    severity,
+                VALUES (
+                    $1, $2, $3, $4, $5, $6, 'OPEN', 'hr_blocked_job_notifier',
+                    $7::uuid, $8
                 )
+                ON CONFLICT (hr_blocked_job_id, hr_missing_role_key)
+                    WHERE hr_blocked_job_id IS NOT NULL AND hr_missing_role_key IS NOT NULL
+                DO UPDATE SET
+                    agent_name = EXCLUDED.agent_name,
+                    title = EXCLUDED.title,
+                    summary = EXCLUDED.summary,
+                    details = EXCLUDED.details,
+                    severity = EXCLUDED.severity,
+                    updated_at = now()
+                """,
+                missing_role_key,
+                missing_role_label,
+                title,
+                block_reason,
+                details,
+                severity,
+                job_id_str,
+                missing_role_key,
+            )
         except Exception:
             logger.exception(
-                "[HR blocked notifier] failed to insert/update improvement job=%s role=%s",
+                "[HR blocked notifier] failed to upsert improvement job=%s role=%s",
                 job_id_str,
                 missing_role_key,
             )

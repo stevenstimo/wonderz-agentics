@@ -76,7 +76,6 @@ async def unblock_blocked_jobs_after_hire(conn: asyncpg.Connection) -> int:
         )
 
         # Resolve HR blocked-job improvements for this job.
-        # We mark all OPEN items created by the notifier as RESOLVED.
         needle = f'%\"job_id\":\"{jid}\"%'
         try:
             await conn.execute(
@@ -86,8 +85,15 @@ async def unblock_blocked_jobs_after_hire(conn: asyncpg.Connection) -> int:
                     updated_at = now()
                 WHERE source = 'hr_blocked_job_notifier'
                   AND status = 'OPEN'
-                  AND details::text LIKE $1
+                  AND (
+                    hr_blocked_job_id = $1::uuid
+                    OR (
+                      hr_blocked_job_id IS NULL
+                      AND details::text LIKE $2
+                    )
+                  )
                 """,
+                jid,
                 needle,
             )
         except Exception:
