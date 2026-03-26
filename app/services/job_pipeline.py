@@ -1244,6 +1244,12 @@ async def run_data_pipeline(job_id: str) -> None:
                     query_params["site_url"] = first_site.get("site_url") or first_site.get("gsc_site_url")
             if not query_params.get("site_url"):
                 query_params["site_url"] = context.get("site_url") or context.get("gsc_site_url")
+            preset_id = str(context.get("preset_id") or "").strip()
+            if not preset_id:
+                detected_preset = await detect_job_type(conn, str(job.get("job_post") or query_params.get("raw_query") or ""))
+                if detected_preset:
+                    preset_id = str(detected_preset)
+                    await _update_job_context(conn, job_id, {"preset_id": preset_id})
 
         user_id = str(job.get("user_id") or "")
         client_slug = context.get("client_slug") or query_params.get("client_slug")
@@ -1263,6 +1269,7 @@ async def run_data_pipeline(job_id: str) -> None:
             or "vs" in raw_query
             or "vergelijk" in raw_query
         )
+        should_run_analysis = preset_id == "analytics-comparison" or (not preset_id and is_comparison_query)
 
         final_content = json.dumps(
             proposed_data,
@@ -1271,7 +1278,8 @@ async def run_data_pipeline(job_id: str) -> None:
             indent=2,
         )
         analysis_payload: dict[str, Any] | None = None
-        if is_comparison_query:
+        fetched_data: dict[str, Any] | None = None
+        if should_run_analysis:
             from app.agents.analysis_agent import run_analysis
 
             available_integrations: list[str] = []
@@ -1305,10 +1313,11 @@ async def run_data_pipeline(job_id: str) -> None:
                 else:
                     missing_integrations.append(canonical)
 
+            fetched_data = {"gsc": proposed_data}
             analysis_payload = await run_analysis(
                 job_id=job_id,
                 client_name=str(client_slug or "onbekende klant"),
-                raw_data={"gsc": proposed_data},
+                raw_data=fetched_data,
                 available_integrations=available_integrations,
                 missing_integrations=missing_integrations,
                 original_question=str(query_params.get("raw_query") or ""),
@@ -1321,6 +1330,8 @@ async def run_data_pipeline(job_id: str) -> None:
                 "pipeline_type": "direct_response",
                 "final_content": final_content,
                 "analysis_payload": analysis_payload,
+                "fetched_data": fetched_data,
+                "preset_id": preset_id or None,
             })
             await conn.execute(
                 "UPDATE jobs SET status = $1, updated_at = now() WHERE id = $2",
@@ -1462,6 +1473,10 @@ async def run_intake_inline(job_id: str, job_post: str):
                 )
                 return
 
+            preset_id = await detect_job_type(conn, job_post)
+            updates["preset_id"] = preset_id
+            await _update_job_context(conn, job_id, updates)
+
             # data_query complete: skip StrategyRoom and plan steps; run data pipeline (RUNNING -> JOB_READY)
             detected = (brief.context or {}) if isinstance(brief.context, dict) else {}
             if detected.get("detected_task_type") == "data_query":
@@ -1473,7 +1488,6 @@ async def run_intake_inline(job_id: str, job_post: str):
                 asyncio.create_task(run_data_pipeline(job_id))
                 return
 
-            preset_id = await detect_job_type(conn, job_post)
             if preset_id:
                 resource_report = await check_resources(conn, preset_id)
                 if not resource_report["ready"]:

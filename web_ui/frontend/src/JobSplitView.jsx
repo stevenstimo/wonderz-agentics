@@ -37,8 +37,10 @@ function getOutputContent(job, context) {
   // Alleen tonen bij JOB_READY of COMPLETED
   if (!['JOB_READY', 'COMPLETED'].includes(job?.status)) return null
 
+  const payload = job ? parsePayload(job.payload) : {}
   const ctx = context || (job ? parseContext(job.context) : {})
-  const content = ctx?.final_content
+  const content = payload?.final_content
+    || ctx?.final_content
     || ctx?.proposed_data?.content
     || job?.proposed_data?.content
     || null
@@ -342,6 +344,7 @@ export default function JobSplitView() {
   const artifacts = data?.artifacts ?? []
   const context = job ? parseContext(job.context) : {}
   const jobPayload = job ? parsePayload(job.payload) : {}
+  const payloadFinalContent = typeof jobPayload?.final_content === 'string' ? jobPayload.final_content : null
   const imageUrl = context.image_url
   const plan = context.plan || {}
   const planSteps = Array.isArray(plan.steps) ? plan.steps : []
@@ -969,6 +972,7 @@ export default function JobSplitView() {
             jobTitle={job?.title || job?.job_post || title}
             pipelineType={context.pipeline_type}
             proposedData={context.proposed_data}
+            payloadFinalContent={payloadFinalContent}
             onApprove={handleApproveDeploy}
             onApprovePlan={handleApprovePlan}
             onRequestChanges={() => chatSectionRef.current?.scrollIntoView({ behavior: 'smooth' })}

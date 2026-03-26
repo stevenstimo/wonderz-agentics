@@ -16,6 +16,7 @@ export default function DocumentViewer({
   jobTitle,
   pipelineType,
   proposedData,
+  payloadFinalContent = null,
   onApprove,
   onApprovePlan,
   onRequestChanges,
@@ -29,7 +30,10 @@ export default function DocumentViewer({
   const type = documentPreview?.type ?? 'empty'
   const title = documentPreview?.title ?? 'Document'
   const subtitle = documentPreview?.subtitle ?? ''
-  const content = typeof documentPreview?.content === 'string' ? documentPreview.content : ''
+  const hasAnalysisContent = typeof payloadFinalContent === 'string' && payloadFinalContent.trim().length > 0
+  const content = typeof documentPreview?.content === 'string'
+    ? documentPreview.content
+    : (hasAnalysisContent ? payloadFinalContent : '')
   const steps = Array.isArray(documentPreview?.steps) ? documentPreview.steps : []
 
   // Fade-in when type changes (opacity 0 → 1, 300ms)
@@ -127,7 +131,7 @@ export default function DocumentViewer({
   }
 
   const isDataResult = pipelineType === 'direct_response' && proposedData != null
-  const showDataResult = isDataResult && (jobStatus === 'JOB_READY' || jobStatus === 'COMPLETED')
+  const showDataResult = isDataResult && !hasAnalysisContent && (jobStatus === 'JOB_READY' || jobStatus === 'COMPLETED')
   const parsedProposedData = typeof proposedData === 'string'
     ? (() => { try { return JSON.parse(proposedData) } catch { return null } })()
     : proposedData

@@ -37,6 +37,21 @@ UNKNOWN_JOBTYPE_MESSAGE = (
     "Onbekend jobtype. Omschrijf de opdracht specifieker of hire de juiste agent."
 )
 
+INTEGRATION_REQUIRED_FOR_PRESET = {
+    "analytics-comparison": ["gsc"],
+    "seo-keyword-research": ["gsc"],
+}
+
+INTEGRATION_OPTIONAL_FOR_PRESET = {
+    "analytics-comparison": ["google_ads", "ga4"],
+}
+
+INTEGRATION_TYPE_MAP = {
+    "gsc": "google_search_console",
+    "google_ads": "google_ads",
+    "ga4": "ga4",
+}
+
 
 def _normalize_slots(raw: Any) -> List[Dict[str, Any]]:
     if raw is None:
@@ -82,9 +97,109 @@ def _db_roles_for_worker_slot(role: str) -> List[str]:
         return ["support", "data-analyst"]
     if "data engineer" in s or "data_eng" in s:
         return ["data-analyst"]
+    if "analysis agent" in s:
+        return ["data-analyst"]
+    if "data agent" in s:
+        return ["data-analyst"]
     if "analyst" in s and "data" in s:
         return ["data-analyst"]
     return ["copywriter", "seo", "reviewer"]
+
+
+async def check_integration_resources(
+    db: asyncpg.Connection,
+    preset_id: str,
+    user_id: str,
+    client_slug: Optional[str],
+) -> Dict[str, Any]:
+    """
+    Controleer per preset welke integrations actief zijn voor een user+client.
+    Verplicht ontbrekend => blokkeren. Optioneel ontbrekend => doorgaan met melding.
+    """
+    required = INTEGRATION_REQUIRED_FOR_PRESET.get(preset_id, [])
+    optional = INTEGRATION_OPTIONAL_FOR_PRESET.get(preset_id, [])
+    requested = required + optional
+    if not requested:
+        return {
+            "required_present": True,
+            "optional_present": [],
+            "missing_required": [],
+            "missing_optional": [],
+            "available_integrations": [],
+            "message": "Geen specifieke integrations vereist voor dit jobtype.",
+        }
+
+    mapped_required = [INTEGRATION_TYPE_MAP.get(k, k) for k in required]
+    mapped_optional = [INTEGRATION_TYPE_MAP.get(k, k) for k in optional]
+    mapped_all = list({*mapped_required, *mapped_optional})
+
+    rows = await db.fetch(
+        """
+        SELECT integration_type, is_active, extra_config
+        FROM client_integrations
+        WHERE user_id = $1
+          AND client_slug = $2
+          AND integration_type = ANY($3::text[])
+        """,
+        user_id,
+        client_slug,
+        mapped_all,
+    )
+
+    active_types: set[str] = set()
+    for row in rows:
+        integration_type = str(row.get("integration_type") or "")
+        extra = row.get("extra_config")
+        if isinstance(extra, str):
+            try:
+                extra = json.loads(extra)
+            except json.JSONDecodeError:
+                extra = {}
+        is_active = bool(row.get("is_active"))
+        oauth_connected = bool((extra or {}).get("oauth_connected"))
+        if is_active or oauth_connected:
+            active_types.add(integration_type)
+
+    missing_required = [
+        key for key in required if INTEGRATION_TYPE_MAP.get(key, key) not in active_types
+    ]
+    missing_optional = [
+        key for key in optional if INTEGRATION_TYPE_MAP.get(key, key) not in active_types
+    ]
+    optional_present = [key for key in optional if key not in missing_optional]
+    available_integrations = [
+        key for key in requested if INTEGRATION_TYPE_MAP.get(key, key) in active_types
+    ]
+
+    if missing_required:
+        return {
+            "required_present": False,
+            "optional_present": optional_present,
+            "missing_required": missing_required,
+            "missing_optional": missing_optional,
+            "available_integrations": available_integrations,
+            "message": (
+                "Ik kan deze analyse nog niet uitvoeren: verplichte koppeling ontbreekt "
+                f"({', '.join(missing_required)}). Activeer de koppeling en probeer opnieuw."
+            ),
+        }
+
+    if missing_optional:
+        message = (
+            "Ik ga door met beschikbare data. Ontbrekende optionele koppelingen: "
+            f"{', '.join(missing_optional)}."
+        )
+    else:
+        message = "Alle relevante integrations zijn actief."
+
+    return {
+        "required_present": True,
+        "optional_present": optional_present,
+        "missing_required": [],
+        "missing_optional": missing_optional,
+        "available_integrations": available_integrations,
+        "message": message,
+    }
 
 
 async def _ceo_active(conn: asyncpg.Connection) -> bool:
