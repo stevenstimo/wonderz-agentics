@@ -303,6 +303,28 @@ async def get_role_templates_list(
     return {"role_templates": list_role_templates()}
 
 
+@router.get("/ceo", summary="Haal de actieve CEO agent op")
+async def get_ceo_agent(
+    current_user: Annotated[TokenPayload, Depends(get_current_user)],
+) -> Dict[str, Any]:
+    """Actieve CEO uit hired_agents (role CEO, is_active)."""
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT agent_id, name, role, category, is_active,
+                   readiness_score, performance_score, completed_tasks,
+                   model, temperature, created_at
+            FROM hired_agents
+            WHERE LOWER(TRIM(role)) = 'ceo' AND is_active = true
+            LIMIT 1
+            """
+        )
+    if not row:
+        return {"agent_id": None, "name": None, "role": "ceo"}
+    return dict(row)
+
+
 @router.get("/{agent_id}/detail")
 async def get_agent_detail(
     agent_id: str,
