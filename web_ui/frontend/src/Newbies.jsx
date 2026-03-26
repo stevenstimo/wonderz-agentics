@@ -79,6 +79,7 @@ export default function Newbies() {
   // Per newbie_id: [{ library_id, status: 'evaluating'|'accepted'|'skipped'|'error', category?, reason?, score_gained? }]
   const [libraryResults, setLibraryResults] = useState({})
   const [offeringLibraryId, setOfferingLibraryId] = useState(null)
+  const [offeredItems, setOfferedItems] = useState(() => new Set())
 
   const canEdit = true // tijdelijk: isAdmin(userRole) faalt omdat userRole niet correct wordt opgehaald na inloggen
   console.log('userRole:', userRole, 'canEdit:', canEdit)
@@ -340,6 +341,7 @@ export default function Newbies() {
 
   const offerLibraryItemToNewbies = async (library_id) => {
     if (!library_id || offeringLibraryId === library_id) return
+    if (offeredItems.has(library_id)) return
     const toEvaluate = newbies.filter((n) => (n.status || '') !== 'hired')
     if (toEvaluate.length === 0) return
 
@@ -395,6 +397,11 @@ export default function Newbies() {
       })
     )
 
+    setOfferedItems((prev) => {
+      const next = new Set(prev)
+      next.add(library_id)
+      return next
+    })
     setOfferingLibraryId(null)
   }
 
@@ -502,13 +509,18 @@ export default function Newbies() {
                     </div>
                   </div>
                   <button
-                    type="button"
-                    className="text-xs text-indigo-700 hover:underline font-medium disabled:opacity-50 disabled:hover:no-underline"
-                    onClick={() => offerLibraryItemToNewbies(it.library_id)}
-                    disabled={offeringLibraryId != null}
-                  >
-                    {offeringLibraryId === it.library_id ? 'Aan het aanbieden…' : 'Aanbieden aan Newbies'}
-                  </button>
+                    {offeredItems.has(it.library_id) ? (
+                      <span className="text-xs font-medium text-green-600">✓ Aangeboden</span>
+                    ) : (
+                      <button
+                        type="button"
+                        className="text-xs text-indigo-700 hover:underline font-medium disabled:opacity-50 disabled:hover:no-underline"
+                        onClick={() => offerLibraryItemToNewbies(it.library_id)}
+                        disabled={offeringLibraryId != null}
+                      >
+                        {offeringLibraryId === it.library_id ? 'Aan het aanbieden…' : 'Aanbieden aan Newbies'}
+                      </button>
+                    )}
                 </div>
               ))}
               {!libraryItems.length && <div className="text-xs text-slate-500">Nog geen items.</div>}
