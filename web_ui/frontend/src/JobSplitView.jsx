@@ -1,13 +1,12 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
 import { Upload, X, Paperclip, FileSpreadsheet, FileText, Image as ImageIcon, MessageCircle, Play, CheckCircle, XCircle, BookOpen, BookMarked, BookX, Layers } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkBreaks from 'remark-breaks'
 import PageLayout from './PageLayout'
 import DocumentViewer from './components/DocumentViewer'
 import { apiUrl, apiFetch, fetchJson } from './apiClient'
-import { queryKeys } from './queryKeys'
+import { useJobWebSocket } from './hooks/useJobWebSocket'
 
 /** Parses job context (object or JSON string). Never throws; returns {} on invalid input. */
 function parseContext(ctx) {
@@ -234,6 +233,7 @@ export default function JobSplitView() {
 
   const ceoDisplayName = ceoName !== null ? ceoName : 'your AI agent'
   const ceoInitials = ceoDisplayName.split(/\s+/).filter(Boolean).map((w) => w[0]).join('').toUpperCase().slice(0, 2) || 'AI'
+  const { jobData: wsJob } = useJobWebSocket(jobId)
 
   const fetchJob = useCallback(async () => {
     if (!jobId) return null
@@ -275,20 +275,26 @@ export default function JobSplitView() {
     }
   }, [jobId])
 
-  const { refetch: refetchJob } = useQuery({
-    queryKey: queryKeys.job(jobId),
-    queryFn: fetchJob,
-    enabled: !!jobId,
-    refetchInterval: (query) => {
-      const status = query.state.data?.job?.status
-      if (status === 'INTAKE_CLARIFICATION') return 10_000
-      if (status === 'RUNNING') return 5_000
-      if (['COMPLETED', 'FAILED', 'CANCELLED', 'JOB_READY', 'AWAITING_APPROVAL', 'PLAN_PROPOSED', 'BLOCKED'].includes(status)) {
-        return false
+  // Initial load remains HTTP-based; live updates come from WebSocket.
+  useEffect(() => {
+    if (!jobId) return
+    fetchJob()
+  }, [jobId, fetchJob])
+
+  // Merge partial/full websocket job updates into local state.
+  useEffect(() => {
+    if (!wsJob) return
+    setData((prev) => {
+      if (!prev) return { job: wsJob }
+      return {
+        ...prev,
+        job: {
+          ...(prev.job || {}),
+          ...wsJob,
+        },
       }
-      return false
-    },
-  })
+    })
+  }, [wsJob])
 
   // When background tasks don't run (e.g. exe.xyz): trigger intake synchronously when user opens job in INTAKE_CLARIFICATION with no plan yet
   useEffect(() => {
@@ -306,7 +312,7 @@ export default function JobSplitView() {
           setError(j.detail || 'Intake start mislukt')
           return
         }
-        await refetchJob()
+        await fetchJob()
       })
       .catch((err) => setError(err.message || 'Intake request failed'))
       .finally(() => setRunningIntake(false))
