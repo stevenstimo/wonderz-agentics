@@ -67,6 +67,65 @@ export default function DocumentViewer({
     URL.revokeObjectURL(url)
   }
 
+  const downloadAsCsv = () => {
+    const data = parsedProposedData
+    if (!data || typeof data !== 'object') return
+
+    let headers = []
+    let rows = []
+
+    const toIntIfNumeric = (v) => {
+      const n = Number(v)
+      return Number.isFinite(n) ? Math.round(n) : v
+    }
+
+    const toOneDecimalIfNumeric = (v) => {
+      const n = Number(v)
+      return Number.isFinite(n) ? n.toFixed(1) : v
+    }
+
+    if (data.output_type === 'keyword_table' && Array.isArray(data.keywords)) {
+      headers = ['Keyword', 'Zoekvolume', 'KD', 'Omschrijving']
+      rows = data.keywords.map((k) => [
+        String(k?.keyword ?? ''),
+        toIntIfNumeric(k?.search_volume ?? ''),
+        toIntIfNumeric(k?.kd ?? ''),
+        String(k?.description ?? ''),
+      ])
+    } else if (Array.isArray(data.resultaat) && data.resultaat.length > 0) {
+      headers = Object.keys(data.resultaat[0])
+      rows = data.resultaat.map((r) =>
+        headers.map((h) => {
+          const key = String(h || '').toLowerCase()
+          const val = r?.[h] ?? ''
+          if (key === 'ctr') return toOneDecimalIfNumeric(Number(val) * 100)
+          if (key === 'position') return toOneDecimalIfNumeric(val)
+          if (key === 'clicks' || key === 'impressions' || key === 'search_volume' || key === 'volume' || key === 'kd') {
+            return toIntIfNumeric(val)
+          }
+          return val
+        })
+      )
+    } else {
+      return
+    }
+
+    const escapeCsv = (v) => `"${String(v).replace(/"/g, '""')}"`
+    const separator = ';'
+    const csv = [headers, ...rows]
+      .map((r) => r.map(escapeCsv).join(separator))
+      .join('\r\n')
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = (jobTitle || title || 'document').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 80) + '.csv'
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
+
   const isDataResult = pipelineType === 'direct_response' && proposedData != null
   const showDataResult = isDataResult && (jobStatus === 'JOB_READY' || jobStatus === 'COMPLETED')
   const parsedProposedData = typeof proposedData === 'string'
@@ -74,6 +133,7 @@ export default function DocumentViewer({
     : proposedData
   const showKeywordTable = parsedProposedData?.output_type === 'keyword_table'
     && (jobStatus === 'JOB_READY' || jobStatus === 'COMPLETED')
+  const canDownloadCsv = showKeywordTable || showDataResult
   const showApproveButtons = type === 'final' && jobStatus === 'JOB_READY' && !showDataResult
   const showPlanAction = type === 'plan' && jobStatus === 'PLAN_PROPOSED'
   const hasCopyableContent = type === 'plan' ? steps.length > 0 : content.length > 0
@@ -107,7 +167,17 @@ export default function DocumentViewer({
               )}
             </button>
           )}
-          {type === 'final' && content && (
+          {canDownloadCsv && (
+            <button
+              type="button"
+              onClick={downloadAsCsv}
+              className="p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+              title="Download als .csv"
+            >
+              <Download className="w-4 h-4" />
+            </button>
+          )}
+          {type === 'final' && content && !canDownloadCsv && (
             <button
               type="button"
               onClick={downloadAsTxt}
