@@ -3,9 +3,11 @@
  * This file is kept for reference; do not delete yet.
  */
 import { useState, useRef, useEffect } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { supabase } from './supabase'
 import PageLayout from './PageLayout'
 import { useJobWebSocket } from './hooks/useJobWebSocket'
+import { queryKeys } from './queryKeys'
 import { Sparkles, Play, CheckCircle, XCircle, Loader2, ChevronRight, Circle } from 'lucide-react'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:8090'
@@ -75,7 +77,6 @@ export default function JobFlow() {
   const [showFeedback, setShowFeedback] = useState(false)
   const [nowMs, setNowMs] = useState(Date.now())
   const bottomRef = useRef(null)
-  const pollRef = useRef(null)
   const wsConnectedRef = useRef(false)
 
   const { jobData: wsRaw, connected } = useJobWebSocket(jobId)
@@ -99,8 +100,6 @@ export default function JobFlow() {
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
 
-  // Stop polling on unmount
-  useEffect(() => { return () => { if (pollRef.current) clearInterval(pollRef.current) } }, [])
   useEffect(() => {
     const t = setInterval(() => setNowMs(Date.now()), 10000)
     return () => clearInterval(t)
@@ -133,24 +132,21 @@ export default function JobFlow() {
     }
   }
 
-  const startPolling = (id) => {
-    if (pollRef.current) clearInterval(pollRef.current)
-    pollRef.current = setInterval(async () => {
-      if (wsConnectedRef.current) return
-      const d = await loadJob(id)
-      if (!d) return
+  useQuery({
+    queryKey: queryKeys.job(jobId),
+    queryFn: () => loadJob(jobId),
+    enabled: !!jobId && !connected,
+    refetchInterval: (query) => {
+      const d = query.state.data
+      if (!d) return 3000
       const status = d.job?.status
       const hasPendingClarifications = (d.clarifications || []).some(c => !c.user_answer)
-      // Stop polling als we in een stabiele fase zitten
       if (!hasPendingClarifications && ['PLAN_PROPOSED', 'JOB_READY', 'COMPLETED', 'FAILED'].includes(status)) {
-        clearInterval(pollRef.current)
-        // Toon CEO vragen als die er zijn
-        if (status === 'PLAN_PROPOSED') {
-          setMessages(p => [...p, { from: 'ceo', text: 'Plan is klaar. Bekijk het hieronder.' }])
-        }
+        return false
       }
-    }, 3000)
-  }
+      return 3000
+    },
+  })
 
   const send = async () => {
     if (!input.trim() || loading) return
@@ -175,7 +171,6 @@ export default function JobFlow() {
         const newId = d.job_id
         setJobId(newId)
         setMessages(p => [...p, { from: 'ceo', text: 'Job aangemaakt. Mr. Klein analyseert...' }])
-        startPolling(newId)
 
         // Laad direct jobdata; loadJob toont eventuele clarification vraag.
         setTimeout(() => {
@@ -202,7 +197,6 @@ export default function JobFlow() {
           throw new Error(err.detail || 'Server error ' + r.status)
         }
         setMessages(p => [...p, { from: 'ceo', text: 'Antwoord ontvangen. Opnieuw analyseren...' }])
-        startPolling(jobId)
       }
     } catch (err) {
       setMessages(p => [...p, { from: 'ceo', text: 'Fout: ' + err.message }])
@@ -219,7 +213,6 @@ export default function JobFlow() {
       clearTimeout(timeoutId)
       if (!r.ok) throw new Error('Plan goedkeuren mislukt')
       setPhase('tracker')
-      startPolling(jobId)
     } catch (err) {
       alert(err.message)
     }
@@ -238,7 +231,6 @@ export default function JobFlow() {
       setFeedback('')
       setShowFeedback(false)
       setPhase('tracker')
-      startPolling(jobId)
     } catch {}
     setLoading(false)
   }
@@ -590,7 +582,6 @@ export default function JobFlow() {
             <button onClick={() => {
               setJobData(null); setPhase('intake'); setJobId(null)
               setMessages([{ from: 'ceo', text: 'Hallo. Beschrijf je volgende job.' }])
-              if (pollRef.current) clearInterval(pollRef.current)
             }} className="px-6 py-3 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700">
               Nieuwe Job
             </button>

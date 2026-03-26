@@ -4,9 +4,11 @@
  */
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import PageLayout from './PageLayout'
 import { apiUrl, apiFetch } from './apiClient'
 import { useJobWebSocket } from './hooks/useJobWebSocket'
+import { queryKeys } from './queryKeys'
 import { CONFIG } from './config'
 
 const STATUS_BADGE = {
@@ -109,13 +111,12 @@ export default function JobDetail() {
   const [ceoTyping, setCeoTyping] = useState(false)
   const chatEndRef = useRef(null)
   const chatHistoryLengthRef = useRef(0)
-  const intervalRef = useRef(null)
 
   const wsEnabled = CONFIG.features?.enableWebSocket !== false
   const { jobData: wsPayload, connected } = useJobWebSocket(wsEnabled ? jobId : null)
 
   const fetchJob = useCallback(async ({ silent } = {}) => {
-    if (!jobId) return
+    if (!jobId) return null
     if (!silent) {
       setLoading(true)
       setError(null)
@@ -140,13 +141,15 @@ export default function JobDetail() {
       const text = await res.text()
       if (!contentType.includes('application/json')) {
         setError('Server returned non-JSON; check if /api is proxied to the backend.')
-        return
+        return null
       }
       const json = JSON.parse(text)
       setData(json)
+      return json
     } catch (err) {
       if (err.name === 'AbortError') setError('Request timed out. Check your connection.')
       else if (!silent) setError(err.message || 'Failed to load job')
+      return null
     } finally {
       if (!silent) setLoading(false)
     }
@@ -155,6 +158,18 @@ export default function JobDetail() {
   useEffect(() => {
     fetchJob()
   }, [fetchJob])
+
+  useQuery({
+    queryKey: queryKeys.job(jobId),
+    queryFn: () => fetchJob({ silent: true }),
+    enabled: !!jobId && !connected,
+    refetchInterval: (query) => {
+      const polledStatus = query.state.data?.job?.status
+      const currentStatus = data?.job?.status
+      const status = polledStatus || currentStatus
+      return status === 'RUNNING' ? 5_000 : false
+    },
+  })
 
   useEffect(() => {
     if (!wsPayload) return
@@ -173,18 +188,6 @@ export default function JobDetail() {
       return prev
     })
   }, [wsPayload])
-
-  useEffect(() => {
-    if (!data?.job || data.job.status !== 'RUNNING') return
-    if (connected) {
-      if (intervalRef.current) clearInterval(intervalRef.current)
-      return undefined
-    }
-    intervalRef.current = setInterval(() => fetchJob({ silent: true }), 5000)
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current)
-    }
-  }, [data?.job?.status, connected, fetchJob])
 
   useEffect(() => {
     if (!sendingChat && ceoTyping) {

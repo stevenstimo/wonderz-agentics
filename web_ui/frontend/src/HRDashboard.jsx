@@ -883,25 +883,22 @@ export default function HRDashboard() {
   const [resolveInput, setResolveInput] = useState({})
   const [expandedPointId, setExpandedPointId] = useState(null)
   const scanStepAnimRef = useRef(null)
-  const pointsPollRef = useRef(null)
 
-  const loadPoints = useCallback(async ({ silent } = {}) => {
-    if (!silent) {
-      setLoading(true)
-      setError('')
-    }
-    try {
+  const {
+    data: developmentPoints = [],
+    isLoading: pointsLoading,
+    refetch: refetchDevelopmentPoints,
+  } = useQuery({
+    queryKey: queryKeys.developmentPoints(),
+    queryFn: async () => {
       const res = await apiFetch('/api/hr/development-points')
-      if (res.ok) {
-        const data = await res.json()
-        setPoints(data.development_points ?? (Array.isArray(data) ? data : []))
-      }
-    } catch (err) {
-      if (!silent) setError(err.message || 'Laden mislukt')
-    } finally {
-      if (!silent) setLoading(false)
-    }
-  }, [])
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || 'Laden mislukt')
+      const data = await res.json()
+      return data.development_points ?? (Array.isArray(data) ? data : [])
+    },
+    enabled: authReady && tab === 'points',
+    refetchInterval: authReady && tab === 'points' ? 60_000 : false,
+  })
 
   const loadReport = useCallback(async () => {
     setReportLoading(true)
@@ -918,46 +915,43 @@ export default function HRDashboard() {
     }
   }, [])
 
-  const loadCrossProposals = useCallback(async () => {
-    setLoading(true)
-    setError('')
-    try {
+  const {
+    data: crossTrainingProposals = [],
+    isLoading: crossLoading,
+    refetch: refetchCrossProposals,
+  } = useQuery({
+    queryKey: queryKeys.hrReport(),
+    queryFn: async () => {
       const res = await apiFetch('/api/hr/cross-training-proposals?status=pending')
-      if (res.ok) {
-        const data = await res.json()
-        setCrossProposals(Array.isArray(data) ? data : [])
-      }
-    } catch (err) {
-      setError(err.message || 'Laden mislukt')
-    } finally {
-      setLoading(false)
-    }
-  }, [])
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || 'Laden mislukt')
+      const data = await res.json()
+      return Array.isArray(data) ? data : []
+    },
+    enabled: authReady && tab === 'cross',
+  })
+
+  useEffect(() => {
+    setPoints(Array.isArray(developmentPoints) ? developmentPoints : [])
+  }, [developmentPoints])
+
+  useEffect(() => {
+    setCrossProposals(Array.isArray(crossTrainingProposals) ? crossTrainingProposals : [])
+  }, [crossTrainingProposals])
 
   useEffect(() => {
     if (!authReady) return
-    if (tab === 'points') loadPoints()
-    else if (tab === 'cross') loadCrossProposals()
-  }, [authReady, tab, loadPoints, loadCrossProposals])
-
-  useEffect(() => {
-    if (!authReady || tab !== 'points') {
-      if (pointsPollRef.current) {
-        clearInterval(pointsPollRef.current)
-        pointsPollRef.current = null
-      }
-      return undefined
+    if (tab === 'points') {
+      setError('')
+      setLoading(pointsLoading)
+      return
     }
-    pointsPollRef.current = setInterval(() => {
-      void loadPoints({ silent: true })
-    }, 60_000)
-    return () => {
-      if (pointsPollRef.current) {
-        clearInterval(pointsPollRef.current)
-        pointsPollRef.current = null
-      }
+    if (tab === 'cross') {
+      setError('')
+      setLoading(crossLoading)
+      return
     }
-  }, [authReady, tab, loadPoints])
+    setLoading(false)
+  }, [authReady, tab, pointsLoading, crossLoading])
 
   // Mark CEO notifications as read when user lands on HR dashboard
   useEffect(() => {
@@ -1017,7 +1011,7 @@ export default function HRDashboard() {
       setScanResultText(total > 0
         ? `${created} nieuwe development point${created !== 1 ? 's' : ''} gevonden${incremented > 0 ? `, ${incremented} bijgewerkt` : ''}`
         : 'Geen nieuwe patronen gevonden')
-      await loadPoints()
+      await refetchDevelopmentPoints()
 
       setTimeout(() => {
         setScanning(false)
@@ -1047,7 +1041,7 @@ export default function HRDashboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status, approved_by: 'hr-dashboard' }),
       })
-      await loadPoints()
+      await refetchDevelopmentPoints()
     } catch {
       setError('Status update mislukt')
     }
@@ -1063,7 +1057,7 @@ export default function HRDashboard() {
       })
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || 'Request failed')
       setTrainingUrlInput((prev) => { const n = { ...prev }; delete n[id]; return n })
-      await loadPoints()
+      await refetchDevelopmentPoints()
     } catch (err) {
       setError(err?.message || 'Goedkeuren mislukt')
     }
@@ -1078,7 +1072,7 @@ export default function HRDashboard() {
         body: JSON.stringify({ proposal_id: proposalId, approved: true, source_url: sourceUrl || undefined }),
       })
       setCrossUrlInput((prev) => { const n = { ...prev }; delete n[proposalId]; return n })
-      await loadCrossProposals()
+      await refetchCrossProposals()
     } catch {
       setError('Goedkeuren mislukt')
     }
@@ -1093,10 +1087,10 @@ export default function HRDashboard() {
       })
       setResolveInput((prev) => { const n = { ...prev }; delete n[pointId]; return n })
       if (res?.status === 404) {
-        await loadPoints()
+        await refetchDevelopmentPoints()
         return
       }
-      await loadPoints()
+      await refetchDevelopmentPoints()
     } catch {
       setError('Opgelost markeren mislukt')
     }
@@ -1109,7 +1103,7 @@ export default function HRDashboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ proposal_id: proposalId, approved: false }),
       })
-      await loadCrossProposals()
+      await refetchCrossProposals()
     } catch {
       setError('Afwijzen mislukt')
     }
