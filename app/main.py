@@ -166,6 +166,7 @@ from app.routes import (
     email as email_routes,
     email_inbox,
     ceo,
+    cfo,
     crew,
     events,
     explainer,
@@ -201,6 +202,7 @@ app.include_router(clients.router)
 app.include_router(debug_chat.router)
 app.include_router(email_routes.router)
 app.include_router(ceo.router)
+app.include_router(cfo.router)
 app.include_router(crew.router)
 app.include_router(events.router)
 app.include_router(explainer.router)
