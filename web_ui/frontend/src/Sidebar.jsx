@@ -33,6 +33,8 @@ import {
   Upload,
   Cpu,
   Coins,
+  Factory,
+  PackageCheck,
 } from 'lucide-react'
 import { supabase } from './supabase'
 import { getCurrentUserRole, isAdmin, isSuperAdmin } from './authz'
@@ -306,6 +308,8 @@ export default function Sidebar() {
                 <NavItem item={{ label: 'CFO', icon: Coins, path: '/cfo' }} />
                 <NavItem item={{ label: 'CAO', icon: TrendingUp, path: '/cao' }} />
                 <NavItem item={{ label: 'CLO', icon: GraduationCap, path: '/clo' }} />
+                <NavItem item={{ label: 'COO', icon: Factory, path: '/coo' }} />
+                <NavItem item={{ label: 'CDO', icon: PackageCheck, path: '/cdo' }} />
               </>
             )}
 
