@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import PageLayout from './PageLayout'
@@ -100,11 +100,6 @@ export default function JobCenter() {
   const { authReady } = useAuthReady()
   const [filter, setFilter] = useState('all')
   const [searchQuery, setSearchQuery] = useState('')
-  const [crew, setCrew] = useState([])
-  const [sections, setSections] = useState([])
-  const [meta, setMeta] = useState(null)
-  const [crewLoading, setCrewLoading] = useState(true)
-  const [crewError, setCrewError] = useState(null)
 
   const {
     data: jobs = [],
@@ -117,34 +112,36 @@ export default function JobCenter() {
     refetchInterval: 10_000,
   })
 
-  useEffect(() => {
-    if (!authReady) return
-    let active = true
-    const fetchCrew = async () => {
-      setCrewLoading(true)
-      setCrewError(null)
-      try {
-        const [crewRes, explainerRes] = await Promise.all([
-          apiFetch('/api/crew'),
-          apiFetch('/api/explainer/sections'),
-        ])
-        if (!crewRes.ok) throw new Error('Failed to load crew status')
-        if (!explainerRes.ok) throw new Error('Failed to load updates')
-        const crewData = await crewRes.json()
-        const explainerData = await explainerRes.json()
-        if (!active) return
-        setCrew(Array.isArray(crewData) ? crewData : [])
-        setSections(Array.isArray(explainerData.sections) ? explainerData.sections : [])
-        setMeta(explainerData.meta || null)
-      } catch (err) {
-        if (active) setCrewError(err.message || 'Failed to load job center data')
-      } finally {
-        if (active) setCrewLoading(false)
+  const {
+    data: crew = [],
+    isLoading: crewLoading,
+    error: crewError,
+  } = useQuery({
+    queryKey: ['crew-status'],
+    queryFn: async () => {
+      const res = await apiFetch('/api/crew')
+      if (!res.ok) throw new Error('Failed to load crew status')
+      const data = await res.json().catch(() => [])
+      return Array.isArray(data) ? data : []
+    },
+    enabled: authReady,
+  })
+
+  const { data: explainerData = { sections: [], meta: null } } = useQuery({
+    queryKey: ['explainer-sections'],
+    queryFn: async () => {
+      const res = await apiFetch('/api/explainer/sections')
+      if (!res.ok) throw new Error('Failed to load updates')
+      const data = await res.json().catch(() => ({}))
+      return {
+        sections: Array.isArray(data?.sections) ? data.sections : [],
+        meta: data?.meta || null,
       }
-    }
-    fetchCrew()
-    return () => { active = false }
-  }, [authReady])
+    },
+    enabled: authReady,
+  })
+  const sections = explainerData.sections
+  const meta = explainerData.meta
 
   const filteredJobs = jobs.filter((j) => {
     if (filter === 'active') { if (!IN_PROGRESS_STATUSES.includes(j.status)) return false }
@@ -231,7 +228,8 @@ export default function JobCenter() {
                 <tbody>
                   {filteredJobs.map((job) => {
                     const agents = getAssignedAgents(job)
-                    const title = (job.job_post || '—').length > 80 ? `${(job.job_post || '').slice(0, 80)}…` : (job.job_post || '—')
+                    const rawTitle = job.title || job.job_post || '—'
+                    const title = rawTitle.length > 80 ? `${rawTitle.slice(0, 80)}…` : rawTitle
                     return (
                       <tr
                         key={job.id}

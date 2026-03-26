@@ -367,7 +367,7 @@ export default function JobDetail() {
         </div>
         <div className="mt-4">
           <p className="text-sm font-medium text-slate-600">Description</p>
-          <p className="mt-1 text-slate-800 whitespace-pre-wrap">{job?.job_post || '—'}</p>
+          <p className="mt-1 text-slate-800 whitespace-pre-wrap">{job?.title || job?.job_post || '—'}</p>
         </div>
       </div>
 

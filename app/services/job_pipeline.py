@@ -20,6 +20,7 @@ from app.services.skill_matcher import (
     match_skill,
     persist_matched_skill,
 )
+from app.services.job_title_generator import format_job_title, generate_job_subject
 from app.orchestration.nexus_pipeline import _missing_roles_for_payload
 from app.utils.job_file_generator import generate_job_artifact, parse_output_to_sections
 from app.orchestration.strategy_room import StrategyRoom
@@ -39,6 +40,36 @@ TIMEOUT_REVIEW_STEP = 60
 
 # Thread pool for running sync _run_step_agent with timeout
 _step_executor: Optional[ThreadPoolExecutor] = None
+
+
+async def _maybe_set_structured_job_title(conn, job_id: str, job_post: str, preset_id: Optional[str] = None) -> None:
+    """Set jobs.title in format: #NNNN — Client — Subject (best effort)."""
+    row = await conn.fetchrow(
+        """
+        SELECT j.job_number_int, j.context, j.payload, c.client_name
+        FROM jobs j
+        LEFT JOIN clients c ON c.client_id::text = j.client_id::text
+        WHERE j.id = $1
+        """,
+        job_id,
+    )
+    if not row:
+        return
+
+    job_number_int = row.get("job_number_int")
+    if job_number_int is None:
+        return
+
+    merged = _coerce_context(row.get("payload") or row.get("context"))
+    client_name = (row.get("client_name") or "").strip() or (merged.get("client_name") or "").strip() or None
+    subject = await generate_job_subject(job_post or "", preset_id=preset_id)
+    title = format_job_title(int(job_number_int), client_name, subject)
+
+    await conn.execute(
+        "UPDATE jobs SET title = $1, updated_at = now() WHERE id = $2",
+        title,
+        job_id,
+    )
 
 
 def _get_step_executor() -> ThreadPoolExecutor:
@@ -1438,6 +1469,7 @@ async def run_intake_inline(job_id: str, job_post: str):
                     "plan": plan.model_dump(),
                 },
             )
+            await _maybe_set_structured_job_title(conn, job_id, job_post, preset_id=preset_id)
     except Exception as exc:
         logger.error("Intake error for job %s: %s", job_id, exc, exc_info=True)
 
@@ -1648,6 +1680,7 @@ async def run_intake_answers_inline(job_id: str, answers: dict):
                         "plan": plan.model_dump(),
                     },
                 )
+                await _maybe_set_structured_job_title(conn, job_id, job_post, preset_id=preset_id)
         if run_revision:
             logger.info(
                 "run_intake_answers_inline completed for job %s, new status=%s",

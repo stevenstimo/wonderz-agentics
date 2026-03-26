@@ -723,9 +723,11 @@ export default function JobSplitView() {
   if (job) chatHistoryLengthRef.current = displayChatHistory.length
 
   const jobPostText = job
-    ? (typeof job.job_post === 'string' && job.job_post.trim()
-        ? job.job_post
-        : job.payload?.brief?.job_post || 'Job')
+    ? (typeof job.title === 'string' && job.title.trim()
+        ? job.title
+        : typeof job.job_post === 'string' && job.job_post.trim()
+          ? job.job_post
+          : job.payload?.brief?.job_post || 'Job')
     : 'New Job'
   const title = jobPostText.slice(0, 60).trim() + (jobPostText.length > 60 ? '…' : '')
 
@@ -964,7 +966,7 @@ export default function JobSplitView() {
             documentPreview={data?.document_preview ?? null}
             jobId={jobId}
             jobStatus={job?.status}
-            jobTitle={job?.job_post || title}
+            jobTitle={job?.title || job?.job_post || title}
             pipelineType={context.pipeline_type}
             proposedData={context.proposed_data}
             onApprove={handleApproveDeploy}
