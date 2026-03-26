@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from app.core.config import DEFAULT_MODEL
 from app.db import init_db_pool
 from app.database import get_db
+from app.services.cfo_service import anthropic_usage_record, log_token_usage_records
 from app.services.token_guard import TokenGuard
 from app.orchestration.intake_engine import IntakeEngine, detect_language, normalize_language_label
 from app.orchestration.ceo_intent import check_resources, detect_job_type
@@ -478,6 +479,10 @@ async def _run_step_agent_with_timeout(
     step_name: str,
     context: Dict[str, Any],
     previous_content: Optional[str],
+    *,
+    job_id: Optional[str] = None,
+    job_step_id: Optional[str] = None,
+    agent_id: Optional[str] = None,
 ) -> Tuple[Dict[str, Any], int]:
     """Run agent step with per-step timeout. On timeout: mark step failed, pipeline continues."""
     timeout = _get_step_timeout(agent_role, step_name)
@@ -491,7 +496,23 @@ async def _run_step_agent_with_timeout(
             ),
             timeout=timeout,
         )
-        return result
+        output_dict, tokens_used, usage_records = result
+        if job_id and usage_records:
+            pool = await _get_pool()
+            if pool:
+                try:
+                    async with pool.acquire() as conn:
+                        await log_token_usage_records(
+                            conn,
+                            job_id,
+                            step_name or agent_role or "step",
+                            usage_records,
+                            agent_id=agent_id,
+                            job_step_id=job_step_id,
+                        )
+                except Exception as _cfo_err:
+                    logger.debug("CFO log_token_usage_records skipped: %s", _cfo_err)
+        return (output_dict, tokens_used)
     except asyncio.TimeoutError:
         logger.warning("Step timeout after %ds: job step %s (%s)", timeout, step_name, agent_role)
         return (
@@ -867,10 +888,10 @@ def _run_step_agent(
     step_name: str,
     context: Dict[str, Any],
     previous_content: Optional[str],
-) -> Tuple[Dict[str, Any], int]:
+) -> Tuple[Dict[str, Any], int, List[Dict[str, Any]]]:
     """
     Run one pipeline step: copywriter (Claude), reviewer (Claude), image_generator (Pollinations.ai), or generic Claude.
-    Returns (output_dict, tokens_used).
+    Returns (output_dict, tokens_used, anthropic_usage_records_for_cfo).
     """
     role_lower = (agent_role or "").lower()
     step_desc = step_name or agent_role or "step"
@@ -893,7 +914,7 @@ def _run_step_agent(
             "image_source": result.get("source", "unknown"),
             "agent_role": agent_role,
         }
-        return (output, 0)
+        return (output, 0, [])
 
     api_key = (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
     if not api_key:
@@ -901,6 +922,7 @@ def _run_step_agent(
         return (
             {"status": "placeholder", "content": f"[Placeholder – {step_desc}. No API key.]", "agent_role": agent_role},
             0,
+            [],
         )
 
     try:
@@ -911,6 +933,7 @@ def _run_step_agent(
         return (
             {"status": "placeholder", "content": f"[Placeholder – {step_desc}. {e}]", "agent_role": agent_role},
             0,
+            [],
         )
 
     brief_ctx = _brief_ctx(context)
@@ -991,6 +1014,7 @@ Het focus keyword moet voorkomen in de eerste alinea en minimaal 2x in de volled
         if user_feedback and isinstance(user_feedback, str):
             user += f"\n\nCRITICAL USER FEEDBACK (you MUST apply this — write a completely new version, do not reference any previous draft):\n{user_feedback}"
         plan_indicators = ["Projectoverzicht", "Leveringscriteria", "GOEDGEKEURD", "Uitvoeringsplan", "Volgende Stap", "Status:"]
+        usage_records: List[Dict[str, Any]] = []
         try:
             response = client.messages.create(
                 model=CLAUDE_MODEL,
@@ -998,6 +1022,9 @@ Het focus keyword moet voorkomen in de eerste alinea en minimaal 2x in de volled
                 system=system,
                 messages=[{"role": "user", "content": user}],
             )
+            rec = anthropic_usage_record(CLAUDE_MODEL, response)
+            if rec:
+                usage_records.append(rec)
             logger.info("Copywriter raw response type: %s", type(response.content))
             logger.info("Copywriter content blocks: %s", len(response.content or []))
             for i, block in enumerate(response.content or []):
@@ -1012,6 +1039,9 @@ Het focus keyword moet voorkomen in de eerste alinea en minimaal 2x in de volled
                     system=retry_system,
                     messages=[{"role": "user", "content": user}],
                 )
+                rec2 = anthropic_usage_record(CLAUDE_MODEL, response)
+                if rec2:
+                    usage_records.append(rec2)
                 text = _extract_text_from_anthropic_content(response.content)
                 tokens += (response.usage.input_tokens or 0) + (response.usage.output_tokens or 0)
             if not text:
@@ -1019,6 +1049,7 @@ Het focus keyword moet voorkomen in de eerste alinea en minimaal 2x in de volled
                 return (
                     {"status": "failed", "content": "", "error": "Copywriter produced empty content", "agent_role": agent_role},
                     tokens,
+                    usage_records,
                 )
             out = {"status": "completed", "content": text, "agent_role": agent_role, "step_name": step_desc}
             if not is_content_role:
@@ -1038,15 +1069,15 @@ Het focus keyword moet voorkomen in de eerste alinea en minimaal 2x in de volled
                         )
                 except Exception as _vc:
                     logger.debug("Worker contract parse/validate skipped: %s", _vc)
-            return (out, tokens)
+            return (out, tokens, usage_records)
         except Exception as e:
             logger.exception("Copywriter step failed: %s", e)
-            return ({"status": "failed", "content": "", "error": str(e), "agent_role": agent_role}, 0)
+            return ({"status": "failed", "content": "", "error": str(e), "agent_role": agent_role}, 0, [])
 
     # Reviewer: review previous content
     if role_lower in ("reviewer", "review"):
         if not previous_content:
-            return ({"status": "skipped", "review": "No content to review.", "approved": True, "agent_role": agent_role}, 0)
+            return ({"status": "skipped", "review": "No content to review.", "approved": True, "agent_role": agent_role}, 0, [])
         system = (
             "You are a content reviewer. Check quality, grammar, and tone consistency. Reply in the same language as the content. Keep the reply concise. End with APPROVED or CHANGES NEEDED. "
             "If the content looks like a plan or outline instead of actual article text, mark it as NOT APPROVED and explain that actual content is needed, not a plan.\n"
@@ -1078,16 +1109,21 @@ Het focus keyword moet voorkomen in de eerste alinea en minimaal 2x in de volled
                 system=system,
                 messages=[{"role": "user", "content": user}],
             )
+            rev_usage: List[Dict[str, Any]] = []
+            rec = anthropic_usage_record(CLAUDE_MODEL, response)
+            if rec:
+                rev_usage.append(rec)
             review_text = (response.content[0].text if response.content else "").strip()
             approved = "approved" in review_text.lower() or "changes needed" not in review_text.lower()
             tokens = (response.usage.input_tokens or 0) + (response.usage.output_tokens or 0)
             return (
                 {"status": "completed", "review": review_text, "approved": approved, "agent_role": agent_role, "content": previous_content},
                 tokens,
+                rev_usage,
             )
         except Exception as e:
             logger.exception("Reviewer step failed: %s", e)
-            return ({"status": "failed", "review": str(e), "approved": False, "agent_role": agent_role}, 0)
+            return ({"status": "failed", "review": str(e), "approved": False, "agent_role": agent_role}, 0, [])
 
     # SEO: keyword plan as JSON for handoff to copywriter (no GSC — LLM-only)
     if role_lower == "seo":
@@ -1118,6 +1154,10 @@ Het focus keyword moet voorkomen in de eerste alinea en minimaal 2x in de volled
                 system=system,
                 messages=[{"role": "user", "content": user}],
             )
+            seo_usage: List[Dict[str, Any]] = []
+            rec = anthropic_usage_record(CLAUDE_MODEL, response)
+            if rec:
+                seo_usage.append(rec)
             text = _extract_text_from_anthropic_content(response.content)
             tokens = (response.usage.input_tokens or 0) + (response.usage.output_tokens or 0)
             if not text:
@@ -1129,6 +1169,7 @@ Het focus keyword moet voorkomen in de eerste alinea en minimaal 2x in de volled
                         "agent_role": agent_role,
                     },
                     tokens,
+                    seo_usage,
                 )
             return (
                 {
@@ -1138,10 +1179,11 @@ Het focus keyword moet voorkomen in de eerste alinea en minimaal 2x in de volled
                     "step_name": step_desc,
                 },
                 tokens,
+                seo_usage,
             )
         except Exception as e:
             logger.exception("SEO keyword step failed: %s", e)
-            return ({"status": "failed", "content": "", "error": str(e), "agent_role": agent_role}, 0)
+            return ({"status": "failed", "content": "", "error": str(e), "agent_role": agent_role}, 0, [])
 
     # Generic: one Claude call
     system = (
@@ -1159,12 +1201,16 @@ Het focus keyword moet voorkomen in de eerste alinea en minimaal 2x in de volled
             system=system,
             messages=[{"role": "user", "content": user}],
         )
+        gen_usage: List[Dict[str, Any]] = []
+        rec = anthropic_usage_record(CLAUDE_MODEL, response)
+        if rec:
+            gen_usage.append(rec)
         text = (response.content[0].text if response.content else "").strip()
         tokens = (response.usage.input_tokens or 0) + (response.usage.output_tokens or 0)
-        return ({"status": "completed", "content": text, "agent_role": agent_role, "step_name": step_desc}, tokens)
+        return ({"status": "completed", "content": text, "agent_role": agent_role, "step_name": step_desc}, tokens, gen_usage)
     except Exception as e:
         logger.exception("Generic step failed: %s", e)
-        return ({"status": "failed", "content": f"[Error: {e}]", "agent_role": agent_role}, 0)
+        return ({"status": "failed", "content": f"[Error: {e}]", "agent_role": agent_role}, 0, [])
 
 
 async def _insert_plan_steps(conn, job_id: str, plan: ExecutionPlan):
@@ -1447,6 +1493,10 @@ async def run_intake_inline(job_id: str, job_post: str):
                     ceo_content = (ceo_content.rstrip() + "\n\n" + questions_text).strip()
         chat_history.append({"role": "ceo", "content": ceo_content})
         async with pool.acquire() as conn:
+            intake_recs = getattr(intake, "_llm_usage_records", None) or []
+            if intake_recs:
+                await log_token_usage_records(conn, job_id, "intake", intake_recs, agent_id="intake")
+
             updates = {
                 "brief": brief.model_dump(),
                 "previous_answers": {},
@@ -1519,6 +1569,9 @@ async def run_intake_inline(job_id: str, job_post: str):
             )
             available_agents = await _fetch_available_agents(conn)
             plan = strategy.generate_execution_plan(brief, available_agents)
+            strat_recs = getattr(strategy, "_llm_usage_records", None) or []
+            if strat_recs:
+                await log_token_usage_records(conn, job_id, "strategy_room", strat_recs, agent_id="strategy_room")
             await _insert_plan_steps(conn, job_id, plan)
             # V4: Event model — TASK_CREATED per step (fire-and-forget)
             try:
@@ -1636,6 +1689,10 @@ async def run_intake_answers_inline(job_id: str, answers: dict):
                 brief.is_complete,
                 len(brief.clarifications),
             )
+            intake_recs_ans = getattr(intake, "_llm_usage_records", None) or []
+            if intake_recs_ans:
+                await log_token_usage_records(conn, job_id, "intake", intake_recs_ans, agent_id="intake")
+
             payload_complete = bool((context.get("brief") or {}).get("is_complete"))
             if not brief.is_complete and payload_complete:
                 logger.info(
@@ -1747,6 +1804,9 @@ async def run_intake_answers_inline(job_id: str, answers: dict):
                 )
                 available_agents = await _fetch_available_agents(conn)
                 plan = strategy.generate_execution_plan(brief, available_agents)
+                strat_recs_ans = getattr(strategy, "_llm_usage_records", None) or []
+                if strat_recs_ans:
+                    await log_token_usage_records(conn, job_id, "strategy_room", strat_recs_ans, agent_id="strategy_room")
                 await _insert_plan_steps(conn, job_id, plan)
                 await _update_job_context(
                     conn,
@@ -1971,6 +2031,9 @@ async def run_job_inline(job_id: str, context_extra: Optional[dict] = None):
                         step_name=step_name,
                         context=context or {},
                         previous_content=previous_content,
+                        job_id=job_id,
+                        job_step_id=str(step_id) if step_id is not None else None,
+                        agent_id=str(step_agent_id) if step_agent_id else None,
                     )
                     await _update_step_progress(conn, step_id, 70)
                     output["step_name"] = step.get("step_name")

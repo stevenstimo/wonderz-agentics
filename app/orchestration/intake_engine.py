@@ -361,6 +361,7 @@ IMPORTANT: You can only acknowledge feedback and confirm the team will work on i
             )
 
         # Retry logic with exponential backoff
+        self._llm_usage_records = []
         last_error = None
         for attempt in range(self.max_retries):
             try:
@@ -380,6 +381,15 @@ IMPORTANT: You can only acknowledge feedback and confirm the team will work on i
                     cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
                     input_tokens = getattr(usage, "input_tokens", 0) or 0
                     output_tokens = getattr(usage, "output_tokens", 0) or 0
+                    self._llm_usage_records.append(
+                        {
+                            "model": self.model,
+                            "input_tokens": input_tokens,
+                            "output_tokens": output_tokens,
+                            "cache_write_tokens": cache_create,
+                            "cache_read_tokens": cache_read,
+                        }
+                    )
                     logger.info(
                         "[llm_usage] step=intake model=%s input=%s output=%s cache_create=%s cache_read=%s",
                         self.model,

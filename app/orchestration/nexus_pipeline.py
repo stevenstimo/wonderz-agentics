@@ -656,6 +656,9 @@ class NEXUSPipeline:
                 step_name="ceo_review",
                 context=agent_context,
                 previous_content=final_output[:12000],
+                job_id=str(ctx.job_id),
+                job_step_id=None,
+                agent_id="ceo_review",
             )
         except Exception as e:
             logger.error("Job %s CEO review call failed: %s", ctx.job_id, e, exc_info=True)
@@ -798,11 +801,15 @@ class NEXUSPipeline:
 
         for attempt in range(1, self.MAX_RETRIES + 1):
             try:
+                aid = step.get("agent_id")
                 output_dict, tokens_used = await _run_step_agent_with_timeout(
                     agent_role=agent_role,
                     step_name=step_name,
                     context=agent_context,
                     previous_content=previous_content or None,
+                    job_id=str(ctx.job_id),
+                    job_step_id=str(step_id) if step_id else None,
+                    agent_id=str(aid) if aid else None,
                 )
                 output_to_store = output_dict
                 output_text = (
