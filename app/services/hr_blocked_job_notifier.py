@@ -41,60 +41,70 @@ def _safe_json_dumps(obj: Any) -> str:
     return json.dumps(obj, ensure_ascii=False, default=str)
 
 
+def _newbie_id_ilike_pattern_for_missing_slot(
+    missing_role_key: str, missing_role_label: str
+) -> Optional[str]:
+    """
+    Match kandidaten op newbie_id (bv. agent:talent:… / agent:worker:…), niet op suggested_role
+    (die is vaak null). Reviewer/talent-slots → %talent%; overige worker-slots → %worker%.
+    """
+    combined = _norm(missing_role_key) + " " + _norm(missing_role_label)
+    if not combined.strip():
+        return None
+    # Reviewer / QA / talent-slots → talent-pool in newbie_id
+    if any(
+        w in combined
+        for w in (
+            "reviewer",
+            "talent",
+            "qa",
+            "quality",
+        )
+    ):
+        return "%talent%"
+    # CEO/COO: geen talent/worker newbie-pool voor hire-suggestie
+    if any(w in combined for w in ("ceo", "coo")):
+        return None
+    return "%worker%"
+
+
 async def _find_candidates_for_role_key(
     conn: asyncpg.Connection,
     missing_role_key: str,
     missing_role_label: str,
     *,
-    min_readiness: int = 70,
+    min_readiness: int = 0,
     limit: int = 8,
 ) -> list[dict[str, Any]]:
-    missing_key_norm = _norm(missing_role_key)
-    missing_label_norm = _norm(missing_role_label)
-    if not missing_key_norm and not missing_label_norm:
+    pattern = _newbie_id_ilike_pattern_for_missing_slot(missing_role_key, missing_role_label)
+    if not pattern:
         return []
 
     rows = await conn.fetch(
         """
-        SELECT newbie_id, newbie_name, suggested_role, readiness_score
+        SELECT newbie_id, newbie_name, suggested_role, readiness_score, status
         FROM newbies
-        WHERE status = 'ready'
-          AND readiness_score >= $1
-          AND suggested_role IS NOT NULL
-          AND trim(suggested_role) <> ''
-        ORDER BY readiness_score DESC
-        LIMIT 200
+        WHERE status NOT IN ('hired', 'rejected')
+          AND COALESCE(readiness_score, 0) >= $1
+          AND newbie_id ILIKE $2
+        ORDER BY readiness_score DESC NULLS LAST, newbie_name
+        LIMIT $3
         """,
         min_readiness,
+        pattern,
+        limit,
     )
 
-    def match(suggested_role: Any) -> bool:
-        suggested_norm = _norm(suggested_role)
-        if not suggested_norm:
-            return False
-        # Either key matches label, or label matches suggested, or suggested contains either.
-        return (
-            (missing_key_norm and suggested_norm.find(missing_key_norm) >= 0)
-            or (missing_label_norm and suggested_norm.find(missing_label_norm) >= 0)
-            or (missing_key_norm and missing_key_norm.find(suggested_norm) >= 0)
-            or (missing_label_norm and missing_label_norm.find(suggested_norm) >= 0)
-        )
-
-    out: list[dict[str, Any]] = []
-    for r in rows:
-        if match(r.get("suggested_role")):
-            out.append(
-                {
-                    "newbie_id": r["newbie_id"],
-                    "newbie_name": r["newbie_name"],
-                    "suggested_role": r.get("suggested_role"),
-                    "readiness_score": int(r.get("readiness_score") or 0),
-                }
-            )
-            if len(out) >= limit:
-                break
-
-    return out
+    return [
+        {
+            "newbie_id": r["newbie_id"],
+            "newbie_name": r["newbie_name"],
+            "suggested_role": r.get("suggested_role"),
+            "readiness_score": int(r.get("readiness_score") or 0),
+            "status": r.get("status"),
+        }
+        for r in rows
+    ]
 
 
 async def notify_blocked_job_improvements(
