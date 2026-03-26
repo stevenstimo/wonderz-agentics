@@ -18,6 +18,7 @@ from typing import Any, Dict, Optional
 
 from app.orchestration.handoff_context import HandoffContext
 from app.orchestration.quality_gate import QualityGate
+from app.websocket.manager import manager
 
 logger = logging.getLogger(__name__)
 
@@ -293,6 +294,10 @@ class NEXUSPipeline:
                     "[nexus_pipeline] HR blocked job notifier failed job=%s",
                     ctx.job_id,
                 )
+        await manager.broadcast_job_update(str(ctx.job_id), {
+            "job_id": str(ctx.job_id),
+            "status": "BLOCKED",
+        })
         logger.info("Job %s → BLOCKED: %s", ctx.job_id, message[:200])
 
     def _merge_depends_on_into_steps(
@@ -957,6 +962,10 @@ class NEXUSPipeline:
                 payload_json,
                 job_id,
             )
+        await manager.broadcast_job_update(str(job_id), {
+            "job_id": str(job_id),
+            "status": status,
+        })
         logger.info("Job %s → %s", job_id, status)
 
     async def _update_job_context(self, job_id: str, updates: Dict[str, Any]) -> None:

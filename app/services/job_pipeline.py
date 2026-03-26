@@ -44,6 +44,11 @@ _step_executor: Optional[ThreadPoolExecutor] = None
 
 async def _maybe_set_structured_job_title(conn, job_id: str, job_post: str, preset_id: Optional[str] = None) -> None:
     """Set jobs.title in format: #NNNN — Client — Subject (best effort)."""
+    logger.info(
+        "[JobTitle] start job_id=%s preset_id=%s",
+        job_id,
+        preset_id,
+    )
     row = await conn.fetchrow(
         """
         SELECT j.job_number_int, j.context, j.payload, c.client_name
@@ -54,16 +59,26 @@ async def _maybe_set_structured_job_title(conn, job_id: str, job_post: str, pres
         job_id,
     )
     if not row:
+        logger.info("[JobTitle] skip: no row for job_id=%s", job_id)
         return
 
     job_number_int = row.get("job_number_int")
     if job_number_int is None:
+        logger.info("[JobTitle] skip: missing job_number_int for job_id=%s", job_id)
         return
 
     merged = _coerce_context(row.get("payload") or row.get("context"))
     client_name = (row.get("client_name") or "").strip() or (merged.get("client_name") or "").strip() or None
     subject = await generate_job_subject(job_post or "", preset_id=preset_id)
     title = format_job_title(int(job_number_int), client_name, subject)
+    logger.info(
+        "[JobTitle] update job_id=%s job_number_int=%s client_name=%s subject=%s title=%s",
+        job_id,
+        job_number_int,
+        client_name or "",
+        subject,
+        title,
+    )
 
     await conn.execute(
         "UPDATE jobs SET title = $1, updated_at = now() WHERE id = $2",
