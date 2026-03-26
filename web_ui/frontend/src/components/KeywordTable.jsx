@@ -6,6 +6,8 @@ export default function KeywordTable({ data }) {
   const keywords = data.keywords
 
   const downloadCSV = () => {
+    // Excel (NL locale) opens semicolon-separated CSV more reliably.
+    const separator = ';'
     const headers = ['Keyword', 'Zoekvolume', 'KD', 'Omschrijving']
     const rows = keywords.map((k) => [
       `"${String(k.keyword || '').replace(/"/g, '""')}"`,
@@ -13,13 +15,15 @@ export default function KeywordTable({ data }) {
       k.kd || '',
       `"${String(k.description || '').replace(/"/g, '""')}"`,
     ])
-    const csv = [headers, ...rows].map((r) => r.join(',')).join('\n')
+    const csv = [headers, ...rows].map((r) => r.join(separator)).join('\r\n')
     const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
     link.download = `keywords_${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(link)
     link.click()
+    document.body.removeChild(link)
     URL.revokeObjectURL(url)
   }
 
