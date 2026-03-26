@@ -508,8 +508,7 @@ export default function Newbies() {
                       {it.title || '—'} — {hostFromUrl(it.source_url)}
                     </div>
                   </div>
-                  <button
-                    {offeredItems.has(it.library_id) ? (
+                  {offeredItems.has(it.library_id) ? (
                       <span className="text-xs font-medium text-green-600">✓ Aangeboden</span>
                     ) : (
                       <button
