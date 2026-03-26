@@ -168,6 +168,7 @@ from app.routes import (
     ceo,
     cao,
     cfo,
+    clo,
     crew,
     events,
     explainer,
@@ -205,6 +206,7 @@ app.include_router(email_routes.router)
 app.include_router(ceo.router)
 app.include_router(cao.router)
 app.include_router(cfo.router)
+app.include_router(clo.router)
 app.include_router(crew.router)
 app.include_router(events.router)
 app.include_router(explainer.router)

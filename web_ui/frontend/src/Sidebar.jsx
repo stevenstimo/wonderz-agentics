@@ -305,6 +305,7 @@ export default function Sidebar() {
               <>
                 <NavItem item={{ label: 'CFO', icon: Coins, path: '/cfo' }} />
                 <NavItem item={{ label: 'CAO', icon: TrendingUp, path: '/cao' }} />
+                <NavItem item={{ label: 'CLO', icon: GraduationCap, path: '/clo' }} />
               </>
             )}
 
