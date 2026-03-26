@@ -59,6 +59,7 @@ const BlockedJobsTabContent = lazy(() => import('./HRDashboard.jsx').then(m => (
 const IssueDetail = lazy(() => import('./pages/IssueDetail.jsx'))
 const HRApprovalPage = lazy(() => import('./pages/HRApprovalPage.jsx'))
 const CFODashboard = lazy(() => import('./CFODashboard.jsx'))
+const CAODashboard = lazy(() => import('./CAODashboard.jsx'))
 const PersonalProjects = lazy(() => import('./PersonalProjects.jsx'))
 const WorkTeamOrg = lazy(() => import('./WorkTeamOrg.jsx'))
 const Study = lazy(() => import('./Study.jsx'))
@@ -142,6 +143,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
               </Route>
               <Route path="/hr/approval" element={<HRApprovalPage />} />
               <Route path="/cfo" element={<CFODashboard />} />
+              <Route path="/cao" element={<CAODashboard />} />
               <Route path="/hr/issues/:pointId" element={<IssueDetail />} />
               <Route path="/improvements" element={<Navigate to="/hr/improvements" replace />} />
               <Route path="/explainer" element={<Navigate to="/explainer/how-it-works" replace />} />

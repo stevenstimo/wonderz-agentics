@@ -302,7 +302,10 @@ export default function Sidebar() {
               />
             ))}
             {isAdmin(role) && (
-              <NavItem item={{ label: 'CFO', icon: Coins, path: '/cfo' }} />
+              <>
+                <NavItem item={{ label: 'CFO', icon: Coins, path: '/cfo' }} />
+                <NavItem item={{ label: 'CAO', icon: TrendingUp, path: '/cao' }} />
+              </>
             )}
 
             <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 px-3 mt-4 mb-2">Tools &amp; Settings</div>
