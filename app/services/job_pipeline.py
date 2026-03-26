@@ -44,47 +44,46 @@ _step_executor: Optional[ThreadPoolExecutor] = None
 
 async def _maybe_set_structured_job_title(conn, job_id: str, job_post: str, preset_id: Optional[str] = None) -> None:
     """Set jobs.title in format: #NNNN — Client — Subject (best effort)."""
-    logger.info(
-        "[JobTitle] start job_id=%s preset_id=%s",
-        job_id,
-        preset_id,
-    )
-    row = await conn.fetchrow(
-        """
-        SELECT j.job_number_int, j.context, j.payload, c.client_name
-        FROM jobs j
-        LEFT JOIN clients c ON c.client_id::text = j.client_id::text
-        WHERE j.id = $1
-        """,
-        job_id,
-    )
-    if not row:
-        logger.info("[JobTitle] skip: no row for job_id=%s", job_id)
-        return
+    try:
+        logger.info("[job_title] START job_id=%s preset_id=%s", job_id, preset_id)
+        row = await conn.fetchrow(
+            """
+            SELECT j.job_number_int, j.context, j.payload, c.client_name
+            FROM jobs j
+            LEFT JOIN clients c ON c.client_id::text = j.client_id::text
+            WHERE j.id = $1
+            """,
+            job_id,
+        )
+        if not row:
+            logger.info("[job_title] SKIP no row job_id=%s", job_id)
+            return
 
-    job_number_int = row.get("job_number_int")
-    if job_number_int is None:
-        logger.info("[JobTitle] skip: missing job_number_int for job_id=%s", job_id)
-        return
+        job_number_int = row.get("job_number_int")
+        if job_number_int is None:
+            logger.info("[job_title] SKIP missing job_number_int job_id=%s", job_id)
+            return
 
-    merged = _coerce_context(row.get("payload") or row.get("context"))
-    client_name = (row.get("client_name") or "").strip() or (merged.get("client_name") or "").strip() or None
-    subject = await generate_job_subject(job_post or "", preset_id=preset_id)
-    title = format_job_title(int(job_number_int), client_name, subject)
-    logger.info(
-        "[JobTitle] update job_id=%s job_number_int=%s client_name=%s subject=%s title=%s",
-        job_id,
-        job_number_int,
-        client_name or "",
-        subject,
-        title,
-    )
+        merged = _coerce_context(row.get("payload") or row.get("context"))
+        client_name = (row.get("client_name") or "").strip() or (merged.get("client_name") or "").strip() or None
+        subject = await generate_job_subject(job_post or "", preset_id=preset_id)
+        title = format_job_title(int(job_number_int), client_name, subject)
+        logger.info(
+            "[job_title] UPDATE job_id=%s job_number_int=%s client_name=%s subject=%s title=%s",
+            job_id,
+            job_number_int,
+            client_name or "",
+            subject,
+            title,
+        )
 
-    await conn.execute(
-        "UPDATE jobs SET title = $1, updated_at = now() WHERE id = $2",
-        title,
-        job_id,
-    )
+        await conn.execute(
+            "UPDATE jobs SET title = $1, updated_at = now() WHERE id = $2",
+            title,
+            job_id,
+        )
+    except Exception as e:
+        logger.error("[job_title] FAILED job_id=%s error=%s", job_id, e, exc_info=True)
 
 
 def _get_step_executor() -> ThreadPoolExecutor:
@@ -1258,23 +1257,70 @@ async def run_data_pipeline(job_id: str) -> None:
             "volledigheid": result.get("volledigheid"),
             "volgende_actie": result.get("volgende_actie"),
         }
+        raw_query = str(query_params.get("raw_query") or "").lower()
+        is_comparison_query = (
+            ("organisch" in raw_query and "paid" in raw_query)
+            or "vs" in raw_query
+            or "vergelijk" in raw_query
+        )
+
         final_content = json.dumps(
-            {
-                "gevonden": proposed_data.get("gevonden"),
-                "resultaat": proposed_data.get("resultaat", []),
-                "volledigheid": proposed_data.get("volledigheid"),
-                "volgende_actie": proposed_data.get("volgende_actie"),
-            },
+            proposed_data,
             default=_json_default,
             ensure_ascii=False,
             indent=2,
         )
+        analysis_payload: dict[str, Any] | None = None
+        if is_comparison_query:
+            from app.agents.analysis_agent import run_analysis
+
+            available_integrations: list[str] = []
+            missing_integrations: list[str] = []
+            integration_map = {"google_search_console": "gsc", "google_ads": "google_ads", "ga4": "ga4"}
+            async with pool.acquire() as conn:
+                integration_rows = await conn.fetch(
+                    """
+                    SELECT integration_type, is_active, extra_config
+                    FROM client_integrations
+                    WHERE user_id = $1 AND client_slug = $2
+                      AND integration_type = ANY($3::text[])
+                    """,
+                    user_id,
+                    client_slug,
+                    list(integration_map.keys()),
+                )
+            active_types: set[str] = set()
+            for row in integration_rows:
+                extra = row.get("extra_config")
+                if isinstance(extra, str):
+                    try:
+                        extra = json.loads(extra)
+                    except Exception:
+                        extra = {}
+                if bool(row.get("is_active")) or bool((extra or {}).get("oauth_connected")):
+                    active_types.add(str(row.get("integration_type") or ""))
+            for integ_type, canonical in integration_map.items():
+                if integ_type in active_types:
+                    available_integrations.append(canonical)
+                else:
+                    missing_integrations.append(canonical)
+
+            analysis_payload = await run_analysis(
+                job_id=job_id,
+                client_name=str(client_slug or "onbekende klant"),
+                raw_data={"gsc": proposed_data},
+                available_integrations=available_integrations,
+                missing_integrations=missing_integrations,
+                original_question=str(query_params.get("raw_query") or ""),
+            )
+            final_content = str(analysis_payload.get("analysis") or final_content)
 
         async with pool.acquire() as conn:
             await _update_job_context(conn, job_id, {
                 "proposed_data": proposed_data,
                 "pipeline_type": "direct_response",
                 "final_content": final_content,
+                "analysis_payload": analysis_payload,
             })
             await conn.execute(
                 "UPDATE jobs SET status = $1, updated_at = now() WHERE id = $2",
