@@ -232,7 +232,10 @@ class NEXUSPipeline:
                         updated_at = now()
                     WHERE id = $2
                     """,
-                    {"preset_id": preset_id, "preset_execution_plan": plan_blob},
+                    json.dumps(
+                        {"preset_id": str(preset_id), "preset_execution_plan": plan_blob},
+                        default=_json_default,
+                    ),
                     ctx.job_id,
                 )
             dev_slots = await compute_deviation_slots(conn, ctx.job_id)
@@ -926,6 +929,8 @@ class NEXUSPipeline:
 
             if status == "JOB_READY":
                 preset_id = cur_payload.get("preset_id")
+                if isinstance(preset_id, dict):
+                    preset_id = preset_id.get("preset_id")
                 already_counted = cur_payload.get("preset_usage_counted") is True
                 if preset_id and not already_counted:
                     await conn.execute(

@@ -369,8 +369,7 @@ IMPORTANT: You can only acknowledge feedback and confirm the team will work on i
                 response = self.client.messages.create(
                     model=self.model,
                     max_tokens=1500,
-                    cache_control={"type": "ephemeral"},
-                    system=system_prompt,
+                    system=[{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}],
                     messages=[{"role": "user", "content": user_message}],
                 )
 
