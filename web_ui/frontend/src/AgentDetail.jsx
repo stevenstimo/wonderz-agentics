@@ -209,6 +209,9 @@ export default function AgentDetail() {
   }, [loadDetail])
 
   const agent = data?.agent || {}
+  const personaText = typeof agent.persona === 'string' ? agent.persona.trim() : ''
+  const qualitiesText = typeof agent.qualities === 'string' ? agent.qualities.trim() : ''
+  const developmentText = typeof agent.development === 'string' ? agent.development.trim() : ''
   const recentWork = data?.recent_work || []
   const developmentPoints = data?.development_points || []
   const skills = data?.skills || []
@@ -787,6 +790,29 @@ export default function AgentDetail() {
               </button>
             </div>
           </div>
+
+          {(personaText || qualitiesText || developmentText) && (
+            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm space-y-4">
+              {personaText && (
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-900 mb-1">Persona</h3>
+                  <p className="text-sm text-slate-700 whitespace-pre-wrap">{personaText}</p>
+                </div>
+              )}
+              {qualitiesText && (
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-900 mb-1">Kwaliteiten</h3>
+                  <p className="text-sm text-slate-700 whitespace-pre-wrap">{qualitiesText}</p>
+                </div>
+              )}
+              {developmentText && (
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-900 mb-1">Ontwikkelpunten</h3>
+                  <p className="text-sm text-slate-700 whitespace-pre-wrap">{developmentText}</p>
+                </div>
+              )}
+            </div>
+          )}
 
         </div>
         <div className="hidden lg:block" />

@@ -312,7 +312,17 @@ async def get_agent_detail(
     pool = await get_db()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            "SELECT * FROM hired_agents WHERE agent_id = $1", agent_id
+            """
+            SELECT
+                h.*,
+                n.persona,
+                n.qualities,
+                n.development
+            FROM hired_agents h
+            LEFT JOIN newbies n ON n.newbie_id = h.agent_id
+            WHERE h.agent_id = $1
+            """,
+            agent_id,
         )
         if not row:
             raise HTTPException(status_code=404, detail="Agent not found")
@@ -995,25 +1005,29 @@ async def get_agent(
         row = await conn.fetchrow(
             """
             SELECT
-                id,
-                agent_id,
-                name,
-                role,
-                specialization,
-                status,
-                permissions,
-                system_instructions,
-                knowledge_base_sources,
-                tool_access_whitelist,
-                hiring_logic,
-                performance_score,
-                completed_tasks,
-                hired_at,
-                updated_at,
-                is_suspended,
-                system_prompt
-            FROM hired_agents
-            WHERE agent_id = $1
+                h.id,
+                h.agent_id,
+                h.name,
+                h.role,
+                h.specialization,
+                h.status,
+                h.permissions,
+                h.system_instructions,
+                h.knowledge_base_sources,
+                h.tool_access_whitelist,
+                h.hiring_logic,
+                h.performance_score,
+                h.completed_tasks,
+                h.hired_at,
+                h.updated_at,
+                h.is_suspended,
+                h.system_prompt,
+                n.persona,
+                n.qualities,
+                n.development
+            FROM hired_agents h
+            LEFT JOIN newbies n ON n.newbie_id = h.agent_id
+            WHERE h.agent_id = $1
             """,
             agent_id,
         )
