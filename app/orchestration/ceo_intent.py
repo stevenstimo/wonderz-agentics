@@ -129,36 +129,10 @@ async def check_integration_resources(
             "message": "Geen specifieke integrations vereist voor dit jobtype.",
         }
 
-    mapped_required = [INTEGRATION_TYPE_MAP.get(k, k) for k in required]
-    mapped_optional = [INTEGRATION_TYPE_MAP.get(k, k) for k in optional]
-    mapped_all = list({*mapped_required, *mapped_optional})
+    from app.services.credential_resolver import get_all_active_integrations
 
-    rows = await db.fetch(
-        """
-        SELECT integration_type, is_active, extra_config
-        FROM client_integrations
-        WHERE user_id = $1
-          AND client_slug = $2
-          AND integration_type = ANY($3::text[])
-        """,
-        user_id,
-        client_slug,
-        mapped_all,
-    )
-
-    active_types: set[str] = set()
-    for row in rows:
-        integration_type = str(row.get("integration_type") or "")
-        extra = row.get("extra_config")
-        if isinstance(extra, str):
-            try:
-                extra = json.loads(extra)
-            except json.JSONDecodeError:
-                extra = {}
-        is_active = bool(row.get("is_active"))
-        oauth_connected = bool((extra or {}).get("oauth_connected"))
-        if is_active or oauth_connected:
-            active_types.add(integration_type)
+    all_integ = await get_all_active_integrations(db, client_slug, user_id)
+    active_types: set[str] = set(all_integ.keys())
 
     missing_required = [
         key for key in required if INTEGRATION_TYPE_MAP.get(key, key) not in active_types

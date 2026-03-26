@@ -5,6 +5,7 @@ import logging
 import re
 
 from app.database import get_db
+from app.services.credential_resolver import get_all_active_integrations
 
 logger = logging.getLogger(__name__)
 
@@ -46,16 +47,10 @@ async def extract_client_context(message: str, user_id: str) -> str:
 
             canonical_slug = client["slug"]
 
-            # Fetch integrations for this client (user_id + client_slug)
-            integrations = await conn.fetch(
-                """
-                SELECT integration_type, extra_config
-                FROM client_integrations
-                WHERE user_id = $1 AND client_slug = $2
-                """,
-                user_id,
-                canonical_slug,
+            integrations_map = await get_all_active_integrations(
+                conn, canonical_slug, user_id
             )
+            integrations = list(integrations_map.values())
 
             if not integrations:
                 context_blocks.append(

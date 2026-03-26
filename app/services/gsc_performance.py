@@ -15,6 +15,7 @@ import asyncpg
 import httpx
 
 from app.services.dashboard import get_valid_access_token
+from app.services.credential_resolver import resolve_integration_row
 
 logger = logging.getLogger(__name__)
 
@@ -153,14 +154,12 @@ async def fetch_url_performance(
         if not client_slug:
             return {"error": "Job heeft geen client_slug in context/payload; GSC koppeling onbekend"}
 
-        row = await conn.fetchrow(
-            """
-            SELECT extra_config FROM client_integrations
-            WHERE user_id = $1 AND client_slug = $2 AND integration_type = 'google_search_console'
-            """,
-                user_id,
-                client_slug,
-            )
+        row = await resolve_integration_row(
+            conn,
+            client_slug=client_slug,
+            integration_type="google_search_console",
+            user_id=user_id,
+        )
         site_url: Optional[str] = None
         if row and row.get("extra_config"):
             extra = row["extra_config"]

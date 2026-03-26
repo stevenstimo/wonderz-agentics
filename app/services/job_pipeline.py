@@ -1327,32 +1327,16 @@ async def run_data_pipeline(job_id: str) -> None:
         fetched_data: dict[str, Any] | None = None
         if should_run_analysis:
             from app.agents.analysis_agent import run_analysis
+            from app.services.credential_resolver import get_all_active_integrations
 
             available_integrations: list[str] = []
             missing_integrations: list[str] = []
             integration_map = {"google_search_console": "gsc", "google_ads": "google_ads", "ga4": "ga4"}
             async with pool.acquire() as conn:
-                integration_rows = await conn.fetch(
-                    """
-                    SELECT integration_type, is_active, extra_config
-                    FROM client_integrations
-                    WHERE user_id = $1 AND client_slug = $2
-                      AND integration_type = ANY($3::text[])
-                    """,
-                    user_id,
-                    client_slug,
-                    list(integration_map.keys()),
+                all_integ = await get_all_active_integrations(
+                    conn, client_slug or "", user_id
                 )
-            active_types: set[str] = set()
-            for row in integration_rows:
-                extra = row.get("extra_config")
-                if isinstance(extra, str):
-                    try:
-                        extra = json.loads(extra)
-                    except Exception:
-                        extra = {}
-                if bool(row.get("is_active")) or bool((extra or {}).get("oauth_connected")):
-                    active_types.add(str(row.get("integration_type") or ""))
+            active_types = set(all_integ.keys())
             for integ_type, canonical in integration_map.items():
                 if integ_type in active_types:
                     available_integrations.append(canonical)

@@ -341,16 +341,16 @@ async def get_valid_access_token(
     Haalt access_token op. Als verlopen: vernieuwt via refresh_token en slaat op.
     Returns None als token niet beschikbaar of refresh mislukt.
     Backward compatible: als expires_at ontbreekt in extra_config, refresh altijd.
+
+    Resolutie: platform-owned credentials eerst, daarna user-owned (zie credential_resolver).
     """
-    row = await conn.fetchrow(
-        """
-        SELECT extra_config, api_key_encrypted
-        FROM client_integrations
-        WHERE user_id = $1 AND client_slug = $2 AND integration_type = $3
-        """,
-        user_id,
-        client_slug,
-        integration_type,
+    from app.services.credential_resolver import resolve_integration_row
+
+    row = await resolve_integration_row(
+        conn,
+        client_slug=client_slug or "",
+        integration_type=integration_type,
+        user_id=user_id or None,
     )
     if not row:
         return None
@@ -397,17 +397,29 @@ async def get_valid_access_token(
     extra["access_token"] = new_access_token
     extra["expires_at"] = new_expires_at
     extra["oauth_connected"] = True
-    await conn.execute(
-        """
-        UPDATE client_integrations
-        SET extra_config = $1::jsonb, updated_at = now()
-        WHERE user_id = $2 AND client_slug = $3 AND integration_type = $4
-        """,
-        json.dumps(extra),
-        user_id,
-        client_slug,
-        integration_type,
-    )
+    integration_id = row.get("integration_id")
+    if integration_id:
+        await conn.execute(
+            """
+            UPDATE client_integrations
+            SET extra_config = $1::jsonb, updated_at = now()
+            WHERE integration_id = $2
+            """,
+            json.dumps(extra),
+            integration_id,
+        )
+    else:
+        await conn.execute(
+            """
+            UPDATE client_integrations
+            SET extra_config = $1::jsonb, updated_at = now()
+            WHERE user_id = $2 AND client_slug = $3 AND integration_type = $4
+            """,
+            json.dumps(extra),
+            user_id,
+            client_slug,
+            integration_type,
+        )
     return new_access_token
 
 
@@ -1046,15 +1058,15 @@ async def get_client_seo_summary_for_agent(pool, user_id: str, client_slug: str)
                 return None
             client_name = client["client_name"] or client_slug
 
-            integrations = await conn.fetch(
-                """
-                SELECT integration_type, api_key_encrypted, extra_config
-                FROM client_integrations
-                WHERE user_id = $1 AND client_slug = $2 AND integration_type = 'google_search_console'
-                """,
-                user_id,
-                client_slug,
+            from app.services.credential_resolver import resolve_integration_row
+
+            gsc_row = await resolve_integration_row(
+                conn,
+                client_slug=client_slug,
+                integration_type="google_search_console",
+                user_id=user_id,
             )
+            integrations = [gsc_row] if gsc_row else []
             configs = await conn.fetch(
                 """
                 SELECT platform, config FROM client_platform_configs
@@ -1063,7 +1075,7 @@ async def get_client_seo_summary_for_agent(pool, user_id: str, client_slug: str)
                 user_id,
                 client_slug,
             )
-        int_by_type = {r["integration_type"]: r for r in integrations}
+        int_by_type = {r["integration_type"]: r for r in integrations if r}
         config_by_platform = {r["platform"]: (r["config"] or {}) for r in configs}
         gsc_int = int_by_type.get("google_search_console")
         gsc_cfg = config_by_platform.get("gsc", {})

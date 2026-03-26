@@ -14,6 +14,7 @@ import httpx
 
 from app.db import init_db_pool
 from app.services.dashboard import get_valid_access_token
+from app.services.credential_resolver import resolve_integration_row
 
 logger = logging.getLogger(__name__)
 
@@ -49,13 +50,11 @@ async def get_gsc_site_url_for_client(user_id: str, client_slug: str) -> str | N
         return None
     try:
         async with pool.acquire() as conn:
-            row = await conn.fetchrow(
-                """
-                SELECT extra_config FROM client_integrations
-                WHERE user_id = $1 AND client_slug = $2 AND integration_type = 'google_search_console'
-                """,
-                user_id,
-                client_slug,
+            row = await resolve_integration_row(
+                conn,
+                client_slug=client_slug,
+                integration_type="google_search_console",
+                user_id=user_id,
             )
             site_url = _get_site_url_from_row(row, "extra_config") if row else None
             if not site_url:
@@ -101,13 +100,11 @@ async def fetch_gsc_for_keywords(
     try:
         async with pool.acquire() as conn:
             # 1) site_url: first client_integrations.extra_config->>'site_url' for google_search_console
-            row = await conn.fetchrow(
-                """
-                SELECT extra_config FROM client_integrations
-                WHERE user_id = $1 AND client_slug = $2 AND integration_type = 'google_search_console'
-                """,
-                user_id,
-                client_slug,
+            row = await resolve_integration_row(
+                conn,
+                client_slug=client_slug,
+                integration_type="google_search_console",
+                user_id=user_id,
             )
             site_url: str | None = None
             if row and row.get("extra_config"):
