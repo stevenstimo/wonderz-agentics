@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { FileText, Copy, Download } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import DataResultView from './DataResultView'
+import KeywordTable from './KeywordTable'
 
 /**
  * Live document viewer (Claude-style artifact panel). Renders document_preview from GET /api/jobs/{id}.
@@ -68,6 +69,11 @@ export default function DocumentViewer({
 
   const isDataResult = pipelineType === 'direct_response' && proposedData != null
   const showDataResult = isDataResult && (jobStatus === 'JOB_READY' || jobStatus === 'COMPLETED')
+  const parsedProposedData = typeof proposedData === 'string'
+    ? (() => { try { return JSON.parse(proposedData) } catch { return null } })()
+    : proposedData
+  const showKeywordTable = parsedProposedData?.output_type === 'keyword_table'
+    && (jobStatus === 'JOB_READY' || jobStatus === 'COMPLETED')
   const showApproveButtons = type === 'final' && jobStatus === 'JOB_READY' && !showDataResult
   const showPlanAction = type === 'plan' && jobStatus === 'PLAN_PROPOSED'
   const hasCopyableContent = type === 'plan' ? steps.length > 0 : content.length > 0
@@ -135,6 +141,10 @@ export default function DocumentViewer({
           />
         )}
 
+        {showKeywordTable && (
+          <KeywordTable data={parsedProposedData} />
+        )}
+
         {type === 'brief' && (
           <div className="rounded-lg bg-slate-50 border border-slate-200 p-4 text-slate-800">
             {content ? (
@@ -199,7 +209,7 @@ export default function DocumentViewer({
           </div>
         )}
 
-        {type === 'final' && !showDataResult && (
+        {type === 'final' && !showDataResult && !showKeywordTable && (
           <div className="space-y-4">
             <div className="prose prose-slate prose-sm max-w-none text-slate-800 [&_p]:mb-2 [&_p:last-child]:mb-0 [&_strong]:font-semibold [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4">
               {content ? <ReactMarkdown>{content}</ReactMarkdown> : <p className="text-slate-500">Geen content.</p>}

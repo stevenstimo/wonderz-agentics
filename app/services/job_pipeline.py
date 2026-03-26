@@ -694,6 +694,129 @@ def _parse_seo_handoff_from_llm_text(text: str) -> dict:
     return {"seo_keywords": kws, "focus_keyword": focus, "keyword_intent": intent}
 
 
+def parse_keyword_output(text: str, focus_keyword: str = "") -> dict:
+    """
+    Parse legacy keyword-research text into structured keyword table data.
+    Recognizes blocks like:
+    - **Keyword**\\nZoekvolume: 1.200 | KD: 25 <description>
+    """
+    if not text or not isinstance(text, str):
+        return {
+            "output_type": "keyword_table",
+            "focus_keyword": str(focus_keyword or "").strip(),
+            "keywords": [],
+        }
+
+    keywords: list[dict[str, Any]] = []
+    sections = re.split(r"\*\*(.+?)\*\*", text)
+    i = 1
+    while i < len(sections) - 1:
+        keyword_name = str(sections[i] or "").strip()
+        content = str(sections[i + 1] or "").strip()
+
+        volume_match = re.search(r"Zoekvolume[:\s]+([0-9.,]+)", content, re.IGNORECASE)
+        kd_match = re.search(r"KD[:\s]+(\d+)", content, re.IGNORECASE)
+
+        search_volume = 0
+        if volume_match:
+            try:
+                search_volume = int(volume_match.group(1).replace(".", "").replace(",", ""))
+            except ValueError:
+                search_volume = 0
+
+        kd = 0
+        if kd_match:
+            try:
+                kd = int(kd_match.group(1))
+            except ValueError:
+                kd = 0
+
+        description = re.sub(
+            r"Zoekvolume[:\s]+[0-9.,]+\s*\|?\s*KD[:\s]+\d+\s*",
+            "",
+            content,
+            flags=re.IGNORECASE,
+        ).strip()
+
+        if keyword_name and (search_volume > 0 or kd > 0):
+            keywords.append(
+                {
+                    "keyword": keyword_name,
+                    "search_volume": search_volume,
+                    "kd": kd,
+                    "description": description,
+                }
+            )
+        i += 2
+
+    return {
+        "output_type": "keyword_table",
+        "focus_keyword": str(focus_keyword or "").strip(),
+        "keywords": keywords,
+    }
+
+
+def _normalize_keyword_table_output(raw: Any, focus_keyword: str = "") -> dict:
+    """
+    Normalize keyword output to canonical frontend shape:
+    { output_type: 'keyword_table', focus_keyword, keywords: [...] }
+    """
+    if isinstance(raw, str):
+        parsed = parse_keyword_output(raw, focus_keyword=focus_keyword)
+        return parsed
+
+    if not isinstance(raw, dict):
+        return {
+            "output_type": "keyword_table",
+            "focus_keyword": str(focus_keyword or "").strip(),
+            "keywords": [],
+        }
+
+    kws = raw.get("keywords") or raw.get("seo_keywords") or []
+    if isinstance(kws, str):
+        kws = [k.strip() for k in kws.split(",") if k.strip()]
+
+    normalized_keywords: list[dict[str, Any]] = []
+    if isinstance(kws, list):
+        for item in kws:
+            if isinstance(item, dict):
+                keyword = str(item.get("keyword") or item.get("title") or "").strip()
+                if not keyword:
+                    continue
+                sv = item.get("search_volume") if item.get("search_volume") is not None else item.get("volume")
+                try:
+                    search_volume = int(str(sv).replace(".", "").replace(",", "")) if sv not in (None, "") else 0
+                except ValueError:
+                    search_volume = 0
+                try:
+                    kd = int(item.get("kd") or 0)
+                except (TypeError, ValueError):
+                    kd = 0
+                normalized_keywords.append(
+                    {
+                        "keyword": keyword,
+                        "search_volume": search_volume,
+                        "kd": kd,
+                        "description": str(item.get("description") or item.get("omschrijving") or "").strip(),
+                    }
+                )
+            else:
+                k = str(item or "").strip()
+                if k:
+                    normalized_keywords.append(
+                        {"keyword": k, "search_volume": 0, "kd": 0, "description": ""}
+                    )
+
+    if not normalized_keywords and isinstance(raw.get("content"), str):
+        return parse_keyword_output(raw.get("content", ""), focus_keyword=focus_keyword)
+
+    return {
+        "output_type": "keyword_table",
+        "focus_keyword": str(raw.get("focus_keyword") or raw.get("focus") or focus_keyword or "").strip(),
+        "keywords": normalized_keywords,
+    }
+
+
 def _run_step_agent(
     agent_role: str,
     step_name: str,
@@ -2091,7 +2214,16 @@ async def run_job_inline(job_id: str, context_extra: Optional[dict] = None):
                     pool_ready = await get_db()
                     async with pool_ready.acquire() as conn:
                         logger.info("Storing final_content for job %s", job_id_str)
-                        await _update_job_context(conn, job_id_str, {"final_content": last_content or "No content produced"})
+                        updates: Dict[str, Any] = {"final_content": last_content or "No content produced"}
+                        preset_id = str(context.get("preset_id") or "").strip()
+                        if preset_id == "seo-keyword-research":
+                            keyword_payload = _normalize_keyword_table_output(
+                                last_content or "",
+                                focus_keyword=str(context.get("focus_keyword") or "").strip(),
+                            )
+                            if keyword_payload.get("keywords"):
+                                updates["proposed_data"] = keyword_payload
+                        await _update_job_context(conn, job_id_str, updates)
                         await _maybe_generate_job_artifact(conn, job_id_str, context or {}, completed_steps, last_content, job.get("job_post", ""))
                         logger.info("Updating status to JOB_READY for job %s", job_id_str)
                         result = await conn.execute(
