@@ -1085,17 +1085,7 @@ async def approve_plan(
         context = _coerce_context(job.get("payload") or job.get("context"))
         use_nexus = os.getenv("USE_NEXUS_PIPELINE", "false").lower() == "true"
         if use_nexus:
-            import asyncio
-            from app.orchestration.nexus_pipeline import NEXUSPipeline
-            row = await pool.fetchrow(
-                "SELECT * FROM jobs WHERE id=$1",
-                job_id,
-            )
-            user_id = str(row["user_id"]) if row and row.get("user_id") else ""
-            job_post = (row["job_post"] or "") if row else ""
-            platform = (row["source_platform"] or "browser") if row else "browser"
-            token_budget = int(row.get("token_budget") or 50000) if row else 50000
-            await arq_pool.enqueue_job("run_job_pipeline", job_id)
+            await arq_pool.enqueue_job("run_nexus_pipeline", job_id)
             logger.info("NEXUS pipeline enqueued for job %s", job_id)
             return {
                 "job_id": job_id,

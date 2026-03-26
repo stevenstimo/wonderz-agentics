@@ -116,12 +116,8 @@ async def run_job_inline(
     await run_job_inline(job_id, context_extra)
 
 
-async def run_job_pipeline(ctx: dict[str, Any], job_id: str) -> None:
-    """
-    Execute the NEXUSPipeline for a given job id.
-
-    This is used to replace the `USE_NEXUS_PIPELINE` web-process path.
-    """
+async def _run_nexus_pipeline_arq(ctx: dict[str, Any], job_id: str) -> None:
+    """Shared ARQ handler: load job row and run NEXUSPipeline (approve-plan path)."""
 
     from app.orchestration.nexus_pipeline import NEXUSPipeline
 
@@ -154,6 +150,22 @@ async def run_job_pipeline(ctx: dict[str, Any], job_id: str) -> None:
         token_budget=token_budget,
         pool=pool,
     )
+
+
+async def run_nexus_pipeline(ctx: dict[str, Any], job_id: str) -> None:
+    """
+    ARQ task: NEXUS pipeline after approve-plan (`USE_NEXUS_PIPELINE=true`).
+
+    Registered name must match arq_pool.enqueue_job("run_nexus_pipeline", job_id).
+    """
+
+    await _run_nexus_pipeline_arq(ctx, job_id)
+
+
+async def run_job_pipeline(ctx: dict[str, Any], job_id: str) -> None:
+    """Backward-compatible ARQ name for the same NEXUS pipeline task."""
+
+    await _run_nexus_pipeline_arq(ctx, job_id)
 
 
 # -----------------------
@@ -517,6 +529,7 @@ class WorkerSettings:
         run_intake_answers_inline,
         run_data_pipeline,
         run_job_inline,
+        run_nexus_pipeline,
         run_job_pipeline,
         start_agent_training,
         insert_hr_suggestion_into_knowledge_library,
