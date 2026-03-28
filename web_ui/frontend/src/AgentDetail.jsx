@@ -158,7 +158,7 @@ export default function AgentDetail() {
   const [savingAvatar, setSavingAvatar] = useState(false)
   const [showAvatarColors, setShowAvatarColors] = useState(false)
   const [showDeactivateModal, setShowDeactivateModal] = useState(false)
-  const [trainUrl, setTrainUrl] = useState('')
+  const [trainUrlsText, setTrainUrlsText] = useState('')
   const [trainMessage, setTrainMessage] = useState('')
   const [isTraining, setIsTraining] = useState(false)
   const [trainingPollUrl, setTrainingPollUrl] = useState(null)
@@ -344,32 +344,70 @@ export default function AgentDetail() {
   }
 
   const handleTrain = async () => {
-    const urlToTrain = trainUrl.trim()
-    if (!urlToTrain.startsWith('http://') && !urlToTrain.startsWith('https://')) {
-      setTrainMessage('URL moet beginnen met http:// of https://')
+    const lines = trainUrlsText
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean)
+    const invalid = lines.filter((u) => !u.startsWith('http://') && !u.startsWith('https://'))
+    if (invalid.length > 0) {
+      setTrainMessage('Elke niet-lege regel moet een URL zijn die begint met http:// of https://')
       return
     }
+    if (lines.length === 0) {
+      setTrainMessage('Voeg minstens één URL toe (één per regel).')
+      return
+    }
+
     setIsTraining(true)
-    setTrainMessage('Training gestart. Dit kan ~30 seconden duren.')
-    try {
-      const res = await apiFetch(`/api/agents/${encodeURIComponent(agentId)}/train`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: urlToTrain, approved_by: 'user' }),
-      })
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        setTrainMessage(err?.detail || 'Training start mislukt')
-        setIsTraining(false)
-        return
+    setTrainMessage(
+      lines.length === 1
+        ? 'Training gestart. Dit kan ~30 seconden duren.'
+        : `${lines.length} trainingen indienen…`
+    )
+
+    const failures = []
+    for (const url of lines) {
+      try {
+        const res = await apiFetch(`/api/agents/${encodeURIComponent(agentId)}/train`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url, approved_by: 'user' }),
+        })
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}))
+          failures.push({ url, detail: err?.detail || 'Training start mislukt' })
+        }
+      } catch (err) {
+        failures.push({ url, detail: err?.message || 'Fout' })
       }
-      setTrainUrl('')
+    }
+
+    setTrainUrlsText('')
+
+    if (lines.length === 1 && failures.length === 0) {
       setTrainingPollAttempts(0)
-      setTrainingPollUrl(urlToTrain)
-    } catch (err) {
-      setTrainMessage(err?.message || 'Fout')
-      setIsTraining(false)
-      setTrainingPollUrl(null)
+      setTrainingPollUrl(lines[0])
+      return
+    }
+
+    setIsTraining(false)
+    setTrainingPollUrl(null)
+    await loadDetail()
+
+    if (failures.length === 0) {
+      setTrainMessage(
+        lines.length === 1
+          ? 'Training gestart.'
+          : `${lines.length} trainingen ingediend. Status van de bronnen wordt zo bijgewerkt.`
+      )
+    } else {
+      const okCount = lines.length - failures.length
+      const failLines = failures.map((f) => `• ${f.url}: ${f.detail}`).join('\n')
+      setTrainMessage(
+        okCount > 0
+          ? `${okCount} geslaagd, ${failures.length} mislukt:\n${failLines}`
+          : `Geen training gestart:\n${failLines}`
+      )
     }
   }
 
@@ -822,25 +860,28 @@ export default function AgentDetail() {
       {tab === TAB_TRAINING && (
       <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm max-w-2xl">
         <h2 className="text-lg font-semibold text-slate-900 mb-4">Kennisbronnen trainen</h2>
-        <div className="flex gap-2 flex-wrap items-center mb-4">
-          <input
-            type="url"
-            placeholder="https://..."
-            value={trainUrl}
-            onChange={(e) => setTrainUrl(e.target.value)}
-            className="flex-1 min-w-[200px] rounded-lg border border-slate-300 px-3 py-2 text-sm"
-            aria-label="URL om te trainen"
+        <p className="text-sm text-slate-600 mb-2">Eén URL per regel; alle regels worden na submit als aparte training ingediend.</p>
+        <div className="flex flex-col gap-3 mb-4">
+          <textarea
+            value={trainUrlsText}
+            onChange={(e) => setTrainUrlsText(e.target.value)}
+            placeholder={'https://voorbeeld.com/pagina\nhttps://…'}
+            rows={6}
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono"
+            aria-label="URLs om te trainen (één per regel)"
           />
           <button
             type="button"
             onClick={handleTrain}
             disabled={isTraining}
-            className="rounded-lg px-4 py-2 bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="self-start rounded-lg px-4 py-2 bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isTraining ? 'Bezig...' : 'Train'}
           </button>
         </div>
-        {trainMessage && <p className="mb-4 text-sm text-slate-600">{trainMessage}</p>}
+        {trainMessage && (
+          <p className="mb-4 text-sm text-slate-600 whitespace-pre-wrap">{trainMessage}</p>
+        )}
         <p className="text-sm text-slate-500 mb-4">
           Status: {knowledgeSources.some((s) => s?.status === 'processing') ? '● Bezig' : '● Actief'}{' '}
           ({knowledgeSources.filter((s) => s?.status === 'active').length} bronnen)

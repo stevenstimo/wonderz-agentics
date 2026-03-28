@@ -1,3 +1,17 @@
+**Uitvoeringsregels (altijd van toepassing)**
+
+1. **ARQ worker:** De service heet `wonderz-worker`, niet `crew-worker`.
+   - Herstart: `sudo systemctl restart wonderz-worker`
+   - Logs: `journalctl -u wonderz-worker` (niet `crew-worker`)
+
+2. **Git:** Nooit `git restore`, `git checkout --force`, `git reset` of `git clean` uitvoeren.
+   Bij elke git-operatie eerst `git status` rapporteren en wachten op bevestiging.
+   Nooit `git add -A`.
+
+3. **Knowledge / Fase 2:** De kennis-upload flow is al deels gebouwd via `run_embedding_task` in `app/worker.py` (onder meer in `WorkerSettings.functions`). Controleer eerst of die taken al bestaan en hoe ze aangeroepen worden voordat je parallel nieuwe, overlappende ARQ-taken definieert — liever uitbreiden of hergebruiken dan dupliceren.
+
+---
+
 # 260320 — Crew Intelligent: Fire-and-Forget Uploads
 
 **Versie:** 1.0  
@@ -9,7 +23,7 @@
 
 ## Context
 
-De ARQ worker is live (`crew-worker.service`). Jobs draaien server-side door, ook als de browser dicht is. Dit patroon moet nu ook gelden voor alle andere zware operaties: uploads, crawls, training, SEO.
+De ARQ worker is live (`wonderz-worker.service`). Jobs draaien server-side door, ook als de browser dicht is. Dit patroon moet nu ook gelden voor alle andere zware operaties: uploads, crawls, training, SEO.
 
 **Het probleem dat dit oplost:**
 
@@ -44,7 +58,7 @@ Voer alle checks uit en rapporteer de output per stap. Stop bij een onverwacht r
 
 ```bash
 # (terminal) 1. ARQ worker draait?
-systemctl is-active crew-worker
+systemctl is-active wonderz-worker
 # verwacht: active
 
 # (terminal) 2. Redis bereikbaar?
@@ -174,6 +188,8 @@ Voeg de migratie toe als `app/migrations/XXX_fire_and_forget_status.sql` met het
 
 Voeg de vier nieuwe taken toe aan de bestaande `app/worker.py`. Voeg ze toe aan de `functions`-lijst in `WorkerSettings`.
 
+**Knowledge-upload:** voordat je hier een aparte `process_knowledge_upload`-achtige taak toevoegt, doorzoek `app/worker.py` op `run_embedding_task` en de enqueue-kant in de knowledge-routes. Als die pipeline al de upload/embed afhandelt, geen tweede identieke taak toevoegen — uitbreiden of de bestaande naam enqueue-en.
+
 **Taaksjabloon (gebruik dit voor alle vier):**
 
 ```python
@@ -245,6 +261,8 @@ Voeg alle vier toe aan `WorkerSettings.functions`.
 ---
 
 ## Fase 2 — Knowledge upload omgebouwd
+
+**Eerst in de code:** `app/worker.py` bevat al `run_embedding_task` (en gerelateerde embedding-flow); `app/services/knowledge_upload_service.py` bevat de echte implementatie. Pas routes en worker aan op basis van wat er al staat — geen dubbele ARQ-job voor hetzelfde document.
 
 ### 2.1 Backend: `POST /api/knowledge` (of equivalent)
 
@@ -431,7 +449,7 @@ Voer voor elke flow de volgende test uit en rapporteer het resultaat.
 
 ```bash
 # Optioneel: worker live volgen
-journalctl -u crew-worker -f &
+journalctl -u wonderz-worker -f &
 
 # Knowledge (URL) — echte route + velden:
 curl -sS -o resp.json -w "%{http_code}" -X POST http://localhost:8090/api/knowledge/upload/url \
@@ -467,21 +485,21 @@ Of via UI: form indienen, tab sluiten, na ~30s overzicht openen — item moet ve
 
 ### Test C — Worker-crash recovery
 
-Zet **vóór** de test tijdelijk `FIRE_AND_FORGET_STUCK_MINUTES=1` in de systemd override van **crew-worker** en bij voorkeur ook **wonderz-backend** (recovery draait bij beide startups). Zie waarschuwing bovenaan Fase 6.
+Zet **vóór** de test tijdelijk `FIRE_AND_FORGET_STUCK_MINUTES=1` in de systemd override van **wonderz-worker** en bij voorkeur ook **wonderz-backend** (recovery draait bij beide startups). Zie waarschuwing bovenaan Fase 6.
 
 ```bash
 # 1. Dien een knowledge-URL-upload in; wacht tot embedding_status = processing
 # 2. Stop de worker abrupt
-sudo systemctl stop crew-worker
+sudo systemctl stop wonderz-worker
 
 # 3. Wacht (langer dan STUCK-minuten, bv. 65s bij minuten=1)
 sleep 65
 
 # 4. Herstart worker (recovery draait bij startup)
-sudo systemctl start crew-worker
+sudo systemctl start wonderz-worker
 
 # 5. Logs
-journalctl -u crew-worker -n 30
+journalctl -u wonderz-worker -n 30
 
 # 6. Poll record (met Bearer token)
 curl -s "http://localhost:8090/api/knowledge/$DOCUMENT_ID" -H "Authorization: Bearer $ACCESS_TOKEN" | python3 -m json.tool
