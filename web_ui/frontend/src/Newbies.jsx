@@ -98,7 +98,8 @@ export default function Newbies() {
       const res = await apiFetch('/api/newbies')
       if (!res.ok) throw new Error(`Newbies ophalen mislukt (${res.status})`)
       const data = await res.json()
-      setNewbies(Array.isArray(data) ? data : [])
+      const list = Array.isArray(data) ? data : []
+      setNewbies(list.filter((n) => (n.status || '').toLowerCase() !== 'hired'))
     } catch (err) {
       setError(err.message || 'Newbies ophalen mislukt')
     } finally {
