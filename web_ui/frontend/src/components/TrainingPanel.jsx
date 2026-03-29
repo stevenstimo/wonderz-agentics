@@ -35,7 +35,7 @@ export default function TrainingPanel({ agentId }) {
       const res = await fetch(`/api/agents/${agentId}/train`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ source_url: url })
+        body: JSON.stringify({ url })
       })
 
       const data = await res.json()

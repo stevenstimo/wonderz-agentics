@@ -885,7 +885,7 @@ async def train_agent(
     return {
         "agent_id": agent_id,
         "url": url,
-        "status": "started",
+        "status": "pending",
         "message": f"Training gestart voor agent:{agent_id}",
     }
 
