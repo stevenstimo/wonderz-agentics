@@ -140,7 +140,7 @@ async def upload_url(
         keywords=body.keywords,
     )
     try:
-        await arq_pool.enqueue_job("process_knowledge_ingest", document_id, "", "")
+        await arq_pool.enqueue_job("process_knowledge_upload", document_id)
     except Exception as e:
         logger.exception("enqueue process_knowledge_ingest failed for %s: %s", document_id, e)
         async with pool.acquire() as conn:

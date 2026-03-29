@@ -17,15 +17,7 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB
 const ACCEPTED_TYPES = '.pdf,.docx,.txt,.md,.csv,.xlsx'
 const ACCEPTED_TYPES_DESC = 'PDF, DOCX, TXT, MD, CSV, XLSX'
 
-/** Worker can take 26s+; poll up to 120s (40 × 3s). */
-const EMBEDDING_POLL_INTERVAL_MS = 3000
-const EMBEDDING_MAX_POLL_ATTEMPTS = 40
-
-const PROGRESS_STEPS = [
-  { id: 1, label: 'Document aanmaken...' },
-  { id: 2, label: 'Tekst verwerken...' },
-  { id: 3, label: 'Embeddings genereren...' },
-]
+const PROGRESS_STEPS = [{ id: 1, label: 'Verzoek verzenden...' }]
 
 export default function KnowledgeUpload() {
   const { authReady } = useAuthReady()
@@ -123,14 +115,7 @@ export default function KnowledgeUpload() {
     setError('')
     setProgressStep(1)
 
-    let stepInterval = null
-    const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
-
     try {
-      stepInterval = setInterval(() => {
-        setProgressStep((s) => Math.min(s + 1, 2))
-      }, 800)
-
       let res
       if (sourceTab === 'url') {
         res = await apiFetch('/api/knowledge/upload/url', {
@@ -167,9 +152,6 @@ export default function KnowledgeUpload() {
         })
       }
 
-      clearInterval(stepInterval)
-      setProgressStep(3)
-
       if (res.status === 401) {
         setUploading(false)
         setProgressStep(0)
@@ -190,50 +172,19 @@ export default function KnowledgeUpload() {
       const docId = data.document_id
       const chunksStored = data.chunks_stored ?? null
 
-      for (let attempt = 0; attempt < EMBEDDING_MAX_POLL_ATTEMPTS; attempt++) {
-        await sleep(EMBEDDING_POLL_INTERVAL_MS)
-        if (uploadAbortRef.current) return
-
-        const pr = await apiFetch(`/api/knowledge/${encodeURIComponent(docId)}`)
-        if (!pr.ok) continue
-
-        const doc = await pr.json()
-        const emb = doc.embedding_status ?? 'pending'
-
-        if (emb === 'failed') {
-          setError('Embeddings genereren mislukt. Het document staat in de library; je kunt later opnieuw indexeren.')
-          setUploading(false)
-          setProgressStep(0)
-          return
-        }
-        if (emb === 'complete') {
-          setProgressStep(4)
-          setResult({
-            document_id: docId,
-            chunks_stored: doc.chunk_count ?? chunksStored,
-            embedding_status: 'complete',
-          })
-          setUploading(false)
-          return
-        }
-      }
-
-      if (uploadAbortRef.current) return
-
-      setProgressStep(4)
       setResult({
         document_id: docId,
         chunks_stored: chunksStored,
-        embedding_timeout: true,
+        embedding_status: data.embedding_status ?? 'pending',
+        asyncSubmitted: true,
       })
       setUploading(false)
+      setProgressStep(0)
     } catch (err) {
       setError(err.message || 'Upload mislukt')
       setUploading(false)
       setProgressStep(0)
-    } finally {
-      clearInterval(stepInterval)
-    }
+    } finally {}
   }, [
     sourceTab, url, file, title, docType, domain, accessLevel, functionTag, summary, keywords, clientSlug,
     validate, navigate, location,
@@ -244,6 +195,15 @@ export default function KnowledgeUpload() {
   if (result) {
     return (
       <PageLayout size="medium" padded>
+        {result.asyncSubmitted && (
+          <div className="mb-4 p-4 rounded-lg bg-slate-50 border border-slate-200 text-slate-800 text-sm">
+            <p className="font-medium text-slate-900 mb-1">Ingediend — verwerking op de achtergrond</p>
+            <p className="text-slate-600">
+              Je kunt dit venster sluiten of wegnavigeren. Status van embeddings volg je op het document of in de Knowledge
+              Library (pending → processing → complete).
+            </p>
+          </div>
+        )}
         {result.embedding_timeout && (
           <div className="mb-4 p-4 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-sm">
             Embeddings duren langer dan 2 minuten. Het document staat in de library — controleer later of de status op het
@@ -251,11 +211,11 @@ export default function KnowledgeUpload() {
           </div>
         )}
         <div className="mb-6 p-4 rounded-lg bg-green-50 border border-green-200 text-green-800">
-          {result.embedding_status === 'complete' && (
+          {result.embedding_status === 'complete' && !result.asyncSubmitted && (
             <p className="font-medium text-green-900 mb-1">✓ Embeddings voltooid — document is doorzoekbaar in de library.</p>
           )}
           Document staat als <strong>draft</strong> in de Knowledge Library.{' '}
-          {result.chunks_stored != null && `${result.chunks_stored} chunks opgeslagen. `}
+          {result.chunks_stored != null && Number(result.chunks_stored) > 0 && `${result.chunks_stored} chunks opgeslagen. `}
           Zet op de documentpagina de status op <strong>approved</strong> als agents dit mogen gebruiken.
         </div>
         <div className="flex gap-3">

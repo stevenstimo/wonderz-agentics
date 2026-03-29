@@ -34,6 +34,14 @@ const STATUS_BADGE = {
   archived: 'bg-red-100 text-red-700',
 }
 
+/** embedding_status from knowledge_documents (fire-and-forget lifecycle) */
+const EMBEDDING_BADGE = {
+  pending: { label: 'Embeddings: wachten', className: 'bg-slate-100 text-slate-600' },
+  processing: { label: 'Embeddings: bezig', className: 'bg-blue-100 text-blue-800' },
+  complete: { label: 'Embeddings: klaar', className: 'bg-emerald-100 text-emerald-800' },
+  failed: { label: 'Embeddings: mislukt', className: 'bg-red-100 text-red-800' },
+}
+
 function formatRelative(dateStr) {
   if (!dateStr) return ''
   const d = new Date(dateStr)
@@ -194,6 +202,14 @@ export default function KnowledgeLibrary() {
                         <span className={`px-2 py-0.5 text-xs font-medium rounded ${STATUS_BADGE[doc.status] || 'bg-gray-100 text-gray-700'}`}>
                           {doc.status}
                         </span>
+                        {doc.embedding_status && EMBEDDING_BADGE[doc.embedding_status] && (
+                          <span
+                            className={`px-2 py-0.5 text-xs font-medium rounded ${EMBEDDING_BADGE[doc.embedding_status].className}`}
+                            title="Status van chunking/embeddings op de achtergrond"
+                          >
+                            {EMBEDDING_BADGE[doc.embedding_status].label}
+                          </span>
+                        )}
                         {doc.access_level === 'approved' && (
                           <Lock className="w-3.5 h-3.5 inline text-green-600 ml-0.5" aria-label="approved" />
                         )}
