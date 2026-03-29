@@ -11,17 +11,18 @@ import secrets
 import tempfile
 from datetime import date, timedelta
 from typing import Any, Optional
-from urllib.parse import urlencode, urlparse
+from urllib.parse import urlencode
 
 import httpx
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from arq import ArqRedis
 
 from app.database import get_db
 from app.middleware.auth import TokenPayload, get_current_user
-from app.services.client_crawler import ClientCrawler, get_sitemap_structure
+from app.services.client_crawler import ClientCrawler
 from app.services.client_feed_processor import ClientFeedProcessor
 from app.services.client_file_processor import ClientFileProcessor
 from app.services.client_text_processor import ClientTextProcessor
@@ -1149,7 +1150,10 @@ async def create_datasource(
             body.feed_splitting_tag,
             body.feed_identifier_tag,
         )
-    return {"datasource_id": row["id"], "status": row["status"]}
+    return JSONResponse(
+        status_code=202,
+        content={"datasource_id": row["id"], "status": row["status"]},
+    )
 
 
 @router.get("/{slug}/datasources")
@@ -1248,12 +1252,6 @@ async def _process_datasource_background(
             )
 
 
-def _sitemap_filename(url: str) -> str:
-    """Extract filename from sitemap URL for child datasource name."""
-    path = (urlparse(url).path or "").strip("/")
-    return path.split("/")[-1] or "sitemap.xml"
-
-
 @router.post("/{slug}/datasources/{datasource_id:int}/process")
 async def start_process(
     slug: str,
@@ -1267,8 +1265,7 @@ async def start_process(
         client_id = await _client_id_for_slug(conn, slug, current_user.user_id)
         row = await conn.fetchrow(
             """
-            SELECT id, source_type, domain, sitemap_url, raw_text, feed_url, feed_splitting_tag, feed_identifier_tag
-            FROM client_datasources
+            SELECT id FROM client_datasources
             WHERE id = $1 AND client_id = $2
             """,
             datasource_id,
@@ -1277,66 +1274,12 @@ async def start_process(
         if not row:
             raise HTTPException(status_code=404, detail="Datasource not found")
 
-    if row["source_type"] == "website_sitemap" and row["sitemap_url"]:
-        kind, sub_urls = await get_sitemap_structure(row["sitemap_url"])
-        if kind == "index" and sub_urls:
-            async with pool.acquire() as conn:
-                for sub_url in sub_urls:
-                    name = _sitemap_filename(sub_url)
-                    child_row = await conn.fetchrow(
-                        """
-                        INSERT INTO client_datasources
-                        (client_id, name, source_type, sitemap_url, status)
-                        VALUES ($1, $2, 'website_sitemap', $3, 'pending')
-                        RETURNING id
-                        """,
-                        client_id,
-                        name,
-                        sub_url,
-                    )
-                    if child_row:
-                        await arq_pool.enqueue_job(
-                            "_process_datasource_background",
-                            client_id,
-                            child_row["id"],
-                            "website_sitemap",
-                            None,
-                            sub_url,
-                            None,
-                            None,
-                            None,
-                            None,
-                        )
-                await conn.execute(
-                    """
-                    UPDATE client_datasources
-                    SET status = 'done', finished_at = now(), updated_at = now(),
-                        error_detail = $2, chunks_created = 0, pages_found = 0, pages_processed = 0
-                    WHERE id = $1
-                    """,
-                    datasource_id,
-                    f"Sitemap index: {len(sub_urls)} sub-sitemaps aangemaakt als aparte bronnen.",
-                )
-            return {"status": "processing"}
-
     await arq_pool.enqueue_job(
-        "_process_datasource_background",
+        "process_datasource_crawl",
         client_id,
         datasource_id,
-        row["source_type"],
-        row["domain"],
-        row["sitemap_url"],
-        row["raw_text"],
-        row["feed_url"],
-        row["feed_splitting_tag"],
-        row["feed_identifier_tag"],
     )
-    async with pool.acquire() as conn:
-        await conn.execute(
-            "UPDATE client_datasources SET status = 'processing' WHERE id = $1",
-            datasource_id,
-        )
-    return {"status": "processing"}
+    return JSONResponse(status_code=202, content={"status": "processing"})
 
 
 @router.post("/{slug}/datasources/{datasource_id:int}/upload")
@@ -1380,7 +1323,10 @@ async def upload_datasource_file(
             datasource_id,
         )
     await arq_pool.enqueue_job("_run_file", client_id, datasource_id, tmp_path, ext, name)
-    return {"status": "processing", "file_name": name}
+    return JSONResponse(
+        status_code=202,
+        content={"status": "processing", "file_name": name},
+    )
 
 
 @router.get("/{slug}/datasources/{datasource_id:int}/status")
