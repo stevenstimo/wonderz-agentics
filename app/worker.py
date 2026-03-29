@@ -456,6 +456,87 @@ async def _process_seo_job(
     )
 
 
+# -----------------------
+# Fire-and-forget — spec task names (260320 / Fase 1)
+# Pattern: fire-and-forget / Aanpak A — status op domein-records (o.a. knowledge_documents).
+# Deze vier namen zijn wrappers; bestaande implementaties blijven de bron van waarheid.
+# -----------------------
+
+
+async def process_knowledge_upload(ctx: dict[str, Any], document_id: str) -> None:
+    """
+    Knowledge upload/embed voor één knowledge_documents.document_id.
+    Lege tmp_path → URL-ingest (zelfde pad als process_knowledge_ingest).
+    """
+    logger.info("[ARQ] process_knowledge_upload gestart: %s", document_id)
+    await process_knowledge_ingest(ctx, document_id, "", "")
+
+
+async def process_datasource_crawl(
+    ctx: dict[str, Any],
+    client_id: str,
+    datasource_id: int,
+    source_type: str,
+    domain: Optional[str] = None,
+    sitemap_url: Optional[str] = None,
+    raw_text: Optional[str] = None,
+    feed_url: Optional[str] = None,
+    feed_splitting_tag: Optional[str] = None,
+    feed_identifier_tag: Optional[str] = None,
+) -> None:
+    """Client datasource crawl/verwerking; delegeert naar _process_datasource_background."""
+    logger.info("[ARQ] process_datasource_crawl gestart: datasource_id=%s", datasource_id)
+    await _process_datasource_background(
+        ctx,
+        client_id,
+        datasource_id,
+        source_type,
+        domain,
+        sitemap_url,
+        raw_text,
+        feed_url,
+        feed_splitting_tag,
+        feed_identifier_tag,
+    )
+
+
+async def process_agent_training(
+    ctx: dict[str, Any],
+    agent_id: str,
+    url: str,
+    approved_by: str = "user",
+) -> None:
+    """Hired-agent URL training (embed); delegeert naar _run_training_background."""
+    logger.info("[ARQ] process_agent_training gestart: agent_id=%s", agent_id)
+    await _run_training_background(ctx, agent_id, url, approved_by)
+
+
+async def process_seo_job(
+    ctx: dict[str, Any],
+    job_id: str,
+    input_path: str,
+    brand_name: str,
+    domain: str,
+    audience: str,
+    language: str,
+    user_id: Optional[str] = None,
+    client_slug: Optional[str] = None,
+) -> None:
+    """SEO keyword job; delegeert naar _process_seo_job (seo_jobs + GSC-pad)."""
+    logger.info("[ARQ] process_seo_job gestart: job_id=%s", job_id)
+    await _process_seo_job(
+        ctx,
+        job_id,
+        input_path,
+        brand_name,
+        domain,
+        audience,
+        language,
+        user_id,
+        client_slug,
+    )
+
+
 async def run_gsc_performance_check(ctx: dict[str, Any]) -> None:
     """
     Wekelijks: GSC ophalen voor jobs met published_url (≥7 dagen live, geen recente meting),
@@ -541,6 +622,10 @@ class WorkerSettings:
         run_embedding_task,
         reindex_document,
         _process_seo_job,
+        process_knowledge_upload,
+        process_datasource_crawl,
+        process_agent_training,
+        process_seo_job,
     ]
 
     cron_jobs = [
