@@ -13,7 +13,7 @@ from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from arq import ArqRedis
 
@@ -31,13 +31,16 @@ router = APIRouter(prefix="/api/seo", tags=["seo"])
 
 
 def _require_seo_initiator(initiated_by: str | None) -> str:
-    """Alleen CEO/COO-orchestratie mag SEO-jobs starten of opvragen."""
-    if initiated_by not in ("ceo", "coo"):
+    """CEO/COO-orchestratie voor SEO-jobs; ontbreekt de parameter, default ceo (UI zonder initiated_by)."""
+    if initiated_by is None or (isinstance(initiated_by, str) and not initiated_by.strip()):
+        return "ceo"
+    v = initiated_by.strip().lower()
+    if v not in ("ceo", "coo"):
         raise HTTPException(
             status_code=403,
             detail="Alleen CEO of COO mag dit endpoint gebruiken (initiated_by=ceo of initiated_by=coo).",
         )
-    return initiated_by
+    return v
 
 
 MAX_KEYWORDS = 2000
@@ -286,11 +289,14 @@ async def upload_seo_file(
         client_slug.strip() if client_slug else None,
     )
 
-    return {
-        "job_id": job_id,
-        "keyword_count": len(keywords),
-        "status": "processing",
-    }
+    return JSONResponse(
+        status_code=202,
+        content={
+            "job_id": job_id,
+            "keyword_count": len(keywords),
+            "status": "pending",
+        },
+    )
 
 
 @router.get("/status/{job_id}")
@@ -299,7 +305,7 @@ async def get_seo_status(
     initiated_by: str | None = Query(None, description="ceo of coo"),
 ):
     """Poll job status. Returns progress and download_url when ready."""
-    _require_seo_initiator(initiated_by)
+    who = _require_seo_initiator(initiated_by)
     pool = await init_db_pool()
     if not pool:
         raise HTTPException(status_code=503, detail="Database unavailable")
@@ -327,9 +333,7 @@ async def get_seo_status(
         "keywords_total": keyword_count,
     }
     if status == "ready" and row.get("output_file_path"):
-        result["download_url"] = (
-            f"/api/seo/download/{job_id}?initiated_by={initiated_by}"
-        )
+        result["download_url"] = f"/api/seo/download/{job_id}?initiated_by={who}"
     return result
 
 
