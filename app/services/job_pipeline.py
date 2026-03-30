@@ -34,6 +34,14 @@ knowledge_debug_logger = logging.getLogger("knowledge_debug")
 # Model for pipeline agent calls (copywriter, reviewer)
 CLAUDE_MODEL = DEFAULT_MODEL
 
+TOOL_FIRST_RULE = """
+TOOL-FIRST PRINCIPE (VERPLICHT):
+- Je mag GEEN feiten, cijfers, prestaties of klantdata claimen zonder eerst een tool te hebben aangeroepen.
+- Als je geen tool hebt om de data op te halen: zeg expliciet "Ik heb geen toegang tot deze data" — geen schatting, geen aanname.
+- Geen retrieval = geen claim. Dit is een harde regel zonder uitzonderingen.
+- Bij twijfel over een feit: label het als [AANNAME] en vraag om verificatie.
+"""
+
 # Per-step timeouts (seconds)
 TIMEOUT_CONTENT_STEP = 120
 TIMEOUT_GTM_STEP = 180
@@ -1060,6 +1068,8 @@ def _run_step_agent(
         system = (
             "You are a professional copywriter for a content bureau. Your ONLY job is to write the actual article text.\n\n"
             "CRITICAL RULES:\n"
+            + TOOL_FIRST_RULE
+            + "\n"
             f"Communiceer altijd in de volgende taal: {language}. Dit geldt voor je analyse, feedback en alle output.\n"
             f"BELANGRIJK: Schrijf de volledige content in {language}. "
             "Dit is verplicht en heeft prioriteit boven alles. "
@@ -1185,6 +1195,9 @@ Het focus keyword moet voorkomen in de eerste alinea en minimaal 2x in de volled
         if not previous_content:
             return ({"status": "skipped", "review": "No content to review.", "approved": True, "agent_role": agent_role}, 0, [])
         system = (
+            "CRITICAL RULES:\n"
+            + TOOL_FIRST_RULE
+            + "\n\n"
             "You are a content reviewer. Check quality, grammar, and tone consistency. Reply in the same language as the content. Keep the reply concise. End with APPROVED or CHANGES NEEDED. "
             "If the content looks like a plan or outline instead of actual article text, mark it as NOT APPROVED and explain that actual content is needed, not a plan.\n"
             f"Communiceer altijd in de volgende taal: {language}. Dit geldt voor je analyse, feedback en alle output.\n\n"
@@ -1234,6 +1247,9 @@ Het focus keyword moet voorkomen in de eerste alinea en minimaal 2x in de volled
     # SEO: keyword plan as JSON for handoff to copywriter (no GSC — LLM-only)
     if role_lower == "seo":
         system = (
+            "CRITICAL RULES:\n"
+            + TOOL_FIRST_RULE
+            + "\n\n"
             "You are an SEO specialist. Produce a concise keyword plan as a single JSON object only "
             "(no markdown fences, no commentary before or after the JSON).\n\n"
             "Required shape:\n"
@@ -1293,6 +1309,9 @@ Het focus keyword moet voorkomen in de eerste alinea en minimaal 2x in de volled
 
     # Generic: one Claude call
     system = (
+        "CRITICAL RULES:\n"
+        + TOOL_FIRST_RULE
+        + "\n\n"
         f"You are a helpful assistant. Write in {language}. Tone: {tone}. "
         f"Communiceer altijd in de volgende taal: {language}. Dit geldt voor je analyse, feedback en alle output."
     )

@@ -13,6 +13,7 @@ import asyncio
 import json
 import logging
 import time
+import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
@@ -34,6 +35,76 @@ def _json_default(obj: Any) -> Any:
     if isinstance(obj, (date, datetime)):
         return obj.isoformat()
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
+
+async def _check_and_create_development_point(
+    pool: Any,
+    job_id: str,
+    agent_id: str,
+    retry_reason: str,
+    step_retry_count: int,
+) -> None:
+    """
+    Zelfcorrectie: na ≥3 QA-retries nog steeds geen goedkeuring → development point (dedupe 24h).
+    Fail-open: fout bij insert blokkeert de pipeline niet.
+    """
+    if step_retry_count < 3:
+        return
+    if not agent_id or not pool:
+        return
+
+    try:
+        async with pool.acquire() as conn:
+            existing = await conn.fetchval(
+                """
+                SELECT point_id FROM development_points
+                WHERE agent_id = $1
+                  AND proposed_by = 'nexus-pipeline'
+                  AND evidence_example ILIKE $2
+                  AND created_at > now() - interval '24 hours'
+                LIMIT 1
+                """,
+                agent_id,
+                f"%{job_id}%",
+            )
+            if existing:
+                return
+
+            point_id = f"DP-NEXUS-{uuid.uuid4().hex[:12].upper()}"
+            issue = (
+                f"Agent-output werd {step_retry_count}x teruggestuurd door de quality gate in dezelfde job. "
+                f"Reden: {retry_reason or 'onbekend'}"
+            )[:2000]
+            evidence = json.dumps(
+                {"job_id": job_id, "retry_count": step_retry_count, "retry_reason": retry_reason},
+                ensure_ascii=False,
+            )
+            await conn.execute(
+                """
+                INSERT INTO development_points (
+                    point_id, agent_id, agent_role, issue_description,
+                    evidence_example, frequency, impact, status, proposed_by
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7, 'OPEN', $8)
+                """,
+                point_id,
+                agent_id,
+                "worker",
+                issue,
+                evidence,
+                step_retry_count,
+                "medium",
+                "nexus-pipeline",
+            )
+            logger.info(
+                "[ZELFCORRECTIE] Development point %s aangemaakt voor %s na %s retries (job %s)",
+                point_id,
+                agent_id,
+                step_retry_count,
+                job_id,
+            )
+    except Exception as e:
+        logger.warning("[ZELFCORRECTIE] Kon development point niet aanmaken: %s", e)
 
 
 def _missing_roles_for_payload(missing: list) -> list[str]:
@@ -600,6 +671,22 @@ class NEXUSPipeline:
                 logger.warning(
                     "Stap %s 3x rejected — doorgaan met laagste kwaliteit", step_name
                 )
+                step_retry_count = ctx.retry_counts.get(step_name, 0)
+                if step_retry_count >= 3 and self._pool:
+                    aid = (step.get("agent_id") or "").strip()
+                    if not aid:
+                        role = (step.get("agent_role") or "").strip()
+                        aid = f"agent:{role}" if role else "agent:unknown"
+                    review_feedback = ctx.step_feedback.get(step_name) or (
+                        f"quality_gate laagste score={ctx.quality_scores.get(step_name)} step={step_name}"
+                    )
+                    await _check_and_create_development_point(
+                        pool=self._pool,
+                        job_id=str(ctx.job_id),
+                        agent_id=aid,
+                        retry_reason=str(review_feedback)[:4000],
+                        step_retry_count=step_retry_count,
+                    )
 
     async def phase_5_ceo_review(self, ctx: HandoffContext) -> None:
         """
