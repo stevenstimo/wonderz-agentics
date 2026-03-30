@@ -54,6 +54,7 @@ export default function ClientKnowledge() {
   const [menuId, setMenuId] = useState(null)
   const [pollingIds, setPollingIds] = useState(new Set())
   const [processingStatus, setProcessingStatus] = useState({})
+  const [asyncHint, setAsyncHint] = useState('')
   const [step2SourceType, setStep2SourceType] = useState(null)
   const {
     data: datasourcesData = [],
@@ -180,8 +181,10 @@ export default function ClientKnowledge() {
         setMenuId(datasourceId)
       } else if (datasourceId && sourceType !== 'text') {
         await startProcess(datasourceId)
+        setAsyncHint('Verwerking loopt op de achtergrond; status zie je in de lijst.')
       } else if (sourceType === 'text' && body.raw_text) {
         await startProcess(datasourceId)
+        setAsyncHint('Verwerking loopt op de achtergrond; status zie je in de lijst.')
       }
       await refetchDatasources()
       await refetchKnowledge()
@@ -211,7 +214,10 @@ export default function ClientKnowledge() {
         method: 'POST',
         body: fd,
       })
-      if (res.ok) setPollingIds((prev) => new Set(prev).add(datasourceId))
+      if (res.ok) {
+        setPollingIds((prev) => new Set(prev).add(datasourceId))
+        setAsyncHint('Bestand wordt op de achtergrond verwerkt; status zie je in de lijst.')
+      }
       setMenuId(null)
       refetchDatasources()
     } catch (_) {}
@@ -251,6 +257,19 @@ export default function ClientKnowledge() {
         <div className="p-4 rounded-lg bg-red-50 text-red-700 border border-red-200 text-sm flex items-center gap-2">
           <AlertCircle className="w-4 h-4 shrink-0" />
           {error}
+        </div>
+      )}
+      {asyncHint && (
+        <div className="p-4 rounded-lg bg-slate-50 border border-slate-200 text-slate-800 text-sm flex items-start justify-between gap-3">
+          <p className="pr-2">{asyncHint}</p>
+          <button
+            type="button"
+            onClick={() => setAsyncHint('')}
+            className="shrink-0 text-slate-500 hover:text-slate-800 text-xs leading-none"
+            aria-label="Sluiten"
+          >
+            ×
+          </button>
         </div>
       )}
 

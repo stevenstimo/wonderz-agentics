@@ -20,6 +20,12 @@ USER_AGENT = "WonderzBot/1.0"
 MIN_TEXT_LEN = 100
 
 
+def sitemap_url_child_name(url: str) -> str:
+    """Filename segment from sitemap URL for child datasource display name."""
+    path = (urlparse(url).path or "").strip("/")
+    return path.split("/")[-1] or "sitemap.xml"
+
+
 class ClientCrawler:
     MAX_PAGES = 100
     CHUNK_SIZE = 3200

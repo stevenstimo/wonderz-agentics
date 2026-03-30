@@ -12,6 +12,7 @@ import logging
 import os
 from typing import Any, Optional
 
+from arq import create_pool as arq_create_pool
 from arq.connections import RedisSettings
 from arq.cron import cron
 
@@ -78,9 +79,15 @@ async def startup(ctx: dict[str, Any]) -> None:
     # Initialise the global asyncpg pool (app.db.init_db_pool caches it in module state).
     ctx["db_pool"] = await init_db_pool()
     await _set_stuck_running_jobs_failed(ctx)
+    # Enqueue child jobs from tasks (e.g. sitemap index expansion).
+    redis_settings = RedisSettings.from_dsn(os.environ.get("REDIS_URL", "redis://localhost:6379"))
+    ctx["arq_pool"] = await arq_create_pool(redis_settings)
 
 
 async def shutdown(ctx: dict[str, Any]) -> None:
+    arq_pool = ctx.get("arq_pool")
+    if arq_pool:
+        await arq_pool.close()
     await close_db_pool()
 
 
@@ -476,27 +483,96 @@ async def process_datasource_crawl(
     ctx: dict[str, Any],
     client_id: str,
     datasource_id: int,
-    source_type: str,
-    domain: Optional[str] = None,
-    sitemap_url: Optional[str] = None,
-    raw_text: Optional[str] = None,
-    feed_url: Optional[str] = None,
-    feed_splitting_tag: Optional[str] = None,
-    feed_identifier_tag: Optional[str] = None,
 ) -> None:
-    """Client datasource crawl/verwerking; delegeert naar _process_datasource_background."""
+    """
+    Client datasource: laad rij uit DB, expand sitemap-index naar child-jobs of
+    delegeer naar crawl/text/feed (was sync in HTTP-route).
+    """
     logger.info("[ARQ] process_datasource_crawl gestart: datasource_id=%s", datasource_id)
+    from app.database import get_db
+    from app.services.client_crawler import get_sitemap_structure, sitemap_url_child_name
+
+    pool = await get_db()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT id, source_type, domain, sitemap_url, raw_text, feed_url, feed_splitting_tag, feed_identifier_tag
+            FROM client_datasources
+            WHERE id = $1 AND client_id = $2
+            """,
+            datasource_id,
+            client_id,
+        )
+    if not row:
+        logger.warning("[ARQ] process_datasource_crawl: datasource %s niet gevonden", datasource_id)
+        return
+
+    if row["source_type"] == "website_sitemap" and row["sitemap_url"]:
+        kind, sub_urls = await get_sitemap_structure(row["sitemap_url"])
+        if kind == "index" and sub_urls:
+            arq_pool = ctx.get("arq_pool")
+            if not arq_pool:
+                logger.error("[ARQ] process_datasource_crawl: geen arq_pool in ctx")
+                async with pool.acquire() as conn:
+                    await conn.execute(
+                        """
+                        UPDATE client_datasources
+                        SET status = 'failed', error_detail = $1
+                        WHERE id = $2
+                        """,
+                        "Worker: ARQ pool niet beschikbaar voor sitemap-index.",
+                        datasource_id,
+                    )
+                return
+            async with pool.acquire() as conn:
+                for sub_url in sub_urls:
+                    name = sitemap_url_child_name(sub_url)
+                    child_row = await conn.fetchrow(
+                        """
+                        INSERT INTO client_datasources
+                        (client_id, name, source_type, sitemap_url, status)
+                        VALUES ($1, $2, 'website_sitemap', $3, 'pending')
+                        RETURNING id
+                        """,
+                        client_id,
+                        name,
+                        sub_url,
+                    )
+                    if child_row:
+                        await arq_pool.enqueue_job(
+                            "process_datasource_crawl",
+                            client_id,
+                            child_row["id"],
+                        )
+                await conn.execute(
+                    """
+                    UPDATE client_datasources
+                    SET status = 'done', finished_at = now(), updated_at = now(),
+                        error_detail = $2, chunks_created = 0, pages_found = 0, pages_processed = 0
+                    WHERE id = $1
+                    """,
+                    datasource_id,
+                    f"Sitemap index: {len(sub_urls)} sub-sitemaps aangemaakt als aparte bronnen.",
+                )
+            return
+
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE client_datasources SET status = 'processing' WHERE id = $1",
+            datasource_id,
+        )
+
     await _process_datasource_background(
         ctx,
         client_id,
         datasource_id,
-        source_type,
-        domain,
-        sitemap_url,
-        raw_text,
-        feed_url,
-        feed_splitting_tag,
-        feed_identifier_tag,
+        row["source_type"],
+        row["domain"],
+        row["sitemap_url"],
+        row["raw_text"],
+        row["feed_url"],
+        row["feed_splitting_tag"],
+        row["feed_identifier_tag"],
     )
 
 
