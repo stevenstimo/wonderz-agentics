@@ -962,8 +962,9 @@ export default function JobSplitView() {
           </form>
         </div>
 
-        {/* Right: Document viewer — on mobile order-1 (above chat) */}
-        {/* pipeline_type and proposed_data from same parsed context (not raw job.context) */}
+        {/* Right: Document viewer — on mobile order-1 (above chat).
+            JOB_READY/COMPLETED: final_content (payload) en proposed_data worden hier getoond;
+            geen directe <p>/dangerouslySetInnerHTML in JobSplitView — zie DocumentViewer (ReactMarkdown + DataResultView). */}
         <div className="flex flex-col min-h-0 order-1 md:order-2 overflow-y-auto border-l border-slate-200 rounded-r-xl md:rounded-l-none">
           <DocumentViewer
             documentPreview={data?.document_preview ?? null}

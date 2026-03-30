@@ -19,7 +19,8 @@
     "react-markdown": "^10.1.0",
     "react-router-dom": "^6.23.1",
     "recharts": "^2.15.4",
-    "remark-breaks": "^4.0.0"
+    "remark-breaks": "^4.0.0",
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@tanstack/react-query-devtools": "^5.94.5",

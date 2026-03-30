@@ -1,7 +1,11 @@
 import { useState, useRef, useEffect } from 'react'
 import { FileText, Copy, Download } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import remarkBreaks from 'remark-breaks'
 import DataResultView from './DataResultView'
+
+const MARKDOWN_PLUGINS = [remarkGfm, remarkBreaks]
 import KeywordTable from './KeywordTable'
 
 /**
@@ -200,10 +204,16 @@ export default function DocumentViewer({
         className="flex-1 min-h-0 overflow-y-auto px-4 py-4 leading-[1.7]"
         style={{ animation: 'documentViewerFadeIn 0.3s ease-out' }}
       >
-        {type === 'empty' && !showDataResult && (
+        {type === 'empty' && !showDataResult && !hasAnalysisContent && (
           <div className="flex flex-col items-center justify-center py-12 text-slate-500">
             <FileText className="w-12 h-12 mb-3 opacity-50" aria-hidden />
             <p className="text-sm font-medium">Wacht op agent...</p>
+          </div>
+        )}
+
+        {type === 'empty' && !showDataResult && hasAnalysisContent && content && (
+          <div className="prose prose-slate prose-sm max-w-none text-slate-800 [&_p]:mb-2 [&_p:last-child]:mb-0 [&_strong]:font-semibold [&_table]:text-sm [&_th]:border [&_th]:border-slate-200 [&_th]:bg-slate-100 [&_th]:px-2 [&_th]:py-1 [&_td]:border [&_td]:border-slate-200 [&_td]:px-2 [&_td]:py-1">
+            <ReactMarkdown remarkPlugins={MARKDOWN_PLUGINS}>{content}</ReactMarkdown>
           </div>
         )}
 
@@ -223,7 +233,7 @@ export default function DocumentViewer({
           <div className="rounded-lg bg-slate-50 border border-slate-200 p-4 text-slate-800">
             {content ? (
               <div className="prose prose-sm max-w-none [&_p]:mb-2 [&_p:last-child]:mb-0">
-                <ReactMarkdown>{content}</ReactMarkdown>
+                <ReactMarkdown remarkPlugins={MARKDOWN_PLUGINS}>{content}</ReactMarkdown>
               </div>
             ) : (
               <p className="text-slate-500 text-sm">Nog geen brief.</p>
@@ -275,7 +285,7 @@ export default function DocumentViewer({
             ) : (
               <>
                 <div className="prose prose-sm max-w-none [&_p]:mb-2 [&_p:last-child]:mb-0">
-                  <ReactMarkdown>{content}</ReactMarkdown>
+                  <ReactMarkdown remarkPlugins={MARKDOWN_PLUGINS}>{content}</ReactMarkdown>
                 </div>
                 <span className="cursor-blink inline-block font-bold text-indigo-600 ml-0.5" style={{ animation: 'blink 1s step-end infinite' }}>|</span>
               </>
@@ -286,7 +296,11 @@ export default function DocumentViewer({
         {type === 'final' && !showDataResult && !showKeywordTable && (
           <div className="space-y-4">
             <div className="prose prose-slate prose-sm max-w-none text-slate-800 [&_p]:mb-2 [&_p:last-child]:mb-0 [&_strong]:font-semibold [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4">
-              {content ? <ReactMarkdown>{content}</ReactMarkdown> : <p className="text-slate-500">Geen content.</p>}
+              {content ? (
+                <ReactMarkdown remarkPlugins={MARKDOWN_PLUGINS}>{content}</ReactMarkdown>
+              ) : (
+                <p className="text-slate-500">Geen content.</p>
+              )}
             </div>
             {showApproveButtons && (
               <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-200">
