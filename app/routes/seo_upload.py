@@ -2,8 +2,7 @@
 SEO Keyword Plan — file upload, processing, status polling, download.
 POST /api/seo/upload, GET /api/seo/status/{job_id}, GET /api/seo/download/{job_id}
 
-Fase 3 CEO-orchestratie: alle routes vereisen query/form ``initiated_by`` in (``ceo``, ``coo``);
-anders HTTP 403 — zie ``_require_seo_initiator``.
+SEO-routes: optionele ``initiated_by`` (``ceo``, ``coo``, ``direct``). Ontbreekt of leeg → ``direct`` (open tool); alleen expliciete ongeldige waarde → 403.
 """
 import logging
 import os
@@ -31,16 +30,16 @@ router = APIRouter(prefix="/api/seo", tags=["seo"])
 
 
 def _require_seo_initiator(initiated_by: str | None) -> str:
-    """CEO/COO-orchestratie voor SEO-jobs; ontbreekt de parameter, default ceo (UI zonder initiated_by)."""
+    """CEO/COO-flow of directe tool-toegang; alleen onbekende expliciete waarde → 403."""
     if initiated_by is None or (isinstance(initiated_by, str) and not initiated_by.strip()):
-        return "ceo"
-    v = initiated_by.strip().lower()
-    if v not in ("ceo", "coo"):
+        return "direct"  # ontbreekt of alleen whitespace
+    normalized = initiated_by.strip().lower()
+    if normalized not in ("ceo", "coo", "direct"):
         raise HTTPException(
             status_code=403,
-            detail="Alleen CEO of COO mag dit endpoint gebruiken (initiated_by=ceo of initiated_by=coo).",
+            detail="SEO tool kan alleen worden aangesproken via de CEO/COO flow of direct.",
         )
-    return v
+    return normalized
 
 
 MAX_KEYWORDS = 2000

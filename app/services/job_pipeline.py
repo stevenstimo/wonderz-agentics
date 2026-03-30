@@ -102,6 +102,112 @@ def _json_default(obj: Any) -> Any:
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 
+def format_data_output(raw_output: str | dict) -> str:
+    """
+    Formatteert ruwe data-output naar leesbare Nederlandse tekst (data_query / DataAgent).
+    GSC-achtige payloads worden een Markdown-tabel; overige dicts een bullet-lijst.
+    """
+    if isinstance(raw_output, str):
+        try:
+            data = json.loads(raw_output)
+        except (json.JSONDecodeError, ValueError):
+            return raw_output
+    else:
+        data = raw_output
+
+    if not isinstance(data, dict):
+        return str(raw_output)
+
+    resultaat = data.get("resultaat")
+    gevonden = data.get("gevonden")
+
+    def _row_is_gsc(row: Any) -> bool:
+        return isinstance(row, dict) and "page" in row and any(
+            k in row for k in ("clicks", "impressions", "ctr", "position")
+        )
+
+    def _format_ctr_pct(val: Any) -> str:
+        try:
+            x = float(val if val is not None else 0)
+        except (TypeError, ValueError):
+            return "—"
+        if 0 <= x <= 1.0:
+            return f"{x * 100:.1f}%"
+        return f"{x:.1f}%"
+
+    # GSC-achtige rijen (tops pagina's + metrics)
+    if "resultaat" in data and "gevonden" in data and isinstance(resultaat, list):
+        section_title = gevonden if isinstance(gevonden, str) else "Gevonden data"
+        if not resultaat or _row_is_gsc(resultaat[0]):
+            lines: list[str] = []
+            lines.append(f"## {section_title}")
+            lines.append("")
+            if resultaat:
+                lines.append("| Pagina | Clicks | Impressies | CTR | Positie |")
+                lines.append("|--------|--------|------------|-----|---------|")
+                for row in resultaat[:10]:
+                    if not isinstance(row, dict):
+                        continue
+                    page = str(row.get("page", "")).replace("https://", "").replace("http://", "")[:80]
+                    clicks = row.get("clicks", 0)
+                    impressions = row.get("impressions", 0)
+                    ctr = _format_ctr_pct(row.get("ctr", 0))
+                    try:
+                        pos = float(row.get("position", 0) or 0)
+                        position = f"{pos:.1f}"
+                    except (TypeError, ValueError):
+                        position = "—"
+                    lines.append(f"| {page} | {clicks} | {impressions} | {ctr} | {position} |")
+            volledigheid = data.get("volledigheid")
+            if volledigheid:
+                lines.append("")
+                lines.append(f"*{volledigheid}*")
+            volgende = data.get("volgende_actie")
+            if volgende:
+                lines.append("")
+                lines.append(f"**Volgende stap:** {volgende}")
+            return "\n".join(lines)
+
+        # client_knowledge-achtige rijen
+        lines_k: list[str] = []
+        lines_k.append(f"## {section_title}")
+        lines_k.append("")
+        for row in resultaat[:10]:
+            if not isinstance(row, dict):
+                lines_k.append(f"- {row}")
+                continue
+            src = row.get("source_url") or ""
+            title_row = row.get("page_title") or ""
+            chunk = (row.get("chunk_text") or "")[:200].replace("\n", " ")
+            if title_row or src:
+                lines_k.append(f"- **{title_row or src}**" + (f" — {src}" if title_row and src else ""))
+            else:
+                lines_k.append("- Item")
+            if chunk:
+                lines_k.append(f"  - {chunk}{'…' if len(str(row.get('chunk_text') or '')) > 200 else ''}")
+        if data.get("volledigheid"):
+            lines_k.append("")
+            lines_k.append(f"*{data['volledigheid']}*")
+        if data.get("volgende_actie"):
+            lines_k.append("")
+            lines_k.append(f"**Volgende stap:** {data['volgende_actie']}")
+        return "\n".join(lines_k)
+
+    # Generieke dict
+    lines_g: list[str] = []
+    for key, value in data.items():
+        if isinstance(value, list):
+            lines_g.append(f"**{key}:**")
+            for item in value[:5]:
+                if isinstance(item, dict):
+                    lines_g.append(f"  - {json.dumps(item, ensure_ascii=False)[:120]}")
+                else:
+                    lines_g.append(f"  - {item}")
+        else:
+            lines_g.append(f"**{key}:** {value}")
+    return "\n".join(lines_g)
+
+
 async def _maybe_generate_job_artifact(
     conn,
     job_id: str,
@@ -1317,12 +1423,7 @@ async def run_data_pipeline(job_id: str) -> None:
         )
         should_run_analysis = preset_id == "analytics-comparison" or (not preset_id and is_comparison_query)
 
-        final_content = json.dumps(
-            proposed_data,
-            default=_json_default,
-            ensure_ascii=False,
-            indent=2,
-        )
+        final_content = format_data_output(proposed_data)
         analysis_payload: dict[str, Any] | None = None
         fetched_data: dict[str, Any] | None = None
         if should_run_analysis:
