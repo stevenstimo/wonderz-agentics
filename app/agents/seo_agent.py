@@ -13,24 +13,13 @@ from anthropic import Anthropic
 
 from app.core.config import DEFAULT_MODEL
 from app.database import get_db
+from app.utils.seo_classification import apply_priority_after_gsc, enrich_keyword_derived_fields
 from app.utils.seo_skills_fetcher import fetch_seo_skills
 
 logger = logging.getLogger(__name__)
 
 SEO_MODEL = DEFAULT_MODEL
 BATCH_SIZE = 50
-
-
-def calculate_priority(volume: int, kd: float, position: Optional[int]) -> str:
-    """Priority from spec: volume * (1 - KD/100), bonus for position 1-20."""
-    score = volume * (1 - kd / 100)
-    if position and 0 < position <= 20:
-        score *= 1.5
-    if score > 5000:
-        return "HIGH"
-    elif score > 1000:
-        return "MEDIUM"
-    return "LOW"
 
 
 def calculate_kd_client(kd: float, gsc_position: Optional[float]) -> Optional[float]:
@@ -132,18 +121,18 @@ async def process_keyword_batch(
 
 {json.dumps(batch_data, ensure_ascii=False, indent=2)}
 
-Brand context: {brand_name} | Domein: {domain} | Doelgroep: {audience} | Taal: {language}
+Brand context: {brand_name} | Domein: {domain} | Taal: {language}
 
 Per keyword, bepaal:
 1. intent: informational / commercial / transactional / navigational
-2. silo: cluster op zoekintentie + topic-overlap (binnen elke intentie max 8 clusters; beschrijvende naam max 4 woorden; overloop "Overige [intentie]")
-3. content_type: Blog / Landing Page / Pillar Page
-4. title: specifieke, klikwaardige SEO-titel (max 60 tekens). Verwerk het zoekwoord exact of als variant. Kies één structuur naar intentie: informatief "Wat is [keyword]? Complete uitleg" / instructief "Hoe [keyword]: stap-voor-stap" / lijst "[Getal] beste [keyword] voor [doelgroep]" / vergelijkend "[A] vs [B]: welke [keyword]?". Geen clickbait, geen caps lock, geen uitroeptekens.
-5. primary_source: NHG / Overheid / Universiteit / Expert / Intern
-6. audience_match: welke persona past bij dit keyword
+2. content_type: Blog / Landing Page / Pillar Page
+3. title: specifieke, klikwaardige SEO-titel (max 60 tekens). Verwerk het zoekwoord exact of als variant. Kies één structuur naar intentie: informatief "Wat is [keyword]? Complete uitleg" / instructief "Hoe [keyword]: stap-voor-stap" / lijst "[Getal] beste [keyword] voor [doelgroep]" / vergelijkend "[A] vs [B]: welke [keyword]?". Geen clickbait, geen caps lock, geen uitroeptekens.
+4. primary_source: NHG / Overheid / Universiteit / Expert / Intern
+
+(Silo en doelgroep worden door het systeem toegepast op basis van Semrush-cluster en regels — niet invullen.)
 
 Return ALLEEN een JSON array — geen andere tekst. Eén object per keyword, in dezelfde volgorde als de input.
-Format: [{{"keyword":"...","intent":"...","silo":"...","content_type":"...","title":"...","primary_source":"...","audience_match":"..."}}, ...]"""
+Format: [{{"keyword":"...","intent":"...","content_type":"...","title":"...","primary_source":"..."}}, ...]"""
 
     system = """Je bent een SEO specialist. Analyseer keywords en geef gestructureerde JSON terug.
 Volg strikt het gevraagde format. Geen uitleg, alleen de JSON array."""
@@ -154,31 +143,23 @@ Volg strikt het gevraagde format. Geen uitleg, alleen de JSON array."""
     text = result.get("text", "")
     parsed = _parse_json_array(text)
 
-    # Merge AI output with original keyword data
+    # Merge AI output with original keyword data; silo/doelgroep/SERP from deterministic rules
     enriched = []
     for i, k in enumerate(keywords):
         base = dict(k)
         if i < len(parsed) and isinstance(parsed[i], dict):
             p = parsed[i]
             base["intent"] = p.get("intent") or "informational"
-            base["silo"] = p.get("silo") or "Overig"
             base["content_type"] = p.get("content_type") or "Blog"
             base["title_suggestion"] = p.get("title") or p.get("title_suggestion") or ""
             base["primary_source"] = p.get("primary_source") or "Expert"
-            base["audience_match"] = p.get("audience_match") or audience
         else:
             base["intent"] = "informational"
-            base["silo"] = "Overig"
             base["content_type"] = "Blog"
             base["title_suggestion"] = ""
             base["primary_source"] = "Expert"
-            base["audience_match"] = audience
 
-        base["priority"] = calculate_priority(
-            base.get("volume", 0),
-            base.get("kd", 0),
-            base.get("position"),
-        )
+        enrich_keyword_derived_fields(base)
         enriched.append(base)
 
     return enriched
@@ -192,21 +173,23 @@ def _apply_gsc_to_keyword(k: Dict[str, Any], gsc_lookup: Dict[str, Dict[str, Any
 
     if not gsc:
         k["gsc_position"] = None
-        k["gsc_clicks"] = 0
-        k["gsc_impressions"] = 0
-        k["gsc_ctr"] = 0
+        k["gsc_clicks"] = None
+        k["gsc_impressions"] = None
+        k["gsc_ctr"] = None
         k["kd_client"] = None
         k["gsc_label"] = "⬜ Ontbreekt"
+        apply_priority_after_gsc(k)
         return
 
     gsc_pos = gsc.get("position")
     k["gsc_position"] = gsc_pos
-    k["gsc_clicks"] = gsc.get("clicks", 0)
-    k["gsc_impressions"] = gsc.get("impressions", 0)
-    k["gsc_ctr"] = gsc.get("ctr", 0)
+    k["gsc_clicks"] = gsc.get("clicks")
+    k["gsc_impressions"] = gsc.get("impressions")
+    k["gsc_ctr"] = gsc.get("ctr")
     kd = k.get("kd") or 0
     k["kd_client"] = calculate_kd_client(kd, gsc_pos)
     k["gsc_label"] = get_gsc_label(gsc_pos)
+    apply_priority_after_gsc(k)
 
 
 async def run_seo_agent(

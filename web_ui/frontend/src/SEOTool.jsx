@@ -34,6 +34,8 @@ export default function SEOTool() {
   const [audience, setAudience] = useState('')
   const [language, setLanguage] = useState('nl')
   const [file, setFile] = useState(null)
+  const [fileUk, setFileUk] = useState(null)
+  const [fileDe, setFileDe] = useState(null)
   const [dragOver, setDragOver] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [jobId, setJobId] = useState(null)
@@ -186,6 +188,8 @@ export default function SEOTool() {
       if (clientSelected && selectedClientSlug) {
         form.append('client_slug', selectedClientSlug)
       }
+      if (fileUk) form.append('file_uk', fileUk)
+      if (fileDe) form.append('file_de', fileDe)
 
       const res = await apiFetch('/api/seo/upload', {
         method: 'POST',
@@ -232,6 +236,8 @@ export default function SEOTool() {
     setKeywordsTotal(0)
     setDownloadUrl(null)
     setFile(null)
+    setFileUk(null)
+    setFileDe(null)
     setError(null)
     setCurrentSilo('')
     localStorage.removeItem('seo_active_job_id')
@@ -249,7 +255,9 @@ export default function SEOTool() {
           SEO Keyword Plan Generator
         </h1>
         <p className="text-slate-600 mb-6">
-          Upload een keyword CSV (Semrush, Ahrefs) en ontvang een volledig SEO plan als Excel.
+          Upload een keyword CSV (Semrush, Ahrefs) — optioneel aparte UK- en DE-exports in dezelfde run. Je ontvangt
+          een Excel met o.a. Keyword Plan (Markt, SERP Features, GSC), Silo-overzicht, Quick Wins, Strategie,
+          Content Gaps, GSC Performance en Markt Expansie.
         </p>
 
         {error && (
@@ -382,7 +390,32 @@ export default function SEOTool() {
               <p className="text-slate-600">
                 {file ? file.name : 'Sleep CSV, XLSX of Numbers hier of klik om te uploaden'}
               </p>
-              <p className="text-sm text-slate-500 mt-1">Max 2000 keywords, 5MB</p>
+              <p className="text-sm text-slate-500 mt-1">Max 2000 keywords totaal, 5MB per bestand</p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Optioneel: Semrush UK (database United Kingdom)
+                </label>
+                <input
+                  type="file"
+                  accept=".csv,.xlsx,.xls,.numbers"
+                  className="w-full text-sm text-slate-600"
+                  onChange={(e) => setFileUk(e.target?.files?.[0] ?? null)}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Optioneel: Semrush DE (database Germany)
+                </label>
+                <input
+                  type="file"
+                  accept=".csv,.xlsx,.xls,.numbers"
+                  className="w-full text-sm text-slate-600"
+                  onChange={(e) => setFileDe(e.target?.files?.[0] ?? null)}
+                />
+              </div>
             </div>
 
             <button
@@ -431,7 +464,10 @@ export default function SEOTool() {
             </h2>
             <div className="space-y-2 text-slate-600 mb-6">
               <p>{keywordsTotal} keywords verwerkt</p>
-              <p>Download het Excel bestand met Keyword Plan, Silo Overzicht, Quick Wins en Strategie Notes.</p>
+              <p>
+                Download het Excel-bestand met Keyword Plan, Silo-overzicht, Quick Wins, Strategie, Content Gaps,
+                GSC Performance en Markt Expansie (UK/DE).
+              </p>
             </div>
             <div className="flex gap-4">
               <button

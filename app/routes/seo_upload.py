@@ -4,12 +4,13 @@ POST /api/seo/upload, GET /api/seo/status/{job_id}, GET /api/seo/download/{job_i
 
 SEO-routes: optionele ``initiated_by`` (``ceo``, ``coo``, ``direct``). Ontbreekt of leeg → ``direct`` (open tool); alleen expliciete ongeldige waarde → 403.
 """
+import json
 import logging
 import os
 import uuid
 from urllib.parse import urlparse
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
@@ -20,9 +21,14 @@ from app.db import init_db_pool
 from app.middleware.auth import TokenPayload, get_current_user
 from app.dependencies import get_arq_pool
 from app.utils.seo_excel_generator import generate_seo_excel
-from app.utils.seo_parser import parse_keywords_file
+from app.utils.seo_parser import load_keywords_job_file, parse_keywords_file
+from app.utils.seo_validator_runner import validate_seo_excel_output
 from app.agents.seo_agent import run_seo_agent
-from app.services.seo_gsc_fetcher import fetch_gsc_for_keywords, get_gsc_site_url_for_client
+from app.services.seo_gsc_fetcher import (
+    fetch_gsc_for_keywords,
+    fetch_gsc_performance_summary,
+    get_gsc_site_url_for_client,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -81,18 +87,18 @@ async def _process_seo_job(
         return
 
     try:
-        with open(input_path, "rb") as f:
-            content = f.read()
-        keywords = parse_keywords_file(content, input_path)
+        keywords = load_keywords_job_file(input_path)
 
         gsc_data: dict = {}
         gsc_site_url: Optional[str] = None
+        gsc_performance: dict = {}
         if user_id and client_slug:
             keyword_texts = [k.get("keyword", "") for k in keywords if k.get("keyword")]
             if keyword_texts:
                 gsc_data, gsc_site_url = await fetch_gsc_for_keywords(
                     user_id, client_slug, keyword_texts, days=90
                 )
+            gsc_performance, _ = await fetch_gsc_performance_summary(user_id, client_slug, days=90)
 
         async def _progress(processed: int, total: int, current_silo: str):
             pct = int(100 * processed / total) if total else 0
@@ -139,18 +145,37 @@ async def _process_seo_job(
                     k.get("priority"),
                 )
 
-        output_path = generate_seo_excel(enriched, brand_name, gsc_site_url=gsc_site_url)
+        output_path = generate_seo_excel(
+            enriched,
+            brand_name,
+            gsc_site_url=gsc_site_url,
+            gsc_performance=gsc_performance if gsc_performance else None,
+        )
+
+        validation = await validate_seo_excel_output(output_path, job_id)
 
         async with pool.acquire() as conn:
             await conn.execute(
                 """
-                UPDATE seo_jobs SET status='ready', progress=100, output_file_path=$1, completed_at=now()
-                WHERE job_id=$2
+                UPDATE seo_jobs SET status='ready', progress=100, output_file_path=$1,
+                    validation_score=$2, completed_at=now()
+                WHERE job_id=$3
                 """,
                 output_path,
+                validation["score"],
                 job_id,
             )
         logger.info("SEO job %s completed: %s", job_id, output_path)
+
+    except ValueError as e:
+        err_msg = str(e)[:2000]
+        logger.warning("SEO job %s validation failed: %s", job_id, err_msg)
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE seo_jobs SET status='failed', error_log=$1, completed_at=now() WHERE job_id=$2",
+                err_msg,
+                job_id,
+            )
 
     except Exception as e:
         import traceback
@@ -197,6 +222,8 @@ async def upload_seo_file(
     arq_pool: ArqRedis = Depends(get_arq_pool),
     current_user: TokenPayload = Depends(get_current_user),
     file: UploadFile = File(...),
+    file_uk: Optional[UploadFile] = File(None),
+    file_de: Optional[UploadFile] = File(None),
     brand_name: str = Form(""),
     domain: str = Form(""),
     audience: str = Form(""),
@@ -239,9 +266,25 @@ async def upload_seo_file(
         raise HTTPException(status_code=400, detail="File too large (max 5MB)")
 
     try:
-        keywords = parse_keywords_file(raw, file.filename or "upload.csv")
+        keywords: List[dict] = parse_keywords_file(raw, file.filename or "upload.csv", market="NL")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+    async def _read_optional_market(f: Optional[UploadFile], market: str) -> None:
+        nonlocal keywords
+        if not f or not f.filename:
+            return
+        data = await f.read()
+        if len(data) > MAX_FILE_SIZE:
+            raise HTTPException(status_code=400, detail=f"Bestand {market} te groot (max 5MB)")
+        try:
+            extra = parse_keywords_file(data, f.filename, market=market)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"{market} export: {e}") from e
+        keywords.extend(extra)
+
+    await _read_optional_market(file_uk, "UK")
+    await _read_optional_market(file_de, "DE")
 
     if len(keywords) > MAX_KEYWORDS:
         raise HTTPException(status_code=400, detail=f"Max {MAX_KEYWORDS} keywords per upload")
@@ -252,9 +295,10 @@ async def upload_seo_file(
     ext = (file.filename or "").lower().split(".")[-1] if "." in (file.filename or "") else "csv"
     if ext not in ("csv", "xlsx", "xls", "numbers"):
         ext = "csv"
-    input_path = os.path.join(out_dir, f"{job_id}_input.{ext}")
-    with open(input_path, "wb") as f:
-        f.write(raw)
+    merged_json = os.path.join(out_dir, f"{job_id}_merged.json")
+    with open(merged_json, "w", encoding="utf-8") as jf:
+        json.dump(keywords, jf, ensure_ascii=False)
+    input_path = merged_json
 
     pool = await init_db_pool()
     if not pool:
@@ -311,7 +355,8 @@ async def get_seo_status(
 
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            "SELECT job_id, status, progress, keyword_count, output_file_path FROM seo_jobs WHERE job_id=$1",
+            "SELECT job_id, status, progress, keyword_count, output_file_path, validation_score "
+            "FROM seo_jobs WHERE job_id=$1",
             job_id,
         )
     if not row:
@@ -333,6 +378,9 @@ async def get_seo_status(
     }
     if status == "ready" and row.get("output_file_path"):
         result["download_url"] = f"/api/seo/download/{job_id}?initiated_by={who}"
+    vs = row.get("validation_score")
+    if vs is not None:
+        result["validation_score"] = vs
     return result
 
 

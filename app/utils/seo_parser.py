@@ -1,9 +1,11 @@
 """
 SEO Keyword CSV/XLSX/Numbers parser — parses Semrush/Ahrefs-style exports into keyword dicts.
 Only keyword column is required; volume, kd, position, cpc, url, intent use aliases and defaults.
+Supports Semrush Page (cluster), Click Potential, SERP Features, and Markt (NL/UK/DE).
 """
 import csv
 import io
+import json
 import logging
 import os
 import tempfile
@@ -30,7 +32,16 @@ COLUMN_ALIASES = {
     ],
     "cpc": ["cpc", "cost per click", "cpc (usd)", "cpc (eur)"],
     "url": [
-        "url", "current url", "landing page", "page", "link", "content idea url",
+        "url", "current url", "landing page", "link", "content idea url",
+    ],
+    "cluster": [
+        "page", "cluster", "keyword cluster", "topic cluster", "semrush page", "content page",
+    ],
+    "click_potential": [
+        "click potential", "click_potential",
+    ],
+    "serp_features_raw": [
+        "serp features", "serp feature", "serp_features",
     ],
     "intent": [
         "intent", "keyword intent", "intents", "keyword intents", "search intent",
@@ -110,7 +121,16 @@ def parse_numbers_file(file_path: str) -> List[Dict[str, Any]]:
     return data
 
 
-def _normalize_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _parse_optional_float(val: Any) -> Optional[float]:
+    if val is None or str(val).strip() == "":
+        return None
+    try:
+        return float(str(val).replace(",", ".").replace("%", "").replace(" ", ""))
+    except (ValueError, TypeError):
+        return None
+
+
+def _normalize_rows(rows: List[Dict[str, Any]], market: str = "NL") -> List[Dict[str, Any]]:
     """Map alias-based columns to standard keys; only keyword required; defaults for missing."""
     if not rows:
         return []
@@ -126,7 +146,14 @@ def _normalize_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     pos_col = find_column(headers, COLUMN_ALIASES["position"])
     cpc_col = find_column(headers, COLUMN_ALIASES["cpc"])
     url_col = find_column(headers, COLUMN_ALIASES["url"])
+    cluster_col = find_column(headers, COLUMN_ALIASES["cluster"])
+    cp_col = find_column(headers, COLUMN_ALIASES["click_potential"])
+    serp_col = find_column(headers, COLUMN_ALIASES["serp_features_raw"])
     intent_col = find_column(headers, COLUMN_ALIASES["intent"])
+
+    mkt = (market or "NL").strip().upper()
+    if mkt not in ("NL", "UK", "DE"):
+        mkt = "NL"
 
     result = []
     for r in rows:
@@ -160,6 +187,11 @@ def _normalize_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
         url = (r.get(url_col) or "").strip() if url_col else ""
         intent = (r.get(intent_col) or "").strip() if intent_col else ""
+        cluster = (r.get(cluster_col) or "").strip() if cluster_col else ""
+        if cluster.lower() in ("nan", "#n/a", "-", "none"):
+            cluster = ""
+        serp_raw = (r.get(serp_col) or "").strip() if serp_col else ""
+        cp_val = _parse_optional_float(r.get(cp_col)) if cp_col else None
 
         result.append({
             "keyword": kw,
@@ -169,21 +201,26 @@ def _normalize_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             "cpc": cpc,
             "current_url": url or None,
             "intent": intent or None,
+            "cluster": cluster or None,
+            "click_potential": cp_val,
+            "serp_features_raw": serp_raw or None,
+            "market": mkt,
         })
     return result
 
 
-def parse_keywords_file(content: bytes, filename: str) -> List[Dict[str, Any]]:
+def parse_keywords_file(content: bytes, filename: str, market: str = "NL") -> List[Dict[str, Any]]:
     """
     Parse CSV, XLSX, or Numbers file into keyword list.
     Only a recognizable keyword column is required; other columns use defaults if missing.
+    ``market`` tags rows as NL / UK / DE for combined plans.
     Raises ValueError on no keyword column or invalid format.
     """
     ext = (filename or "").lower().split(".")[-1] if "." in (filename or "") else ""
     if ext == "csv":
-        return _normalize_rows(parse_csv(content))
+        return _normalize_rows(parse_csv(content), market=market)
     if ext in ("xlsx", "xls"):
-        return _normalize_rows(parse_xlsx(content))
+        return _normalize_rows(parse_xlsx(content), market=market)
     if ext == "numbers":
         tmp_path = None
         try:
@@ -191,7 +228,7 @@ def parse_keywords_file(content: bytes, filename: str) -> List[Dict[str, Any]]:
                 tmp.write(content)
                 tmp_path = tmp.name
             data = parse_numbers_file(tmp_path)
-            return _normalize_rows(data)
+            return _normalize_rows(data, market=market)
         finally:
             if tmp_path and os.path.isfile(tmp_path):
                 try:
@@ -199,3 +236,19 @@ def parse_keywords_file(content: bytes, filename: str) -> List[Dict[str, Any]]:
                 except OSError:
                     pass
     raise ValueError(f"Unsupported file type: .{ext}. Use CSV, XLSX, or Numbers.")
+
+
+def load_keywords_job_file(path: str) -> List[Dict[str, Any]]:
+    """
+    Load keywords from a job input path: merged JSON (multi-market) or CSV/XLSX/Numbers.
+    """
+    lower = path.lower()
+    if lower.endswith(".json"):
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, list):
+            raise ValueError("Keywords JSON must be a list")
+        return data
+    with open(path, "rb") as f:
+        content = f.read()
+    return parse_keywords_file(content, os.path.basename(path), market="NL")
