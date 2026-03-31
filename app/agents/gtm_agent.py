@@ -128,7 +128,17 @@ Job brief: {job_brief}
 Extra context: {json.dumps(context or {}, ensure_ascii=False)}
 
 Lever JSON op met posts per week per kanaal:
-- hook (eerste woorden/zin)
+- topic (verplicht voor blog/editorial items): Generate the topic as 2-3 declarative sentences. Never use a question mark. Never repeat the keyword as the opening phrase. State the argument, the contrast, and the reader outcome explicitly.
+
+Structure:
+1. A clear statement of the argument (not a question)
+2. What the blog argues FOR or AGAINST
+3. What makes this angle different from a generic keyword article
+
+BAD: "Best crypto trading app vs automated investing: what actually grows your wealth?"
+GOOD: "Automated investing consistently outperforms manual crypto trading for long-term wealth growth. This blog argues that the best trading app is the one requiring the least daily intervention. Readers will learn why a set-and-forget bot strategy beats active trading during volatile markets."
+
+- hook (korte social opening: één zin; niet het volledige topic herhalen)
 - body_summary
 - cta
 - best_time
