@@ -40,6 +40,7 @@ const DevbotHome = lazy(() => import('./DevbotHome.jsx'))
 const DaveDevConsole = lazy(() => import('./DaveDevConsole.jsx'))
 const Newbies = lazy(() => import('./Newbies.jsx'))
 const NewbieDetail = lazy(() => import('./NewbieDetail.jsx'))
+const HiringHall = lazy(() => import('./HiringHall.jsx'))
 const Settings = lazy(() => import('./Settings.jsx'))
 const ApiKeys = lazy(() => import('./ApiKeys.jsx'))
 const Integrations = lazy(() => import('./Integrations.jsx'))
@@ -166,6 +167,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
               <Route path="/devbot" element={<DevbotHome />} />
               <Route path="/newbies" element={<Newbies />} />
               <Route path="/newbies/:newbieId" element={<RouteErrorBoundary paramKey="newbieId"><NewbieDetail /></RouteErrorBoundary>} />
+              <Route path="/hiring" element={<HiringHall />} />
               <Route path="/talents" element={<Navigate to="/newbies" replace />} />
               <Route path="/settings" element={<Settings />} />
               <Route path="/settings/users" element={<UsersPage />} />
