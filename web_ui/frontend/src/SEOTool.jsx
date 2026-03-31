@@ -45,6 +45,10 @@ export default function SEOTool() {
   const [keywordsTotal, setKeywordsTotal] = useState(0)
   const [currentSilo, setCurrentSilo] = useState('')
   const [downloadUrl, setDownloadUrl] = useState(null)
+  const [sheetsUrl, setSheetsUrl] = useState(null)
+  const [talentScore, setTalentScore] = useState(null)
+  const [talentStatus, setTalentStatus] = useState(null)
+  const [talentComments, setTalentComments] = useState(null)
   const [error, setError] = useState(null)
   const [history, setHistory] = useState([])
   const fileInputRef = useRef(null)
@@ -125,8 +129,10 @@ export default function SEOTool() {
     queryFn: () => fetchJson(`/api/seo/status/${jobId}`),
     enabled: !!jobId && status !== 'ready' && status !== 'failed',
     refetchInterval: (query) => {
-      const currentStatus = query.state.data?.status || status
-      return currentStatus === 'ready' || currentStatus === 'failed' ? false : 3000
+      if (query.state.status === 'error') return false
+      const s = query.state.data?.status
+      if (s === 'ready' || s === 'failed') return false
+      return 3000
     },
   })
 
@@ -138,6 +144,14 @@ export default function SEOTool() {
     setKeywordsTotal(seoStatusData.keywords_total ?? seoStatusData.keyword_count ?? seoStatusData.total ?? 0)
     if (seoStatusData.status === 'ready' && seoStatusData.download_url) {
       setDownloadUrl(apiUrl(seoStatusData.download_url))
+      setSheetsUrl(seoStatusData.sheets_url ?? null)
+      setTalentScore(
+        seoStatusData.talent_score !== undefined && seoStatusData.talent_score !== null
+          ? seoStatusData.talent_score
+          : null
+      )
+      setTalentStatus(seoStatusData.talent_status ?? null)
+      setTalentComments(seoStatusData.talent_comments ?? null)
       localStorage.removeItem('seo_active_job_id')
       fetchJobHistory()
     }
@@ -235,6 +249,10 @@ export default function SEOTool() {
     setKeywordsProcessed(0)
     setKeywordsTotal(0)
     setDownloadUrl(null)
+    setSheetsUrl(null)
+    setTalentScore(null)
+    setTalentStatus(null)
+    setTalentComments(null)
     setFile(null)
     setFileUk(null)
     setFileDe(null)
@@ -468,7 +486,20 @@ export default function SEOTool() {
                 Download het Excel-bestand met Keyword Plan, Silo-overzicht, Quick Wins, Strategie, Content Gaps,
                 GSC Performance en Markt Expansie (UK/DE).
               </p>
+              {talentScore !== null && (
+                <p>Kwaliteitsscore: <span className="font-semibold">{talentScore}/100</span>{talentStatus ? ` (${talentStatus})` : ''}</p>
+              )}
             </div>
+            {Array.isArray(talentComments?.top_3_acties) && talentComments.top_3_acties.length > 0 && (
+              <div className="mb-6 rounded-lg border border-slate-200 bg-slate-50 p-4">
+                <p className="font-medium text-slate-700 mb-2">Top 3 acties (Talent review)</p>
+                <ul className="list-disc pl-5 text-sm text-slate-600 space-y-1">
+                  {talentComments.top_3_acties.map((actie, i) => (
+                    <li key={i}>{actie}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
             <div className="flex gap-4">
               <button
                 onClick={handleDownload}
@@ -477,6 +508,16 @@ export default function SEOTool() {
                 <Download className="w-5 h-5" />
                 Download Excel
               </button>
+              {sheetsUrl && (
+                <a
+                  href={sheetsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-6 py-3 border border-slate-300 font-medium rounded-lg hover:bg-slate-50"
+                >
+                  📊 Open in Google Sheets
+                </a>
+              )}
               <button
                 onClick={reset}
                 className="px-6 py-3 border border-slate-300 font-medium rounded-lg hover:bg-slate-50"

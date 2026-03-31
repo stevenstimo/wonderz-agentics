@@ -20,10 +20,12 @@ from arq import ArqRedis
 from app.db import init_db_pool
 from app.middleware.auth import TokenPayload, get_current_user
 from app.dependencies import get_arq_pool
+from app.agents.seo_talent_agent import run_seo_talent_review
 from app.utils.seo_excel_generator import generate_seo_excel
 from app.utils.seo_parser import load_keywords_job_file, parse_keywords_file
 from app.utils.seo_validator_runner import validate_seo_excel_output
 from app.agents.seo_agent import run_seo_agent
+from app.services.seo_sheets_exporter import export_seo_to_sheets
 from app.services.seo_gsc_fetcher import (
     fetch_gsc_for_keywords,
     fetch_gsc_performance_summary,
@@ -68,6 +70,32 @@ def _next_job_id() -> str:
     year = datetime.now().strftime("%Y")
     # ASSUMPTION: simple sequential for v1; use DB sequence in production
     return f"SEO-{year}-{uuid.uuid4().hex[:8].upper()}"
+
+
+def _build_silo_summary(keywords: List[dict]) -> List[dict]:
+    silos: dict[str, dict] = {}
+    for k in keywords:
+        silo = str(k.get("silo") or "").strip()
+        if not silo:
+            continue
+        if silo not in silos:
+            silos[silo] = {"silo": silo, "count": 0, "volume": 0, "kd_sum": 0.0}
+        silos[silo]["count"] += 1
+        silos[silo]["volume"] += int(k.get("volume") or 0)
+        silos[silo]["kd_sum"] += float(k.get("kd") or 0.0)
+
+    rows: List[dict] = []
+    for v in silos.values():
+        c = v["count"] or 1
+        rows.append(
+            {
+                "silo": v["silo"],
+                "count": v["count"],
+                "volume": v["volume"],
+                "avg_kd": round(v["kd_sum"] / c, 1),
+            }
+        )
+    return sorted(rows, key=lambda x: x["volume"], reverse=True)
 
 
 async def _process_seo_job(
@@ -153,6 +181,30 @@ async def _process_seo_job(
         )
 
         validation = await validate_seo_excel_output(output_path, job_id)
+
+        # Talent review — niet blocker
+        try:
+            await run_seo_talent_review(
+                keyword_data=enriched,
+                silo_data=_build_silo_summary(enriched),
+                brand_name=brand_name,
+                job_id=job_id,
+            )
+        except Exception as e:
+            logger.warning("[SEO Talent] niet-kritieke fout job %s: %s", job_id, e)
+
+        # Sheets export — optioneel, niet blocker
+        try:
+            await export_seo_to_sheets(
+                excel_path=output_path,
+                brand_name=brand_name,
+                job_id=job_id,
+                user_id=user_id,
+                client_slug=client_slug,
+                db_pool=pool,
+            )
+        except Exception as e:
+            logger.warning("[Sheets Export] niet-kritieke fout job %s: %s", job_id, e)
 
         async with pool.acquire() as conn:
             await conn.execute(
@@ -381,6 +433,10 @@ async def get_seo_status(
     vs = row.get("validation_score")
     if vs is not None:
         result["validation_score"] = vs
+    result["talent_score"] = None
+    result["talent_status"] = None
+    result["talent_comments"] = None
+    result["sheets_url"] = None
     return result
 
 
