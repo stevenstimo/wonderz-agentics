@@ -9,6 +9,9 @@ Only use documented exe.dev features (see https://exe.dev/docs.md). Undocumented
 
 Voer ~/commit.sh nooit zelf uit; dit doet de gebruiker altijd handmatig.
 
+## Bestandsveiligheid (repo)
+Voer nooit `rm`, `unlink` of handmatige verwijdering uit zonder eerst `git status` te checken. Verwijder getrackte bestanden via **`git rm`** zodat het in een commit staat. Lokaal verwijderd maar niet gecommit breekt de backend (o.a. `app.main` ontbreekt) bij herstart. Geldt ook voor tijdelijke scripts of gegenereerde files in de werkdirectory.
+
 ## Skills
 A skill is a set of local instructions to follow that is stored in a `SKILL.md` file. Below is the list of skills that can be used. Each entry includes a name, description, and file path so you can open the source for full instructions when using a specific skill.
 ### Available skills

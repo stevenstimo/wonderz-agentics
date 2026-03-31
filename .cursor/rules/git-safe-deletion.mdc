@@ -1,0 +1,13 @@
+---
+description: Never remove tracked files with rm/unlink without git awareness; use git rm so deletions are committed.
+alwaysApply: true
+---
+
+# Veilig verwijderen (Wonderz Agentics)
+
+- Voer **nooit** `rm`, `unlink` of andere **handmatige bestandsverwijdering** uit op bestanden in de repo **zonder eerst `git status`** te raadplegen.
+- Moet een **getrackt** bestand weg: gebruik **`git rm <pad>`** (of verwijder via de editor en commit), zodat de verwijdering **in een commit** staat en zichtbaar is voor iedereen.
+- Bestanden die **lokaal wel verdwenen zijn maar niet gecommit**, blijven in git als aanwezig: bij de **volgende deploy of `git restore`** of een schone clone lijkt alles goed, maar op de VM met een **crashende workspace** (bv. ontbrekende `app/main.py`) **`uvicorn` faalt** → **502 Bad Gateway**.
+- Idem voor **tijdelijke scripts** of **gegenereerde** bestanden die onder de projectroot belanden: niet met `rm` wegvagen tenzij je weet dat ze **untracked** zijn; check `git status`. Voor tracked noise: `.gitignore` + `git rm --cached` indien nodig.
+
+**Workflow:** `git status` → alleen untracked opruimen met `rm` als bewust → tracked wijzigingen altijd via git.
