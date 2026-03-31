@@ -1434,72 +1434,85 @@ async def run_data_pipeline(job_id: str) -> None:
             "volledigheid": result.get("volledigheid"),
             "volgende_actie": result.get("volgende_actie"),
         }
-        raw_query = str(query_params.get("raw_query") or "").lower()
-        is_comparison_query = (
-            ("organisch" in raw_query and "paid" in raw_query)
-            or "vs" in raw_query
-            or "vergelijk" in raw_query
-        )
-        should_run_analysis = preset_id == "analytics-comparison" or (not preset_id and is_comparison_query)
-
         final_content = format_data_output(proposed_data)
         analysis_payload: dict[str, Any] | None = None
-        fetched_data: dict[str, Any] | None = None
-        if should_run_analysis:
-            from app.agents.analysis_agent import run_analysis
-            from app.services.credential_resolver import get_all_active_integrations
+        fetched_data: dict[str, Any] = {"gsc": proposed_data}
+        synthesis_result: dict[str, Any] | None = None
+        from app.agents.analysis_agent import run_analysis, run_universal_synthesis
+        from app.services.credential_resolver import get_all_active_integrations
 
-            available_integrations: list[str] = []
-            missing_integrations: list[str] = []
-            integration_map = {"google_search_console": "gsc", "google_ads": "google_ads", "ga4": "ga4"}
-            async with pool.acquire() as conn:
-                all_integ = await get_all_active_integrations(
-                    conn, client_slug or "", user_id
-                )
-            active_types = set(all_integ.keys())
-            for integ_type, canonical in integration_map.items():
-                if integ_type in active_types:
-                    available_integrations.append(canonical)
-                else:
-                    missing_integrations.append(canonical)
-
-            fetched_data = {"gsc": proposed_data}
-            if "google_ads" in available_integrations:
-                from app.services.ads_fetcher import fetch_ads_data_for_client
-
-                async with pool.acquire() as ads_conn:
-                    ads_result = await fetch_ads_data_for_client(
-                        db=ads_conn,
-                        client_slug=client_slug or "",
-                        user_id=user_id,
-                        date_range_days=28,
-                    )
-                if ads_result["available"]:
-                    fetched_data["google_ads"] = ads_result["data"]
-                    logger.info(
-                        "run_data_pipeline: Google Ads data toegevoegd aan fetched_data job=%s",
-                        job_id,
-                    )
-                else:
-                    fetched_data["google_ads"] = {
-                        "available": False,
-                        "reason": ads_result["reason"],
-                    }
-                    logger.info(
-                        "run_data_pipeline: Google Ads niet beschikbaar job=%s reden=%s",
-                        job_id,
-                        ads_result["reason"],
-                    )
-
-            analysis_payload = await run_analysis(
-                job_id=job_id,
-                client_name=str(client_slug or "onbekende klant"),
-                raw_data=fetched_data,
-                available_integrations=available_integrations,
-                missing_integrations=missing_integrations,
-                original_question=str(query_params.get("raw_query") or ""),
+        available_integrations: list[str] = []
+        missing_integrations: list[str] = []
+        integration_map = {"google_search_console": "gsc", "google_ads": "google_ads", "ga4": "ga4"}
+        async with pool.acquire() as conn:
+            all_integ = await get_all_active_integrations(
+                conn, client_slug or "", user_id
             )
-            final_content = str(analysis_payload.get("analysis") or final_content)
+        active_types = set(all_integ.keys())
+        for integ_type, canonical in integration_map.items():
+            if integ_type in active_types:
+                available_integrations.append(canonical)
+            else:
+                missing_integrations.append(canonical)
+
+        job_post = str(job.get("job_post") or query_params.get("raw_query") or "")
+        client_name = str(context.get("client_name") or client_slug or "")
+        is_comparison = preset_id == "analytics-comparison"
+        if is_comparison and "google_ads" in available_integrations:
+            from app.services.ads_fetcher import fetch_ads_data_for_client
+
+            async with pool.acquire() as ads_conn:
+                ads_result = await fetch_ads_data_for_client(
+                    db=ads_conn,
+                    client_slug=client_slug or "",
+                    user_id=user_id,
+                    date_range_days=28,
+                )
+            if ads_result["available"]:
+                fetched_data["google_ads"] = ads_result["data"]
+                logger.info(
+                    "run_data_pipeline: Google Ads data toegevoegd aan fetched_data job=%s",
+                    job_id,
+                )
+            else:
+                fetched_data["google_ads"] = {
+                    "available": False,
+                    "reason": ads_result["reason"],
+                }
+                logger.info(
+                    "run_data_pipeline: Google Ads niet beschikbaar job=%s reden=%s",
+                    job_id,
+                    ads_result["reason"],
+                )
+
+        if is_comparison:
+            synthesis_result = await run_analysis(
+                job_id=job_id,
+                client_name=client_name,
+                raw_data=fetched_data,
+                available_integrations=available_integrations or [],
+                missing_integrations=missing_integrations or [],
+                original_question=job_post,
+            )
+        else:
+            synthesis_result = await run_universal_synthesis(
+                job_id=job_id,
+                original_question=job_post,
+                client_name=client_name,
+                raw_data=fetched_data,
+                available_integrations=available_integrations or [],
+                missing_integrations=missing_integrations or [],
+            )
+
+        if synthesis_result.get("status") == "completed" and synthesis_result.get("analysis"):
+            analysis_payload = synthesis_result
+            final_content = str(synthesis_result.get("analysis") or final_content)
+        else:
+            logger.warning(
+                "run_data_pipeline: synthese faalde voor job %s, fallback naar ruwe data: %s",
+                job_id,
+                synthesis_result.get("error") if isinstance(synthesis_result, dict) else "onbekend",
+            )
 
         async with pool.acquire() as conn:
             await _update_job_context(conn, job_id, {
@@ -1511,11 +1524,16 @@ async def run_data_pipeline(job_id: str) -> None:
                 "preset_id": preset_id or None,
             })
             await conn.execute(
-                "UPDATE jobs SET status = $1, updated_at = now() WHERE id = $2",
+                "UPDATE jobs SET status = $1, tokens_used = COALESCE(tokens_used, 0) + $2, updated_at = now() WHERE id = $3",
                 JobStatus.JOB_READY.value,
+                int((analysis_payload or {}).get("token_usage", {}).get("input", 0) or 0)
+                + int((analysis_payload or {}).get("token_usage", {}).get("output", 0) or 0),
                 job_id,
             )
-        logger.info("run_data_pipeline: job %s set to JOB_READY (DataAgent)", job_id)
+        logger.info(
+            "run_data_pipeline: job %s set to JOB_READY met synthese (preset=%s)",
+            job_id, preset_id or "universal",
+        )
     except Exception as e:
         logger.exception("run_data_pipeline failed for job %s: %s", job_id, e)
 

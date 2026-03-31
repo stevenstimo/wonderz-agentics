@@ -4,7 +4,11 @@ Analysis Agent - synthese van ruwe kanaaldata naar kwalitatieve vergelijking.
 
 from __future__ import annotations
 
+import json
+import logging
 from typing import Any, Dict, List
+
+logger = logging.getLogger(__name__)
 
 
 def _fmt_num(value: Any) -> str:
@@ -111,3 +115,107 @@ async def run_analysis(
         "token_usage": {"input": 0, "output": 0},
         "job_id": job_id,
     }
+
+
+UNIVERSAL_SYNTHESIS_PROMPT = """
+Je bent Harvey Specter, Analysis Agent binnen Wonderz Agentics.
+Je taak: de originele vraag van de gebruiker beantwoorden op basis van de beschikbare data.
+
+REGELS:
+1. Lees de originele vraag goed. Beantwoord precies wat gevraagd wordt.
+2. Gebruik de beschikbare data als basis. Geen claims zonder datapunt.
+3. Als de data niet volledig is: zeg wat je WEL kunt beantwoorden en wat ontbreekt.
+4. Schrijf in het Nederlands, direct en bondig.
+5. Gebruik tabellen waar dat verduidelijkt - altijd met een inleidende zin.
+6. Eindig met een concrete observatie die direct voortkomt uit de data.
+7. Nooit generieke fallback-tekst. Altijd specifiek voor deze vraag en data.
+
+OUTPUTSTRUCTUUR (pas aan op de vraag):
+- Begin met directe beantwoording (1-2 zinnen)
+- Toon de relevante data gestructureerd (tabel, lijst, of proza - wat past)
+- Sluit af met een observatie of aanbeveling
+
+RICHTLIJNEN PER VRAAGTYPE:
+- Vergelijking tussen kanalen: gebruik Gevonden/Vergelijking/Conclusie/Aanbeveling format
+- Overzicht of rapport: gebruik een tabel met uitleg
+- Specifiek getal of feit: geef dat direct, dan context
+"""
+
+
+async def run_universal_synthesis(
+    job_id: str,
+    original_question: str,
+    client_name: str,
+    raw_data: Dict[str, Any],
+    available_integrations: List[str],
+    missing_integrations: List[str],
+) -> Dict[str, Any]:
+    """
+    Universele synthese voor elke data-job.
+    Beantwoordt de originele vraag op basis van de beschikbare data.
+    """
+    try:
+        import anthropic
+    except Exception as e:
+        logger.error("UniversalSynthesis anthropic import fout voor job %s: %s", job_id, e)
+        return {"status": "error", "error": f"anthropic import error: {e}", "analysis": None}
+    client = anthropic.AsyncAnthropic()
+
+    data_context_parts: List[str] = []
+    for integration, data in (raw_data or {}).items():
+        if isinstance(data, dict) and data.get("available") is False:
+            reden_map = {
+                "no_credentials": "koppeling niet actief",
+                "token_error": "OAuth token verlopen of ongeldig",
+                "no_campaigns": "geen actieve campagnes gevonden",
+                "api_error": "API fout bij ophalen",
+            }
+            reden = reden_map.get(str(data.get("reason", "")), "onbekende reden")
+            data_context_parts.append(
+                f"**{str(integration).upper()} data:** Niet beschikbaar - {reden}."
+            )
+        elif data:
+            data_context_parts.append(
+                f"**{str(integration).upper()} data:**\n{json.dumps(data, indent=2, ensure_ascii=False)}"
+            )
+
+    for missing in (missing_integrations or []):
+        data_context_parts.append(
+            f"**{str(missing).upper()} data:** Niet beschikbaar - koppeling niet actief."
+        )
+
+    data_context = "\n\n".join(data_context_parts) if data_context_parts else "Geen data beschikbaar."
+    user_message = f"""
+Originele vraag: "{original_question}"
+Klant: {client_name}
+Job ID: {job_id}
+
+Beschikbare data:
+{data_context}
+
+Beantwoord de vraag op basis van de beschikbare data.
+"""
+
+    try:
+        response = await client.messages.create(
+            model="claude-sonnet-4-5-20250929",
+            max_tokens=2000,
+            system=UNIVERSAL_SYNTHESIS_PROMPT,
+            messages=[{"role": "user", "content": user_message}],
+        )
+        text = ""
+        if getattr(response, "content", None):
+            text = getattr(response.content[0], "text", "") or ""
+        usage = getattr(response, "usage", None)
+        input_tokens = int(getattr(usage, "input_tokens", 0) or 0)
+        output_tokens = int(getattr(usage, "output_tokens", 0) or 0)
+        return {
+            "status": "completed",
+            "analysis": text,
+            "available_integrations": available_integrations,
+            "missing_integrations": missing_integrations,
+            "token_usage": {"input": input_tokens, "output": output_tokens},
+        }
+    except Exception as e:
+        logger.error("UniversalSynthesis fout voor job %s: %s", job_id, e)
+        return {"status": "error", "error": str(e), "analysis": None}

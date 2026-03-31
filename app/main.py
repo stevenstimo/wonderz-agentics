@@ -194,6 +194,7 @@ from app.routes import (
     seo_upload,
     alex_dev,
     admin,
+    skills_judson,
     skills,
     skill_registry,
     skill_factory,
@@ -238,6 +239,7 @@ app.include_router(alex_dev.router)
 app.include_router(admin.router)
 app.include_router(auth.router)
 app.include_router(users.router)
+app.include_router(skills_judson.router)
 app.include_router(skills.router)
 app.include_router(skill_registry.router)
 app.include_router(skill_factory.router)
