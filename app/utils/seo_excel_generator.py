@@ -372,38 +372,65 @@ def _pick_pillar_page(keywords_in_silo: List[Dict[str, Any]]) -> Dict[str, Any]:
     return max(keywords_in_silo, key=lambda x: int(x.get("volume") or 0))
 
 
+_COMPETITOR_JSON_KEY_RE = re.compile(
+    r'"((?:[a-z0-9](?:[a-z0-9.-]*))\.(?:[a-z]{2,}))"\s*:\s*"https?:',
+    re.I,
+)
+
+
 def _normalize_competitor_token(part: str) -> str:
-    p = part.strip()
+    p = (part or "").strip()
     if not p:
         return ""
+    m = _COMPETITOR_JSON_KEY_RE.search(p)
+    if m:
+        return m.group(1).strip().lower()[:120]
     p = re.sub(r"^https?://", "", p, flags=re.I)
     p = p.split("/")[0].strip()
-    return p[:120]
+    p = re.sub(r'^[\s"\',{\[]+|[\s"\',}\]]+$', "", p)
+    if re.fullmatch(r"[a-z0-9](?:[a-z0-9.-]*\.)+[a-z]{2,}", p, re.I):
+        return p.lower()[:120]
+    return (p[:120] or "").lower() if p else ""
 
 
 def _competitor_tokens_from_cell(cell: Optional[str]) -> List[str]:
     if not cell or not str(cell).strip():
         return []
     s = str(cell).strip()
+
     if s.startswith("{") and "}" in s:
-        try:
-            obj = json.loads(s)
+        for candidate in (s, s.replace('""', '"')):
+            try:
+                obj = json.loads(candidate)
+            except (json.JSONDecodeError, TypeError, ValueError):
+                obj = None
             if isinstance(obj, dict):
                 out: List[str] = []
                 for k in obj.keys():
                     t = _normalize_competitor_token(str(k).strip())
                     if t:
                         out.append(t)
-                return out
-        except (json.JSONDecodeError, TypeError, ValueError):
-            pass
+                if out:
+                    return out
+
+    seen: set[str] = set()
+    out_list: List[str] = []
+    for m in _COMPETITOR_JSON_KEY_RE.finditer(s):
+        d = m.group(1).strip().lower()
+        if d and d not in seen:
+            seen.add(d)
+            out_list.append(d)
+    if out_list:
+        return out_list
+
+    seen_legacy: set[str] = set()
     parts = re.split(r"[,;\n|]+", s)
-    out = []
     for p in parts:
         t = _normalize_competitor_token(p)
-        if t:
-            out.append(t)
-    return out
+        if t and t not in seen_legacy:
+            seen_legacy.add(t)
+            out_list.append(t)
+    return out_list
 
 
 def _cell_mentions_competitor(cell: Optional[str], token: str) -> bool:
