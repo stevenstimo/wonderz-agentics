@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from datetime import date, timedelta
 from typing import Any, Optional
 
 from arq import create_pool as arq_create_pool
@@ -173,6 +174,114 @@ async def run_job_pipeline(ctx: dict[str, Any], job_id: str) -> None:
     """Backward-compatible ARQ name for the same NEXUS pipeline task."""
 
     await _run_nexus_pipeline_arq(ctx, job_id)
+
+
+async def backfill_gsc_client(ctx: dict[str, Any], client_slug: str, months: int = 12) -> dict[str, Any]:
+    """
+    Haalt historische/recente GSC data op voor een client en slaat op in gsc_data_store.
+    """
+    from app.services.gsc_store import get_missing_dates, upsert_gsc_rows, log_sync_failed
+    from app.services.credential_resolver import get_credentials
+    from app.services.dashboard import get_valid_access_token
+    from app.services.seo_gsc_fetcher import fetch_gsc_page_data_for_period
+
+    logger.info("[ARQ] backfill_gsc_client gestart: client=%s months=%d", client_slug, months)
+    db_pool = ctx["db_pool"]
+    end_date = date.today() - timedelta(days=3)
+    start_date = end_date - timedelta(days=max(months, 0) * 30)
+
+    async with db_pool.acquire() as conn:
+        cred = await get_credentials(conn, client_slug, "google_search_console")
+        if not cred:
+            logger.warning("[ARQ] backfill_gsc_client: geen GSC credentials voor client=%s", client_slug)
+            return {"status": "no_credentials"}
+        extra_config = cred.get("extra_config") or {}
+        if isinstance(extra_config, str):
+            try:
+                extra_config = json.loads(extra_config)
+            except Exception:
+                extra_config = {}
+        site_url = (str((extra_config or {}).get("site_url") or "")).strip()
+        if not site_url:
+            logger.warning("[ARQ] backfill_gsc_client: geen site_url voor client=%s", client_slug)
+            return {"status": "no_site_url"}
+        missing = await get_missing_dates(conn, client_slug, start_date, end_date)
+        logger.info("[ARQ] backfill_gsc_client: %d datums te fetchen voor client=%s", len(missing), client_slug)
+        if not missing:
+            return {"status": "already_synced", "inserted": 0, "failed": 0}
+        user_id = str(cred.get("user_id") or "")
+
+    total_inserted = 0
+    total_failed = 0
+    missing_sorted = sorted(missing)
+    batch_size = 90
+    for i in range(0, len(missing_sorted), batch_size):
+        batch = missing_sorted[i:i + batch_size]
+        batch_start = batch[0]
+        batch_end = batch[-1]
+        try:
+            async with db_pool.acquire() as conn:
+                access_token = await get_valid_access_token(
+                    conn,
+                    user_id=user_id,
+                    client_slug=client_slug,
+                    integration_type="google_search_console",
+                )
+            if not access_token:
+                logger.warning("[ARQ] backfill: geen token voor client=%s", client_slug)
+                break
+            rows = await fetch_gsc_page_data_for_period(
+                access_token=access_token,
+                site_url=site_url,
+                start_date=batch_start,
+                end_date=batch_end,
+            )
+            async with db_pool.acquire() as conn:
+                for day in batch:
+                    day_rows = [r for r in rows if r.get("date") == str(day)]
+                    result = await upsert_gsc_rows(conn, client_slug, day, day_rows, site_url)
+                    total_inserted += int(result.get("inserted", 0))
+        except Exception as e:
+            logger.error(
+                "[ARQ] backfill: fout voor client=%s batch=%s-%s: %s",
+                client_slug, batch_start, batch_end, e,
+            )
+            async with db_pool.acquire() as conn:
+                for day in batch:
+                    await log_sync_failed(conn, client_slug, day, str(e))
+            total_failed += len(batch)
+
+    logger.info(
+        "[ARQ] backfill_gsc_client voltooid: client=%s inserted=%d failed=%d",
+        client_slug, total_inserted, total_failed,
+    )
+    return {"status": "completed", "inserted": total_inserted, "failed": total_failed}
+
+
+async def sync_gsc_yesterday(ctx: dict[str, Any]) -> dict[str, Any]:
+    """
+    Dagelijkse sync: haalt ontbrekende data voor gisteren op voor alle actieve GSC koppelingen.
+    """
+    db_pool = ctx["db_pool"]
+    async with db_pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT DISTINCT client_slug FROM client_integrations
+            WHERE integration_type = 'google_search_console'
+              AND client_slug IS NOT NULL
+            """
+        )
+    client_slugs = [row["client_slug"] for row in rows if row.get("client_slug")]
+    logger.info("[ARQ] sync_gsc_yesterday: %d clients te synchroniseren", len(client_slugs))
+    results: list[dict[str, Any]] = []
+    for slug in client_slugs:
+        try:
+            result = await backfill_gsc_client(ctx, client_slug=slug, months=0)
+            results.append({"client": slug, "status": result.get("status")})
+        except Exception as e:
+            logger.error("[ARQ] sync_gsc_yesterday: fout voor client=%s: %s", slug, e)
+            results.append({"client": slug, "status": "error", "error": str(e)})
+    return {"synced": len(results), "results": results}
 
 
 # -----------------------
@@ -688,6 +797,8 @@ class WorkerSettings:
         run_job_inline,
         run_nexus_pipeline,
         run_job_pipeline,
+        backfill_gsc_client,
+        sync_gsc_yesterday,
         start_agent_training,
         insert_hr_suggestion_into_knowledge_library,
         _run_training_background,
@@ -709,6 +820,12 @@ class WorkerSettings:
             run_gsc_performance_check,
             weekday={0},
             hour=6,
+            minute=0,
+            run_at_startup=False,
+        ),
+        cron(
+            sync_gsc_yesterday,
+            hour=4,
             minute=0,
             run_at_startup=False,
         ),

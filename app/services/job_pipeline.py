@@ -5,10 +5,13 @@ import os
 import re
 import time
 import uuid
+from datetime import date, timedelta
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import quote
 from typing import Any, Dict, List, Optional, Tuple
 
+from arq import create_pool as arq_create_pool
+from arq.connections import RedisSettings
 from app.core.config import DEFAULT_MODEL
 from app.db import init_db_pool
 from app.database import get_db
@@ -1393,10 +1396,15 @@ async def _insert_plan_steps(conn, job_id: str, plan: ExecutionPlan):
 
 async def run_data_pipeline(job_id: str) -> None:
     """
-    Data-query pipeline: load context, run DataAgent (GSC/client_knowledge), set proposed_data and JOB_READY.
-    GSC service is initialised via existing OAuth (get_gsc_service).
+    Data-query pipeline: load context, read GSC data from store, synthesise answer, set JOB_READY.
     """
-    from app.agents.data_agent import DataAgent
+    from app.agents.analysis_agent import run_analysis, run_universal_synthesis
+    from app.services.credential_resolver import get_all_active_integrations
+    from app.services.gsc_store import (
+        get_missing_dates,
+        get_store_coverage,
+        query_gsc_store,
+    )
 
     pool = await _get_pool()
     if not pool:
@@ -1424,22 +1432,64 @@ async def run_data_pipeline(job_id: str) -> None:
 
         user_id = str(job.get("user_id") or "")
         client_slug = context.get("client_slug") or query_params.get("client_slug")
-        gsc_service = await get_gsc_service(pool, user_id, client_slug)
-        agent = DataAgent(db=pool, gsc_service=gsc_service, analytics_service=None)
-        result = await agent.execute(job_id, query_params)
+        raw_query = str(query_params.get("raw_query") or job.get("job_post") or "").lower()
+        months_match = re.search(r"(\d+)\s*maand", raw_query)
+        days = 28
+        if months_match:
+            days = max(7, min(365, int(months_match.group(1)) * 30))
+
+        end_date = date.today() - timedelta(days=3)
+        start_date = end_date - timedelta(days=days)
+        async with pool.acquire() as conn:
+            coverage = await get_store_coverage(conn, client_slug or "")
+            missing = await get_missing_dates(conn, client_slug or "", start_date, end_date)
+            gsc_rows = await query_gsc_store(
+                conn, client_slug or "", start_date, end_date, group_by="page"
+            )
+
+        if missing and client_slug:
+            logger.info(
+                "job_pipeline: %d datums ontbreken in store voor client=%s, trigger sync",
+                len(missing),
+                client_slug,
+            )
+            try:
+                redis_settings = RedisSettings.from_dsn(
+                    os.environ.get("REDIS_URL", "redis://localhost:6379")
+                )
+                arq_pool = await arq_create_pool(redis_settings)
+                try:
+                    await arq_pool.enqueue_job("backfill_gsc_client", client_slug, 1)
+                finally:
+                    await arq_pool.close()
+            except Exception as e:
+                logger.warning("job_pipeline: kon backfill job niet enqueuen: %s", e)
 
         proposed_data = {
-            "gevonden": result.get("gevonden"),
-            "resultaat": result.get("resultaat", []),
-            "volledigheid": result.get("volledigheid"),
-            "volgende_actie": result.get("volgende_actie"),
+            "gevonden": (
+                f"{len(gsc_rows)} pagina's uit store"
+                if gsc_rows
+                else "Geen GSC store data in deze periode"
+            ),
+            "resultaat": gsc_rows,
+            "volledigheid": (
+                f"{len(missing)} ontbrekende dag(en)"
+                if missing
+                else "Volledig voor geselecteerde periode"
+            ),
+            "volgende_actie": (
+                "Store sync loopt voor ontbrekende dagen."
+                if missing
+                else "Geen actie nodig; store-data compleet."
+            ),
+            "period": {"start": str(start_date), "end": str(end_date)},
+            "coverage": coverage,
+            "missing_days": len(missing),
         }
         final_content = format_data_output(proposed_data)
         analysis_payload: dict[str, Any] | None = None
-        fetched_data: dict[str, Any] = {"gsc": proposed_data}
+        fetched_data: dict[str, Any] = {"gsc": proposed_data, "store_coverage": coverage}
         synthesis_result: dict[str, Any] | None = None
-        from app.agents.analysis_agent import run_analysis, run_universal_synthesis
-        from app.services.credential_resolver import get_all_active_integrations
 
         available_integrations: list[str] = []
         missing_integrations: list[str] = []

@@ -7,7 +7,7 @@ On missing config or API errors, returns {} so the SEO job continues without GSC
 import json
 import logging
 import urllib.parse
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -375,3 +375,55 @@ async def fetch_gsc_performance_summary(
     except Exception as e:
         logger.warning("fetch_gsc_performance_summary: %s", e)
         return {}, None
+
+
+async def fetch_gsc_page_data_for_period(
+    access_token: str,
+    site_url: str,
+    start_date: date,
+    end_date: date,
+) -> list[dict[str, Any]]:
+    """
+    Fetch dagelijkse GSC page/query rows voor een periode.
+    Returns rows with keys: date, page, query, clicks, impressions, ctr, position.
+    """
+    if not access_token or not site_url:
+        return []
+    site_encoded = urllib.parse.quote(site_url, safe="")
+    api_url = f"{GSC_BASE_URL}/sites/{site_encoded}/searchAnalytics/query"
+    headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
+    payload = {
+        "startDate": start_date.isoformat(),
+        "endDate": end_date.isoformat(),
+        "dimensions": ["date", "page", "query"],
+        "rowLimit": 25000,
+    }
+    rows_out: list[dict[str, Any]] = []
+    async with httpx.AsyncClient(timeout=90.0) as client:
+        res = await client.post(api_url, headers=headers, json=payload)
+        if res.status_code != 200:
+            logger.warning(
+                "fetch_gsc_page_data_for_period: GSC API error status=%s body=%s",
+                res.status_code,
+                (res.text or "")[:300],
+            )
+            return []
+        for row in res.json().get("rows", []) or []:
+            keys = row.get("keys", []) or []
+            day = keys[0] if len(keys) > 0 else None
+            page = keys[1] if len(keys) > 1 else ""
+            query = keys[2] if len(keys) > 2 else None
+            if not day or not page:
+                continue
+            rows_out.append(
+                {
+                    "date": str(day),
+                    "page": str(page),
+                    "query": str(query) if query else None,
+                    "clicks": int(row.get("clicks", 0) or 0),
+                    "impressions": int(row.get("impressions", 0) or 0),
+                    "ctr": float(row.get("ctr", 0) or 0),
+                    "position": float(row.get("position", 0) or 0),
+                }
+            )
+    return rows_out

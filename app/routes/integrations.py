@@ -15,7 +15,7 @@ from typing import Optional
 from urllib.parse import urlencode
 
 import httpx
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field, field_validator
 
@@ -334,7 +334,11 @@ def _oauth_redirect_url(
 
 
 @router.get("/google/callback")
-async def google_oauth_callback(code: Optional[str] = None, state: Optional[str] = None):
+async def google_oauth_callback(
+    request: Request,
+    code: Optional[str] = None,
+    state: Optional[str] = None,
+):
     """OAuth callback from Google. Exchange code for tokens, store for ga4/google_ads/gsc, redirect to client-specific integrations page."""
     frontend_base = os.getenv("FRONTEND_BASE_URL", "https://wonderz-agentic.exe.xyz")
 
@@ -560,6 +564,10 @@ async def google_oauth_callback(code: Optional[str] = None, state: Optional[str]
                         client_slug,
                     )
                 logger.info("GSC site_url saved for user_id=%s client_slug=%s: %s", user_id, client_slug, primary_url)
+                arq_pool = getattr(request.app.state, "arq_pool", None)
+                if arq_pool:
+                    await arq_pool.enqueue_job("backfill_gsc_client", client_slug)
+                    logger.info("integrations: GSC backfill job aangemaakt voor client=%s", client_slug)
         except Exception as e:
             logger.warning("GSC site_url ophalen mislukt (niet fataal): %s", e)
 
