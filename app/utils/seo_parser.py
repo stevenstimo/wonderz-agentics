@@ -148,6 +148,33 @@ def _parse_optional_float(val: Any) -> Optional[float]:
         return None
 
 
+def _parse_trend_monthly_from_cell(raw: str) -> List[float]:
+    """
+    Semrush Trend-cel: komma-/puntkomma-gescheiden relatieve maandwaarden (bijv. 0.55,0.55,1.00,...).
+    Alleen gebruikt als er geen aparte maandkolommen zijn.
+    """
+    if not raw or not str(raw).strip():
+        return []
+    s = str(raw).strip()
+    if s.lower() in ("nan", "-", "#n/a"):
+        return []
+    parts = re.split(r"[,;]+", s)
+    out: List[float] = []
+    for p in parts:
+        t = p.strip()
+        if not t:
+            continue
+        if "," in t and "." not in t:
+            t = t.replace(",", ".")
+        else:
+            t = t.replace(",", "").replace(" ", "")
+        try:
+            out.append(float(t))
+        except (ValueError, TypeError):
+            continue
+    return out
+
+
 def _monthly_volume_columns(headers: List[str]) -> List[str]:
     """Detect Semrush-style monthly search volume column headers."""
     found = []
@@ -241,6 +268,11 @@ def _normalize_rows(rows: List[Dict[str, Any]], market: str = "NL") -> List[Dict
                     trend_monthly.append(float(str(v).replace(",", "").replace(" ", "")))
                 except (ValueError, TypeError):
                     trend_monthly.append(0.0)
+
+        if len(trend_monthly) < 3 and trend_raw:
+            parsed = _parse_trend_monthly_from_cell(trend_raw)
+            if len(parsed) >= 3:
+                trend_monthly = parsed
 
         result.append({
             "keyword": kw,

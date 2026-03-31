@@ -2,6 +2,7 @@
 SEO Plan Excel generator — Keyword Plan, Silo, Quick Wins, Strategie, Content Gaps,
 GSC Performance, Markt Expansie, Interne Links, Concurrent Analyse, Legenda (openpyxl).
 """
+import json
 import logging
 import os
 import re
@@ -383,8 +384,21 @@ def _normalize_competitor_token(part: str) -> str:
 def _competitor_tokens_from_cell(cell: Optional[str]) -> List[str]:
     if not cell or not str(cell).strip():
         return []
-    parts = re.split(r"[,;\n|]+", str(cell))
-    out: List[str] = []
+    s = str(cell).strip()
+    if s.startswith("{") and "}" in s:
+        try:
+            obj = json.loads(s)
+            if isinstance(obj, dict):
+                out: List[str] = []
+                for k in obj.keys():
+                    t = _normalize_competitor_token(str(k).strip())
+                    if t:
+                        out.append(t)
+                return out
+        except (json.JSONDecodeError, TypeError, ValueError):
+            pass
+    parts = re.split(r"[,;\n|]+", s)
+    out = []
     for p in parts:
         t = _normalize_competitor_token(p)
         if t:
@@ -398,17 +412,13 @@ def _cell_mentions_competitor(cell: Optional[str], token: str) -> bool:
     return token.lower() in (cell or "").lower()
 
 
-def _competitor_approach_text(shared: int, silo_n: int, refs_sample: str) -> str:
+def _competitor_approach_text(shared: int, silo_n: int) -> str:
     thresh = max(4, silo_n // 3) if silo_n else 4
     if shared >= thresh:
-        strat = "Differentiëren"
-    elif shared >= 2:
-        strat = "Aanvallen"
-    else:
-        strat = "Volgen"
-    if refs_sample:
-        return f"{strat} — Content references: {refs_sample[:320]}"
-    return strat
+        return "Differentiëren"
+    if shared >= 2:
+        return "Aanvallen"
+    return "Volgen"
 
 
 def _write_internal_links_sheet(wb: openpyxl.Workbook, keywords: List[Dict[str, Any]]) -> None:
@@ -510,13 +520,7 @@ def _write_competitor_analysis_sheet(wb: openpyxl.Workbook, keywords: List[Dict[
             gap_val: Any = ""
             if matched:
                 gap_val = round(avg_m - avg_silo_kd, 1)
-            refs_bits: List[str] = []
-            for k in matched:
-                cr = (k.get("content_references") or "").strip()
-                if cr and cr not in refs_bits:
-                    refs_bits.append(cr[:450])
-            refs_joined = " | ".join(refs_bits[:3])
-            approach = _competitor_approach_text(shared, n_silo, refs_joined)
+            approach = _competitor_approach_text(shared, n_silo)
 
             ws.cell(row=row, column=1, value=silo)
             ws.cell(row=row, column=2, value=token)

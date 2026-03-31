@@ -7,6 +7,8 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
+from app.utils.seo_parser import _parse_trend_monthly_from_cell
+
 # Exact / substring overrides (keyword lower)
 SILO_MAP: Dict[str, str] = {
     "verzekering huurauto buitenland": "Huurauto Verzekeringen",
@@ -234,6 +236,12 @@ def map_trend_from_raw(raw: Any) -> str:
 
 def derive_trend_for_keyword(k: Dict[str, Any]) -> str:
     vols = k.get("trend_monthly_volumes")
+    if not vols or len(vols) < 3:
+        raw = k.get("trend_raw")
+        if raw:
+            parsed = _parse_trend_monthly_from_cell(str(raw))
+            if len(parsed) >= 3:
+                vols = parsed
     if vols and len(vols) >= 3:
         t = classify_trend([float(x or 0) for x in vols])
         if t != "? Onbekend":
