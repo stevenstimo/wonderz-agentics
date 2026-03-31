@@ -18,6 +18,7 @@ const initialForm = {
   goal: '',
   system_prompt: '',
   tool_whitelist: [],
+  output_format: {},
 }
 
 /** Live preview: agent:<role> met role genormaliseerd (lowercase, spaties → streepjes). */
@@ -31,8 +32,11 @@ export default function NewCrewMember() {
   const navigate = useNavigate()
   const [presets, setPresets] = useState([])
   const [presetsLoading, setPresetsLoading] = useState(true)
+  const [rolePresets, setRolePresets] = useState([])
+  const [rolePresetsLoading, setRolePresetsLoading] = useState(true)
   const [selectedPresetId, setSelectedPresetId] = useState(null)
   const [form, setForm] = useState(initialForm)
+  const [outputFormatText, setOutputFormatText] = useState('{}')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [fieldErrors, setFieldErrors] = useState({})
@@ -73,15 +77,53 @@ export default function NewCrewMember() {
     loadPresets()
   }, [])
 
+  useEffect(() => {
+    async function loadRolePresets() {
+      setRolePresetsLoading(true)
+      try {
+        const res = await apiFetch('/api/roles')
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) throw new Error(data?.detail || 'Rol-presets laden mislukt')
+        setRolePresets(Array.isArray(data.roles) ? data.roles : [])
+      } catch (_) {
+        setRolePresets([])
+      } finally {
+        setRolePresetsLoading(false)
+      }
+    }
+    loadRolePresets()
+  }, [])
+
+  const selectedRolePreset = useMemo(
+    () => rolePresets.find((r) => r.role_id === form.role) || null,
+    [rolePresets, form.role],
+  )
+
+  const groupedRolePresets = useMemo(() => {
+    const groups = { worker: [], talent: [], orchestrator: [] }
+    for (const role of rolePresets) {
+      if (groups[role.agent_type]) groups[role.agent_type].push(role)
+    }
+    for (const key of Object.keys(groups)) {
+      groups[key].sort((a, b) => (a.role_label || '').localeCompare(b.role_label || ''))
+    }
+    return groups
+  }, [rolePresets])
+
   function applyPreset(preset) {
     if (!preset) {
       setSelectedPresetId(null)
       setForm(initialForm)
+      setOutputFormatText('{}')
       return
     }
     setSelectedPresetId(preset.preset_id)
     // suggested_tools → tool_whitelist (backend verwacht tool_whitelist in POST body)
     const tools = Array.isArray(preset.suggested_tools) ? [...preset.suggested_tools] : []
+    const matchedRolePreset = rolePresets.find((r) => r.role_id === (preset.role || ''))
+    const outputFormat = matchedRolePreset?.output_format && typeof matchedRolePreset.output_format === 'object'
+      ? matchedRolePreset.output_format
+      : {}
     setForm({
       agent_name: preset.display_name?.split(' — ')[0]?.trim() || preset.display_name || '',
       role: preset.role || '',
@@ -89,7 +131,28 @@ export default function NewCrewMember() {
       goal: preset.goal || '',
       system_prompt: preset.system_prompt || '',
       tool_whitelist: tools,
+      output_format: outputFormat,
     })
+    setOutputFormatText(JSON.stringify(outputFormat, null, 2))
+  }
+
+  function applyRolePreset(roleId) {
+    const rolePreset = rolePresets.find((r) => r.role_id === roleId)
+    if (!rolePreset) {
+      setForm((prev) => ({ ...prev, role: roleId }))
+      return
+    }
+    const tools = Array.isArray(rolePreset.tool_whitelist) ? [...rolePreset.tool_whitelist] : []
+    const outputFormat = rolePreset.output_format && typeof rolePreset.output_format === 'object'
+      ? rolePreset.output_format
+      : {}
+    setForm((prev) => ({
+      ...prev,
+      role: roleId,
+      tool_whitelist: tools,
+      output_format: outputFormat,
+    }))
+    setOutputFormatText(JSON.stringify(outputFormat, null, 2))
   }
 
   function toggleTool(tool) {
@@ -131,6 +194,16 @@ export default function NewCrewMember() {
 
     setLoading(true)
     try {
+      let parsedOutputFormat = {}
+      if (outputFormatText?.trim()) {
+        try {
+          parsedOutputFormat = JSON.parse(outputFormatText)
+        } catch (_) {
+          setFieldErrors((prev) => ({ ...prev, output_format: ['Ongeldige JSON in output format'] }))
+          setError('Controleer output format JSON.')
+          return
+        }
+      }
       const body = {
         agent_name: form.agent_name.trim(),
         role: form.role.trim(),
@@ -138,6 +211,7 @@ export default function NewCrewMember() {
         goal: form.goal.trim(),
         system_prompt: form.system_prompt.trim(),
         tool_whitelist: form.tool_whitelist,
+        output_format: parsedOutputFormat,
       }
       const res = await apiFetch('/api/agents', {
         method: 'POST',
@@ -267,13 +341,55 @@ export default function NewCrewMember() {
             <select
               className={`w-full rounded-lg border px-3 py-2 ${fieldErrors.role ? 'border-red-500' : 'border-slate-300'}`}
               value={form.role}
-              onChange={(e) => setForm({ ...form, role: e.target.value })}
+              onChange={(e) => applyRolePreset(e.target.value)}
             >
               <option value="">— Selecteer rol —</option>
-              {ROLE_OPTIONS.map((r) => (
-                <option key={r} value={r}>{r}</option>
-              ))}
+              {rolePresetsLoading ? (
+                <option disabled value="">Rollen laden...</option>
+              ) : rolePresets.length > 0 ? (
+                <>
+                  {groupedRolePresets.worker.length > 0 && (
+                    <optgroup label="Worker">
+                      {groupedRolePresets.worker.map((r) => (
+                        <option key={r.role_id} value={r.role_id}>
+                          {r.role_label}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {groupedRolePresets.talent.length > 0 && (
+                    <optgroup label="Talent">
+                      {groupedRolePresets.talent.map((r) => (
+                        <option key={r.role_id} value={r.role_id}>
+                          {r.role_label}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {groupedRolePresets.orchestrator.length > 0 && (
+                    <optgroup label="Orchestrator">
+                      {groupedRolePresets.orchestrator.map((r) => (
+                        <option key={r.role_id} value={r.role_id}>
+                          {r.role_label}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                </>
+              ) : (
+                ROLE_OPTIONS.map((r) => (
+                  <option key={r} value={r}>{r}</option>
+                ))
+              )}
             </select>
+            {selectedRolePreset?.suggested_personas?.length > 0 && (
+              <p className="mt-2 text-xs text-slate-600">
+                Aanbevolen persona&apos;s: {selectedRolePreset.suggested_personas
+                  .slice(0, 3)
+                  .map((p) => `${p.persona} (${p.score})`)
+                  .join(', ')}
+              </p>
+            )}
             <p className="mt-1 text-xs font-mono text-slate-500" aria-live="polite">
               Preview: {agentIdPreview(form.role)}
             </p>
@@ -342,6 +458,28 @@ export default function NewCrewMember() {
                 </label>
               ))}
             </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Output format (JSON)</label>
+            <textarea
+              rows={6}
+              className={`w-full rounded-lg border px-3 py-2 font-mono text-sm ${fieldErrors.output_format ? 'border-red-500' : 'border-slate-300'}`}
+              value={outputFormatText}
+              onChange={(e) => {
+                setOutputFormatText(e.target.value)
+                setFieldErrors((prev) => ({ ...prev, output_format: undefined }))
+              }}
+              placeholder='{"type":"markdown","schema":"freeform"}'
+            />
+            <p className="mt-1 text-xs text-slate-500">
+              Wordt automatisch ingevuld op basis van rol, maar je kunt dit handmatig aanpassen.
+            </p>
+            {fieldErrors.output_format && (
+              <span className="field-error mt-1 text-xs text-red-600 block">
+                {Array.isArray(fieldErrors.output_format) ? fieldErrors.output_format.join(', ') : fieldErrors.output_format}
+              </span>
+            )}
           </div>
 
           <button
