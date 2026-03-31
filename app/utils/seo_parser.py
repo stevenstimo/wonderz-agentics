@@ -1,13 +1,15 @@
 """
 SEO Keyword CSV/XLSX/Numbers parser — parses Semrush/Ahrefs-style exports into keyword dicts.
 Only keyword column is required; volume, kd, position, cpc, url, intent use aliases and defaults.
-Supports Semrush Page (cluster), Click Potential, SERP Features, and Markt (NL/UK/DE).
+Supports Semrush Page (cluster), Click Potential, SERP Features, Competitors, Content references,
+Trend / maandvolumes, and Markt (NL/UK/DE).
 """
 import csv
 import io
 import json
 import logging
 import os
+import re
 import tempfile
 from typing import Any, Dict, List, Optional
 
@@ -46,7 +48,23 @@ COLUMN_ALIASES = {
     "intent": [
         "intent", "keyword intent", "intents", "keyword intents", "search intent",
     ],
+    "competitors": [
+        "competitors", "competitor", "competitor domains", "concurrenten", "seo competitors",
+    ],
+    "content_references": [
+        "content references", "content reference", "content_references", "content refs",
+    ],
+    "trend_raw": [
+        "trend", "keyword trend", "trends", "search trend",
+    ],
 }
+
+
+# Headers like "October 2024", "Oct 2024", "2024-09", YYYYMM
+_MONTH_VOLUME_HDR = re.compile(
+    r"^([a-z]{3,12}\s+20\d{2}|20\d{2}-(0?[1-9]|1[0-2])|20\d{4})$",
+    re.IGNORECASE,
+)
 
 
 def _normalize_col_key(col: str) -> str:
@@ -130,6 +148,18 @@ def _parse_optional_float(val: Any) -> Optional[float]:
         return None
 
 
+def _monthly_volume_columns(headers: List[str]) -> List[str]:
+    """Detect Semrush-style monthly search volume column headers."""
+    found = []
+    for h in headers:
+        raw = str(h or "").strip()
+        if not raw or raw.lower() in ("nan", "#n/a"):
+            continue
+        if _MONTH_VOLUME_HDR.match(raw) or re.fullmatch(r"\d{6}", raw):
+            found.append(h)
+    return found
+
+
 def _normalize_rows(rows: List[Dict[str, Any]], market: str = "NL") -> List[Dict[str, Any]]:
     """Map alias-based columns to standard keys; only keyword required; defaults for missing."""
     if not rows:
@@ -150,6 +180,10 @@ def _normalize_rows(rows: List[Dict[str, Any]], market: str = "NL") -> List[Dict
     cp_col = find_column(headers, COLUMN_ALIASES["click_potential"])
     serp_col = find_column(headers, COLUMN_ALIASES["serp_features_raw"])
     intent_col = find_column(headers, COLUMN_ALIASES["intent"])
+    comp_col = find_column(headers, COLUMN_ALIASES["competitors"])
+    cref_col = find_column(headers, COLUMN_ALIASES["content_references"])
+    trend_col = find_column(headers, COLUMN_ALIASES["trend_raw"])
+    month_cols = _monthly_volume_columns(headers)
 
     mkt = (market or "NL").strip().upper()
     if mkt not in ("NL", "UK", "DE"):
@@ -193,6 +227,21 @@ def _normalize_rows(rows: List[Dict[str, Any]], market: str = "NL") -> List[Dict
         serp_raw = (r.get(serp_col) or "").strip() if serp_col else ""
         cp_val = _parse_optional_float(r.get(cp_col)) if cp_col else None
 
+        competitors_raw = (r.get(comp_col) or "").strip() if comp_col else ""
+        cref_raw = (r.get(cref_col) or "").strip() if cref_col else ""
+        trend_raw = (r.get(trend_col) or "").strip() if trend_col else ""
+
+        trend_monthly: List[float] = []
+        for mc in month_cols:
+            v = r.get(mc)
+            if v is None or str(v).strip() == "":
+                trend_monthly.append(0.0)
+            else:
+                try:
+                    trend_monthly.append(float(str(v).replace(",", "").replace(" ", "")))
+                except (ValueError, TypeError):
+                    trend_monthly.append(0.0)
+
         result.append({
             "keyword": kw,
             "volume": vol,
@@ -205,6 +254,10 @@ def _normalize_rows(rows: List[Dict[str, Any]], market: str = "NL") -> List[Dict
             "click_potential": cp_val,
             "serp_features_raw": serp_raw or None,
             "market": mkt,
+            "competitors": competitors_raw or None,
+            "content_references": cref_raw or None,
+            "trend_raw": trend_raw or None,
+            "trend_monthly_volumes": trend_monthly if len(trend_monthly) >= 3 else None,
         })
     return result
 

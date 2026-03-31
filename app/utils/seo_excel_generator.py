@@ -1,13 +1,16 @@
 """
 SEO Plan Excel generator — Keyword Plan, Silo, Quick Wins, Strategie, Content Gaps,
-GSC Performance, Markt Expansie (openpyxl).
+GSC Performance, Markt Expansie, Interne Links, Concurrent Analyse, Legenda (openpyxl).
 """
 import logging
 import os
+import re
+from collections import defaultdict
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import openpyxl
+from openpyxl.comments import Comment
 from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
 
@@ -22,7 +25,19 @@ HEADER_FILL = PatternFill(start_color="2D2D2D", end_color="2D2D2D", fill_type="s
 HEADER_FONT = Font(name="Arial", size=11, bold=True, color="FFFFFF")
 HIGH_FILL = PatternFill(start_color="E8F5E9", end_color="E8F5E9", fill_type="solid")
 MEDIUM_FILL = PatternFill(start_color="FFFDE7", end_color="FFFDE7", fill_type="solid")
+YELLOW_NOTE_FILL = PatternFill(start_color="FFF9C4", end_color="FFF9C4", fill_type="solid")
 DATA_FONT = Font(name="Arial", size=10)
+
+STRATEGY_CONTENT_PREAMBLE = """## Content doelstelling
+
+[Door de gebruiker in te vullen — voorbeeld:]
+\"Bezoekers die twijfelen over [onderwerp] overtuigen dat [merknaam] de betrouwbare partner is.\"
+
+Leidende vraag per artikel: Wat moet de lezer begrijpen, anders zien of voelen na het lezen?"""
+
+BUSINESS_RELEVANCE_COMMENT = (
+    "Door agent ingevuld op basis van keyword-inhoud. Vereist handmatige review door de strateeg."
+)
 
 GSC_LABEL_FILLS = {
     "✅ Sterk": PatternFill(start_color="E8F5E9", end_color="E8F5E9", fill_type="solid"),
@@ -41,6 +56,7 @@ KEYWORD_PLAN_COLUMNS = [
     "Silo",
     "Doelgroep",
     "Volume",
+    "Trend",
     "KD",
     "CPC",
     "Click Potential",
@@ -53,6 +69,7 @@ KEYWORD_PLAN_COLUMNS = [
     "CTR (GSC)",
     "Content Type",
     "Prioriteit",
+    "Business Relevance",
     "Status",
     "Week",
     "URL",
@@ -64,6 +81,7 @@ CONTENT_GAPS_COLUMNS = [
     "Volume",
     "KD",
     "Intent",
+    "SERP Features",
     "Silo",
     "Content Type",
     "Prioriteit",
@@ -140,11 +158,28 @@ def _build_silo_overview(keywords: List[Dict[str, Any]]) -> List[Dict[str, Any]]
     return sorted(result, key=lambda x: -x["Totaal volume"])
 
 
+def _format_numeric(value: Any, decimals: int = 2) -> Any:
+    """Round numeric values before writing to Excel to avoid float artifacts (e.g. 0.15000000000000002)."""
+    if value is None:
+        return None
+    if isinstance(value, str) and not str(value).strip():
+        return None
+    try:
+        n = float(value)
+    except (TypeError, ValueError):
+        return value
+    r = round(n, decimals)
+    if decimals == 0:
+        return int(r)
+    return r
+
+
 def _ctr_display(ctr: Any) -> Any:
     if ctr is None:
         return None
     try:
         n = float(ctr)
+        n = round(n, 6)
         if n == 0:
             return "0.0%"
         return f"{n * 100:.1f}%"
@@ -157,9 +192,14 @@ def _keyword_plan_row_data(k: Dict[str, Any]) -> List[Any]:
     gsc_clicks = k.get("gsc_clicks")
     gsc_imp = k.get("gsc_impressions")
     gsc_ctr = k.get("gsc_ctr")
-    pos_display = gsc_pos if (gsc_pos is not None and gsc_pos != 0) else None
+    pos_display = None
+    if gsc_pos is not None and gsc_pos != 0:
+        pos_display = _format_numeric(gsc_pos, 1)
     mkt = k.get("market") or "NL"
     cp = k.get("click_potential")
+    vol = k.get("volume")
+    kd = k.get("kd")
+    cpc = k.get("cpc")
     return [
         mkt,
         _taal_for_market(mkt),
@@ -167,21 +207,23 @@ def _keyword_plan_row_data(k: Dict[str, Any]) -> List[Any]:
         k.get("cluster") or "",
         k.get("silo") or "",
         k.get("audience_match") or "",
-        k.get("volume") if k.get("volume") is not None else None,
-        k.get("kd") if k.get("kd") is not None else None,
-        k.get("cpc") if k.get("cpc") is not None else None,
-        round(float(cp), 1) if cp is not None else None,
+        _format_numeric(vol, 0) if vol is not None else None,
+        k.get("trend") or "? Onbekend",
+        _format_numeric(kd, 1) if kd is not None else None,
+        _format_numeric(cpc, 2) if cpc is not None else None,
+        _format_numeric(cp, 0) if cp is not None else None,
         k.get("intent") or "",
         k.get("serp_features") or "",
         k.get("gsc_label") or None,
         pos_display,
-        gsc_clicks,
-        gsc_imp,
+        _format_numeric(gsc_clicks, 0) if gsc_clicks is not None else None,
+        _format_numeric(gsc_imp, 0) if gsc_imp is not None else None,
         _ctr_display(gsc_ctr) if gsc_ctr is not None else None,
         k.get("content_type") or "",
         k.get("priority") or "",
-        "",
-        "",
+        k.get("business_relevance") or "?",
+        k.get("plan_status") or "",
+        k.get("plan_week") or "",
         k.get("current_url") or "",
     ]
 
@@ -208,7 +250,8 @@ def _filter_quick_wins(keywords: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             float(pos) if pos is not None else None,
         )
         result.append(k2)
-    return sorted(result, key=lambda x: x.get("quick_win_score") or 0, reverse=True)
+    result = sorted(result, key=lambda x: x.get("quick_win_score") or 0, reverse=True)
+    return [k for k in result if (k.get("quick_win_score") or 0) > 0]
 
 
 def _generate_strategy_metrics(
@@ -314,6 +357,204 @@ def _write_gsc_performance_sheet(wb: openpyxl.Workbook, perf: Optional[Dict[str,
     _auto_column_width(ws)
 
 
+def _page_label_for_link(k: Dict[str, Any]) -> str:
+    url = (k.get("current_url") or "").strip()
+    if url:
+        return url
+    return (k.get("keyword") or "").strip() or "—"
+
+
+def _pick_pillar_page(keywords_in_silo: List[Dict[str, Any]]) -> Dict[str, Any]:
+    for x in keywords_in_silo:
+        if (x.get("content_type") or "").strip().lower() == "pillar page":
+            return x
+    return max(keywords_in_silo, key=lambda x: int(x.get("volume") or 0))
+
+
+def _normalize_competitor_token(part: str) -> str:
+    p = part.strip()
+    if not p:
+        return ""
+    p = re.sub(r"^https?://", "", p, flags=re.I)
+    p = p.split("/")[0].strip()
+    return p[:120]
+
+
+def _competitor_tokens_from_cell(cell: Optional[str]) -> List[str]:
+    if not cell or not str(cell).strip():
+        return []
+    parts = re.split(r"[,;\n|]+", str(cell))
+    out: List[str] = []
+    for p in parts:
+        t = _normalize_competitor_token(p)
+        if t:
+            out.append(t)
+    return out
+
+
+def _cell_mentions_competitor(cell: Optional[str], token: str) -> bool:
+    if not token:
+        return False
+    return token.lower() in (cell or "").lower()
+
+
+def _competitor_approach_text(shared: int, silo_n: int, refs_sample: str) -> str:
+    thresh = max(4, silo_n // 3) if silo_n else 4
+    if shared >= thresh:
+        strat = "Differentiëren"
+    elif shared >= 2:
+        strat = "Aanvallen"
+    else:
+        strat = "Volgen"
+    if refs_sample:
+        return f"{strat} — Content references: {refs_sample[:320]}"
+    return strat
+
+
+def _write_internal_links_sheet(wb: openpyxl.Workbook, keywords: List[Dict[str, Any]]) -> None:
+    ws = wb.create_sheet("Interne Links")
+    headers = ["Pagina (van)", "Pagina (naar)", "Ankertekst", "Relatie", "Prioriteit"]
+    for col, h in enumerate(headers, 1):
+        ws.cell(row=1, column=col, value=h)
+    _apply_header_style(ws)
+    by_silo: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    for k in keywords:
+        silo = (k.get("silo") or "").strip() or "—"
+        by_silo[silo].append(k)
+    row = 2
+    for _silo, items in by_silo.items():
+        if len(items) < 2:
+            continue
+        pillar = _pick_pillar_page(items)
+        p_lab = _page_label_for_link(pillar)
+        p_kw = (pillar.get("keyword") or "").strip()
+        for cl in items:
+            if cl is pillar:
+                continue
+            c_lab = _page_label_for_link(cl)
+            c_kw = (cl.get("keyword") or "").strip()
+            pri = cl.get("priority") or "MEDIUM"
+            ws.cell(row=row, column=1, value=p_lab)
+            ws.cell(row=row, column=2, value=c_lab)
+            ws.cell(row=row, column=3, value=c_kw or None)
+            ws.cell(row=row, column=4, value="Pillar → Cluster")
+            ws.cell(row=row, column=5, value=pri)
+            for c in range(1, 6):
+                ws.cell(row=row, column=c).font = DATA_FONT
+            row += 1
+            ws.cell(row=row, column=1, value=c_lab)
+            ws.cell(row=row, column=2, value=p_lab)
+            ws.cell(row=row, column=3, value=p_kw or None)
+            ws.cell(row=row, column=4, value="Cluster → Pillar")
+            ws.cell(row=row, column=5, value=pri)
+            for c in range(1, 6):
+                ws.cell(row=row, column=c).font = DATA_FONT
+            row += 1
+    if row == 2:
+        ws.cell(row=2, column=1, value="Geen silo met 2+ keywords — geen interne linkkaart gegenereerd.")
+    _auto_column_width(ws)
+
+
+def _write_competitor_analysis_sheet(wb: openpyxl.Workbook, keywords: List[Dict[str, Any]]) -> None:
+    ws = wb.create_sheet("Concurrent Analyse")
+    headers = [
+        "Silo",
+        "Concurrent domein",
+        "Gedeelde keywords",
+        "Exclusieve concurrent keywords",
+        "Gemiddelde KD gap",
+        "Aanbevolen aanpak",
+    ]
+    for col, h in enumerate(headers, 1):
+        ws.cell(row=1, column=col, value=h)
+    _apply_header_style(ws)
+
+    has_cols = any((k.get("competitors") or "").strip() for k in keywords)
+    if not has_cols:
+        ws.cell(
+            row=2,
+            column=1,
+            value="Voeg een Semrush-export toe met kolommen 'Competitors' en 'Content references' om deze sheet te vullen.",
+        )
+        ws.cell(
+            row=3,
+            column=1,
+            value="Export uit Semrush (o.a. Keyword Magic) met competitor- en content reference-kolommen; upload als CSV of XLSX.",
+        )
+        _auto_column_width(ws)
+        return
+
+    by_silo: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    for k in keywords:
+        silo = (k.get("silo") or "").strip() or "—"
+        by_silo[silo].append(k)
+
+    row = 2
+    for silo, skws in by_silo.items():
+        all_tokens: set[str] = set()
+        for k in skws:
+            for t in _competitor_tokens_from_cell(k.get("competitors")):
+                all_tokens.add(t)
+        if not all_tokens:
+            continue
+        n_silo = len(skws)
+        kd_vals = [float(x.get("kd") or 0) for x in skws]
+        avg_silo_kd = sum(kd_vals) / len(kd_vals) if kd_vals else 0.0
+
+        for token in sorted(all_tokens):
+            shared = sum(1 for k in skws if _cell_mentions_competitor(k.get("competitors"), token))
+            exclusive = max(0, n_silo - shared)
+            matched = [k for k in skws if _cell_mentions_competitor(k.get("competitors"), token)]
+            kd_m = [float(k.get("kd") or 0) for k in matched]
+            avg_m = sum(kd_m) / len(kd_m) if kd_m else 0.0
+            gap_val: Any = ""
+            if matched:
+                gap_val = round(avg_m - avg_silo_kd, 1)
+            refs_bits: List[str] = []
+            for k in matched:
+                cr = (k.get("content_references") or "").strip()
+                if cr and cr not in refs_bits:
+                    refs_bits.append(cr[:450])
+            refs_joined = " | ".join(refs_bits[:3])
+            approach = _competitor_approach_text(shared, n_silo, refs_joined)
+
+            ws.cell(row=row, column=1, value=silo)
+            ws.cell(row=row, column=2, value=token)
+            ws.cell(row=row, column=3, value=shared)
+            ws.cell(row=row, column=4, value=exclusive)
+            ws.cell(row=row, column=5, value=gap_val)
+            ws.cell(row=row, column=6, value=approach)
+            for c in range(1, 7):
+                ws.cell(row=row, column=c).font = DATA_FONT
+            row += 1
+
+    if row == 2:
+        ws.cell(row=2, column=1, value="Geen concurrent-domeinen gevonden in de kolom Competitors.")
+    _auto_column_width(ws)
+
+
+def _write_legenda_sheet(wb: openpyxl.Workbook, brand_name: str) -> None:
+    ws = wb.create_sheet("Legenda")
+    lines = [
+        "Legenda — SEO Keyword Plan",
+        f"Merken / plan: {brand_name or '—'}",
+        "",
+        "Trend: ↑ Stijgend / → Stabiel / ↓ Dalend / ? Onbekend (op basis van Semrush trend of maandvolumes).",
+        "Business Relevance: HOOG / MEDIUM / LAAG / ? — agentsuggestie; altijd handmatig valideren.",
+        "Click Potential: score 0–100; verwachte relatieve doorklik/CTR gegeven SERP-samenstelling en intent. "
+        "Lager bij veel ads, featured snippet, AI Overview, shopping, knowledge panel, video. "
+        "Transactioneel iets hoger; navigational iets lager.",
+        "Status (kolom) & Week: suggesties door de agent (📋 Gepland + weekrange). "
+        "Pas aan op capaciteit — zie ook Strategie-tab.",
+        "URL: alleen gevuld wanneer de upload of keyword-export een URL bevat; anders leeg.",
+        "",
+        "Tabbladen Interne Links en Concurrent Analyse gebruiken silo-cluster en Semrush-kolommen Competitors / Content references.",
+    ]
+    for i, line in enumerate(lines, 1):
+        ws.cell(row=i, column=1, value=line)
+    ws.column_dimensions["A"].width = 100
+
+
 def _write_markt_expansie_sheet(wb: openpyxl.Workbook, keywords: List[Dict[str, Any]]) -> None:
     ws = wb.create_sheet("🌍 Markt Expansie UK+DE")
     instructions = [
@@ -375,6 +616,8 @@ def generate_seo_excel(
     for col, header in enumerate(KEYWORD_PLAN_COLUMNS, 1):
         ws1.cell(row=2, column=col, value=header)
     _apply_header_style(ws1, row_num=2)
+    br_col_idx = KEYWORD_PLAN_COLUMNS.index("Business Relevance") + 1
+    ws1.cell(row=2, column=br_col_idx).comment = Comment(BUSINESS_RELEVANCE_COMMENT, "SEO Tool")
 
     for row_idx, k in enumerate(keywords, 3):
         row_data = _keyword_plan_row_data(k)
@@ -413,8 +656,9 @@ def generate_seo_excel(
     for col, h in enumerate(quick_headers, 1):
         ws3.cell(row=1, column=col, value=h)
     _apply_header_style(ws3)
+    ws3.cell(row=1, column=br_col_idx).comment = Comment(BUSINESS_RELEVANCE_COMMENT, "SEO Tool")
     for row_idx, k in enumerate(quick, 2):
-        score_val = k.get("quick_win_score")
+        score_val = _format_numeric(k.get("quick_win_score"), 1)
         row_data = _keyword_plan_row_data(k) + [score_val]
         gsc_label = k.get("gsc_label")
         for col_idx, val in enumerate(row_data, 1):
@@ -431,9 +675,20 @@ def generate_seo_excel(
 
     # Sheet 4: Strategie
     notes = strategy_notes or _generate_strategy_metrics(keywords, silos, gsc_connected)
+    preamble = STRATEGY_CONTENT_PREAMBLE.replace("[merknaam]", brand_name or "…")
     ws4 = wb.create_sheet("📝 Strategie")
-    for row_idx, line in enumerate(notes.split("\n"), 1):
-        ws4.cell(row=row_idx, column=1, value=line)
+    row4 = 1
+    for line in preamble.split("\n"):
+        ws4.cell(row=row4, column=1, value=line)
+        row4 += 1
+    row4 += 1
+    note_cell = ws4.cell(row=row4, column=1, value="[Vul hier je contentdoelstelling in]")
+    note_cell.fill = YELLOW_NOTE_FILL
+    row4 += 1
+    row4 += 1
+    for line in notes.split("\n"):
+        ws4.cell(row=row4, column=1, value=line)
+        row4 += 1
     ws4.column_dimensions["A"].width = 90
 
     # Sheet 5: Content Gaps
@@ -457,21 +712,27 @@ def generate_seo_excel(
         )
         ws5.cell(row=row_idx, column=1, value=k.get("market") or "NL")
         ws5.cell(row=row_idx, column=2, value=k.get("keyword") or "")
-        ws5.cell(row=row_idx, column=3, value=k.get("volume"))
-        ws5.cell(row=row_idx, column=4, value=k.get("kd"))
+        vol = k.get("volume")
+        kd_gap = k.get("kd")
+        ws5.cell(row=row_idx, column=3, value=_format_numeric(vol, 0) if vol is not None else None)
+        ws5.cell(row=row_idx, column=4, value=_format_numeric(kd_gap, 1) if kd_gap is not None else None)
         ws5.cell(row=row_idx, column=5, value=k.get("intent") or "")
-        ws5.cell(row=row_idx, column=6, value=k.get("silo") or "")
-        ws5.cell(row=row_idx, column=7, value=k.get("content_type") or "")
-        ws5.cell(row=row_idx, column=8, value=p)
-        for col_idx in range(1, 9):
+        ws5.cell(row=row_idx, column=6, value=k.get("serp_features") or "")
+        ws5.cell(row=row_idx, column=7, value=k.get("silo") or "")
+        ws5.cell(row=row_idx, column=8, value=k.get("content_type") or "")
+        ws5.cell(row=row_idx, column=9, value=p)
+        for col_idx in range(1, 10):
             cell = ws5.cell(row=row_idx, column=col_idx)
             cell.font = DATA_FONT
     ws5.freeze_panes = "A3"
-    ws5.auto_filter.ref = f"A2:{get_column_letter(8)}{ws5.max_row}"
+    ws5.auto_filter.ref = f"A2:{get_column_letter(9)}{ws5.max_row}"
     _auto_column_width(ws5)
 
     _write_gsc_performance_sheet(wb, gsc_performance, gsc_site_url)
     _write_markt_expansie_sheet(wb, keywords)
+    _write_internal_links_sheet(wb, keywords)
+    _write_competitor_analysis_sheet(wb, keywords)
+    _write_legenda_sheet(wb, brand_name)
 
     wb.save(filepath)
     logger.info("Generated SEO Excel: %s", filepath)
