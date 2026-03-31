@@ -27,7 +27,11 @@ export default function HiringHall() {
         const res = await apiFetch('/api/agents/presets')
         const data = await res.json().catch(() => ({}))
         if (!res.ok) throw new Error(data?.detail || 'Presets laden mislukt')
-        setPresets(Array.isArray(data.presets) ? data.presets : [])
+        setPresets(
+          Array.isArray(data.presets)
+            ? data.presets.filter((p) => p?.agent_type !== 'orchestrator' && p?.role !== 'ceo')
+            : [],
+        )
       } catch (err) {
         setError(err.message || 'Presets laden mislukt')
         setPresets([])
